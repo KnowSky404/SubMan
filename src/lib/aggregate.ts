@@ -19,19 +19,46 @@ function isExcluded(node: NodeItem, excludeTags: string[]): boolean {
 	return excludeTags.some((tag) => tags.includes(normalize(tag)));
 }
 
-function applyRename(node: NodeItem, renameMap: Record<string, string>): string {
-	const nextName = renameMap[node.name];
+function applyRenameByName(rawLine: string, originalName: string | null, renameMap: Record<string, string>): string {
+	if (!originalName) {
+		return rawLine;
+	}
+
+	const nextName = renameMap[originalName];
 	if (!nextName) {
-		return node.raw;
+		return rawLine;
 	}
 
-	const hashIndex = node.raw.indexOf('#');
+	const hashIndex = rawLine.indexOf('#');
 	if (hashIndex === -1) {
-		return node.raw;
+		return rawLine;
 	}
 
-	const base = node.raw.slice(0, hashIndex);
+	const base = rawLine.slice(0, hashIndex);
 	return `${base}#${encodeURIComponent(nextName)}`;
+}
+
+function getLineName(rawLine: string): string | null {
+	const hashIndex = rawLine.lastIndexOf('#');
+	if (hashIndex > -1) {
+		const name = rawLine.slice(hashIndex + 1);
+		return name ? decodeURIComponent(name) : null;
+	}
+
+	if (rawLine.startsWith('vmess://')) {
+		const payload = rawLine.slice('vmess://'.length);
+		const decoded = decodeBase64(payload);
+		if (decoded) {
+			try {
+				const parsed = JSON.parse(decoded) as { ps?: string };
+				return parsed.ps ?? null;
+			} catch {
+				return null;
+			}
+		}
+	}
+
+	return null;
 }
 
 function inferTypeFromLine(line: string): NodeItem['type'] {
@@ -123,7 +150,9 @@ export async function buildAggregateOutput(
 		(sub) => sub.enabled && rule.subscriptionIds.includes(sub.id)
 	);
 
-	const nodeLines = selectedNodes.map((node) => applyRename(node, rule.renameMap));
+	const nodeLines = selectedNodes.map((node) =>
+		applyRenameByName(node.raw, node.name ?? getLineName(node.raw), rule.renameMap)
+	);
 
 	const subscriptionLines: string[] = [];
 	for (const sub of selectedSubs) {
@@ -142,7 +171,10 @@ export async function buildAggregateOutput(
 		}
 	}
 
-	const filteredSubscriptionLines = filterByAllowedTypes(subscriptionLines, allowedTypes);
+	const renamedSubscriptionLines = subscriptionLines.map((line) =>
+		applyRenameByName(line, getLineName(line), rule.renameMap)
+	);
+	const filteredSubscriptionLines = filterByAllowedTypes(renamedSubscriptionLines, allowedTypes);
 	const content = normalizeContent([...nodeLines, ...filteredSubscriptionLines].join('\n'));
 	return {
 		content,
