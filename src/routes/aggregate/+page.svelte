@@ -129,7 +129,9 @@
 
 	function loadRule(rule: AggregateRule) {
 		editingRuleId = rule.id;
+		publishRuleId = rule.id;
 		ruleName = rule.name;
+		updatePublishFile(rule);
 		selectedNodeIds = [...rule.nodeIds];
 		selectedSubscriptionIds = [...rule.subscriptionIds];
 		excludeTags = rule.excludeTagIds.join(", ");
@@ -149,6 +151,7 @@
 
 	function resetRuleForm() {
 		editingRuleId = "";
+		publishRuleId = "";
 		ruleName = "";
 		selectedNodeIds = [];
 		selectedSubscriptionIds = [];
@@ -216,7 +219,6 @@
 			return;
 		}
 
-		const isEditing = Boolean(editingRuleId);
 		const ruleId = editingRuleId || createId("agg");
 		const rule: AggregateRule = {
 			id: ruleId,
@@ -233,21 +235,17 @@
 		};
 
 		upsertAggregate(rule);
-		if (!isEditing) {
-			resetRuleForm();
-		} else {
-			editingRuleId = ruleId;
-		}
+		editingRuleId = ruleId;
+		publishRuleId = ruleId;
 	}
 
-	function selectPublishRule(id: string) {
-		publishRuleId = id;
-		const rule = $appState.aggregates.find((item) => item.id === id);
-		if (rule && outputContent === "") {
-			const slug = rule.name.trim().toLowerCase().replace(/\s+/g, "-");
-			if (slug) {
-				publishFile = `${slug || "aggregate"}.txt`;
-			}
+	function updatePublishFile(rule: AggregateRule) {
+		if (outputContent !== "") {
+			return;
+		}
+		const slug = rule.name.trim().toLowerCase().replace(/\s+/g, "-");
+		if (slug) {
+			publishFile = `${slug || "aggregate"}.txt`;
 		}
 	}
 
@@ -563,7 +561,18 @@
 			<select
 				class="w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2"
 				value={publishRuleId}
-				on:change={(event) => selectPublishRule(event.currentTarget.value)}
+				on:change={(event) => {
+					const nextId = event.currentTarget.value;
+					publishRuleId = nextId;
+					if (!nextId) {
+						resetRuleForm();
+						return;
+					}
+					const rule = $appState.aggregates.find((item) => item.id === nextId);
+					if (rule) {
+						loadRule(rule);
+					}
+				}}
 			>
 				<option value="">Select rule</option>
 				{#each $appState.aggregates as rule}
