@@ -19,6 +19,9 @@
 	let previewWarnings: string[] = [];
 	let previewErrors: string[] = [];
 	let previewLoading = false;
+	let previewExpandedLine: string | null = null;
+	let previewEntries: { id: string; line: string; protocol: string; name: string }[] = [];
+	let previewStatus: string | null = null;
 
 	let publishRuleId = "";
 	let publishGistId = "";
@@ -44,6 +47,58 @@
 		{ id: "tuic", label: "TUIC" },
 		{ id: "other", label: "Other" }
 	];
+
+	function parseLineSummary(line: string): { protocol: string; name: string } {
+		const trimmed = line.trim();
+		const schemeIndex = trimmed.indexOf("://");
+		if (schemeIndex <= 0) {
+			return { protocol: "unknown", name: "unnamed" };
+		}
+
+		const protocol = trimmed.slice(0, schemeIndex).toLowerCase();
+		const hashIndex = trimmed.lastIndexOf("#");
+		if (hashIndex > schemeIndex) {
+			const rawName = trimmed.slice(hashIndex + 1);
+			try {
+				const decoded = decodeURIComponent(rawName);
+				return { protocol, name: decoded || "unnamed" };
+			} catch {
+				return { protocol, name: rawName || "unnamed" };
+			}
+		}
+
+		if (protocol === "vmess") {
+			const payload = trimmed.slice(schemeIndex + 3);
+			try {
+				const decoded = atob(payload);
+				const parsed = JSON.parse(decoded) as { ps?: string };
+				if (parsed.ps) {
+					return { protocol, name: parsed.ps };
+				}
+			} catch {
+				return { protocol, name: "unnamed" };
+			}
+		}
+
+		return { protocol, name: "unnamed" };
+	}
+
+	function buildPreviewEntries(content: string) {
+		const lines = content
+			.split("\n")
+			.map((line) => line.trim())
+			.filter(Boolean);
+
+		previewEntries = lines.map((line, index) => {
+			const { protocol, name } = parseLineSummary(line);
+			return {
+				id: `${protocol}-${name}-${index}`,
+				line,
+				protocol,
+				name
+			};
+		});
+	}
 
 	$: if (!initialized) {
 		publishRuleId = $appState.aggregates[0]?.id ?? "";
@@ -72,6 +127,7 @@
 	}
 
 	async function buildPreview() {
+		previewStatus = null;
 		const selectedNodes = $appState.nodes.filter((node) => selectedNodeIds.includes(node.id));
 		const selectedSubs = $appState.subscriptions.filter((sub) =>
 			selectedSubscriptionIds.includes(sub.id)
@@ -110,6 +166,7 @@
 			previewLines = result.lines;
 			previewWarnings = result.warnings;
 			previewErrors = result.errors;
+			buildPreviewEntries(result.content);
 		} finally {
 			previewLoading = false;
 		}
@@ -146,6 +203,9 @@
 		previewLines = 0;
 		previewWarnings = [];
 		previewErrors = [];
+		previewEntries = [];
+		previewExpandedLine = null;
+		previewStatus = null;
 	}
 
 	function selectPublishRule(id: string) {
@@ -378,9 +438,49 @@
 			<pre class="mt-3 whitespace-pre-wrap rounded-xl border border-slate-800 bg-slate-950 p-3 text-xs text-slate-300">
 {previewSummary || "Summary will appear here."}
 			</pre>
-			<pre class="mt-3 min-h-[200px] whitespace-pre-wrap rounded-xl border border-slate-800 bg-slate-950 p-4 text-xs text-slate-200">
-{previewLoading ? "Building preview..." : previewContent || "No output generated."}
-			</pre>
+			<div class="mt-3 min-h-[200px] rounded-xl border border-slate-800 bg-slate-950 p-4 text-xs text-slate-200">
+				{#if previewLoading}
+					<p>Building preview...</p>
+				{:else if previewEntries.length === 0}
+					<p>No output generated.</p>
+				{:else}
+					<div class="grid gap-2">
+						{#each previewEntries as entry}
+							<div class="rounded-lg border border-slate-800/80 bg-slate-950/70 px-3 py-2">
+								<button
+									class="flex w-full items-center justify-between gap-4 text-left text-xs"
+									on:click={() => {
+										previewExpandedLine =
+											previewExpandedLine === entry.line ? null : entry.line;
+									}}
+								>
+									<span class="text-slate-400">{entry.protocol}</span>
+									<span class="flex-1 truncate font-semibold text-slate-100">{entry.name}</span>
+									<span class="text-slate-500">View</span>
+								</button>
+								{#if previewExpandedLine === entry.line}
+									<div class="mt-2 rounded-md border border-slate-800 bg-slate-900/60 p-2 text-[11px] text-slate-200">
+										<p class="break-all">{entry.line}</p>
+										<button
+											class="mt-2 rounded-full border border-slate-700 px-3 py-1 text-[11px]"
+											on:click={async () => {
+												try {
+													await navigator.clipboard.writeText(entry.line);
+													previewStatus = "Line copied.";
+												} catch {
+													previewStatus = "Copy failed.";
+												}
+											}}
+										>
+											Copy Line
+										</button>
+									</div>
+								{/if}
+							</div>
+						{/each}
+					</div>
+				{/if}
+			</div>
 			<p class="mt-3 text-xs text-slate-400">Lines: {previewLines}</p>
 			{#if previewWarnings.length > 0}
 				<div class="mt-3 rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
@@ -395,6 +495,9 @@
 						<p>{err}</p>
 					{/each}
 				</div>
+			{/if}
+			{#if previewStatus}
+				<p class="mt-3 text-xs text-slate-400">{previewStatus}</p>
 			{/if}
 		</div>
 	</div>
