@@ -29,7 +29,8 @@ function mapGist(response: GistApiResponse): GistMeta {
 		files: Object.values(response.files).map((file) => ({
 			filename: file.filename,
 			language: file.language,
-			size: file.size
+			size: file.size,
+			rawUrl: file.raw_url
 		}))
 	};
 }
