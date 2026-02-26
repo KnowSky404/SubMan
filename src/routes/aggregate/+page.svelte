@@ -37,7 +37,7 @@
 	let buildErrors: string[] = [];
 	let publishing = false;
 	let initialized = false;
-	let editingRuleId: string | null = null;
+	let editingRuleId = "";
 	const protocolOptions: { id: ProxyType; label: string }[] = [
 		{ id: "vless", label: "VLESS" },
 		{ id: "vmess", label: "VMess" },
@@ -148,7 +148,7 @@
 	}
 
 	function resetRuleForm() {
-		editingRuleId = null;
+		editingRuleId = "";
 		ruleName = "";
 		selectedNodeIds = [];
 		selectedSubscriptionIds = [];
@@ -217,7 +217,7 @@
 		}
 
 		const isEditing = Boolean(editingRuleId);
-		const ruleId = editingRuleId ?? createId("agg");
+		const ruleId = editingRuleId || createId("agg");
 		const rule: AggregateRule = {
 			id: ruleId,
 			name: ruleName,
@@ -414,6 +414,26 @@
 				Edit names, remove tags, and prepare rename mappings.
 			</p>
 			<div class="mt-4 grid gap-3">
+				<select
+					class="w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-sm"
+					value={editingRuleId}
+					on:change={(event) => {
+						const nextId = event.currentTarget.value;
+						if (!nextId) {
+							resetRuleForm();
+							return;
+						}
+						const rule = $appState.aggregates.find((item) => item.id === nextId);
+						if (rule) {
+							loadRule(rule);
+						}
+					}}
+				>
+					<option value="">New rule</option>
+					{#each $appState.aggregates as rule}
+						<option value={rule.id}>{rule.name}</option>
+					{/each}
+				</select>
 				<input
 					class="w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-sm"
 					placeholder="Rule name"
@@ -453,12 +473,6 @@
 						on:click={buildPreview}
 					>
 						Preview
-					</button>
-					<button
-						class="rounded-full border border-slate-700 px-4 py-2 text-sm font-semibold"
-						on:click={resetRuleForm}
-					>
-						New Rule
 					</button>
 					<button
 						class="rounded-full bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-950"
@@ -633,35 +647,11 @@
 
 	<div class="rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
 		<div class="flex items-center justify-between">
-			<h2 class="text-lg font-semibold">Saved Aggregations</h2>
+			<h2 class="text-lg font-semibold">Saved Rules</h2>
 			<span class="text-xs text-slate-400">{$appState.aggregates.length} rules</span>
 		</div>
-		<div class="mt-4 grid gap-3">
-			{#if $appState.aggregates.length === 0}
-				<p class="text-sm text-slate-400">No saved rules yet.</p>
-			{:else}
-				{#each $appState.aggregates as rule}
-					<div class="rounded-xl border border-slate-800/80 bg-slate-950/60 p-4">
-						<div class="flex items-center justify-between gap-3">
-							<p class="text-sm font-semibold">{rule.name}</p>
-							<div class="flex items-center gap-2 text-xs">
-								<button
-									class="rounded-full border border-slate-700 px-3 py-1"
-									on:click={() => loadRule(rule)}
-								>
-									Edit
-								</button>
-							</div>
-						</div>
-						<p class="mt-2 text-xs text-slate-400">
-							{rule.nodeIds.length} nodes, {rule.subscriptionIds.length} subscriptions
-						</p>
-						<p class="mt-1 text-xs text-slate-500">
-							Protocols: {rule.allowedTypes?.length ? rule.allowedTypes.join(", ") : "All"}
-						</p>
-					</div>
-				{/each}
-			{/if}
-		</div>
+		<p class="mt-2 text-sm text-slate-300">
+			Select a rule from the dropdown above to edit or update it.
+		</p>
 	</div>
 </section>
