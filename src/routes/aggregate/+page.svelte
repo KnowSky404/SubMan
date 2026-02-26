@@ -29,8 +29,6 @@
 	let publishDescription = "SubMan aggregate";
 	let publishPublic = false;
 	let outputContent = "";
-	let outputPreview = "";
-	let outputLines = 0;
 	let publishStatus: string | null = null;
 	let publishUrl: string | null = null;
 	let buildWarnings: string[] = [];
@@ -265,10 +263,8 @@
 		try {
 			const result = await buildAggregateOutput(rule, $appState.nodes, $appState.subscriptions);
 			outputContent = result.content;
-			outputLines = result.lines;
 			buildWarnings = result.warnings;
 			buildErrors = result.errors;
-			outputPreview = result.content.split("\n").slice(0, 24).join("\n");
 			publishStatus = result.content ? "Output ready." : "No output generated.";
 		} finally {
 			publishing = false;
@@ -601,56 +597,51 @@
 		</div>
 		<div class="mt-4 flex flex-wrap gap-3">
 			<button
-				class="rounded-full border border-slate-700 px-4 py-2 text-sm font-semibold"
-				on:click={buildOutput}
-				disabled={publishing}
-			>
-				{publishing ? "Working..." : "Generate Output"}
-			</button>
-			<button
 				class="rounded-full bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-950"
 				on:click={publishOutput}
 				disabled={publishing}
 			>
 				{publishing ? "Publishing..." : "Publish to Gist"}
 			</button>
-			{#if publishUrl}
-				<button class="rounded-full border border-slate-700 px-4 py-2 text-sm font-semibold" on:click={copyLink}>
-					Copy Link
-				</button>
-			{/if}
 		</div>
-		{#if publishStatus}
-			<p class="mt-3 text-xs text-slate-300">{publishStatus}</p>
-		{/if}
-		{#if buildWarnings.length > 0}
-			<div class="mt-3 rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
-				{#each buildWarnings as warning}
-					<p>{warning}</p>
-				{/each}
+		{#if publishStatus || publishUrl || buildErrors.length > 0 || buildWarnings.length > 0}
+			<div class="mt-4 rounded-xl border border-slate-800 bg-slate-950/70 p-4 text-xs text-slate-200">
+				{#if publishStatus}
+					<p class="text-sm font-semibold">{publishStatus}</p>
+				{/if}
+				{#if buildErrors.length > 0}
+					<div class="mt-2 rounded-lg border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-xs text-rose-200">
+						{#each buildErrors as err}
+							<p>{err}</p>
+						{/each}
+					</div>
+				{/if}
+				{#if buildWarnings.length > 0}
+					<div class="mt-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+						{#each buildWarnings as warning}
+							<p>{warning}</p>
+						{/each}
+					</div>
+				{/if}
+				{#if publishUrl}
+					<div class="mt-3 grid gap-2 text-xs text-slate-300">
+						<p>Subscription link</p>
+						<div class="flex flex-wrap items-center gap-2">
+							<input
+								class="flex-1 rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-xs text-slate-100"
+								readonly
+								value={publishUrl}
+							/>
+							<button
+								class="rounded-full border border-slate-700 px-3 py-2 text-xs font-semibold"
+								on:click={copyLink}
+							>
+								Copy Link
+							</button>
+						</div>
+					</div>
+				{/if}
 			</div>
-		{/if}
-		{#if buildErrors.length > 0}
-			<div class="mt-3 rounded-xl border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-xs text-rose-200">
-				{#each buildErrors as err}
-					<p>{err}</p>
-				{/each}
-			</div>
-		{/if}
-		<div class="mt-4 grid gap-3 md:grid-cols-2">
-			<div class="rounded-xl border border-slate-800 bg-slate-950 p-3 text-xs text-slate-300">
-				<p>Lines: {outputLines}</p>
-				<p>Preview:</p>
-				<pre class="mt-2 max-h-[220px] overflow-auto whitespace-pre-wrap">{outputPreview || "No output"}</pre>
-			</div>
-			<textarea
-				class="min-h-[220px] w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-3 text-xs"
-				placeholder="Generated content"
-				bind:value={outputContent}
-			/>
-		</div>
-		{#if publishUrl}
-			<p class="mt-3 text-xs text-slate-300">Subscription link: {publishUrl}</p>
 		{/if}
 	</div>
 
