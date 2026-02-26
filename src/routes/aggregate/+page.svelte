@@ -654,13 +654,4 @@
 		{/if}
 	</div>
 
-	<div class="rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
-		<div class="flex items-center justify-between">
-			<h2 class="text-lg font-semibold">Saved Rules</h2>
-			<span class="text-xs text-slate-400">{$appState.aggregates.length} rules</span>
-		</div>
-		<p class="mt-2 text-sm text-slate-300">
-			Select a rule from the dropdown above to edit or update it.
-		</p>
-	</div>
 </section>
