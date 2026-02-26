@@ -37,6 +37,7 @@
 	let buildErrors: string[] = [];
 	let publishing = false;
 	let initialized = false;
+	let editingRuleId: string | null = null;
 	const protocolOptions: { id: ProxyType; label: string }[] = [
 		{ id: "vless", label: "VLESS" },
 		{ id: "vmess", label: "VMess" },
@@ -126,6 +127,44 @@
 			: [...allowedTypes, type];
 	}
 
+	function loadRule(rule: AggregateRule) {
+		editingRuleId = rule.id;
+		ruleName = rule.name;
+		selectedNodeIds = [...rule.nodeIds];
+		selectedSubscriptionIds = [...rule.subscriptionIds];
+		excludeTags = rule.excludeTagIds.join(", ");
+		renameMap = Object.entries(rule.renameMap)
+			.map(([key, value]) => `${key}=${value}`)
+			.join("\n");
+		allowedTypes = rule.allowedTypes ?? [];
+		previewSummary = "";
+		previewContent = "";
+		previewLines = 0;
+		previewWarnings = [];
+		previewErrors = [];
+		previewEntries = [];
+		previewExpandedLine = null;
+		previewStatus = null;
+	}
+
+	function resetRuleForm() {
+		editingRuleId = null;
+		ruleName = "";
+		selectedNodeIds = [];
+		selectedSubscriptionIds = [];
+		excludeTags = "";
+		renameMap = "";
+		allowedTypes = [];
+		previewSummary = "";
+		previewContent = "";
+		previewLines = 0;
+		previewWarnings = [];
+		previewErrors = [];
+		previewEntries = [];
+		previewExpandedLine = null;
+		previewStatus = null;
+	}
+
 	async function buildPreview() {
 		previewStatus = null;
 		const selectedNodes = $appState.nodes.filter((node) => selectedNodeIds.includes(node.id));
@@ -177,8 +216,10 @@
 			return;
 		}
 
+		const isEditing = Boolean(editingRuleId);
+		const ruleId = editingRuleId ?? createId("agg");
 		const rule: AggregateRule = {
-			id: createId("agg"),
+			id: ruleId,
 			name: ruleName,
 			nodeIds: selectedNodeIds,
 			subscriptionIds: selectedSubscriptionIds,
@@ -192,20 +233,11 @@
 		};
 
 		upsertAggregate(rule);
-		ruleName = "";
-		selectedNodeIds = [];
-		selectedSubscriptionIds = [];
-		excludeTags = "";
-		renameMap = "";
-		allowedTypes = [];
-		previewSummary = "";
-		previewContent = "";
-		previewLines = 0;
-		previewWarnings = [];
-		previewErrors = [];
-		previewEntries = [];
-		previewExpandedLine = null;
-		previewStatus = null;
+		if (!isEditing) {
+			resetRuleForm();
+		} else {
+			editingRuleId = ruleId;
+		}
 	}
 
 	function selectPublishRule(id: string) {
@@ -423,10 +455,16 @@
 						Preview
 					</button>
 					<button
+						class="rounded-full border border-slate-700 px-4 py-2 text-sm font-semibold"
+						on:click={resetRuleForm}
+					>
+						New Rule
+					</button>
+					<button
 						class="rounded-full bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-950"
 						on:click={saveRule}
 					>
-						Save Rule
+						{editingRuleId ? "Update Rule" : "Save Rule"}
 					</button>
 				</div>
 			</div>
@@ -604,7 +642,17 @@
 			{:else}
 				{#each $appState.aggregates as rule}
 					<div class="rounded-xl border border-slate-800/80 bg-slate-950/60 p-4">
-						<p class="text-sm font-semibold">{rule.name}</p>
+						<div class="flex items-center justify-between gap-3">
+							<p class="text-sm font-semibold">{rule.name}</p>
+							<div class="flex items-center gap-2 text-xs">
+								<button
+									class="rounded-full border border-slate-700 px-3 py-1"
+									on:click={() => loadRule(rule)}
+								>
+									Edit
+								</button>
+							</div>
+						</div>
 						<p class="mt-2 text-xs text-slate-400">
 							{rule.nodeIds.length} nodes, {rule.subscriptionIds.length} subscriptions
 						</p>
