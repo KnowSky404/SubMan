@@ -42,6 +42,7 @@ export type AggregateRule = {
 	subscriptionIds: string[];
 	excludeTagIds: string[];
 	renameMap: Record<string, string>;
+	allowedTypes: ProxyType[];
 	updatedAt: string;
 };
 
@@ -49,6 +50,7 @@ export type GistFile = {
 	filename: string;
 	language: string | null;
 	size: number;
+	rawUrl?: string;
 };
 
 export type GistMeta = {

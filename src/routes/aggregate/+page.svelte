@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { appState, upsertAggregate } from "$lib/stores/app";
 	import { authState } from "$lib/stores/auth";
-	import type { AggregateRule } from "$lib/models";
+	import type { AggregateRule, ProxyType } from "$lib/models";
 	import { buildAggregateOutput } from "$lib/aggregate";
 	import { createGist, updateGist } from "$lib/gist";
 	import { createId } from "$lib/utils/id";
@@ -12,6 +12,7 @@
 	let selectedSubscriptionIds: string[] = [];
 	let excludeTags = "";
 	let renameMap = "";
+	let allowedTypes: ProxyType[] = [];
 	let previewSummary = "";
 	let previewContent = "";
 	let previewLines = 0;
@@ -33,6 +34,16 @@
 	let buildErrors: string[] = [];
 	let publishing = false;
 	let initialized = false;
+	const protocolOptions: { id: ProxyType; label: string }[] = [
+		{ id: "vless", label: "VLESS" },
+		{ id: "vmess", label: "VMess" },
+		{ id: "trojan", label: "Trojan" },
+		{ id: "ss", label: "Shadowsocks" },
+		{ id: "ssr", label: "SSR" },
+		{ id: "hysteria2", label: "Hysteria2" },
+		{ id: "tuic", label: "TUIC" },
+		{ id: "other", label: "Other" }
+	];
 
 	$: if (!initialized) {
 		publishRuleId = $appState.aggregates[0]?.id ?? "";
@@ -54,6 +65,12 @@
 		return Object.fromEntries(entries.filter((entry) => entry.length === 2));
 	}
 
+	function toggleType(type: ProxyType) {
+		allowedTypes = allowedTypes.includes(type)
+			? allowedTypes.filter((item) => item !== type)
+			: [...allowedTypes, type];
+	}
+
 	async function buildPreview() {
 		const selectedNodes = $appState.nodes.filter((node) => selectedNodeIds.includes(node.id));
 		const selectedSubs = $appState.subscriptions.filter((sub) =>
@@ -64,7 +81,8 @@
 			`Nodes: ${selectedNodes.map((node) => node.name).join(", ") || "None"}`,
 			`Subscriptions: ${selectedSubs.map((sub) => sub.name).join(", ") || "None"}`,
 			`Exclude tags: ${excludeTags || "None"}`,
-			`Rename map entries: ${Object.keys(parseRenameMap(renameMap)).length}`
+			`Rename map entries: ${Object.keys(parseRenameMap(renameMap)).length}`,
+			`Protocols: ${allowedTypes.length > 0 ? allowedTypes.join(", ") : "All"}`
 		];
 
 		previewSummary = lines.join("\n");
@@ -83,6 +101,7 @@
 					.map((tag) => tag.trim())
 					.filter(Boolean),
 				renameMap: parseRenameMap(renameMap),
+				allowedTypes,
 				updatedAt: nowIso()
 			};
 
@@ -111,6 +130,7 @@
 				.map((tag) => tag.trim())
 				.filter(Boolean),
 			renameMap: parseRenameMap(renameMap),
+			allowedTypes,
 			updatedAt: nowIso()
 		};
 
@@ -120,6 +140,7 @@
 		selectedSubscriptionIds = [];
 		excludeTags = "";
 		renameMap = "";
+		allowedTypes = [];
 		previewSummary = "";
 		previewContent = "";
 		previewLines = 0;
@@ -316,6 +337,24 @@
 					placeholder="Rename map: old=new per line"
 					bind:value={renameMap}
 				/>
+				<div>
+					<p class="text-xs uppercase text-slate-400">Protocols</p>
+					<div class="mt-2 grid grid-cols-2 gap-2 text-xs md:grid-cols-4">
+						{#each protocolOptions as option}
+							<label class="flex items-center gap-2">
+								<input
+									type="checkbox"
+									checked={allowedTypes.includes(option.id)}
+									on:change={() => toggleType(option.id)}
+								/>
+								{option.label}
+							</label>
+						{/each}
+					</div>
+					<p class="mt-2 text-[11px] text-slate-500">
+						Leave empty to include all protocols.
+					</p>
+				</div>
 				<div class="flex flex-wrap gap-3">
 					<button
 						class="rounded-full border border-slate-700 px-4 py-2 text-sm font-semibold"
@@ -465,6 +504,9 @@
 						<p class="text-sm font-semibold">{rule.name}</p>
 						<p class="mt-2 text-xs text-slate-400">
 							{rule.nodeIds.length} nodes, {rule.subscriptionIds.length} subscriptions
+						</p>
+						<p class="mt-1 text-xs text-slate-500">
+							Protocols: {rule.allowedTypes?.length ? rule.allowedTypes.join(", ") : "All"}
 						</p>
 					</div>
 				{/each}
