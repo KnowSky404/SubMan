@@ -86,7 +86,7 @@ import { appState, replaceState } from "$lib/stores/app";
 					}
 				});
 				content = localPayload;
-				status = "Workspace file missing. Local data seeded.";
+				status = "Workspace file missing. Local data seeded as initial workspace.";
 			} else {
 				throw err;
 			}
