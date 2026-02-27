@@ -1,0 +1,7 @@
+name = "subman"
+compatibility_date = "2026-02-27"
+
+main = ".svelte-kit/cloudflare/_worker.js"
+assets = { directory = ".svelte-kit/cloudflare", binding = "ASSETS" }
+
+# If you deploy to a custom domain or use routes, configure them here.
