@@ -6,6 +6,25 @@ import { updateGist } from '$lib/gist';
 import { exportSyncState } from '$lib/serialization';
 
 const DEFAULT_DELAY = 1200;
+const BASELINE_KEY = 'subman:sync:baseline';
+
+function readBaseline(): string {
+	if (!browser) {
+		return '';
+	}
+	return localStorage.getItem(BASELINE_KEY) ?? '';
+}
+
+function writeBaseline(payload: string): void {
+	if (!browser) {
+		return;
+	}
+	localStorage.setItem(BASELINE_KEY, payload);
+}
+
+export function setSyncBaseline(payload: string): void {
+	writeBaseline(payload);
+}
 
 export function startAutoSync(delayMs: number = DEFAULT_DELAY): () => void {
 	if (!browser) {
@@ -16,7 +35,7 @@ export function startAutoSync(delayMs: number = DEFAULT_DELAY): () => void {
 	let timer: ReturnType<typeof setTimeout> | null = null;
 	let syncing = false;
 	let pending = false;
-	let lastPayload = '';
+	let lastPayload = readBaseline();
 	let latestState = get(appState);
 
 	const authUnsub = authState.subscribe((state) => {
@@ -61,6 +80,7 @@ export function startAutoSync(delayMs: number = DEFAULT_DELAY): () => void {
 				}
 			});
 			lastPayload = payload;
+			writeBaseline(payload);
 		} catch {
 			// Swallow sync errors; UI can surface later if needed.
 		} finally {

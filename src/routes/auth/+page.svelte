@@ -1,10 +1,11 @@
 <script lang="ts">
-	import { appState, replaceState } from "$lib/stores/app";
+	import { appState, defaultState, replaceState } from "$lib/stores/app";
 	import { authState, clearAuth, setToken } from "$lib/stores/auth";
 	import { exportState, exportSyncState, importState } from "$lib/serialization";
 	import { getGistFileContent, updateGist } from "$lib/gist";
 	import { ensureWorkspaceGist, WORKSPACE_DESCRIPTION, WORKSPACE_FILE } from "$lib/workspace";
 	import { mergeSyncState } from "$lib/merge";
+	import { setSyncBaseline } from "$lib/sync";
 	import { nowIso } from "$lib/utils/time";
 	import type { AppState } from "$lib/models";
 
@@ -67,11 +68,36 @@
 					activeGistFile: WORKSPACE_FILE,
 					lastUpdated: nowIso()
 				}));
+				setSyncBaseline(localPayload);
 				status = "Workspace gist created.";
 				return;
 			}
 
-			const content = await getGistFileContent(token, gist.id, WORKSPACE_FILE);
+			let content: string | null = null;
+			try {
+				content = await getGistFileContent(token, gist.id, WORKSPACE_FILE);
+			} catch (err) {
+				const message = err instanceof Error ? err.message : "";
+				if (message.includes("File not found in gist")) {
+					const emptyPayload = exportSyncState(defaultState);
+					await updateGist(token, {
+						gistId: gist.id,
+						files: {
+							[WORKSPACE_FILE]: { content: emptyPayload }
+						}
+					});
+					content = emptyPayload;
+					status = "Workspace file missing. Empty template created.";
+				} else {
+					throw err;
+				}
+			}
+
+			if (!content) {
+				status = "Workspace data unavailable.";
+				return;
+			}
+
 			const remoteState = importState(content);
 			const remotePayload = exportSyncState(remoteState);
 			const gistMismatch = Boolean($appState.activeGistId && $appState.activeGistId !== gist.id);
@@ -89,9 +115,10 @@
 
 			if (!gistMismatch && !payloadMismatch) {
 				applyWorkspaceState(remoteState, gist.id);
+				setSyncBaseline(remotePayload);
 				status = "Workspace gist linked. No sync needed.";
 				conflict = null;
-			} else {
+			} else if (!status) {
 				status = "Workspace gist linked. Review sync options below.";
 			}
 		} catch (err) {
@@ -112,6 +139,7 @@
 		try {
 			if (action === "remote") {
 				applyWorkspaceState(conflict.remoteState, conflict.gistId);
+				setSyncBaseline(conflict.remotePayload);
 				status = "Remote data loaded.";
 				conflict = null;
 				return;
@@ -136,6 +164,7 @@
 					activeGistFile: WORKSPACE_FILE,
 					lastUpdated: nowIso()
 				}));
+				setSyncBaseline(conflict.localPayload);
 				status = "Local data pushed to workspace.";
 				conflict = null;
 				return;
@@ -157,6 +186,7 @@
 			});
 
 			applyWorkspaceState(mergedState, conflict.gistId);
+			setSyncBaseline(mergedPayload);
 			status = "Merged data saved to workspace.";
 			conflict = null;
 		} catch (err) {
@@ -170,12 +200,14 @@
 		if (!pendingGistId) {
 			return;
 		}
+		const baseline = exportSyncState($appState);
 		appState.update((state) => ({
 			...state,
 			activeGistId: pendingGistId,
 			activeGistFile: WORKSPACE_FILE,
 			lastUpdated: nowIso()
 		}));
+		setSyncBaseline(baseline);
 		status = "Workspace gist linked (local data unchanged).";
 		conflict = null;
 	}
