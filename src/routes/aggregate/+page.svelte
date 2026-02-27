@@ -4,6 +4,7 @@
 	import type { AggregateRule, ProxyType } from "$lib/models";
 	import { buildAggregateOutput } from "$lib/aggregate";
 	import { createGist, updateGist } from "$lib/gist";
+	import { exportSyncState } from "$lib/serialization";
 	import { createId } from "$lib/utils/id";
 	import { nowIso } from "$lib/utils/time";
 
@@ -24,7 +25,6 @@
 	let previewStatus: string | null = null;
 
 	let publishRuleId = "";
-	let publishGistId = "";
 	let publishFile = "subman-aggregate.txt";
 	let publishDescription = "SubMan aggregate";
 	let publishPublic = false;
@@ -101,7 +101,6 @@
 
 	$: if (!initialized) {
 		publishRuleId = $appState.aggregates[0]?.id ?? "";
-		publishGistId = $appState.activeGistId ?? "";
 		initialized = true;
 	}
 
@@ -292,28 +291,31 @@
 
 		publishing = true;
 		try {
-			let targetId = publishGistId;
-			let response;
+		const configFile = $appState.activeGistFile || "subman.json";
+		const configContent = exportSyncState($appState);
+		let targetId = $appState.activeGistId || "";
+		let response;
 
-			if (targetId) {
-				response = await updateGist(token, {
-					gistId: targetId,
-					description: publishDescription || undefined,
-					files: {
-						[publishFile]: { content: outputContent }
-					}
-				});
-			} else {
-				response = await createGist(token, {
-					description: publishDescription || "SubMan aggregate",
-					isPublic: publishPublic,
-					files: {
-						[publishFile]: { content: outputContent }
-					}
-				});
-				targetId = response.id;
-				publishGistId = response.id;
-			}
+		if (targetId) {
+			response = await updateGist(token, {
+				gistId: targetId,
+				description: publishDescription || undefined,
+				files: {
+					[publishFile]: { content: outputContent },
+					[configFile]: { content: configContent }
+				}
+			});
+		} else {
+			response = await createGist(token, {
+				description: publishDescription || "SubMan workspace",
+				isPublic: publishPublic,
+				files: {
+					[configFile]: { content: configContent },
+					[publishFile]: { content: outputContent }
+				}
+			});
+			targetId = response.id;
+		}
 
 			const fileMeta = response.files.find((file) => file.filename === publishFile);
 			publishUrl = fileMeta?.rawUrl ?? null;
@@ -321,6 +323,7 @@
 			appState.update((state) => ({
 				...state,
 				activeGistId: targetId,
+				activeGistFile: configFile,
 				lastUpdated: nowIso()
 			}));
 
@@ -577,11 +580,6 @@
 			</select>
 			<input
 				class="w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2"
-				placeholder="Gist ID (leave empty to create)"
-				bind:value={publishGistId}
-			/>
-			<input
-				class="w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2"
 				placeholder="File name (e.g. aggregate.txt)"
 				bind:value={publishFile}
 			/>
@@ -595,6 +593,15 @@
 				Public gist
 			</label>
 		</div>
+		{#if $appState.activeGistId}
+			<p class="mt-3 text-xs text-slate-400">
+				Using workspace gist: {$appState.activeGistId} (config file: {$appState.activeGistFile || "subman.json"})
+			</p>
+		{:else}
+			<p class="mt-3 text-xs text-slate-400">
+				No workspace gist selected. Publishing will create a new gist containing config and output files.
+			</p>
+		{/if}
 		<div class="mt-4 flex flex-wrap gap-3">
 			<button
 				class="rounded-full bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-950"
