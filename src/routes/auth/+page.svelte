@@ -2,17 +2,48 @@
 	import { appState, replaceState } from "$lib/stores/app";
 	import { authState, clearAuth, setToken } from "$lib/stores/auth";
 	import { exportState, exportSyncState, importState } from "$lib/serialization";
-	import { getGistFileContent } from "$lib/gist";
-	import { ensureWorkspaceGist, WORKSPACE_FILE } from "$lib/workspace";
+	import { getGistFileContent, updateGist } from "$lib/gist";
+	import { ensureWorkspaceGist, WORKSPACE_DESCRIPTION, WORKSPACE_FILE } from "$lib/workspace";
+	import { mergeSyncState } from "$lib/merge";
 	import { nowIso } from "$lib/utils/time";
+	import type { AppState } from "$lib/models";
+
+	type WorkspaceConflict = {
+		gistId: string;
+		localPayload: string;
+		remotePayload: string;
+		remoteState: AppState;
+		localStats: { nodes: number; subscriptions: number; aggregates: number; updatedAt: string };
+		remoteStats: { nodes: number; subscriptions: number; aggregates: number; updatedAt: string };
+	};
 
 	let tokenInput = "";
 	let status: string | null = null;
 	let payload = "";
 	let workspaceBusy = false;
+	let conflict: WorkspaceConflict | null = null;
+
+	function snapshotStats(state: AppState) {
+		return {
+			nodes: state.nodes.length,
+			subscriptions: state.subscriptions.length,
+			aggregates: state.aggregates.length,
+			updatedAt: state.lastUpdated
+		};
+	}
+
+	function applyWorkspaceState(next: AppState, gistId: string) {
+		replaceState({
+			...next,
+			gists: $appState.gists,
+			activeGistId: gistId,
+			activeGistFile: WORKSPACE_FILE
+		});
+	}
 
 	async function handleTokenSave() {
 		status = null;
+		conflict = null;
 		const token = tokenInput.trim();
 		if (!token) {
 			status = "Token is required.";
@@ -24,22 +55,10 @@
 		workspaceBusy = true;
 
 		try {
-			const { gist, created } = await ensureWorkspaceGist(token, exportSyncState($appState));
-			if (!created) {
-				try {
-					const content = await getGistFileContent(token, gist.id, WORKSPACE_FILE);
-					const next = importState(content);
-					replaceState({
-						...next,
-						gists: $appState.gists,
-						activeGistId: gist.id,
-						activeGistFile: WORKSPACE_FILE
-					});
-					status = "Workspace gist loaded.";
-				} catch (err) {
-					status = err instanceof Error ? err.message : "Failed to load workspace gist.";
-				}
-			} else {
+			const localPayload = exportSyncState($appState);
+			const { gist, created } = await ensureWorkspaceGist(token, localPayload);
+
+			if (created) {
 				appState.update((state) => ({
 					...state,
 					activeGistId: gist.id,
@@ -47,9 +66,97 @@
 					lastUpdated: nowIso()
 				}));
 				status = "Workspace gist created.";
+				return;
 			}
+
+			const content = await getGistFileContent(token, gist.id, WORKSPACE_FILE);
+			const remoteState = importState(content);
+			const remotePayload = exportSyncState(remoteState);
+			const gistMismatch = Boolean($appState.activeGistId && $appState.activeGistId !== gist.id);
+			const payloadMismatch = localPayload !== remotePayload;
+
+			if (!gistMismatch && !payloadMismatch) {
+				applyWorkspaceState(remoteState, gist.id);
+				status = "Workspace gist loaded.";
+				return;
+			}
+
+			conflict = {
+				gistId: gist.id,
+				localPayload,
+				remotePayload,
+				remoteState,
+				localStats: snapshotStats($appState),
+				remoteStats: snapshotStats(remoteState)
+			};
+			status = "Workspace conflict detected. Choose how to proceed.";
 		} catch (err) {
 			status = err instanceof Error ? err.message : "Failed to setup workspace gist.";
+		} finally {
+			workspaceBusy = false;
+		}
+	}
+
+	async function handleResolveConflict(action: "local" | "remote" | "merge") {
+		if (!conflict || !$authState.token) {
+			return;
+		}
+
+		workspaceBusy = true;
+		status = null;
+
+		try {
+			if (action === "remote") {
+				applyWorkspaceState(conflict.remoteState, conflict.gistId);
+				status = "Remote data loaded.";
+				conflict = null;
+				return;
+			}
+
+			const token = $authState.token;
+			if (!token) {
+				status = "Token missing.";
+				return;
+			}
+
+			if (action === "local") {
+				await updateGist(token, {
+					gistId: conflict.gistId,
+					files: {
+						[WORKSPACE_FILE]: { content: conflict.localPayload }
+					}
+				});
+				appState.update((state) => ({
+					...state,
+					activeGistId: conflict.gistId,
+					activeGistFile: WORKSPACE_FILE,
+					lastUpdated: nowIso()
+				}));
+				status = "Local data pushed to workspace.";
+				conflict = null;
+				return;
+			}
+
+			const merged = mergeSyncState($appState, conflict.remoteState);
+			const mergedState: AppState = {
+				...$appState,
+				...merged,
+				lastUpdated: nowIso()
+			};
+
+			const mergedPayload = exportSyncState(mergedState);
+			await updateGist(token, {
+				gistId: conflict.gistId,
+				files: {
+					[WORKSPACE_FILE]: { content: mergedPayload }
+				}
+			});
+
+			applyWorkspaceState(mergedState, conflict.gistId);
+			status = "Merged data saved to workspace.";
+			conflict = null;
+		} catch (err) {
+			status = err instanceof Error ? err.message : "Failed to resolve conflict.";
 		} finally {
 			workspaceBusy = false;
 		}
@@ -60,10 +167,11 @@
 		appState.update((state) => ({
 			...state,
 			activeGistId: null,
-			activeGistFile: "subman.json",
+			activeGistFile: WORKSPACE_FILE,
 			lastUpdated: nowIso()
 		}));
 		status = "Token cleared. Local mode enabled.";
+		conflict = null;
 	}
 
 	function handleExport() {
@@ -96,14 +204,14 @@
 	<header>
 		<h1 class="text-2xl font-semibold">Workspace</h1>
 		<p class="mt-2 text-sm text-slate-300">
-			Use a GitHub token to sync with your workspace gist, or keep data locally.
+			Use a GitHub token to sync with the workspace gist, or keep data locally.
 		</p>
 	</header>
 
 	<div class="rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
 		<h2 class="text-lg font-semibold">GitHub Token</h2>
 		<p class="mt-2 text-xs text-slate-400">
-			Token required to read/write gists. The workspace gist is identified by a fixed marker and created if missing.
+			Workspace marker: {WORKSPACE_DESCRIPTION} / {WORKSPACE_FILE}
 		</p>
 		<div class="mt-4 grid gap-3 text-sm">
 			<input
@@ -131,11 +239,59 @@
 			</p>
 			{#if $appState.activeGistId}
 				<p class="text-xs text-slate-400">
-					Workspace gist: {$appState.activeGistId} (file: {$appState.activeGistFile || "subman.json"})
+					Workspace gist: {$appState.activeGistId} (file: {WORKSPACE_FILE})
 				</p>
 			{/if}
 		</div>
 	</div>
+
+	{#if conflict}
+		<div class="rounded-2xl border border-amber-500/40 bg-amber-500/10 p-6">
+			<h2 class="text-lg font-semibold">Workspace Conflict</h2>
+			<p class="mt-2 text-xs text-amber-100">
+				Local data and workspace data differ. Choose how to proceed.
+			</p>
+			<div class="mt-4 grid gap-3 text-xs text-slate-200 md:grid-cols-2">
+				<div class="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3">
+					<p class="font-semibold">Local</p>
+					<p>Nodes: {conflict.localStats.nodes}</p>
+					<p>Subscriptions: {conflict.localStats.subscriptions}</p>
+					<p>Aggregates: {conflict.localStats.aggregates}</p>
+					<p>Updated: {conflict.localStats.updatedAt}</p>
+				</div>
+				<div class="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3">
+					<p class="font-semibold">Remote</p>
+					<p>Nodes: {conflict.remoteStats.nodes}</p>
+					<p>Subscriptions: {conflict.remoteStats.subscriptions}</p>
+					<p>Aggregates: {conflict.remoteStats.aggregates}</p>
+					<p>Updated: {conflict.remoteStats.updatedAt}</p>
+				</div>
+			</div>
+			<div class="mt-4 flex flex-wrap gap-3">
+				<button
+					class="rounded-full border border-amber-400 px-4 py-2 text-xs font-semibold text-amber-100"
+					on:click={() => handleResolveConflict("local")}
+					disabled={workspaceBusy}
+				>
+					Local -> Remote
+				</button>
+				<button
+					class="rounded-full border border-amber-400 px-4 py-2 text-xs font-semibold text-amber-100"
+					on:click={() => handleResolveConflict("remote")}
+					disabled={workspaceBusy}
+				>
+					Remote -> Local
+				</button>
+				<button
+					class="rounded-full bg-amber-200 px-4 py-2 text-xs font-semibold text-slate-950"
+					on:click={() => handleResolveConflict("merge")}
+					disabled={workspaceBusy}
+				>
+					Merge & Save
+				</button>
+			</div>
+		</div>
+	{/if}
 
 	<div class="rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
 		<h2 class="text-lg font-semibold">Local Import / Export</h2>

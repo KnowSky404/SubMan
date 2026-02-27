@@ -5,6 +5,7 @@
 	import { buildAggregateOutput } from "$lib/aggregate";
 	import { createGist, updateGist } from "$lib/gist";
 	import { exportSyncState } from "$lib/serialization";
+	import { WORKSPACE_FILE } from "$lib/workspace";
 	import { createId } from "$lib/utils/id";
 	import { nowIso } from "$lib/utils/time";
 
@@ -291,7 +292,7 @@
 
 		publishing = true;
 		try {
-		const configFile = $appState.activeGistFile || "subman.json";
+		const configFile = WORKSPACE_FILE;
 		const configContent = exportSyncState($appState);
 		let targetId = $appState.activeGistId || "";
 		let response;

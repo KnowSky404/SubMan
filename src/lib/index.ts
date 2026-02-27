@@ -5,3 +5,4 @@ export * from '$lib/serialization';
 export * from '$lib/gist';
 export * from '$lib/aggregate';
 export * from '$lib/workspace';
+export * from '$lib/merge';
