@@ -5,9 +5,6 @@ import type { AuthState } from '$lib/models';
 const STORAGE_KEY = 'subman:auth:v1';
 
 export const defaultAuthState: AuthState = {
-	clientId: '',
-	redirectUri: '',
-	scopes: ['gist'],
 	token: null,
 	lastLoginAt: null
 };
@@ -46,9 +43,6 @@ export function setToken(token: string | null): void {
 	}));
 }
 
-export function updateAuthConfig(config: Pick<AuthState, 'clientId' | 'redirectUri' | 'scopes'>): void {
-	authState.update((state) => ({
-		...state,
-		...config
-	}));
+export function clearAuth(): void {
+	authState.set({ ...defaultAuthState });
 }

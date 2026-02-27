@@ -72,9 +72,6 @@ export type AppState = {
 };
 
 export type AuthState = {
-	clientId: string;
-	redirectUri: string;
-	scopes: string[];
 	token: string | null;
 	lastLoginAt: string | null;
 };

@@ -1,18 +1,21 @@
 <script>
 	import "../app.css";
+	import { onMount } from "svelte";
 	import { page } from "$app/stores";
+	import { startAutoSync } from "$lib/sync";
 
 	const navItems = [
 		{ href: "/", label: "Overview" },
 		{ href: "/gists", label: "Gists" },
 		{ href: "/nodes", label: "Nodes" },
 		{ href: "/aggregate", label: "Aggregate" },
-		{ href: "/data", label: "Data" },
-		{ href: "/auth", label: "Auth" }
+		{ href: "/auth", label: "Workspace" }
 	];
 
 	$: pathname = $page.url.pathname;
 	$: isActive = (href) => (href === "/" ? pathname === "/" : pathname.startsWith(href));
+
+	onMount(() => startAutoSync());
 </script>
 
 <div class="min-h-screen bg-slate-950 text-slate-100">
