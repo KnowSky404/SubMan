@@ -22,6 +22,7 @@
 	let payload = "";
 	let workspaceBusy = false;
 	let conflict: WorkspaceConflict | null = null;
+	let pendingGistId: string | null = null;
 
 	function snapshotStats(state: AppState) {
 		return {
@@ -44,6 +45,7 @@
 	async function handleTokenSave() {
 		status = null;
 		conflict = null;
+		pendingGistId = null;
 		const token = tokenInput.trim();
 		if (!token) {
 			status = "Token is required.";
@@ -75,12 +77,7 @@
 			const gistMismatch = Boolean($appState.activeGistId && $appState.activeGistId !== gist.id);
 			const payloadMismatch = localPayload !== remotePayload;
 
-			if (!gistMismatch && !payloadMismatch) {
-				applyWorkspaceState(remoteState, gist.id);
-				status = "Workspace gist loaded.";
-				return;
-			}
-
+			pendingGistId = gist.id;
 			conflict = {
 				gistId: gist.id,
 				localPayload,
@@ -89,7 +86,14 @@
 				localStats: snapshotStats($appState),
 				remoteStats: snapshotStats(remoteState)
 			};
-			status = "Workspace conflict detected. Choose how to proceed.";
+
+			if (!gistMismatch && !payloadMismatch) {
+				applyWorkspaceState(remoteState, gist.id);
+				status = "Workspace gist linked. No sync needed.";
+				conflict = null;
+			} else {
+				status = "Workspace gist linked. Review sync options below.";
+			}
 		} catch (err) {
 			status = err instanceof Error ? err.message : "Failed to setup workspace gist.";
 		} finally {
@@ -160,6 +164,20 @@
 		} finally {
 			workspaceBusy = false;
 		}
+	}
+
+	function linkWorkspaceOnly() {
+		if (!pendingGistId) {
+			return;
+		}
+		appState.update((state) => ({
+			...state,
+			activeGistId: pendingGistId,
+			activeGistFile: WORKSPACE_FILE,
+			lastUpdated: nowIso()
+		}));
+		status = "Workspace gist linked (local data unchanged).";
+		conflict = null;
 	}
 
 	function handleTokenClear() {
@@ -247,9 +265,9 @@
 
 	{#if conflict}
 		<div class="rounded-2xl border border-amber-500/40 bg-amber-500/10 p-6">
-			<h2 class="text-lg font-semibold">Workspace Conflict</h2>
+			<h2 class="text-lg font-semibold">Workspace Sync Options</h2>
 			<p class="mt-2 text-xs text-amber-100">
-				Local data and workspace data differ. Choose how to proceed.
+				Workspace is linked. Choose if you want to sync now or keep local data as-is.
 			</p>
 			<div class="mt-4 grid gap-3 text-xs text-slate-200 md:grid-cols-2">
 				<div class="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3">
@@ -268,6 +286,13 @@
 				</div>
 			</div>
 			<div class="mt-4 flex flex-wrap gap-3">
+				<button
+					class="rounded-full border border-amber-400 px-4 py-2 text-xs font-semibold text-amber-100"
+					on:click={linkWorkspaceOnly}
+					disabled={workspaceBusy}
+				>
+					Keep Local (Link Only)
+				</button>
 				<button
 					class="rounded-full border border-amber-400 px-4 py-2 text-xs font-semibold text-amber-100"
 					on:click={() => handleResolveConflict("local")}
