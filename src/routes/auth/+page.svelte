@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { appState, defaultState, replaceState } from "$lib/stores/app";
+import { appState, replaceState } from "$lib/stores/app";
 	import { authState, clearAuth, setToken } from "$lib/stores/auth";
 	import { exportState, exportSyncState, importState } from "$lib/serialization";
 	import { getGistFileContent, updateGist } from "$lib/gist";
@@ -78,19 +78,18 @@
 				content = await getGistFileContent(token, gist.id, WORKSPACE_FILE);
 			} catch (err) {
 				const message = err instanceof Error ? err.message : "";
-				if (message.includes("File not found in gist")) {
-					const emptyPayload = exportSyncState(defaultState);
-					await updateGist(token, {
-						gistId: gist.id,
-						files: {
-							[WORKSPACE_FILE]: { content: emptyPayload }
-						}
-					});
-					content = emptyPayload;
-					status = "Workspace file missing. Empty template created.";
-				} else {
-					throw err;
-				}
+			if (message.includes("File not found in gist")) {
+				await updateGist(token, {
+					gistId: gist.id,
+					files: {
+						[WORKSPACE_FILE]: { content: localPayload }
+					}
+				});
+				content = localPayload;
+				status = "Workspace file missing. Local data seeded.";
+			} else {
+				throw err;
+			}
 			}
 
 			if (!content) {
