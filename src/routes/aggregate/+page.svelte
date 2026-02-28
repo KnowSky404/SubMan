@@ -2,6 +2,7 @@
 	import { onDestroy } from "svelte";
 	import {
 		appState,
+		removeAggregate,
 		removePublishTarget,
 		upsertAggregate,
 		upsertPublishTarget
@@ -31,6 +32,7 @@
 	let previewEntries: { id: string; line: string; protocol: string; name: string }[] = [];
 	let previewStatus: string | null = null;
 	let ruleSaving = false;
+	let ruleDeleting = false;
 	let ruleStatus: string | null = null;
 	let ruleStatusType: "success" | "error" | null = null;
 	let ruleStatusTimer: ReturnType<typeof setTimeout> | null = null;
@@ -338,6 +340,125 @@
 		removePublishTarget(selectedTargetId);
 		resetPublishTargetForm();
 		publishStatus = "Publish target deleted.";
+	}
+
+	function summarizeList(values: string[], maxItems: number = 3): string {
+		if (values.length <= maxItems) {
+			return values.join(", ");
+		}
+		return `${values.slice(0, maxItems).join(", ")}, +${values.length - maxItems} more`;
+	}
+
+	function collectRuleDeletionImpact(ruleId: string): {
+		targetsToRemove: AggregatePublishTarget[];
+		safeFilesToDelete: string[];
+		sharedFilesSkipped: string[];
+	} {
+		const targetsToRemove = $appState.publishTargets.filter((target) => target.ruleId === ruleId);
+		const remainingTargets = $appState.publishTargets.filter((target) => target.ruleId !== ruleId);
+		const candidateFiles = [...new Set(targetsToRemove.map((target) => target.fileName.trim()))].filter(
+			(fileName) => fileName && fileName !== WORKSPACE_FILE
+		);
+
+		const safeFilesToDelete = candidateFiles.filter(
+			(fileName) =>
+				!remainingTargets.some((target) => target.fileName.trim() === fileName)
+		);
+		const safeFileSet = new Set(safeFilesToDelete);
+		const sharedFilesSkipped = candidateFiles.filter((fileName) => !safeFileSet.has(fileName));
+
+		return { targetsToRemove, safeFilesToDelete, sharedFilesSkipped };
+	}
+
+	async function deleteSelectedRule() {
+		if (!editingRuleId || ruleDeleting || ruleSaving) {
+			return;
+		}
+		const rule = $appState.aggregates.find((item) => item.id === editingRuleId);
+		if (!rule) {
+			setRuleStatus("Rule not found.", "error");
+			resetRuleForm();
+			return;
+		}
+
+		const impact = collectRuleDeletionImpact(rule.id);
+		const deleteRuleConfirmed = confirm(
+			`Delete rule "${rule.name}"?\nThis will remove ${impact.targetsToRemove.length} publish target(s) bound to this rule.`
+		);
+		if (!deleteRuleConfirmed) {
+			return;
+		}
+
+		const token = $authState.token;
+		const workspaceId = $appState.activeGistId;
+		let deleteRemoteFiles = false;
+		if (impact.safeFilesToDelete.length > 0 && token && workspaceId) {
+			const fileSummary = summarizeList(impact.safeFilesToDelete);
+			deleteRemoteFiles = confirm(
+				`Also delete ${impact.safeFilesToDelete.length} workspace output file(s)?\n${fileSummary}`
+			);
+		}
+
+		ruleDeleting = true;
+		try {
+			const selectedTargetDeleted =
+				Boolean(selectedTargetId) &&
+				impact.targetsToRemove.some((target) => target.id === selectedTargetId);
+			const publishRuleDeleted = !selectedTargetId && publishTargetRuleId === rule.id;
+
+			removeAggregate(rule.id);
+			resetRuleForm();
+			clearPublishOutputState();
+
+			if (selectedTargetDeleted || publishRuleDeleted) {
+				resetPublishTargetForm();
+			}
+
+			const statusMessages: string[] = [
+				`Rule deleted. Removed ${impact.targetsToRemove.length} publish target(s).`
+			];
+			if (impact.sharedFilesSkipped.length > 0) {
+				statusMessages.push(
+					`${impact.sharedFilesSkipped.length} shared file(s) kept: ${summarizeList(impact.sharedFilesSkipped)}.`
+				);
+			}
+
+			if (deleteRemoteFiles && impact.safeFilesToDelete.length > 0 && token && workspaceId) {
+				try {
+					const files = Object.fromEntries(
+						impact.safeFilesToDelete.map((fileName) => [fileName, null] as const)
+					);
+					await updateGist(token, { gistId: workspaceId, files });
+					statusMessages.push(
+						`Deleted ${impact.safeFilesToDelete.length} workspace file(s): ${summarizeList(impact.safeFilesToDelete)}.`
+					);
+					setRuleStatus(statusMessages.join(" "), "success");
+				} catch (err) {
+					const errMessage =
+						err instanceof Error ? err.message : "Failed to delete workspace files.";
+					setRuleStatus(
+						`${statusMessages.join(" ")} Workspace file cleanup failed: ${errMessage} Clean remaining files in /gists.`,
+						"error"
+					);
+				}
+				return;
+			}
+
+			if (impact.safeFilesToDelete.length > 0) {
+				if (!token || !workspaceId) {
+					statusMessages.push(
+						`Workspace files were not deleted (missing token or workspace gist): ${summarizeList(impact.safeFilesToDelete)}.`
+					);
+				} else {
+					statusMessages.push(
+						`Workspace files kept: ${summarizeList(impact.safeFilesToDelete)}.`
+					);
+				}
+			}
+			setRuleStatus(statusMessages.join(" "), "success");
+		} finally {
+			ruleDeleting = false;
+		}
 	}
 
 	function isPublishTargetDirty(target: AggregatePublishTarget) {
@@ -710,6 +831,13 @@
 						disabled={ruleSaving}
 					>
 						{ruleSaving ? "Saving..." : editingRuleId ? "Update Rule" : "Save Rule"}
+					</button>
+					<button
+						class="rounded-full border border-rose-700 px-4 py-2 text-sm font-semibold text-rose-200 disabled:opacity-40"
+						on:click={deleteSelectedRule}
+						disabled={!editingRuleId || ruleSaving || ruleDeleting}
+					>
+						{ruleDeleting ? "Deleting..." : "Delete Rule"}
 					</button>
 				</div>
 				{#if ruleStatus}
