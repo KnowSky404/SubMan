@@ -41,6 +41,10 @@
 	let publishTargetFile = "subman-aggregate.txt";
 	let publishTargetDescription = "SubMan aggregate";
 	let publishTargetPublic = false;
+	let targetSaving = false;
+	let targetStatus: string | null = null;
+	let targetStatusType: "success" | "error" | null = null;
+	let targetStatusTimer: ReturnType<typeof setTimeout> | null = null;
 	let outputContent = "";
 	let publishStatus: string | null = null;
 	let publishUrl: string | null = null;
@@ -148,9 +152,24 @@
 		}, 2200);
 	}
 
+	function setTargetStatus(message: string, type: "success" | "error") {
+		targetStatus = message;
+		targetStatusType = type;
+		if (targetStatusTimer) {
+			clearTimeout(targetStatusTimer);
+		}
+		targetStatusTimer = setTimeout(() => {
+			targetStatus = null;
+			targetStatusType = null;
+		}, 2200);
+	}
+
 	onDestroy(() => {
 		if (ruleStatusTimer) {
 			clearTimeout(ruleStatusTimer);
+		}
+		if (targetStatusTimer) {
+			clearTimeout(targetStatusTimer);
 		}
 	});
 
@@ -242,6 +261,8 @@
 		publishStatus = target.lastPublishedAt
 			? `Last published at ${target.lastPublishedAt}.`
 			: null;
+		targetStatus = null;
+		targetStatusType = null;
 		outputContent = "";
 		buildWarnings = [];
 		buildErrors = [];
@@ -255,43 +276,55 @@
 		publishTargetFile = firstRule ? suggestPublishFile(firstRule.name) : "subman-aggregate.txt";
 		publishTargetDescription = "SubMan aggregate";
 		publishTargetPublic = false;
+		targetStatus = null;
+		targetStatusType = null;
 		clearPublishOutputState();
 	}
 
-	function savePublishTarget() {
+	async function savePublishTarget() {
+		if (targetSaving) {
+			return;
+		}
 		if (!publishTargetRuleId) {
-			publishStatus = "Select a rule for this publish target.";
+			setTargetStatus("Select a rule for this publish target.", "error");
 			return;
 		}
 
 		const fileName = publishTargetFile.trim();
 		if (!fileName) {
-			publishStatus = "File name is required.";
+			setTargetStatus("File name is required.", "error");
 			return;
 		}
 
-		const existing = selectedTargetId
-			? $appState.publishTargets.find((item) => item.id === selectedTargetId)
-			: null;
-		const rule = $appState.aggregates.find((item) => item.id === publishTargetRuleId);
-		const fallbackName = rule ? `${rule.name} target` : fileName;
-		const next: AggregatePublishTarget = {
-			id: existing?.id ?? createId("pub"),
-			name: publishTargetName.trim() || fallbackName,
-			ruleId: publishTargetRuleId,
-			fileName,
-			description: publishTargetDescription.trim() || "SubMan aggregate",
-			isPublic: publishTargetPublic,
-			lastPublishedAt: existing?.lastPublishedAt ?? null,
-			lastPublishedUrl: existing?.lastPublishedUrl ?? null,
-			updatedAt: nowIso()
-		};
+		targetSaving = true;
+		try {
+			const existing = selectedTargetId
+				? $appState.publishTargets.find((item) => item.id === selectedTargetId)
+				: null;
+			const rule = $appState.aggregates.find((item) => item.id === publishTargetRuleId);
+			const fallbackName = rule ? `${rule.name} target` : fileName;
+			const next: AggregatePublishTarget = {
+				id: existing?.id ?? createId("pub"),
+				name: publishTargetName.trim() || fallbackName,
+				ruleId: publishTargetRuleId,
+				fileName,
+				description: publishTargetDescription.trim() || "SubMan aggregate",
+				isPublic: publishTargetPublic,
+				lastPublishedAt: existing?.lastPublishedAt ?? null,
+				lastPublishedUrl: existing?.lastPublishedUrl ?? null,
+				updatedAt: nowIso()
+			};
 
-		upsertPublishTarget(next);
-		selectedTargetId = next.id;
-		publishTargetName = next.name;
-		publishStatus = existing ? "Publish target updated." : "Publish target saved.";
-		publishUrl = next.lastPublishedUrl;
+			upsertPublishTarget(next);
+			selectedTargetId = next.id;
+			publishTargetName = next.name;
+			publishUrl = next.lastPublishedUrl;
+			setTargetStatus(existing ? "Publish target updated." : "Publish target saved.", "success");
+		} catch {
+			setTargetStatus("Failed to save publish target.", "error");
+		} finally {
+			targetSaving = false;
+		}
 	}
 
 	function deleteSelectedTarget() {
@@ -825,25 +858,32 @@
 		</div>
 		<div class="mt-4 flex flex-wrap gap-3">
 			<button
-				class="rounded-full border border-slate-700 px-4 py-2 text-sm font-semibold"
+				class="rounded-full border border-slate-700 px-4 py-2 text-sm font-semibold disabled:opacity-60"
 				on:click={savePublishTarget}
+				disabled={targetSaving}
 			>
-				{selectedTargetId ? "Update Target" : "Save Target"}
+				{targetSaving ? "Saving..." : selectedTargetId ? "Update Target" : "Save Target"}
 			</button>
 			<button
-				class="rounded-full border border-slate-700 px-4 py-2 text-sm font-semibold"
+				class="rounded-full border border-slate-700 px-4 py-2 text-sm font-semibold disabled:opacity-60"
 				on:click={resetPublishTargetForm}
+				disabled={targetSaving}
 			>
 				New Target
 			</button>
 			<button
 				class="rounded-full border border-rose-700 px-4 py-2 text-sm font-semibold text-rose-200 disabled:opacity-40"
 				on:click={deleteSelectedTarget}
-				disabled={!selectedTargetId}
+				disabled={!selectedTargetId || targetSaving}
 			>
 				Delete Target
 			</button>
 		</div>
+		{#if targetStatus}
+			<p class={targetStatusType === "error" ? "mt-3 text-xs text-rose-300" : "mt-3 text-xs text-emerald-300"}>
+				{targetStatus}
+			</p>
+		{/if}
 		{#if $appState.activeGistId}
 			<p class="mt-3 text-xs text-slate-400">
 				Using workspace gist: {$appState.activeGistId} (config file: {$appState.activeGistFile || "subman.json"})
