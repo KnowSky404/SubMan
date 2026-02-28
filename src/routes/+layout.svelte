@@ -2,6 +2,7 @@
 	import "../app.css";
 	import { onMount } from "svelte";
 	import { page } from "$app/stores";
+	import { locale, t } from "$lib/i18n";
 	import { startAutoSync } from "$lib/sync";
 
 	const navItems = [
@@ -22,23 +23,47 @@
 	<header class="border-b border-slate-800/70 bg-slate-950/80 backdrop-blur">
 		<div class="mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-5">
 			<div>
-				<p class="text-xs uppercase tracking-[0.3em] text-slate-400">SubMan</p>
-				<p class="text-lg font-semibold">Gist-first Proxy Manager</p>
+				<p class="text-xs uppercase tracking-[0.3em] text-slate-400">{$t("SubMan")}</p>
+				<p class="text-lg font-semibold">{$t("Gist-first Proxy Manager")}</p>
 			</div>
-			<nav class="hidden flex-wrap items-center gap-4 text-sm md:flex">
-				{#each navItems as item}
-					<a
+			<div class="flex items-center gap-4">
+				<div class="inline-flex items-center rounded-full border border-slate-700 bg-slate-900/60 p-1 text-xs">
+					<button
 						class={`rounded-full px-3 py-1 transition ${
-							isActive(item.href)
+							$locale === "en"
 								? "bg-slate-100 text-slate-950"
 								: "text-slate-300 hover:text-slate-100"
 						}`}
-						href={item.href}
+						on:click={() => locale.set("en")}
 					>
-						{item.label}
-					</a>
-				{/each}
-			</nav>
+						{$t("English")}
+					</button>
+					<button
+						class={`rounded-full px-3 py-1 transition ${
+							$locale === "zh-CN"
+								? "bg-slate-100 text-slate-950"
+								: "text-slate-300 hover:text-slate-100"
+						}`}
+						on:click={() => locale.set("zh-CN")}
+					>
+						{$t("简体中文")}
+					</button>
+				</div>
+				<nav class="hidden flex-wrap items-center gap-4 text-sm md:flex">
+					{#each navItems as item}
+						<a
+							class={`rounded-full px-3 py-1 transition ${
+							isActive(item.href)
+								? "bg-slate-100 text-slate-950"
+								: "text-slate-300 hover:text-slate-100"
+							}`}
+							href={item.href}
+						>
+							{$t(item.label)}
+						</a>
+					{/each}
+				</nav>
+			</div>
 		</div>
 	</header>
 

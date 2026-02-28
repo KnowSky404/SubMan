@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onDestroy } from "svelte";
+	import { t } from "$lib/i18n";
 	import {
 		appState,
 		removeAggregate,
@@ -63,7 +64,7 @@
 		{ id: "ssr", label: "SSR" },
 		{ id: "hysteria2", label: "Hysteria2" },
 		{ id: "tuic", label: "TUIC" },
-		{ id: "other", label: "Other" }
+		{ id: "other", label: $t("Other") }
 	];
 
 	function parseLineSummary(line: string): { protocol: string; name: string } {
@@ -260,9 +261,9 @@
 		publishTargetDescription = target.description;
 		publishTargetPublic = target.isPublic;
 		publishUrl = target.lastPublishedUrl;
-		publishStatus = target.lastPublishedAt
-			? `Last published at ${target.lastPublishedAt}.`
-			: null;
+			publishStatus = target.lastPublishedAt
+				? $t("Updated: {time}", { time: target.lastPublishedAt })
+				: null;
 		targetStatus = null;
 		targetStatusType = null;
 		outputContent = "";
@@ -288,13 +289,13 @@
 			return;
 		}
 		if (!publishTargetRuleId) {
-			setTargetStatus("Select a rule for this publish target.", "error");
+			setTargetStatus($t("Select a rule for this publish target."), "error");
 			return;
 		}
 
 		const fileName = publishTargetFile.trim();
 		if (!fileName) {
-			setTargetStatus("File name is required.", "error");
+			setTargetStatus($t("File name is required."), "error");
 			return;
 		}
 
@@ -305,12 +306,12 @@
 				: null;
 			const rule = $appState.aggregates.find((item) => item.id === publishTargetRuleId);
 			const fallbackName = rule ? `${rule.name} target` : fileName;
-			const next: AggregatePublishTarget = {
+				const next: AggregatePublishTarget = {
 				id: existing?.id ?? createId("pub"),
 				name: publishTargetName.trim() || fallbackName,
 				ruleId: publishTargetRuleId,
 				fileName,
-				description: publishTargetDescription.trim() || "SubMan aggregate",
+					description: publishTargetDescription.trim() || $t("SubMan aggregate"),
 				isPublic: publishTargetPublic,
 				lastPublishedAt: existing?.lastPublishedAt ?? null,
 				lastPublishedUrl: existing?.lastPublishedUrl ?? null,
@@ -321,25 +322,28 @@
 			selectedTargetId = next.id;
 			publishTargetName = next.name;
 			publishUrl = next.lastPublishedUrl;
-			setTargetStatus(existing ? "Publish target updated." : "Publish target saved.", "success");
-		} catch {
-			setTargetStatus("Failed to save publish target.", "error");
-		} finally {
-			targetSaving = false;
+				setTargetStatus(
+					existing ? $t("Publish target updated.") : $t("Publish target saved."),
+					"success"
+				);
+			} catch {
+				setTargetStatus($t("Failed to save publish target."), "error");
+			} finally {
+				targetSaving = false;
+			}
 		}
-	}
 
 	function deleteSelectedTarget() {
 		if (!selectedTargetId) {
 			return;
 		}
-		const ok = confirm("Delete this publish target? This does not delete gist files.");
+		const ok = confirm($t("Delete this publish target? This does not delete gist files."));
 		if (!ok) {
 			return;
 		}
 		removePublishTarget(selectedTargetId);
 		resetPublishTargetForm();
-		publishStatus = "Publish target deleted.";
+		publishStatus = $t("Publish target deleted.");
 	}
 
 	function summarizeList(values: string[], maxItems: number = 3): string {
@@ -376,14 +380,17 @@
 		}
 		const rule = $appState.aggregates.find((item) => item.id === editingRuleId);
 		if (!rule) {
-			setRuleStatus("Rule not found.", "error");
+			setRuleStatus($t("Rule not found."), "error");
 			resetRuleForm();
 			return;
 		}
 
 		const impact = collectRuleDeletionImpact(rule.id);
 		const deleteRuleConfirmed = confirm(
-			`Delete rule "${rule.name}"?\nThis will remove ${impact.targetsToRemove.length} publish target(s) bound to this rule.`
+			$t('Delete rule "{name}"?\nThis will remove {count} publish target(s) bound to this rule.', {
+				name: rule.name,
+				count: impact.targetsToRemove.length
+			})
 		);
 		if (!deleteRuleConfirmed) {
 			return;
@@ -395,7 +402,10 @@
 		if (impact.safeFilesToDelete.length > 0 && token && workspaceId) {
 			const fileSummary = summarizeList(impact.safeFilesToDelete);
 			deleteRemoteFiles = confirm(
-				`Also delete ${impact.safeFilesToDelete.length} workspace output file(s)?\n${fileSummary}`
+				$t("Also delete {count} workspace output file(s)?\n{files}", {
+					count: impact.safeFilesToDelete.length,
+					files: fileSummary
+				})
 			);
 		}
 
@@ -415,11 +425,16 @@
 			}
 
 			const statusMessages: string[] = [
-				`Rule deleted. Removed ${impact.targetsToRemove.length} publish target(s).`
+				$t("Rule deleted. Removed {count} publish target(s).", {
+					count: impact.targetsToRemove.length
+				})
 			];
 			if (impact.sharedFilesSkipped.length > 0) {
 				statusMessages.push(
-					`${impact.sharedFilesSkipped.length} shared file(s) kept: ${summarizeList(impact.sharedFilesSkipped)}.`
+					$t("{count} shared file(s) kept: {files}.", {
+						count: impact.sharedFilesSkipped.length,
+						files: summarizeList(impact.sharedFilesSkipped)
+					})
 				);
 			}
 
@@ -430,14 +445,17 @@
 					);
 					await updateGist(token, { gistId: workspaceId, files });
 					statusMessages.push(
-						`Deleted ${impact.safeFilesToDelete.length} workspace file(s): ${summarizeList(impact.safeFilesToDelete)}.`
+						$t("Deleted {count} workspace file(s): {files}.", {
+							count: impact.safeFilesToDelete.length,
+							files: summarizeList(impact.safeFilesToDelete)
+						})
 					);
 					setRuleStatus(statusMessages.join(" "), "success");
 				} catch (err) {
 					const errMessage =
-						err instanceof Error ? err.message : "Failed to delete workspace files.";
+						err instanceof Error ? err.message : $t("Failed to delete workspace files.");
 					setRuleStatus(
-						`${statusMessages.join(" ")} Workspace file cleanup failed: ${errMessage} Clean remaining files in /gists.`,
+						`${statusMessages.join(" ")} ${$t("Workspace file cleanup failed: {message} Clean remaining files in /gists.", { message: errMessage })}`,
 						"error"
 					);
 				}
@@ -447,11 +465,15 @@
 			if (impact.safeFilesToDelete.length > 0) {
 				if (!token || !workspaceId) {
 					statusMessages.push(
-						`Workspace files were not deleted (missing token or workspace gist): ${summarizeList(impact.safeFilesToDelete)}.`
+						$t("Workspace files were not deleted (missing token or workspace gist): {files}.", {
+							files: summarizeList(impact.safeFilesToDelete)
+						})
 					);
 				} else {
 					statusMessages.push(
-						`Workspace files kept: ${summarizeList(impact.safeFilesToDelete)}.`
+						$t("Workspace files kept: {files}.", {
+							files: summarizeList(impact.safeFilesToDelete)
+						})
 					);
 				}
 			}
@@ -524,10 +546,10 @@
 			return;
 		}
 
-		if (!ruleName.trim()) {
-			setRuleStatus("Rule name is required.", "error");
-			return;
-		}
+			if (!ruleName.trim()) {
+				setRuleStatus($t("Rule name is required."), "error");
+				return;
+			}
 
 		ruleSaving = true;
 		try {
@@ -556,12 +578,12 @@
 				}
 			}
 
-			setRuleStatus(wasEditing ? "Rule updated." : "Rule saved.", "success");
-		} catch {
-			setRuleStatus("Failed to save rule.", "error");
-		} finally {
-			ruleSaving = false;
-		}
+				setRuleStatus(wasEditing ? $t("Rule updated.") : $t("Rule saved."), "success");
+			} catch {
+				setRuleStatus($t("Failed to save rule."), "error");
+			} finally {
+				ruleSaving = false;
+			}
 	}
 
 	async function buildOutput() {
@@ -572,36 +594,36 @@
 		buildWarnings = [];
 		buildErrors = [];
 
-		if (!selectedTargetId) {
-			publishStatus = "Save and select a publish target first.";
-			return;
-		}
+			if (!selectedTargetId) {
+				publishStatus = $t("Save and select a publish target first.");
+				return;
+			}
 
-		const target = $appState.publishTargets.find((item) => item.id === selectedTargetId);
-		if (!target) {
-			publishStatus = "Publish target not found.";
-			return;
-		}
-		if (isPublishTargetDirty(target)) {
-			publishStatus = "Save target changes before building output.";
-			return;
-		}
+			const target = $appState.publishTargets.find((item) => item.id === selectedTargetId);
+			if (!target) {
+				publishStatus = $t("Publish target not found.");
+				return;
+			}
+			if (isPublishTargetDirty(target)) {
+				publishStatus = $t("Save target changes before building output.");
+				return;
+			}
 
-		const rule = $appState.aggregates.find((item) => item.id === target.ruleId);
-		if (!rule) {
-			publishStatus = "Selected target rule no longer exists.";
-			return;
-		}
+			const rule = $appState.aggregates.find((item) => item.id === target.ruleId);
+			if (!rule) {
+				publishStatus = $t("Selected target rule no longer exists.");
+				return;
+			}
 
 		publishing = true;
 		try {
 			const result = await buildAggregateOutput(rule, $appState.nodes, $appState.subscriptions);
 			outputContent = result.content;
-			buildWarnings = result.warnings;
-			buildErrors = result.errors;
-			publishStatus = result.content
-				? `Output ready for ${target.fileName}.`
-				: "No output generated.";
+				buildWarnings = result.warnings;
+				buildErrors = result.errors;
+				publishStatus = result.content
+					? $t("Output ready for {file}.", { file: target.fileName })
+					: $t("No output generated.");
 		} finally {
 			publishing = false;
 		}
@@ -610,25 +632,25 @@
 	async function publishOutput() {
 		publishStatus = null;
 		publishUrl = null;
-		const token = $authState.token;
-		if (!token) {
-			publishStatus = "Missing GitHub token. Connect first.";
-			return;
-		}
+			const token = $authState.token;
+			if (!token) {
+				publishStatus = $t("Missing GitHub token. Connect first.");
+				return;
+			}
 
-		if (!selectedTargetId) {
-			publishStatus = "Save and select a publish target first.";
-			return;
-		}
-		const target = $appState.publishTargets.find((item) => item.id === selectedTargetId);
-		if (!target) {
-			publishStatus = "Publish target not found.";
-			return;
-		}
-		if (isPublishTargetDirty(target)) {
-			publishStatus = "Save target changes before publishing.";
-			return;
-		}
+			if (!selectedTargetId) {
+				publishStatus = $t("Save and select a publish target first.");
+				return;
+			}
+			const target = $appState.publishTargets.find((item) => item.id === selectedTargetId);
+			if (!target) {
+				publishStatus = $t("Publish target not found.");
+				return;
+			}
+			if (isPublishTargetDirty(target)) {
+				publishStatus = $t("Save target changes before publishing.");
+				return;
+			}
 		if (!outputContent) {
 			await buildOutput();
 			if (!outputContent) {
@@ -681,47 +703,47 @@
 				updatedAt: publishedAt
 			});
 
-			publishStatus = publishUrl
-				? "Aggregation published."
-				: "Aggregation published (raw link unavailable).";
-		} catch (err) {
-			publishStatus = err instanceof Error ? err.message : "Failed to publish aggregation.";
-		} finally {
-			publishing = false;
-		}
+				publishStatus = publishUrl
+					? $t("Aggregation published.")
+					: $t("Aggregation published (raw link unavailable).");
+			} catch (err) {
+				publishStatus = err instanceof Error ? err.message : $t("Failed to publish aggregation.");
+			} finally {
+				publishing = false;
+			}
 	}
 
 	async function copyLink() {
 		if (!publishUrl) {
 			return;
 		}
-		try {
-			await navigator.clipboard.writeText(publishUrl);
-			publishStatus = "Link copied.";
-		} catch {
-			publishStatus = "Copy failed.";
+			try {
+				await navigator.clipboard.writeText(publishUrl);
+				publishStatus = $t("Link copied.");
+			} catch {
+				publishStatus = $t("Copy failed.");
+			}
 		}
-	}
-</script>
+	</script>
 
-<section class="flex flex-col gap-8">
-	<header>
-		<h1 class="text-2xl font-semibold">Aggregation Builder</h1>
-		<p class="mt-2 text-sm text-slate-300">
-			Select nodes and subscriptions, apply filters, and generate a single subscription output.
-		</p>
-	</header>
+	<section class="flex flex-col gap-8">
+		<header>
+			<h1 class="text-2xl font-semibold">{$t("Aggregation Builder")}</h1>
+			<p class="mt-2 text-sm text-slate-300">
+				{$t("Select nodes and subscriptions, apply filters, and generate a single subscription output.")}
+			</p>
+		</header>
 
 	<div class="grid gap-6 lg:grid-cols-3">
-		<div class="rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
-			<h2 class="text-lg font-semibold">Pick Sources</h2>
-			<p class="mt-2 text-xs text-slate-400">Choose individual nodes and subscriptions.</p>
-			<div class="mt-4 grid gap-4">
-				<div>
-					<p class="text-xs uppercase text-slate-400">Nodes</p>
-					<div class="mt-2 grid gap-2">
-						{#if $appState.nodes.length === 0}
-							<p class="text-xs text-slate-500">No nodes available.</p>
+			<div class="rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
+				<h2 class="text-lg font-semibold">{$t("Pick Sources")}</h2>
+				<p class="mt-2 text-xs text-slate-400">{$t("Choose individual nodes and subscriptions.")}</p>
+				<div class="mt-4 grid gap-4">
+					<div>
+						<p class="text-xs uppercase text-slate-400">{$t("Nodes")}</p>
+						<div class="mt-2 grid gap-2">
+							{#if $appState.nodes.length === 0}
+								<p class="text-xs text-slate-500">{$t("No nodes available.")}</p>
 						{:else}
 							{#each $appState.nodes as node}
 								<label class="flex items-center gap-2 text-sm">
@@ -736,11 +758,11 @@
 						{/if}
 					</div>
 				</div>
-				<div>
-					<p class="text-xs uppercase text-slate-400">Subscriptions</p>
-					<div class="mt-2 grid gap-2">
-						{#if $appState.subscriptions.length === 0}
-							<p class="text-xs text-slate-500">No subscriptions available.</p>
+					<div>
+						<p class="text-xs uppercase text-slate-400">{$t("Subscriptions")}</p>
+						<div class="mt-2 grid gap-2">
+							{#if $appState.subscriptions.length === 0}
+								<p class="text-xs text-slate-500">{$t("No subscriptions available.")}</p>
 						{:else}
 							{#each $appState.subscriptions as sub}
 								<label class="flex items-center gap-2 text-sm">
@@ -759,11 +781,11 @@
 			</div>
 		</div>
 
-		<div class="rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
-			<h2 class="text-lg font-semibold">Rules</h2>
-			<p class="mt-2 text-xs text-slate-400">
-				Edit names, remove tags, and prepare rename mappings.
-			</p>
+			<div class="rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
+				<h2 class="text-lg font-semibold">{$t("Rules")}</h2>
+				<p class="mt-2 text-xs text-slate-400">
+					{$t("Edit names, remove tags, and prepare rename mappings.")}
+				</p>
 			<div class="mt-4 grid gap-3">
 				<select
 					class="w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-sm"
@@ -780,28 +802,28 @@
 						}
 					}}
 				>
-					<option value="">New rule</option>
+						<option value="">{$t("New rule")}</option>
 					{#each $appState.aggregates as rule}
 						<option value={rule.id}>{rule.name}</option>
 					{/each}
 				</select>
-				<input
-					class="w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-sm"
-					placeholder="Rule name"
-					bind:value={ruleName}
-				/>
-				<input
-					class="w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-sm"
-					placeholder="Exclude tags (comma separated)"
-					bind:value={excludeTags}
-				/>
-				<textarea
-					class="min-h-[120px] w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-sm"
-					placeholder="Rename map: old=new per line"
-					bind:value={renameMap}
-				/>
-				<div>
-					<p class="text-xs uppercase text-slate-400">Protocols</p>
+					<input
+						class="w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-sm"
+						placeholder={$t("Rule name")}
+						bind:value={ruleName}
+					/>
+					<input
+						class="w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-sm"
+						placeholder={$t("Exclude tags (comma separated)")}
+						bind:value={excludeTags}
+					/>
+					<textarea
+						class="min-h-[120px] w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-sm"
+						placeholder={$t("Rename map: old=new per line")}
+						bind:value={renameMap}
+					/>
+					<div>
+						<p class="text-xs uppercase text-slate-400">{$t("Protocols")}</p>
 					<div class="mt-2 grid grid-cols-2 gap-2 text-xs md:grid-cols-4">
 						{#each protocolOptions as option}
 							<label class="flex items-center gap-2">
@@ -814,32 +836,32 @@
 							</label>
 						{/each}
 					</div>
-					<p class="mt-2 text-[11px] text-slate-500">
-						Leave empty to include all protocols.
-					</p>
-				</div>
+						<p class="mt-2 text-[11px] text-slate-500">
+							{$t("Leave empty to include all protocols.")}
+						</p>
+					</div>
 				<div class="flex flex-wrap gap-3">
 					<button
 						class="rounded-full border border-slate-700 px-4 py-2 text-sm font-semibold"
 						on:click={buildPreview}
-					>
-						Preview
-					</button>
+						>
+							{$t("Preview")}
+						</button>
 					<button
 						class="rounded-full bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-950 disabled:opacity-60"
 						on:click={saveRule}
 						disabled={ruleSaving}
-					>
-						{ruleSaving ? "Saving..." : editingRuleId ? "Update Rule" : "Save Rule"}
-					</button>
+						>
+							{ruleSaving ? $t("Saving...") : editingRuleId ? $t("Update Rule") : $t("Save Rule")}
+						</button>
 					<button
 						class="rounded-full border border-rose-700 px-4 py-2 text-sm font-semibold text-rose-200 disabled:opacity-40"
 						on:click={deleteSelectedRule}
 						disabled={!editingRuleId || ruleSaving || ruleDeleting}
-					>
-						{ruleDeleting ? "Deleting..." : "Delete Rule"}
-					</button>
-				</div>
+						>
+							{ruleDeleting ? $t("Deleting...") : $t("Delete Rule")}
+						</button>
+					</div>
 				{#if ruleStatus}
 					<p class={ruleStatusType === "error" ? "text-xs text-rose-300" : "text-xs text-emerald-300"}>
 						{ruleStatus}
@@ -848,17 +870,17 @@
 			</div>
 		</div>
 
-		<div class="rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
-			<h2 class="text-lg font-semibold">Preview</h2>
-			<p class="mt-2 text-xs text-slate-400">Processed output for the current selections.</p>
-			<pre class="mt-3 whitespace-pre-wrap rounded-xl border border-slate-800 bg-slate-950 p-3 text-xs text-slate-300">
-{previewSummary || "Summary will appear here."}
-			</pre>
-			<div class="mt-3 min-h-[200px] rounded-xl border border-slate-800 bg-slate-950 p-4 text-xs text-slate-200">
-				{#if previewLoading}
-					<p>Building preview...</p>
-				{:else if previewEntries.length === 0}
-					<p>No output generated.</p>
+			<div class="rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
+				<h2 class="text-lg font-semibold">{$t("Preview")}</h2>
+				<p class="mt-2 text-xs text-slate-400">{$t("Processed output for the current selections.")}</p>
+				<pre class="mt-3 whitespace-pre-wrap rounded-xl border border-slate-800 bg-slate-950 p-3 text-xs text-slate-300">
+	{previewSummary || $t("Summary will appear here.")}
+				</pre>
+				<div class="mt-3 min-h-[200px] rounded-xl border border-slate-800 bg-slate-950 p-4 text-xs text-slate-200">
+					{#if previewLoading}
+						<p>{$t("Building preview...")}</p>
+					{:else if previewEntries.length === 0}
+						<p>{$t("No output generated.")}</p>
 				{:else}
 					<div class="grid gap-2">
 						{#each previewEntries as entry}
@@ -872,7 +894,7 @@
 								>
 									<span class="text-slate-400">{entry.protocol}</span>
 									<span class="flex-1 truncate font-semibold text-slate-100">{entry.name}</span>
-									<span class="text-slate-500">View</span>
+										<span class="text-slate-500">{$t("View")}</span>
 								</button>
 								{#if previewExpandedLine === entry.line}
 									<div class="mt-2 rounded-md border border-slate-800 bg-slate-900/60 p-2 text-[11px] text-slate-200">
@@ -880,16 +902,16 @@
 										<button
 											class="mt-2 rounded-full border border-slate-700 px-3 py-1 text-[11px]"
 											on:click={async () => {
-												try {
-													await navigator.clipboard.writeText(entry.line);
-													previewStatus = "Line copied.";
-												} catch {
-													previewStatus = "Copy failed.";
-												}
-											}}
-										>
-											Copy Line
-										</button>
+													try {
+														await navigator.clipboard.writeText(entry.line);
+														previewStatus = $t("Line copied.");
+													} catch {
+														previewStatus = $t("Copy failed.");
+													}
+												}}
+											>
+												{$t("Copy Line")}
+											</button>
 									</div>
 								{/if}
 							</div>
@@ -897,7 +919,7 @@
 					</div>
 				{/if}
 			</div>
-			<p class="mt-3 text-xs text-slate-400">Lines: {previewLines}</p>
+				<p class="mt-3 text-xs text-slate-400">{$t("Lines: {count}", { count: previewLines })}</p>
 			{#if previewWarnings.length > 0}
 				<div class="mt-3 rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
 					{#each previewWarnings as warning}
@@ -918,11 +940,11 @@
 		</div>
 	</div>
 
-	<div class="rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
-		<h2 class="text-lg font-semibold">Publish Aggregation</h2>
-		<p class="mt-2 text-xs text-slate-400">
-			Bind rules to stable output files. Reuse one rule across multiple publish targets.
-		</p>
+		<div class="rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
+			<h2 class="text-lg font-semibold">{$t("Publish Aggregation")}</h2>
+			<p class="mt-2 text-xs text-slate-400">
+				{$t("Bind rules to stable output files. Reuse one rule across multiple publish targets.")}
+			</p>
 		<div class="mt-4 grid gap-3 text-sm md:grid-cols-2">
 			<select
 				class="w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2"
@@ -939,14 +961,14 @@
 					}
 				}}
 			>
-				<option value="">New publish target</option>
+					<option value="">{$t("New publish target")}</option>
 				{#each $appState.publishTargets as target}
 					<option value={target.id}>{target.name} -> {target.fileName}</option>
 				{/each}
 			</select>
 			<input
 				class="w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2"
-				placeholder="Target name"
+					placeholder={$t("Target name")}
 				bind:value={publishTargetName}
 			/>
 			<select
@@ -964,78 +986,83 @@
 					}
 				}}
 			>
-				<option value="">Select rule</option>
+					<option value="">{$t("Select rule")}</option>
 				{#each $appState.aggregates as rule}
 					<option value={rule.id}>{rule.name}</option>
 				{/each}
 			</select>
 			<input
 				class="w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2"
-				placeholder="File name (e.g. aggregate.txt)"
+					placeholder={$t("File name (e.g. aggregate.txt)")}
 				bind:value={publishTargetFile}
 			/>
 			<input
 				class="w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2"
-				placeholder="Gist description"
+					placeholder={$t("Gist description")}
 				bind:value={publishTargetDescription}
 			/>
 			<label class="inline-flex items-center gap-2 text-xs text-slate-300">
 				<input type="checkbox" class="h-4 w-4" bind:checked={publishTargetPublic} />
-				Public gist
-			</label>
-		</div>
+					{$t("Public gist")}
+				</label>
+			</div>
 		<div class="mt-4 flex flex-wrap gap-3">
 			<button
 				class="rounded-full border border-slate-700 px-4 py-2 text-sm font-semibold disabled:opacity-60"
 				on:click={savePublishTarget}
 				disabled={targetSaving}
-			>
-				{targetSaving ? "Saving..." : selectedTargetId ? "Update Target" : "Save Target"}
-			</button>
+				>
+					{targetSaving ? $t("Saving...") : selectedTargetId ? $t("Update Target") : $t("Save Target")}
+				</button>
 			<button
 				class="rounded-full border border-slate-700 px-4 py-2 text-sm font-semibold disabled:opacity-60"
 				on:click={resetPublishTargetForm}
 				disabled={targetSaving}
-			>
-				New Target
-			</button>
+				>
+					{$t("New Target")}
+				</button>
 			<button
 				class="rounded-full border border-rose-700 px-4 py-2 text-sm font-semibold text-rose-200 disabled:opacity-40"
 				on:click={deleteSelectedTarget}
 				disabled={!selectedTargetId || targetSaving}
-			>
-				Delete Target
-			</button>
+				>
+					{$t("Delete Target")}
+				</button>
 		</div>
 		{#if targetStatus}
 			<p class={targetStatusType === "error" ? "mt-3 text-xs text-rose-300" : "mt-3 text-xs text-emerald-300"}>
 				{targetStatus}
 			</p>
 		{/if}
-		{#if $appState.activeGistId}
-			<p class="mt-3 text-xs text-slate-400">
-				Using workspace gist: {$appState.activeGistId} (config file: {$appState.activeGistFile || "subman.json"})
-			</p>
-		{:else}
-			<p class="mt-3 text-xs text-slate-400">
-				No workspace gist selected. Publishing will create a new gist containing config and output files.
-			</p>
-		{/if}
+			{#if $appState.activeGistId}
+				<p class="mt-3 text-xs text-slate-400">
+					{$t("Using workspace gist: {id} (config file: {file})", {
+						id: $appState.activeGistId,
+						file: $appState.activeGistFile || "subman.json"
+					})}
+				</p>
+			{:else}
+				<p class="mt-3 text-xs text-slate-400">
+					{$t(
+						"No workspace gist selected. Publishing will create a new gist containing config and output files."
+					)}
+				</p>
+			{/if}
 		<div class="mt-4 flex flex-wrap gap-3">
 			<button
 				class="rounded-full border border-slate-700 px-4 py-2 text-sm font-semibold"
 				on:click={buildOutput}
 				disabled={publishing}
-			>
-				{publishing ? "Building..." : "Build Output"}
-			</button>
+				>
+					{publishing ? $t("Building...") : $t("Build Output")}
+				</button>
 			<button
 				class="rounded-full bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-950"
 				on:click={publishOutput}
 				disabled={publishing}
-			>
-				{publishing ? "Publishing..." : "Publish to Gist"}
-			</button>
+				>
+					{publishing ? $t("Publishing...") : $t("Publish to Gist")}
+				</button>
 		</div>
 		{#if publishStatus || publishUrl || buildErrors.length > 0 || buildWarnings.length > 0}
 			<div class="mt-4 rounded-xl border border-slate-800 bg-slate-950/70 p-4 text-xs text-slate-200">
@@ -1056,21 +1083,21 @@
 						{/each}
 					</div>
 				{/if}
-				{#if publishUrl}
-					<div class="mt-3 grid gap-2 text-xs text-slate-300">
-						<p>Subscription link</p>
+					{#if publishUrl}
+						<div class="mt-3 grid gap-2 text-xs text-slate-300">
+							<p>{$t("Subscription link")}</p>
 						<div class="flex flex-wrap items-center gap-2">
 							<input
 								class="flex-1 rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-xs text-slate-100"
 								readonly
 								value={publishUrl}
 							/>
-							<button
-								class="rounded-full border border-slate-700 px-3 py-2 text-xs font-semibold"
-								on:click={copyLink}
-							>
-								Copy Link
-							</button>
+								<button
+									class="rounded-full border border-slate-700 px-3 py-2 text-xs font-semibold"
+									on:click={copyLink}
+								>
+									{$t("Copy")}
+								</button>
 						</div>
 					</div>
 				{/if}

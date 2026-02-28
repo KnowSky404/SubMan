@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { GistMeta } from "$lib/models";
+	import { t } from "$lib/i18n";
 	import { appState } from "$lib/stores/app";
 	import { authState } from "$lib/stores/auth";
 	import { getGist, updateGist } from "$lib/gist";
@@ -25,20 +26,20 @@
 		const token = $authState.token;
 		const gistId = $appState.activeGistId;
 		if (!token) {
-			error = "Missing GitHub token. Configure workspace first.";
+			error = $t("Missing GitHub token. Configure workspace first.");
 			return;
 		}
 		if (!gistId) {
-			error = "Workspace gist not set. Configure workspace first.";
+			error = $t("Workspace gist not set. Configure workspace first.");
 			return;
 		}
 
 		loading = true;
 		try {
 			workspace = await getGist(token, gistId);
-			status = "Workspace gist refreshed.";
+			status = $t("Workspace gist refreshed.");
 		} catch (err) {
-			error = err instanceof Error ? err.message : "Failed to fetch workspace gist.";
+			error = err instanceof Error ? err.message : $t("Failed to fetch workspace gist.");
 		} finally {
 			loading = false;
 		}
@@ -47,14 +48,14 @@
 	async function copyLink(url?: string) {
 		status = null;
 		if (!url) {
-			status = "Raw link unavailable.";
+			status = $t("Raw link unavailable.");
 			return;
 		}
 		try {
 			await navigator.clipboard.writeText(url);
-			status = "Link copied.";
+			status = $t("Link copied.");
 		} catch {
-			status = "Copy failed.";
+			status = $t("Copy failed.");
 		}
 	}
 
@@ -76,15 +77,17 @@
 		const token = $authState.token;
 		const gistId = $appState.activeGistId;
 		if (!token || !gistId) {
-			error = "Missing workspace authorization.";
+			error = $t("Missing workspace authorization.");
 			return;
 		}
 		if (!canDelete(filename)) {
-			status = `${WORKSPACE_FILE} is protected and cannot be deleted.`;
+			status = $t("{file} is protected and cannot be deleted.", { file: WORKSPACE_FILE });
 			return;
 		}
 
-		const ok = confirm(`Delete ${filename} from workspace gist? This cannot be undone.`);
+		const ok = confirm(
+			$t("Delete {filename} from workspace gist? This cannot be undone.", { filename })
+		);
 		if (!ok) {
 			return;
 		}
@@ -112,9 +115,9 @@
 				),
 				lastUpdated: updatedAt
 			}));
-			status = `Deleted ${filename}.`;
+			status = $t("Deleted {filename}.", { filename });
 		} catch (err) {
-			error = err instanceof Error ? err.message : "Failed to delete file.";
+			error = err instanceof Error ? err.message : $t("Failed to delete file.");
 		} finally {
 			deleting = false;
 		}
@@ -126,11 +129,11 @@
 		const token = $authState.token;
 		const gistId = $appState.activeGistId;
 		if (!token || !gistId) {
-			error = "Missing workspace authorization.";
+			error = $t("Missing workspace authorization.");
 			return;
 		}
 		if (!workspace) {
-			status = "Refresh workspace first.";
+			status = $t("Refresh workspace first.");
 			return;
 		}
 
@@ -138,12 +141,15 @@
 			.map((file) => file.filename)
 			.filter((name) => !isConfigFile(name));
 		if (filesToDelete.length === 0) {
-			status = "No removable files found.";
+			status = $t("No removable files found.");
 			return;
 		}
 
 		const ok = confirm(
-			`Delete ${filesToDelete.length} workspace file(s) except ${WORKSPACE_FILE}? This cannot be undone.`
+			$t("Delete {count} workspace file(s) except {file}? This cannot be undone.", {
+				count: filesToDelete.length,
+				file: WORKSPACE_FILE
+			})
 		);
 		if (!ok) {
 			return;
@@ -172,36 +178,36 @@
 				),
 				lastUpdated: updatedAt
 			}));
-			status = `Deleted ${filesToDelete.length} file(s).`;
+			status = $t("Deleted {count} file(s).", { count: filesToDelete.length });
 		} catch (err) {
-			error = err instanceof Error ? err.message : "Failed to clean files.";
+			error = err instanceof Error ? err.message : $t("Failed to clean files.");
 		} finally {
 			deleting = false;
 		}
 	}
 </script>
 
-<section class="flex flex-col gap-6">
-	<div class="flex flex-wrap items-start justify-between gap-4">
-		<div>
-			<h1 class="text-2xl font-semibold">Gist Workspace</h1>
-			<p class="mt-2 text-sm text-slate-300">
-				View published files inside your workspace gist.
-			</p>
-		</div>
-		<div class="flex flex-wrap gap-3">
-			<a class="rounded-full border border-slate-700 px-4 py-2 text-sm font-semibold" href="/auth">
-				Open Workspace
-			</a>
+	<section class="flex flex-col gap-6">
+		<div class="flex flex-wrap items-start justify-between gap-4">
+			<div>
+				<h1 class="text-2xl font-semibold">{$t("Gist Workspace")}</h1>
+				<p class="mt-2 text-sm text-slate-300">
+					{$t("View published files inside your workspace gist.")}
+				</p>
+			</div>
+			<div class="flex flex-wrap gap-3">
+				<a class="rounded-full border border-slate-700 px-4 py-2 text-sm font-semibold" href="/auth">
+					{$t("Open Workspace")}
+				</a>
 			<button
 				class="rounded-full bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-950 disabled:opacity-50"
-				on:click={refreshWorkspace}
-				disabled={loading}
-			>
-				{loading ? "Loading..." : "Refresh"}
-			</button>
+					on:click={refreshWorkspace}
+					disabled={loading}
+				>
+					{loading ? $t("Loading...") : $t("Refresh")}
+				</button>
+			</div>
 		</div>
-	</div>
 
 	{#if error}
 		<div class="rounded-xl border border-rose-500/40 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">
@@ -213,70 +219,72 @@
 		<p class="text-xs text-slate-300">{status}</p>
 	{/if}
 
-	<div class="rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
-		<div class="flex items-center justify-between">
-			<h2 class="text-lg font-semibold">Workspace Files</h2>
-			<span class="text-xs text-slate-400">
-				{$appState.activeGistId ? $appState.activeGistId : "No workspace"}
-			</span>
-		</div>
-		<p class="mt-2 text-xs text-slate-400">
-			{WORKSPACE_FILE} is protected. All other workspace files can be deleted.
-		</p>
-		<div class="mt-3">
+		<div class="rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
+			<div class="flex items-center justify-between">
+				<h2 class="text-lg font-semibold">{$t("Workspace Files")}</h2>
+				<span class="text-xs text-slate-400">
+					{$appState.activeGistId ? $appState.activeGistId : $t("No workspace")}
+				</span>
+			</div>
+			<p class="mt-2 text-xs text-slate-400">
+				{$t("{file} is protected. All other workspace files can be deleted.", { file: WORKSPACE_FILE })}
+			</p>
+			<div class="mt-3">
 			<button
 				class="rounded-full border border-slate-700 px-4 py-2 text-xs font-semibold disabled:opacity-50"
-				on:click={cleanWorkspaceFiles}
-				disabled={deleting}
-			>
-				{deleting ? "Working..." : `Clean All Except ${WORKSPACE_FILE}`}
-			</button>
-		</div>
-		<div class="mt-4 grid gap-3">
-			{#if !workspace}
-				<p class="text-sm text-slate-400">Refresh to load files.</p>
-			{:else if workspace.files.length === 0}
-				<p class="text-sm text-slate-400">No files in workspace.</p>
-			{:else}
+					on:click={cleanWorkspaceFiles}
+					disabled={deleting}
+				>
+					{deleting
+						? $t("Working")
+						: $t("Clean All Except {file}", { file: WORKSPACE_FILE })}
+				</button>
+			</div>
+			<div class="mt-4 grid gap-3">
+				{#if !workspace}
+					<p class="text-sm text-slate-400">{$t("Refresh to load files.")}</p>
+				{:else if workspace.files.length === 0}
+					<p class="text-sm text-slate-400">{$t("No files in workspace.")}</p>
+				{:else}
 				{#each workspace.files as file}
 					<div class="rounded-xl border border-slate-800/80 bg-slate-950/60 px-4 py-3">
 						<div class="flex flex-wrap items-center justify-between gap-3">
 							<div>
 								<p class="text-sm font-semibold">{file.filename}</p>
 								<p class="text-xs text-slate-400">{file.size} bytes</p>
-								{#if isConfigFile(file.filename)}
-									<p class="text-[11px] text-sky-300">Workspace config</p>
-								{:else if isManagedOutput(file.filename)}
-									<p class="text-[11px] text-emerald-300">Managed output</p>
-								{:else}
-									<p class="text-[11px] text-slate-500">Unmanaged file</p>
-								{/if}
-							</div>
-							<div class="flex items-center gap-2 text-xs">
+									{#if isConfigFile(file.filename)}
+										<p class="text-[11px] text-sky-300">{$t("Workspace config")}</p>
+									{:else if isManagedOutput(file.filename)}
+										<p class="text-[11px] text-emerald-300">{$t("Managed output")}</p>
+									{:else}
+										<p class="text-[11px] text-slate-500">{$t("Unmanaged file")}</p>
+									{/if}
+								</div>
+								<div class="flex items-center gap-2 text-xs">
 								{#if file.rawUrl}
 									<a
 										class="text-slate-300 hover:text-white"
 										href={file.rawUrl}
-										target="_blank"
-										rel="noreferrer"
+											target="_blank"
+											rel="noreferrer"
+										>
+											{$t("Open")}
+										</a>
+									{/if}
+									<button
+										class="rounded-full border border-slate-700 px-3 py-1"
+										on:click={() => copyLink(file.rawUrl)}
 									>
-										Open
-									</a>
-								{/if}
-								<button
-									class="rounded-full border border-slate-700 px-3 py-1"
-									on:click={() => copyLink(file.rawUrl)}
-								>
-									Copy Link
-								</button>
+										{$t("Copy")}
+									</button>
 								<button
 									class="rounded-full border border-rose-700 px-3 py-1 text-rose-200 disabled:opacity-50"
-									on:click={() => deleteWorkspaceFile(file.filename)}
-									disabled={!canDelete(file.filename) || deleting}
-								>
-									Delete
-								</button>
-							</div>
+										on:click={() => deleteWorkspaceFile(file.filename)}
+										disabled={!canDelete(file.filename) || deleting}
+									>
+										{$t("Delete")}
+									</button>
+								</div>
 						</div>
 					</div>
 				{/each}
