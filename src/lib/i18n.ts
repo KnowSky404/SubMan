@@ -15,6 +15,7 @@ const zhCN: Record<string, string> = {
 	Workspace: "工作区",
 	"Gist-first Proxy Manager": "Gist 优先代理管理器",
 	Language: "语言",
+	GitHub: "GitHub",
 	English: "English",
 	"简体中文": "简体中文",
 	"Workspace Gist subscription hub for proxy nodes": "面向代理节点的 Workspace Gist 订阅中心",
