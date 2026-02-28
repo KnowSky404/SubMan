@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onDestroy } from "svelte";
 	import {
 		appState,
 		removePublishTarget,
@@ -29,6 +30,10 @@
 	let previewExpandedLine: string | null = null;
 	let previewEntries: { id: string; line: string; protocol: string; name: string }[] = [];
 	let previewStatus: string | null = null;
+	let ruleSaving = false;
+	let ruleStatus: string | null = null;
+	let ruleStatusType: "success" | "error" | null = null;
+	let ruleStatusTimer: ReturnType<typeof setTimeout> | null = null;
 
 	let selectedTargetId = "";
 	let publishTargetName = "";
@@ -131,6 +136,24 @@
 		return Object.fromEntries(entries.filter((entry) => entry.length === 2));
 	}
 
+	function setRuleStatus(message: string, type: "success" | "error") {
+		ruleStatus = message;
+		ruleStatusType = type;
+		if (ruleStatusTimer) {
+			clearTimeout(ruleStatusTimer);
+		}
+		ruleStatusTimer = setTimeout(() => {
+			ruleStatus = null;
+			ruleStatusType = null;
+		}, 2200);
+	}
+
+	onDestroy(() => {
+		if (ruleStatusTimer) {
+			clearTimeout(ruleStatusTimer);
+		}
+	});
+
 	function toggleType(type: ProxyType) {
 		allowedTypes = allowedTypes.includes(type)
 			? allowedTypes.filter((item) => item !== type)
@@ -200,6 +223,12 @@
 		previewEntries = [];
 		previewExpandedLine = null;
 		previewStatus = null;
+		ruleStatus = null;
+		ruleStatusType = null;
+		if (ruleStatusTimer) {
+			clearTimeout(ruleStatusTimer);
+			ruleStatusTimer = null;
+		}
 	}
 
 	function loadPublishTarget(target: AggregatePublishTarget) {
@@ -336,33 +365,48 @@
 		}
 	}
 
-	function saveRule() {
-		if (!ruleName) {
+	async function saveRule() {
+		if (ruleSaving) {
 			return;
 		}
 
-		const ruleId = editingRuleId || createId("agg");
-		const rule: AggregateRule = {
-			id: ruleId,
-			name: ruleName,
-			nodeIds: selectedNodeIds,
-			subscriptionIds: selectedSubscriptionIds,
-			excludeTagIds: excludeTags
-				.split(",")
-				.map((tag) => tag.trim())
-				.filter(Boolean),
-			renameMap: parseRenameMap(renameMap),
-			allowedTypes,
-			updatedAt: nowIso()
-		};
+		if (!ruleName.trim()) {
+			setRuleStatus("Rule name is required.", "error");
+			return;
+		}
 
-		upsertAggregate(rule);
-		editingRuleId = ruleId;
-		if (!selectedTargetId) {
-			publishTargetRuleId = ruleId;
-			if (!publishTargetFile || publishTargetFile === "subman-aggregate.txt") {
-				publishTargetFile = suggestPublishFile(rule.name);
+		ruleSaving = true;
+		try {
+			const wasEditing = Boolean(editingRuleId);
+			const ruleId = editingRuleId || createId("agg");
+			const rule: AggregateRule = {
+				id: ruleId,
+				name: ruleName.trim(),
+				nodeIds: selectedNodeIds,
+				subscriptionIds: selectedSubscriptionIds,
+				excludeTagIds: excludeTags
+					.split(",")
+					.map((tag) => tag.trim())
+					.filter(Boolean),
+				renameMap: parseRenameMap(renameMap),
+				allowedTypes,
+				updatedAt: nowIso()
+			};
+
+			upsertAggregate(rule);
+			editingRuleId = ruleId;
+			if (!selectedTargetId) {
+				publishTargetRuleId = ruleId;
+				if (!publishTargetFile || publishTargetFile === "subman-aggregate.txt") {
+					publishTargetFile = suggestPublishFile(rule.name);
+				}
 			}
+
+			setRuleStatus(wasEditing ? "Rule updated." : "Rule saved.", "success");
+		} catch {
+			setRuleStatus("Failed to save rule.", "error");
+		} finally {
+			ruleSaving = false;
 		}
 	}
 
@@ -628,12 +672,18 @@
 						Preview
 					</button>
 					<button
-						class="rounded-full bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-950"
+						class="rounded-full bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-950 disabled:opacity-60"
 						on:click={saveRule}
+						disabled={ruleSaving}
 					>
-						{editingRuleId ? "Update Rule" : "Save Rule"}
+						{ruleSaving ? "Saving..." : editingRuleId ? "Update Rule" : "Save Rule"}
 					</button>
 				</div>
+				{#if ruleStatus}
+					<p class={ruleStatusType === "error" ? "text-xs text-rose-300" : "text-xs text-emerald-300"}>
+						{ruleStatus}
+					</p>
+				{/if}
 			</div>
 		</div>
 
