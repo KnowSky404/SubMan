@@ -47,6 +47,7 @@ Gist-first 的代理订阅管理工具（VLESS/VMess 等）。纯前端实现。
 - 每次修改后直接提交 commit
 - 所有文件写入同一个 Workspace Gist
 - coding 过程中如需执行 `pnpm` 命令，先把命令发给用户，由用户手动执行后再继续
+- 涉及依赖变更时仅使用默认 `pnpm` 命令：`pnpm add <pkg>`、`pnpm add -D <pkg>`、`pnpm remove <pkg>`；不要添加任何自定义包存储路径参数（如 `--store-dir`），保持 `pnpm` 默认存储路径
 
 ## 后续方向
 - 更强的订阅解析与聚合能力
