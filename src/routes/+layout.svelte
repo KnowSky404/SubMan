@@ -1,4 +1,4 @@
-<script>
+<script lang="ts">
 	import "../app.css";
 	import { onMount } from "svelte";
 	import { page } from "$app/stores";
@@ -35,10 +35,10 @@
 	let isMobileMenuOpen = false;
 
 	$: pathname = $page.url.pathname;
-	$: isActive = (href) => (href === "/" ? pathname === "/" : pathname.startsWith(href));
+	$: isActive = (href: string) => (href === "/" ? pathname === "/" : pathname.startsWith(href));
 	$: isConnected = !!($authState.token && $appState.activeGistId);
 
-	function handleLocaleChange(nextLocale) {
+	function handleLocaleChange(nextLocale: string) {
 		if (nextLocale === "en" || nextLocale === "zh-CN") {
 			locale.set(nextLocale);
 		}
@@ -161,11 +161,13 @@
 
 	<!-- Mobile Nav -->
 	{#if isMobileMenuOpen}
-		<div 
+		<button
+			type="button"
+			aria-label="Close menu"
 			class="fixed inset-0 z-40 bg-[#020617]/60 backdrop-blur-md md:hidden"
 			on:click={toggleMobileMenu}
 			transition:fade={{ duration: 200 }}
-		></div>
+		></button>
 		<nav 
 			class="fixed inset-y-0 right-0 z-50 w-64 border-l border-slate-800 bg-[#0f172a] p-6 shadow-2xl md:hidden"
 			transition:fly={{ x: 300, duration: 300 }}

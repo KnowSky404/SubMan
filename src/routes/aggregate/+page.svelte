@@ -486,23 +486,23 @@
 					</select>
 				</div>
 
-				<div class="grid gap-6">
-					<div class="space-y-2">
-						<label class="text-[10px] font-bold uppercase tracking-widest text-slate-500 ml-1">{$t("Rule Name")}</label>
-						<input 
-							class="w-full rounded-2xl border border-slate-800 bg-slate-950 px-5 py-3 text-sm text-white outline-none focus:border-indigo-500/50 transition-all"
-							placeholder={$t("Global Proxy Rule...")}
-							bind:value={ruleName}
-						/>
+					<div class="grid gap-6">
+						<div class="space-y-2">
+							<p class="text-[10px] font-bold uppercase tracking-widest text-slate-500 ml-1">{$t("Rule Name")}</p>
+							<input 
+								class="w-full rounded-2xl border border-slate-800 bg-slate-950 px-5 py-3 text-sm text-white outline-none focus:border-indigo-500/50 transition-all"
+								placeholder={$t("Global Proxy Rule...")}
+								bind:value={ruleName}
+							/>
 					</div>
 
-					<!-- Source Picker -->
-					<div class="grid gap-6 sm:grid-cols-2">
-						<div class="space-y-3">
-							<div class="flex items-center justify-between">
-								<label class="text-[10px] font-bold uppercase tracking-widest text-slate-500 ml-1">{$t("Nodes")}</label>
-								<span class="text-[10px] text-slate-600 font-bold">{selectedNodeIds.length}</span>
-							</div>
+						<!-- Source Picker -->
+						<div class="grid gap-6 sm:grid-cols-2">
+							<div class="space-y-3">
+								<div class="flex items-center justify-between">
+									<p class="text-[10px] font-bold uppercase tracking-widest text-slate-500 ml-1">{$t("Nodes")}</p>
+									<span class="text-[10px] text-slate-600 font-bold">{selectedNodeIds.length}</span>
+								</div>
 							<div class="max-h-48 overflow-y-auto rounded-2xl border border-slate-800 bg-slate-950/50 p-3 space-y-1 custom-scrollbar">
 								{#each $appState.nodes as node}
 									<label class="flex items-center gap-3 p-2 rounded-xl hover:bg-slate-800/40 transition-colors cursor-pointer group">
@@ -519,12 +519,12 @@
 									<p class="text-[10px] text-slate-600 italic p-2 text-center">{$t("No nodes available")}</p>
 								{/if}
 							</div>
-						</div>
-						<div class="space-y-3">
-							<div class="flex items-center justify-between">
-								<label class="text-[10px] font-bold uppercase tracking-widest text-slate-500 ml-1">{$t("Subscriptions")}</label>
-								<span class="text-[10px] text-slate-600 font-bold">{selectedSubscriptionIds.length}</span>
 							</div>
+							<div class="space-y-3">
+								<div class="flex items-center justify-between">
+									<p class="text-[10px] font-bold uppercase tracking-widest text-slate-500 ml-1">{$t("Subscriptions")}</p>
+									<span class="text-[10px] text-slate-600 font-bold">{selectedSubscriptionIds.length}</span>
+								</div>
 							<div class="max-h-48 overflow-y-auto rounded-2xl border border-slate-800 bg-slate-950/50 p-3 space-y-1 custom-scrollbar">
 								{#each $appState.subscriptions as sub}
 									<label class="flex items-center gap-3 p-2 rounded-xl hover:bg-slate-800/40 transition-colors cursor-pointer group">
@@ -544,18 +544,18 @@
 						</div>
 					</div>
 
-					<div class="grid gap-6 sm:grid-cols-2">
-						<div class="space-y-2">
-							<label class="text-[10px] font-bold uppercase tracking-widest text-slate-500 ml-1">{$t("Exclude Tags")}</label>
-							<input 
-								class="w-full rounded-2xl border border-slate-800 bg-slate-950 px-5 py-3 text-sm text-white outline-none focus:border-indigo-500/50"
-								placeholder={$t("domestic, gaming...")}
-								bind:value={excludeTags}
-							/>
-						</div>
-						<div class="space-y-2">
-							<label class="text-[10px] font-bold uppercase tracking-widest text-slate-500 ml-1">{$t("Allowed Protocols")}</label>
-							<div class="flex flex-wrap gap-2">
+						<div class="grid gap-6 sm:grid-cols-2">
+							<div class="space-y-2">
+								<p class="text-[10px] font-bold uppercase tracking-widest text-slate-500 ml-1">{$t("Exclude Tags")}</p>
+								<input 
+									class="w-full rounded-2xl border border-slate-800 bg-slate-950 px-5 py-3 text-sm text-white outline-none focus:border-indigo-500/50"
+									placeholder={$t("domestic, gaming...")}
+									bind:value={excludeTags}
+								/>
+							</div>
+							<div class="space-y-2">
+								<p class="text-[10px] font-bold uppercase tracking-widest text-slate-500 ml-1">{$t("Allowed Protocols")}</p>
+								<div class="flex flex-wrap gap-2">
 								{#each protocolOptions as opt}
 									<button 
 										on:click={() => toggleType(opt.id)}
@@ -569,17 +569,17 @@
 								{/each}
 							</div>
 						</div>
-					</div>
+						</div>
 
-					<div class="space-y-2">
-						<label class="text-[10px] font-bold uppercase tracking-widest text-slate-500 ml-1">{$t("Node Rename Mapping")}</label>
-						<textarea 
-							class="w-full h-24 rounded-2xl border border-slate-800 bg-slate-950 px-5 py-3 text-xs font-mono text-white outline-none focus:border-indigo-500/50 custom-scrollbar"
-							placeholder="Original Name = New Name&#10;HK-01 = Hong Kong Premium"
-							bind:value={renameMap}
-						/>
+						<div class="space-y-2">
+							<p class="text-[10px] font-bold uppercase tracking-widest text-slate-500 ml-1">{$t("Node Rename Mapping")}</p>
+							<textarea 
+								class="w-full h-24 rounded-2xl border border-slate-800 bg-slate-950 px-5 py-3 text-xs font-mono text-white outline-none focus:border-indigo-500/50 custom-scrollbar"
+								placeholder="Original Name = New Name&#10;HK-01 = Hong Kong Premium"
+								bind:value={renameMap}
+							></textarea>
+						</div>
 					</div>
-				</div>
 
 				<div class="flex items-center gap-3 pt-4">
 					<button 
@@ -670,7 +670,7 @@
 
 				<div class="space-y-4">
 					<div class="space-y-2">
-						<label class="text-[10px] font-bold uppercase tracking-widest text-slate-500">{$t("Publish Target")}</label>
+						<p class="text-[10px] font-bold uppercase tracking-widest text-slate-500">{$t("Publish Target")}</p>
 						<select 
 							class="w-full rounded-xl border border-slate-800 bg-slate-950 px-4 py-2.5 text-sm text-white outline-none focus:border-indigo-500/50"
 							value={selectedTargetId}
@@ -688,7 +688,7 @@
 					</div>
 
 					<div class="space-y-2">
-						<label class="text-[10px] font-bold uppercase tracking-widest text-slate-500">{$t("Target Name")}</label>
+						<p class="text-[10px] font-bold uppercase tracking-widest text-slate-500">{$t("Target Name")}</p>
 						<input 
 							class="w-full rounded-xl border border-slate-800 bg-slate-950 px-4 py-2.5 text-sm text-white outline-none focus:border-indigo-500/50"
 							placeholder={$t("Clash Config...")}
@@ -697,7 +697,7 @@
 					</div>
 
 					<div class="space-y-2">
-						<label class="text-[10px] font-bold uppercase tracking-widest text-slate-500">{$t("Select rule")}</label>
+						<p class="text-[10px] font-bold uppercase tracking-widest text-slate-500">{$t("Select rule")}</p>
 						<select
 							class="w-full rounded-xl border border-slate-800 bg-slate-950 px-4 py-2.5 text-sm text-white outline-none focus:border-indigo-500/50 disabled:opacity-50"
 							bind:value={publishTargetRuleId}
@@ -714,7 +714,7 @@
 					</div>
 
 					<div class="space-y-2">
-						<label class="text-[10px] font-bold uppercase tracking-widest text-slate-500">{$t("File Name")}</label>
+						<p class="text-[10px] font-bold uppercase tracking-widest text-slate-500">{$t("File Name")}</p>
 						<input 
 							class="w-full rounded-xl border border-slate-800 bg-slate-950 px-4 py-2.5 text-sm font-mono text-white outline-none focus:border-indigo-500/50"
 							placeholder="config.txt"

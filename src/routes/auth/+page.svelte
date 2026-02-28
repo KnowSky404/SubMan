@@ -170,46 +170,48 @@
 	}
 
 	async function handleResolveConflict(action: "local" | "remote" | "merge") {
-		if (!conflict || !$authState.token) return;
+		const activeConflict = conflict;
+		if (!activeConflict || !$authState.token) return;
 		workspaceBusy = true;
 		status = null;
 
 		try {
 			if (action === "remote") {
-				applyWorkspaceState(conflict.remoteState, conflict.gistId);
-				setSyncBaseline(conflict.remotePayload);
+				applyWorkspaceState(activeConflict.remoteState, activeConflict.gistId);
+				setSyncBaseline(activeConflict.remotePayload);
 				setStatus($t("Remote data loaded."), 'success');
 				conflict = null;
 				return;
 			}
 
 			const token = $authState.token;
+			if (!token) return;
 			if (action === "local") {
 				await updateGist(token, {
-					gistId: conflict.gistId,
-					files: { [WORKSPACE_FILE]: { content: conflict.localPayload } }
+					gistId: activeConflict.gistId,
+					files: { [WORKSPACE_FILE]: { content: activeConflict.localPayload } }
 				});
 				appState.update((state) => ({
 					...state,
-					activeGistId: conflict.gistId,
+					activeGistId: activeConflict.gistId,
 					activeGistFile: WORKSPACE_FILE,
 					lastUpdated: nowIso()
 				}));
-				setSyncBaseline(conflict.localPayload);
+				setSyncBaseline(activeConflict.localPayload);
 				setStatus($t("Local data pushed."), 'success');
 				conflict = null;
 				return;
 			}
 
-			const merged = mergeSyncState($appState, conflict.remoteState);
+			const merged = mergeSyncState($appState, activeConflict.remoteState);
 			const mergedState: AppState = { ...$appState, ...merged, lastUpdated: nowIso() };
 			const mergedPayload = exportSyncState(mergedState);
 			await updateGist(token, {
-				gistId: conflict.gistId,
+				gistId: activeConflict.gistId,
 				files: { [WORKSPACE_FILE]: { content: mergedPayload } }
 			});
 
-			applyWorkspaceState(mergedState, conflict.gistId);
+			applyWorkspaceState(mergedState, activeConflict.gistId);
 			setSyncBaseline(mergedPayload);
 			setStatus($t("Merged data saved."), 'success');
 			conflict = null;
@@ -538,7 +540,7 @@
 				class="min-h-[200px] w-full rounded-2xl border border-slate-800 bg-slate-950/80 px-5 py-4 text-xs font-mono text-slate-400 placeholder:text-slate-700 outline-none focus:border-slate-600 transition-all"
 				placeholder={$t("Exported JSON will appear here. Paste JSON to import.")}
 				bind:value={payload}
-			/>
+			></textarea>
 			<div class="absolute inset-0 rounded-2xl pointer-events-none border border-white/5 opacity-0 group-hover:opacity-100 transition-opacity"></div>
 		</div>
 	</section>

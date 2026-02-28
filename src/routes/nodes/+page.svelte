@@ -144,6 +144,7 @@
 		vmess: "bg-purple-500/10 text-purple-400 border-purple-500/20",
 		trojan: "bg-rose-500/10 text-rose-400 border-rose-500/20",
 		ss: "bg-amber-500/10 text-amber-400 border-amber-500/20",
+		ssr: "bg-fuchsia-500/10 text-fuchsia-400 border-fuchsia-500/20",
 		hysteria2: "bg-cyan-500/10 text-cyan-400 border-cyan-500/20",
 		tuic: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
 		other: "bg-slate-500/10 text-slate-400 border-slate-500/20"
@@ -205,6 +206,7 @@
 							<option value="vmess">VMess</option>
 							<option value="trojan">Trojan</option>
 							<option value="ss">Shadowsocks</option>
+							<option value="ssr">SSR</option>
 							<option value="hysteria2">Hysteria2</option>
 							<option value="tuic">TUIC</option>
 							<option value="other">Other</option>
@@ -215,7 +217,7 @@
 							class="w-full h-[104px] rounded-xl border border-slate-800 bg-slate-950 px-4 py-3 text-xs font-mono text-white placeholder:text-slate-600 outline-none focus:border-indigo-500/50 transition-all"
 							placeholder={$t("Raw node URI (vless://...)")}
 							bind:value={nodeRaw}
-						/>
+						></textarea>
 					</div>
 					<div class="sm:col-span-2">
 						<input
@@ -375,48 +377,49 @@
 						</div>
 
 						{#if expandedId === node.id}
-							<div transition:slide class="border-t border-slate-800/60 p-5 bg-slate-950/40 space-y-4">
-								<div class="grid gap-4 sm:grid-cols-2">
+								<div transition:slide class="border-t border-slate-800/60 p-5 bg-slate-950/40 space-y-4">
+									<div class="grid gap-4 sm:grid-cols-2">
+										<div class="space-y-1.5">
+											<p class="text-[10px] font-bold uppercase tracking-widest text-slate-500 ml-1">{$t("Name")}</p>
+											<input 
+												class="w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-indigo-500/40 transition-all"
+												value={node.name}
+												on:input={(e) => upsertNode({...node, name: e.currentTarget.value, updatedAt: nowIso()})}
+											/>
+										</div>
+										<div class="space-y-1.5">
+											<p class="text-[10px] font-bold uppercase tracking-widest text-slate-500 ml-1">{$t("Type")}</p>
+											<select 
+												class="w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-indigo-500/40 transition-all"
+												value={node.type}
+												on:change={(e) => upsertNode({...node, type: e.currentTarget.value as ProxyType, updatedAt: nowIso()})}
+											>
+												<option value="vless">VLESS</option>
+												<option value="vmess">VMess</option>
+												<option value="trojan">Trojan</option>
+												<option value="ss">Shadowsocks</option>
+												<option value="ssr">SSR</option>
+												<option value="hysteria2">Hysteria2</option>
+												<option value="tuic">TUIC</option>
+												<option value="other">Other</option>
+											</select>
+										</div>
+									</div>
 									<div class="space-y-1.5">
-										<label class="text-[10px] font-bold uppercase tracking-widest text-slate-500 ml-1">{$t("Name")}</label>
+										<p class="text-[10px] font-bold uppercase tracking-widest text-slate-500 ml-1">{$t("Raw URI")}</p>
+										<textarea 
+											class="w-full h-24 rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-xs font-mono text-white outline-none focus:border-indigo-500/40 transition-all"
+											value={node.raw}
+											on:input={(e) => upsertNode({...node, raw: e.currentTarget.value, updatedAt: nowIso()})}
+										></textarea>
+									</div>
+									<div class="space-y-1.5">
+										<p class="text-[10px] font-bold uppercase tracking-widest text-slate-500 ml-1">{$t("Tags (comma separated)")}</p>
 										<input 
 											class="w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-indigo-500/40 transition-all"
-											value={node.name}
-											on:input={(e) => upsertNode({...node, name: e.currentTarget.value, updatedAt: nowIso()})}
+											value={node.tags.map(t => t.label).join(", ")}
+											on:change={(e) => upsertNode({...node, tags: parseTags(e.currentTarget.value), updatedAt: nowIso()})}
 										/>
-									</div>
-									<div class="space-y-1.5">
-										<label class="text-[10px] font-bold uppercase tracking-widest text-slate-500 ml-1">{$t("Type")}</label>
-										<select 
-											class="w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-indigo-500/40 transition-all"
-											value={node.type}
-											on:change={(e) => upsertNode({...node, type: e.currentTarget.value, updatedAt: nowIso()})}
-										>
-											<option value="vless">VLESS</option>
-											<option value="vmess">VMess</option>
-											<option value="trojan">Trojan</option>
-											<option value="ss">Shadowsocks</option>
-											<option value="hysteria2">Hysteria2</option>
-											<option value="tuic">TUIC</option>
-											<option value="other">Other</option>
-										</select>
-									</div>
-								</div>
-								<div class="space-y-1.5">
-									<label class="text-[10px] font-bold uppercase tracking-widest text-slate-500 ml-1">{$t("Raw URI")}</label>
-									<textarea 
-										class="w-full h-24 rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-xs font-mono text-white outline-none focus:border-indigo-500/40 transition-all"
-										value={node.raw}
-										on:input={(e) => upsertNode({...node, raw: e.currentTarget.value, updatedAt: nowIso()})}
-									/>
-								</div>
-								<div class="space-y-1.5">
-									<label class="text-[10px] font-bold uppercase tracking-widest text-slate-500 ml-1">{$t("Tags (comma separated)")}</label>
-									<input 
-										class="w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-indigo-500/40 transition-all"
-										value={node.tags.map(t => t.label).join(", ")}
-										on:change={(e) => upsertNode({...node, tags: parseTags(e.currentTarget.value), updatedAt: nowIso()})}
-									/>
 								</div>
 							</div>
 						{/if}
@@ -485,31 +488,31 @@
 						</div>
 
 						{#if expandedId === sub.id}
-							<div transition:slide class="border-t border-slate-800/60 p-5 bg-slate-950/40 space-y-4">
-								<div class="grid gap-4 sm:grid-cols-2">
-									<div class="space-y-1.5">
-										<label class="text-[10px] font-bold uppercase tracking-widest text-slate-500 ml-1">{$t("Name")}</label>
-										<input 
-											class="w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-indigo-500/40 transition-all"
-											value={sub.name}
-											on:input={(e) => upsertSubscription({...sub, name: e.currentTarget.value, updatedAt: nowIso()})}
-										/>
+								<div transition:slide class="border-t border-slate-800/60 p-5 bg-slate-950/40 space-y-4">
+									<div class="grid gap-4 sm:grid-cols-2">
+										<div class="space-y-1.5">
+											<p class="text-[10px] font-bold uppercase tracking-widest text-slate-500 ml-1">{$t("Name")}</p>
+											<input 
+												class="w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-indigo-500/40 transition-all"
+												value={sub.name}
+												on:input={(e) => upsertSubscription({...sub, name: e.currentTarget.value, updatedAt: nowIso()})}
+											/>
+										</div>
+										<div class="space-y-1.5">
+											<p class="text-[10px] font-bold uppercase tracking-widest text-slate-500 ml-1">{$t("URL")}</p>
+											<input 
+												class="w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-indigo-500/40 transition-all"
+												value={sub.url}
+												on:input={(e) => upsertSubscription({...sub, url: e.currentTarget.value, updatedAt: nowIso()})}
+											/>
+										</div>
 									</div>
 									<div class="space-y-1.5">
-										<label class="text-[10px] font-bold uppercase tracking-widest text-slate-500 ml-1">{$t("URL")}</label>
+										<p class="text-[10px] font-bold uppercase tracking-widest text-slate-500 ml-1">{$t("Tags (comma separated)")}</p>
 										<input 
 											class="w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-indigo-500/40 transition-all"
-											value={sub.url}
-											on:input={(e) => upsertSubscription({...sub, url: e.currentTarget.value, updatedAt: nowIso()})}
-										/>
-									</div>
-								</div>
-								<div class="space-y-1.5">
-									<label class="text-[10px] font-bold uppercase tracking-widest text-slate-500 ml-1">{$t("Tags (comma separated)")}</label>
-									<input 
-										class="w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-indigo-500/40 transition-all"
-										value={sub.tags.map(t => t.label).join(", ")}
-										on:change={(e) => upsertSubscription({...sub, tags: parseTags(e.currentTarget.value), updatedAt: nowIso()})}
+											value={sub.tags.map(t => t.label).join(", ")}
+											on:change={(e) => upsertSubscription({...sub, tags: parseTags(e.currentTarget.value), updatedAt: nowIso()})}
 									/>
 								</div>
 							</div>
