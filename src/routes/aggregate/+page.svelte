@@ -16,6 +16,7 @@
 	import { WORKSPACE_FILE } from "$lib/workspace";
 	import { createId } from "$lib/utils/id";
 	import { nowIso } from "$lib/utils/time";
+	import { requestConfirm } from "$lib/stores/confirm";
 	import { cn } from "$lib/utils/cn";
 	import { 
 		Zap, 
@@ -234,12 +235,16 @@
 
 		const boundTargets = $appState.publishTargets.filter((target) => target.ruleId === editingRuleId);
 		const shouldResetTarget = boundTargets.some((target) => target.id === selectedTargetId);
-		const confirmed = confirm(
-			$t('Delete rule "{name}"?\nThis will remove {count} publish target(s) bound to this rule.', {
+		const confirmed = await requestConfirm({
+			title: $t("Confirm Action"),
+			message: $t('Delete rule "{name}"?\nThis will remove {count} publish target(s) bound to this rule.', {
 				name: rule.name,
 				count: boundTargets.length
-			})
-		);
+			}),
+			confirmText: $t("Delete"),
+			cancelText: $t("Cancel"),
+			danger: true
+		});
 		if (!confirmed) return;
 
 		const allTargetFiles = Array.from(
@@ -263,12 +268,16 @@
 		let cleanupWarning: string | null = null;
 
 		if (removableFiles.length > 0) {
-			const shouldDeleteFiles = confirm(
-				$t("Also delete {count} workspace output file(s)?\n{files}", {
+			const shouldDeleteFiles = await requestConfirm({
+				title: $t("Confirm Action"),
+				message: $t("Also delete {count} workspace output file(s)?\n{files}", {
 					count: removableFiles.length,
 					files: removableFiles.join(", ")
-				})
-			);
+				}),
+				confirmText: $t("Delete"),
+				cancelText: $t("Cancel"),
+				danger: true
+			});
 			if (shouldDeleteFiles) {
 				if ($authState.token && $appState.activeGistId) {
 					try {
@@ -334,7 +343,14 @@
 			setStatus($t("Publish target not found."), 'error');
 			return;
 		}
-		if (!confirm($t("Delete this publish target? This does not delete gist files."))) return;
+		const confirmed = await requestConfirm({
+			title: $t("Confirm Action"),
+			message: $t("Delete this publish target? This does not delete gist files."),
+			confirmText: $t("Delete"),
+			cancelText: $t("Cancel"),
+			danger: true
+		});
+		if (!confirmed) return;
 		removePublishTarget(target.id);
 		resetTargetForm();
 		setStatus($t("Publish target deleted."), 'info');

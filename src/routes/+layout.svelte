@@ -7,6 +7,7 @@
 	import { startAutoSync } from "$lib/sync";
 	import { authState } from "$lib/stores/auth";
 	import { appState } from "$lib/stores/app";
+	import { confirmDialog, resolveConfirm } from "$lib/stores/confirm";
 	import { cn } from "$lib/utils/cn";
 	import { 
 		LayoutDashboard, 
@@ -19,7 +20,8 @@
 		Menu,
 		X,
 		Cloud,
-		CloudOff
+		CloudOff,
+		AlertTriangle
 	} from "lucide-svelte";
 
 	const PROJECT_GITHUB_URL = "https://github.com/KnowSky404/SubMan";
@@ -48,8 +50,20 @@
 		isMobileMenuOpen = !isMobileMenuOpen;
 	}
 
+	function handleDialogKeydown(event: KeyboardEvent) {
+		if (!$confirmDialog.open) {
+			return;
+		}
+		if (event.key === "Escape") {
+			event.preventDefault();
+			resolveConfirm(false);
+		}
+	}
+
 	onMount(() => startAutoSync());
 </script>
+
+<svelte:window on:keydown={handleDialogKeydown} />
 
 <div class="relative min-h-screen bg-[#020617] text-slate-200 selection:bg-indigo-500/30 selection:text-indigo-200">
 	<!-- Background Effects -->
@@ -216,6 +230,66 @@
 				</div>
 			</div>
 		</nav>
+	{/if}
+
+	{#if $confirmDialog.open}
+		<div class="fixed inset-0 z-[120]">
+			<button
+				type="button"
+				aria-label={$t("Cancel")}
+				class="absolute inset-0 bg-slate-950/70 backdrop-blur-sm"
+				on:click={() => resolveConfirm(false)}
+			></button>
+			<div class="relative flex min-h-full items-center justify-center p-4">
+				<div
+					role="dialog"
+					aria-modal="true"
+					aria-label={$confirmDialog.title || $t("Confirm Action")}
+					tabindex="-1"
+					class="w-full max-w-md rounded-3xl border border-slate-800 bg-slate-900/95 p-6 shadow-2xl shadow-indigo-500/10"
+					in:fly={{ y: 12, duration: 220 }}
+					out:fade={{ duration: 140 }}
+				>
+					<div class="flex items-start gap-3">
+						<div class={cn(
+							"mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl",
+							$confirmDialog.danger ? "bg-red-500/15 text-red-400" : "bg-indigo-500/15 text-indigo-400"
+						)}>
+							<AlertTriangle class="h-4.5 w-4.5" />
+						</div>
+						<div class="min-w-0 space-y-2">
+							<h2 class="text-sm font-bold tracking-wide text-white">
+								{$confirmDialog.title || $t("Confirm Action")}
+							</h2>
+							<p class="whitespace-pre-line text-sm leading-relaxed text-slate-300">
+								{$confirmDialog.message}
+							</p>
+						</div>
+					</div>
+					<div class="mt-6 flex items-center justify-end gap-3">
+						<button
+							type="button"
+							class="rounded-xl border border-slate-700 bg-slate-800/80 px-4 py-2 text-sm font-semibold text-slate-200 transition-colors hover:bg-slate-700"
+							on:click={() => resolveConfirm(false)}
+						>
+							{$confirmDialog.cancelText || $t("Cancel")}
+						</button>
+						<button
+							type="button"
+							class={cn(
+								"rounded-xl px-4 py-2 text-sm font-semibold text-white transition-colors",
+								$confirmDialog.danger
+									? "bg-red-600 hover:bg-red-500"
+									: "bg-indigo-600 hover:bg-indigo-500"
+							)}
+							on:click={() => resolveConfirm(true)}
+						>
+							{$confirmDialog.confirmText || $t("Confirm")}
+						</button>
+					</div>
+				</div>
+			</div>
+		</div>
 	{/if}
 
 	<!-- Main Content -->

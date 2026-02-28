@@ -11,6 +11,7 @@
 	import type { NodeItem, NodeTag, ProxyType, SubscriptionItem } from "$lib/models";
 	import { createId } from "$lib/utils/id";
 	import { nowIso } from "$lib/utils/time";
+	import { requestConfirm } from "$lib/stores/confirm";
 	import { cn } from "$lib/utils/cn";
 	import { 
 		Plus, 
@@ -119,8 +120,15 @@
 		}
 	}
 
-	function remove(id: string, type: 'node' | 'sub', name: string) {
-		if (!confirm($t("Are you sure you want to remove {name}?", { name }))) return;
+	async function remove(id: string, type: 'node' | 'sub', name: string) {
+		const confirmed = await requestConfirm({
+			title: $t("Confirm Action"),
+			message: $t("Are you sure you want to remove {name}?", { name }),
+			confirmText: $t("Delete"),
+			cancelText: $t("Cancel"),
+			danger: true
+		});
+		if (!confirmed) return;
 		if (type === 'node') removeNode(id);
 		else removeSubscription(id);
 		showToast($t("Removed {name}", { name }), 'info');

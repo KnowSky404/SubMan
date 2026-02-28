@@ -3,6 +3,7 @@
 	import { t } from "$lib/i18n";
 	import { appState } from "$lib/stores/app";
 	import { authState } from "$lib/stores/auth";
+	import { requestConfirm } from "$lib/stores/confirm";
 	import { getGist, updateGist } from "$lib/gist";
 	import { nowIso } from "$lib/utils/time";
 	import { WORKSPACE_FILE } from "$lib/workspace";
@@ -86,7 +87,14 @@
 			return;
 		}
 
-		if (!confirm($t("Delete {filename} forever?", { filename }))) return;
+		const confirmed = await requestConfirm({
+			title: $t("Confirm Action"),
+			message: $t("Delete {filename} forever?", { filename }),
+			confirmText: $t("Delete"),
+			cancelText: $t("Cancel"),
+			danger: true
+		});
+		if (!confirmed) return;
 
 		deleting = true;
 		try {
@@ -123,7 +131,14 @@
 			return;
 		}
 
-		if (!confirm($t("Delete all {count} files except config?", { count: filesToDelete.length }))) return;
+		const confirmed = await requestConfirm({
+			title: $t("Confirm Action"),
+			message: $t("Delete all {count} files except config?", { count: filesToDelete.length }),
+			confirmText: $t("Delete"),
+			cancelText: $t("Cancel"),
+			danger: true
+		});
+		if (!confirmed) return;
 
 		const files = Object.fromEntries(filesToDelete.map((name) => [name, null]));
 		deleting = true;
