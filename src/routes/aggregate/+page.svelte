@@ -224,10 +224,120 @@
 	}
 
 	async function deleteRule() {
-		if (!editingRuleId || !confirm($t("Delete this rule?"))) return;
+		if (!editingRuleId) return;
+
+		const rule = $appState.aggregates.find((item) => item.id === editingRuleId);
+		if (!rule) {
+			setStatus($t("Rule not found."), 'error');
+			return;
+		}
+
+		const boundTargets = $appState.publishTargets.filter((target) => target.ruleId === editingRuleId);
+		const shouldResetTarget = boundTargets.some((target) => target.id === selectedTargetId);
+		const confirmed = confirm(
+			$t('Delete rule "{name}"?\nThis will remove {count} publish target(s) bound to this rule.', {
+				name: rule.name,
+				count: boundTargets.length
+			})
+		);
+		if (!confirmed) return;
+
+		const allTargetFiles = Array.from(
+			new Set(
+				boundTargets
+					.map((target) => target.fileName.trim())
+					.filter((name) => name.length > 0 && name !== WORKSPACE_FILE)
+			)
+		);
+		const sharedFiles = Array.from(
+			new Set(
+				$appState.publishTargets
+					.filter((target) => target.ruleId !== editingRuleId)
+					.map((target) => target.fileName.trim())
+					.filter((name) => allTargetFiles.includes(name))
+			)
+		);
+		const removableFiles = allTargetFiles.filter((name) => !sharedFiles.includes(name));
+		const keptFiles: string[] = [...sharedFiles];
+		const deletedFiles: string[] = [];
+		let cleanupWarning: string | null = null;
+
+		if (removableFiles.length > 0) {
+			const shouldDeleteFiles = confirm(
+				$t("Also delete {count} workspace output file(s)?\n{files}", {
+					count: removableFiles.length,
+					files: removableFiles.join(", ")
+				})
+			);
+			if (shouldDeleteFiles) {
+				if ($authState.token && $appState.activeGistId) {
+					try {
+						await updateGist($authState.token, {
+							gistId: $appState.activeGistId,
+							files: Object.fromEntries(removableFiles.map((name) => [name, null]))
+						});
+						deletedFiles.push(...removableFiles);
+					} catch (err) {
+						cleanupWarning = $t("Workspace file cleanup failed: {message} Clean remaining files in /gists.", {
+							message: err instanceof Error ? err.message : $t("Failed to delete workspace files.")
+						});
+						keptFiles.push(...removableFiles);
+					}
+				} else {
+					cleanupWarning = $t("Workspace files were not deleted (missing token or workspace gist): {files}.", {
+						files: removableFiles.join(", ")
+					});
+					keptFiles.push(...removableFiles);
+				}
+			} else {
+				keptFiles.push(...removableFiles);
+			}
+		}
+
 		removeAggregate(editingRuleId);
 		resetRuleForm();
-		setStatus($t("Rule removed."), 'info');
+		if (shouldResetTarget) {
+			resetTargetForm();
+		}
+
+		const summaryParts = [
+			$t("Rule deleted. Removed {count} publish target(s).", { count: boundTargets.length })
+		];
+		if (sharedFiles.length > 0) {
+			summaryParts.push($t("{count} shared file(s) kept: {files}.", {
+				count: sharedFiles.length,
+				files: sharedFiles.join(", ")
+			}));
+		}
+		if (deletedFiles.length > 0) {
+			summaryParts.push($t("Deleted {count} workspace file(s): {files}.", {
+				count: deletedFiles.length,
+				files: deletedFiles.join(", ")
+			}));
+		}
+		if (cleanupWarning) {
+			summaryParts.push(cleanupWarning);
+		} else if (keptFiles.length > sharedFiles.length) {
+			const manuallyKept = keptFiles.filter((name) => !sharedFiles.includes(name));
+			if (manuallyKept.length > 0) {
+				summaryParts.push($t("Workspace files kept: {files}.", { files: manuallyKept.join(", ") }));
+			}
+		}
+
+		setStatus(summaryParts.join(" "), cleanupWarning ? 'error' : 'info');
+	}
+
+	async function deleteTarget() {
+		if (!selectedTargetId) return;
+		const target = $appState.publishTargets.find((item) => item.id === selectedTargetId);
+		if (!target) {
+			setStatus($t("Publish target not found."), 'error');
+			return;
+		}
+		if (!confirm($t("Delete this publish target? This does not delete gist files."))) return;
+		removePublishTarget(target.id);
+		resetTargetForm();
+		setStatus($t("Publish target deleted."), 'info');
 	}
 
 	async function saveTarget() {
@@ -632,6 +742,16 @@
 						<Save class="h-4 w-4" />
 						{$t("Save Target")}
 					</button>
+
+					{#if selectedTargetId}
+						<button
+							on:click={deleteTarget}
+							class="w-full flex items-center justify-center gap-2 rounded-xl border border-red-500/30 bg-red-500/10 px-6 py-3 text-sm font-bold text-red-300 transition-all hover:bg-red-500/20"
+						>
+							<Trash2 class="h-4 w-4" />
+							{$t("Delete Target")}
+						</button>
+					{/if}
 
 					<button 
 						on:click={publish}
