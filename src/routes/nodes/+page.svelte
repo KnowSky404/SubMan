@@ -152,6 +152,10 @@
 	onDestroy(() => { if (toastTimer) clearTimeout(toastTimer); });
 </script>
 
+<svelte:head>
+	<title>{$t("Nodes & Subscriptions")} | {$t("SubMan")}</title>
+</svelte:head>
+
 <div class="space-y-6 pb-12">
 	<!-- Header & Global Actions -->
 	<header class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">

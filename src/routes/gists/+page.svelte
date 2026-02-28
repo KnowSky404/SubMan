@@ -149,6 +149,10 @@
 	}
 </script>
 
+<svelte:head>
+	<title>{$t("Gist Workspace")} | {$t("SubMan")}</title>
+</svelte:head>
+
 <div class="space-y-8 pb-12">
 	<!-- Page Header -->
 	<header class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">

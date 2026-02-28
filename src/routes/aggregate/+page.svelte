@@ -293,6 +293,10 @@
 	onDestroy(() => { if (statusTimer) clearTimeout(statusTimer); });
 </script>
 
+<svelte:head>
+	<title>{$t("Aggregation Builder")} | {$t("SubMan")}</title>
+</svelte:head>
+
 <div class="space-y-8 pb-12">
 	<!-- Page Header -->
 	<header class="flex flex-col gap-2">

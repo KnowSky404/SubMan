@@ -271,6 +271,10 @@
 	}
 </script>
 
+<svelte:head>
+	<title>{$t("Workspace Settings")} | {$t("SubMan")}</title>
+</svelte:head>
+
 <div class="max-w-4xl mx-auto space-y-8 pb-12">
 	<!-- Page Header -->
 	<header class="flex flex-col gap-2">

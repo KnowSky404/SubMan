@@ -41,6 +41,10 @@
 	];
 </script>
 
+<svelte:head>
+	<title>{$t("Overview")} | {$t("SubMan")}</title>
+</svelte:head>
+
 <div class="space-y-16 pb-20">
 	<!-- Hero Section -->
 	<section class="relative flex flex-col items-center text-center">
