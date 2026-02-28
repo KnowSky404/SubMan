@@ -46,6 +46,7 @@ Gist-first 的代理订阅管理工具（VLESS/VMess 等）。纯前端实现。
 - 代码保持 ASCII 字符
 - 每次修改后直接提交 commit
 - 所有文件写入同一个 Workspace Gist
+- coding 过程中如需执行 `pnpm` 命令，先把命令发给用户，由用户手动执行后再继续
 
 ## 后续方向
 - 更强的订阅解析与聚合能力
