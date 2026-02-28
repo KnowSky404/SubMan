@@ -67,7 +67,7 @@
 	}
 
 	function canDelete(filename: string) {
-		return !isConfigFile(filename) && isManagedOutput(filename);
+		return !isConfigFile(filename);
 	}
 
 	async function deleteWorkspaceFile(filename: string) {
@@ -80,11 +80,11 @@
 			return;
 		}
 		if (!canDelete(filename)) {
-			status = "Only SubMan managed output files can be deleted here.";
+			status = `${WORKSPACE_FILE} is protected and cannot be deleted.`;
 			return;
 		}
 
-		const ok = confirm(`Delete ${filename} from workspace gist?`);
+		const ok = confirm(`Delete ${filename} from workspace gist? This cannot be undone.`);
 		if (!ok) {
 			return;
 		}
@@ -120,7 +120,7 @@
 		}
 	}
 
-	async function cleanManagedOutputs() {
+	async function cleanWorkspaceFiles() {
 		error = null;
 		status = null;
 		const token = $authState.token;
@@ -136,13 +136,15 @@
 
 		const filesToDelete = workspace.files
 			.map((file) => file.filename)
-			.filter((name) => canDelete(name));
+			.filter((name) => !isConfigFile(name));
 		if (filesToDelete.length === 0) {
-			status = "No managed output files to delete.";
+			status = "No removable files found.";
 			return;
 		}
 
-		const ok = confirm(`Delete ${filesToDelete.length} managed output file(s)?`);
+		const ok = confirm(
+			`Delete ${filesToDelete.length} workspace file(s) except ${WORKSPACE_FILE}? This cannot be undone.`
+		);
 		if (!ok) {
 			return;
 		}
@@ -170,7 +172,7 @@
 				),
 				lastUpdated: updatedAt
 			}));
-			status = `Deleted ${filesToDelete.length} managed file(s).`;
+			status = `Deleted ${filesToDelete.length} file(s).`;
 		} catch (err) {
 			error = err instanceof Error ? err.message : "Failed to clean files.";
 		} finally {
@@ -219,15 +221,15 @@
 			</span>
 		</div>
 		<p class="mt-2 text-xs text-slate-400">
-			Only SubMan managed output files can be deleted. {WORKSPACE_FILE} is protected.
+			{WORKSPACE_FILE} is protected. All other workspace files can be deleted.
 		</p>
 		<div class="mt-3">
 			<button
 				class="rounded-full border border-slate-700 px-4 py-2 text-xs font-semibold disabled:opacity-50"
-				on:click={cleanManagedOutputs}
+				on:click={cleanWorkspaceFiles}
 				disabled={deleting}
 			>
-				{deleting ? "Working..." : "Clean Managed Outputs"}
+				{deleting ? "Working..." : `Clean All Except ${WORKSPACE_FILE}`}
 			</button>
 		</div>
 		<div class="mt-4 grid gap-3">
