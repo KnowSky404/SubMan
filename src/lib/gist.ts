@@ -140,7 +140,11 @@ export async function createGist(
 
 export async function updateGist(
 	token: string,
-	payload: { gistId: string; description?: string; files?: Record<string, { content: string }> }
+	payload: {
+		gistId: string;
+		description?: string;
+		files?: Record<string, { content: string } | null>;
+	}
 ): Promise<GistMeta> {
 	const res = await fetch(`${API_ROOT}/gists/${payload.gistId}`, {
 		method: 'PATCH',

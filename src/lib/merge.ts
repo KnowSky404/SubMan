@@ -1,4 +1,4 @@
-import type { AggregateRule, NodeItem, SubscriptionItem } from '$lib/models';
+import type { AggregatePublishTarget, AggregateRule, NodeItem, SubscriptionItem } from '$lib/models';
 
 function toTimestamp(value: string | null | undefined): number {
 	if (!value) {
@@ -33,12 +33,28 @@ function mergeByUpdatedAt<T extends { id: string; updatedAt: string }>(
 }
 
 export function mergeSyncState(
-	local: { nodes: NodeItem[]; subscriptions: SubscriptionItem[]; aggregates: AggregateRule[] },
-	remote: { nodes: NodeItem[]; subscriptions: SubscriptionItem[]; aggregates: AggregateRule[] }
-): { nodes: NodeItem[]; subscriptions: SubscriptionItem[]; aggregates: AggregateRule[] } {
+	local: {
+		nodes: NodeItem[];
+		subscriptions: SubscriptionItem[];
+		aggregates: AggregateRule[];
+		publishTargets: AggregatePublishTarget[];
+	},
+	remote: {
+		nodes: NodeItem[];
+		subscriptions: SubscriptionItem[];
+		aggregates: AggregateRule[];
+		publishTargets: AggregatePublishTarget[];
+	}
+): {
+	nodes: NodeItem[];
+	subscriptions: SubscriptionItem[];
+	aggregates: AggregateRule[];
+	publishTargets: AggregatePublishTarget[];
+} {
 	return {
 		nodes: mergeByUpdatedAt(local.nodes, remote.nodes),
 		subscriptions: mergeByUpdatedAt(local.subscriptions, remote.subscriptions),
-		aggregates: mergeByUpdatedAt(local.aggregates, remote.aggregates)
+		aggregates: mergeByUpdatedAt(local.aggregates, remote.aggregates),
+		publishTargets: mergeByUpdatedAt(local.publishTargets, remote.publishTargets)
 	};
 }

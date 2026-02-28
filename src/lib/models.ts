@@ -46,6 +46,18 @@ export type AggregateRule = {
 	updatedAt: string;
 };
 
+export type AggregatePublishTarget = {
+	id: string;
+	name: string;
+	ruleId: string;
+	fileName: string;
+	description: string;
+	isPublic: boolean;
+	lastPublishedAt: string | null;
+	lastPublishedUrl: string | null;
+	updatedAt: string;
+};
+
 export type GistFile = {
 	filename: string;
 	language: string | null;
@@ -65,6 +77,7 @@ export type AppState = {
 	nodes: NodeItem[];
 	subscriptions: SubscriptionItem[];
 	aggregates: AggregateRule[];
+	publishTargets: AggregatePublishTarget[];
 	gists: GistMeta[];
 	activeGistId: string | null;
 	activeGistFile: string;

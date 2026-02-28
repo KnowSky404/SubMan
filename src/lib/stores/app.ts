@@ -1,6 +1,12 @@
 import { browser } from '$app/environment';
 import { writable } from 'svelte/store';
-import type { AppState, AggregateRule, NodeItem, SubscriptionItem } from '$lib/models';
+import type {
+	AppState,
+	AggregatePublishTarget,
+	AggregateRule,
+	NodeItem,
+	SubscriptionItem
+} from '$lib/models';
 import { nowIso } from '$lib/utils/time';
 
 const STORAGE_KEY = 'subman:state:v1';
@@ -9,6 +15,7 @@ export const defaultState: AppState = {
 	nodes: [],
 	subscriptions: [],
 	aggregates: [],
+	publishTargets: [],
 	gists: [],
 	activeGistId: null,
 	activeGistFile: 'subman.json',
@@ -98,6 +105,27 @@ export function removeAggregate(ruleId: string): void {
 	appState.update((state) => ({
 		...state,
 		aggregates: state.aggregates.filter((item) => item.id !== ruleId),
+		publishTargets: state.publishTargets.filter((target) => target.ruleId !== ruleId),
+		lastUpdated: nowIso()
+	}));
+}
+
+export function upsertPublishTarget(target: AggregatePublishTarget): void {
+	appState.update((state) => {
+		const index = state.publishTargets.findIndex((item) => item.id === target.id);
+		if (index >= 0) {
+			const publishTargets = [...state.publishTargets];
+			publishTargets[index] = target;
+			return { ...state, publishTargets, lastUpdated: nowIso() };
+		}
+		return { ...state, publishTargets: [target, ...state.publishTargets], lastUpdated: nowIso() };
+	});
+}
+
+export function removePublishTarget(targetId: string): void {
+	appState.update((state) => ({
+		...state,
+		publishTargets: state.publishTargets.filter((item) => item.id !== targetId),
 		lastUpdated: nowIso()
 	}));
 }

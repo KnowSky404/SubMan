@@ -14,8 +14,20 @@ import { appState, replaceState } from "$lib/stores/app";
 		localPayload: string;
 		remotePayload: string;
 		remoteState: AppState;
-		localStats: { nodes: number; subscriptions: number; aggregates: number; updatedAt: string };
-		remoteStats: { nodes: number; subscriptions: number; aggregates: number; updatedAt: string };
+		localStats: {
+			nodes: number;
+			subscriptions: number;
+			aggregates: number;
+			publishTargets: number;
+			updatedAt: string;
+		};
+		remoteStats: {
+			nodes: number;
+			subscriptions: number;
+			aggregates: number;
+			publishTargets: number;
+			updatedAt: string;
+		};
 	};
 
 	let tokenInput = "";
@@ -30,6 +42,7 @@ import { appState, replaceState } from "$lib/stores/app";
 			nodes: state.nodes.length,
 			subscriptions: state.subscriptions.length,
 			aggregates: state.aggregates.length,
+			publishTargets: state.publishTargets.length,
 			updatedAt: state.lastUpdated
 		};
 	}
@@ -306,6 +319,7 @@ import { appState, replaceState } from "$lib/stores/app";
 					<p>Nodes: {conflict.localStats.nodes}</p>
 					<p>Subscriptions: {conflict.localStats.subscriptions}</p>
 					<p>Aggregates: {conflict.localStats.aggregates}</p>
+					<p>Publish targets: {conflict.localStats.publishTargets}</p>
 					<p>Updated: {conflict.localStats.updatedAt}</p>
 				</div>
 				<div class="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3">
@@ -313,6 +327,7 @@ import { appState, replaceState } from "$lib/stores/app";
 					<p>Nodes: {conflict.remoteStats.nodes}</p>
 					<p>Subscriptions: {conflict.remoteStats.subscriptions}</p>
 					<p>Aggregates: {conflict.remoteStats.aggregates}</p>
+					<p>Publish targets: {conflict.remoteStats.publishTargets}</p>
 					<p>Updated: {conflict.remoteStats.updatedAt}</p>
 				</div>
 			</div>

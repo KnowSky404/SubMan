@@ -1,7 +1,12 @@
 <script lang="ts">
-	import { appState, upsertAggregate } from "$lib/stores/app";
+	import {
+		appState,
+		removePublishTarget,
+		upsertAggregate,
+		upsertPublishTarget
+	} from "$lib/stores/app";
 	import { authState } from "$lib/stores/auth";
-	import type { AggregateRule, ProxyType } from "$lib/models";
+	import type { AggregatePublishTarget, AggregateRule, ProxyType } from "$lib/models";
 	import { buildAggregateOutput } from "$lib/aggregate";
 	import { createGist, updateGist } from "$lib/gist";
 	import { exportSyncState } from "$lib/serialization";
@@ -25,10 +30,12 @@
 	let previewEntries: { id: string; line: string; protocol: string; name: string }[] = [];
 	let previewStatus: string | null = null;
 
-	let publishRuleId = "";
-	let publishFile = "subman-aggregate.txt";
-	let publishDescription = "SubMan aggregate";
-	let publishPublic = false;
+	let selectedTargetId = "";
+	let publishTargetName = "";
+	let publishTargetRuleId = "";
+	let publishTargetFile = "subman-aggregate.txt";
+	let publishTargetDescription = "SubMan aggregate";
+	let publishTargetPublic = false;
 	let outputContent = "";
 	let publishStatus: string | null = null;
 	let publishUrl: string | null = null;
@@ -101,7 +108,12 @@
 	}
 
 	$: if (!initialized) {
-		publishRuleId = $appState.aggregates[0]?.id ?? "";
+		const firstTarget = $appState.publishTargets[0];
+		if (firstTarget) {
+			loadPublishTarget(firstTarget);
+		} else {
+			publishTargetRuleId = $appState.aggregates[0]?.id ?? "";
+		}
 		initialized = true;
 	}
 
@@ -125,11 +137,36 @@
 			: [...allowedTypes, type];
 	}
 
+	function toFileSlug(value: string): string {
+		return value
+			.trim()
+			.toLowerCase()
+			.replace(/[^a-z0-9]+/g, "-")
+			.replace(/^-+|-+$/g, "");
+	}
+
+	function suggestPublishFile(ruleName: string): string {
+		const slug = toFileSlug(ruleName);
+		return `${slug || "aggregate"}.txt`;
+	}
+
+	function clearPublishOutputState() {
+		outputContent = "";
+		publishStatus = null;
+		publishUrl = null;
+		buildWarnings = [];
+		buildErrors = [];
+	}
+
 	function loadRule(rule: AggregateRule) {
 		editingRuleId = rule.id;
-		publishRuleId = rule.id;
+		if (!selectedTargetId) {
+			publishTargetRuleId = rule.id;
+			if (!publishTargetFile || publishTargetFile === "subman-aggregate.txt") {
+				publishTargetFile = suggestPublishFile(rule.name);
+			}
+		}
 		ruleName = rule.name;
-		updatePublishFile(rule);
 		selectedNodeIds = [...rule.nodeIds];
 		selectedSubscriptionIds = [...rule.subscriptionIds];
 		excludeTags = rule.excludeTagIds.join(", ");
@@ -149,7 +186,6 @@
 
 	function resetRuleForm() {
 		editingRuleId = "";
-		publishRuleId = "";
 		ruleName = "";
 		selectedNodeIds = [];
 		selectedSubscriptionIds = [];
@@ -164,6 +200,94 @@
 		previewEntries = [];
 		previewExpandedLine = null;
 		previewStatus = null;
+	}
+
+	function loadPublishTarget(target: AggregatePublishTarget) {
+		selectedTargetId = target.id;
+		publishTargetName = target.name;
+		publishTargetRuleId = target.ruleId;
+		publishTargetFile = target.fileName;
+		publishTargetDescription = target.description;
+		publishTargetPublic = target.isPublic;
+		publishUrl = target.lastPublishedUrl;
+		publishStatus = target.lastPublishedAt
+			? `Last published at ${target.lastPublishedAt}.`
+			: null;
+		outputContent = "";
+		buildWarnings = [];
+		buildErrors = [];
+	}
+
+	function resetPublishTargetForm() {
+		const firstRule = $appState.aggregates[0];
+		selectedTargetId = "";
+		publishTargetName = "";
+		publishTargetRuleId = firstRule?.id ?? "";
+		publishTargetFile = firstRule ? suggestPublishFile(firstRule.name) : "subman-aggregate.txt";
+		publishTargetDescription = "SubMan aggregate";
+		publishTargetPublic = false;
+		clearPublishOutputState();
+	}
+
+	function savePublishTarget() {
+		if (!publishTargetRuleId) {
+			publishStatus = "Select a rule for this publish target.";
+			return;
+		}
+
+		const fileName = publishTargetFile.trim();
+		if (!fileName) {
+			publishStatus = "File name is required.";
+			return;
+		}
+
+		const existing = selectedTargetId
+			? $appState.publishTargets.find((item) => item.id === selectedTargetId)
+			: null;
+		const rule = $appState.aggregates.find((item) => item.id === publishTargetRuleId);
+		const fallbackName = rule ? `${rule.name} target` : fileName;
+		const next: AggregatePublishTarget = {
+			id: existing?.id ?? createId("pub"),
+			name: publishTargetName.trim() || fallbackName,
+			ruleId: publishTargetRuleId,
+			fileName,
+			description: publishTargetDescription.trim() || "SubMan aggregate",
+			isPublic: publishTargetPublic,
+			lastPublishedAt: existing?.lastPublishedAt ?? null,
+			lastPublishedUrl: existing?.lastPublishedUrl ?? null,
+			updatedAt: nowIso()
+		};
+
+		upsertPublishTarget(next);
+		selectedTargetId = next.id;
+		publishTargetName = next.name;
+		publishStatus = existing ? "Publish target updated." : "Publish target saved.";
+		publishUrl = next.lastPublishedUrl;
+	}
+
+	function deleteSelectedTarget() {
+		if (!selectedTargetId) {
+			return;
+		}
+		const ok = confirm("Delete this publish target? This does not delete gist files.");
+		if (!ok) {
+			return;
+		}
+		removePublishTarget(selectedTargetId);
+		resetPublishTargetForm();
+		publishStatus = "Publish target deleted.";
+	}
+
+	function isPublishTargetDirty(target: AggregatePublishTarget) {
+		const nextName = publishTargetName.trim() || target.name;
+		const nextDescription = publishTargetDescription.trim() || "SubMan aggregate";
+		return (
+			nextName !== target.name ||
+			publishTargetRuleId !== target.ruleId ||
+			publishTargetFile.trim() !== target.fileName ||
+			nextDescription !== target.description ||
+			publishTargetPublic !== target.isPublic
+		);
 	}
 
 	async function buildPreview() {
@@ -234,28 +358,40 @@
 
 		upsertAggregate(rule);
 		editingRuleId = ruleId;
-		publishRuleId = ruleId;
-	}
-
-	function updatePublishFile(rule: AggregateRule) {
-		if (outputContent !== "") {
-			return;
-		}
-		const slug = rule.name.trim().toLowerCase().replace(/\s+/g, "-");
-		if (slug) {
-			publishFile = `${slug || "aggregate"}.txt`;
+		if (!selectedTargetId) {
+			publishTargetRuleId = ruleId;
+			if (!publishTargetFile || publishTargetFile === "subman-aggregate.txt") {
+				publishTargetFile = suggestPublishFile(rule.name);
+			}
 		}
 	}
 
 	async function buildOutput() {
 		publishStatus = null;
-		publishUrl = null;
+		publishUrl = selectedTargetId
+			? $appState.publishTargets.find((item) => item.id === selectedTargetId)?.lastPublishedUrl ?? null
+			: null;
 		buildWarnings = [];
 		buildErrors = [];
 
-		const rule = $appState.aggregates.find((item) => item.id === publishRuleId);
+		if (!selectedTargetId) {
+			publishStatus = "Save and select a publish target first.";
+			return;
+		}
+
+		const target = $appState.publishTargets.find((item) => item.id === selectedTargetId);
+		if (!target) {
+			publishStatus = "Publish target not found.";
+			return;
+		}
+		if (isPublishTargetDirty(target)) {
+			publishStatus = "Save target changes before building output.";
+			return;
+		}
+
+		const rule = $appState.aggregates.find((item) => item.id === target.ruleId);
 		if (!rule) {
-			publishStatus = "Select an aggregation rule first.";
+			publishStatus = "Selected target rule no longer exists.";
 			return;
 		}
 
@@ -265,7 +401,9 @@
 			outputContent = result.content;
 			buildWarnings = result.warnings;
 			buildErrors = result.errors;
-			publishStatus = result.content ? "Output ready." : "No output generated.";
+			publishStatus = result.content
+				? `Output ready for ${target.fileName}.`
+				: "No output generated.";
 		} finally {
 			publishing = false;
 		}
@@ -279,8 +417,18 @@
 			publishStatus = "Missing GitHub token. Connect first.";
 			return;
 		}
-		if (!publishFile) {
-			publishStatus = "File name is required.";
+
+		if (!selectedTargetId) {
+			publishStatus = "Save and select a publish target first.";
+			return;
+		}
+		const target = $appState.publishTargets.find((item) => item.id === selectedTargetId);
+		if (!target) {
+			publishStatus = "Publish target not found.";
+			return;
+		}
+		if (isPublishTargetDirty(target)) {
+			publishStatus = "Save target changes before publishing.";
 			return;
 		}
 		if (!outputContent) {
@@ -292,41 +440,48 @@
 
 		publishing = true;
 		try {
-		const configFile = WORKSPACE_FILE;
-		const configContent = exportSyncState($appState);
-		let targetId = $appState.activeGistId || "";
-		let response;
+			const configFile = WORKSPACE_FILE;
+			const configContent = exportSyncState($appState);
+			let workspaceId = $appState.activeGistId || "";
+			let response;
 
-		if (targetId) {
-			response = await updateGist(token, {
-				gistId: targetId,
-				description: publishDescription || undefined,
-				files: {
-					[publishFile]: { content: outputContent },
-					[configFile]: { content: configContent }
-				}
-			});
-		} else {
-			response = await createGist(token, {
-				description: publishDescription || "SubMan workspace",
-				isPublic: publishPublic,
-				files: {
-					[configFile]: { content: configContent },
-					[publishFile]: { content: outputContent }
-				}
-			});
-			targetId = response.id;
-		}
+			if (workspaceId) {
+				response = await updateGist(token, {
+					gistId: workspaceId,
+					description: target.description || undefined,
+					files: {
+						[target.fileName]: { content: outputContent },
+						[configFile]: { content: configContent }
+					}
+				});
+			} else {
+				response = await createGist(token, {
+					description: target.description || "SubMan workspace",
+					isPublic: target.isPublic,
+					files: {
+						[configFile]: { content: configContent },
+						[target.fileName]: { content: outputContent }
+					}
+				});
+				workspaceId = response.id;
+			}
 
-			const fileMeta = response.files.find((file) => file.filename === publishFile);
+			const fileMeta = response.files.find((file) => file.filename === target.fileName);
 			publishUrl = fileMeta?.rawUrl ?? null;
+			const publishedAt = nowIso();
 
 			appState.update((state) => ({
 				...state,
-				activeGistId: targetId,
+				activeGistId: workspaceId,
 				activeGistFile: configFile,
 				lastUpdated: nowIso()
 			}));
+			upsertPublishTarget({
+				...target,
+				lastPublishedAt: publishedAt,
+				lastPublishedUrl: publishUrl,
+				updatedAt: publishedAt
+			});
 
 			publishStatus = publishUrl
 				? "Aggregation published."
@@ -555,22 +710,46 @@
 	<div class="rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
 		<h2 class="text-lg font-semibold">Publish Aggregation</h2>
 		<p class="mt-2 text-xs text-slate-400">
-			Generate output from a saved rule and write it to a gist file.
+			Bind rules to stable output files. Reuse one rule across multiple publish targets.
 		</p>
 		<div class="mt-4 grid gap-3 text-sm md:grid-cols-2">
 			<select
 				class="w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2"
-				value={publishRuleId}
+				value={selectedTargetId}
 				on:change={(event) => {
 					const nextId = event.currentTarget.value;
-					publishRuleId = nextId;
 					if (!nextId) {
-						resetRuleForm();
+						resetPublishTargetForm();
 						return;
 					}
-					const rule = $appState.aggregates.find((item) => item.id === nextId);
-					if (rule) {
-						loadRule(rule);
+					const target = $appState.publishTargets.find((item) => item.id === nextId);
+					if (target) {
+						loadPublishTarget(target);
+					}
+				}}
+			>
+				<option value="">New publish target</option>
+				{#each $appState.publishTargets as target}
+					<option value={target.id}>{target.name} -> {target.fileName}</option>
+				{/each}
+			</select>
+			<input
+				class="w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2"
+				placeholder="Target name"
+				bind:value={publishTargetName}
+			/>
+			<select
+				class="w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2"
+				value={publishTargetRuleId}
+				on:change={(event) => {
+					publishTargetRuleId = event.currentTarget.value;
+					if (!selectedTargetId) {
+						const selectedRule = $appState.aggregates.find(
+							(item) => item.id === publishTargetRuleId
+						);
+						if (selectedRule && publishTargetFile === "subman-aggregate.txt") {
+							publishTargetFile = suggestPublishFile(selectedRule.name);
+						}
 					}
 				}}
 			>
@@ -582,17 +761,38 @@
 			<input
 				class="w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2"
 				placeholder="File name (e.g. aggregate.txt)"
-				bind:value={publishFile}
+				bind:value={publishTargetFile}
 			/>
 			<input
 				class="w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2"
 				placeholder="Gist description"
-				bind:value={publishDescription}
+				bind:value={publishTargetDescription}
 			/>
 			<label class="inline-flex items-center gap-2 text-xs text-slate-300">
-				<input type="checkbox" class="h-4 w-4" bind:checked={publishPublic} />
+				<input type="checkbox" class="h-4 w-4" bind:checked={publishTargetPublic} />
 				Public gist
 			</label>
+		</div>
+		<div class="mt-4 flex flex-wrap gap-3">
+			<button
+				class="rounded-full border border-slate-700 px-4 py-2 text-sm font-semibold"
+				on:click={savePublishTarget}
+			>
+				{selectedTargetId ? "Update Target" : "Save Target"}
+			</button>
+			<button
+				class="rounded-full border border-slate-700 px-4 py-2 text-sm font-semibold"
+				on:click={resetPublishTargetForm}
+			>
+				New Target
+			</button>
+			<button
+				class="rounded-full border border-rose-700 px-4 py-2 text-sm font-semibold text-rose-200 disabled:opacity-40"
+				on:click={deleteSelectedTarget}
+				disabled={!selectedTargetId}
+			>
+				Delete Target
+			</button>
 		</div>
 		{#if $appState.activeGistId}
 			<p class="mt-3 text-xs text-slate-400">
@@ -604,6 +804,13 @@
 			</p>
 		{/if}
 		<div class="mt-4 flex flex-wrap gap-3">
+			<button
+				class="rounded-full border border-slate-700 px-4 py-2 text-sm font-semibold"
+				on:click={buildOutput}
+				disabled={publishing}
+			>
+				{publishing ? "Building..." : "Build Output"}
+			</button>
 			<button
 				class="rounded-full bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-950"
 				on:click={publishOutput}
