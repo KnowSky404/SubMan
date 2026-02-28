@@ -311,7 +311,7 @@
 	{/if}
 
 	<!-- GitHub Token Section -->
-	<section class="group relative overflow-hidden rounded-[2rem] border border-slate-800/60 bg-slate-900/30 p-8 transition-all hover:border-slate-700/60">
+	<section class="glow-card group relative overflow-hidden rounded-[2rem] border border-slate-800/60 bg-slate-900/30 p-8 transition-all hover:border-slate-700/60">
 		<div class="flex flex-col gap-6">
 			<div class="flex items-center justify-between">
 				<div class="flex items-center gap-3">
@@ -546,7 +546,7 @@
 
 <style>
 	/* Subtle shine effect for the token card */
-	section::before {
+	.glow-card::before {
 		content: '';
 		position: absolute;
 		top: -50%;
