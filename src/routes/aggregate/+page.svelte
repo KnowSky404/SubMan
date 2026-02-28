@@ -16,6 +16,32 @@
 	import { WORKSPACE_FILE } from "$lib/workspace";
 	import { createId } from "$lib/utils/id";
 	import { nowIso } from "$lib/utils/time";
+	import { cn } from "$lib/utils/cn";
+	import { 
+		Zap, 
+		Plus, 
+		Save, 
+		Trash2, 
+		Play, 
+		CloudUpload, 
+		Copy, 
+		Eye, 
+		Settings2, 
+		FileText, 
+		ShieldCheck, 
+		AlertCircle,
+		CheckCircle2,
+		ChevronRight,
+		ExternalLink,
+		RefreshCw,
+		Filter,
+		Settings,
+		Search,
+		Cpu,
+		Globe,
+		Database
+	} from "lucide-svelte";
+	import { fade, slide, fly } from "svelte/transition";
 
 	let ruleName = "";
 	let selectedNodeIds: string[] = [];
@@ -23,6 +49,7 @@
 	let excludeTags = "";
 	let renameMap = "";
 	let allowedTypes: ProxyType[] = [];
+	
 	let previewSummary = "";
 	let previewContent = "";
 	let previewLines = 0;
@@ -31,12 +58,15 @@
 	let previewLoading = false;
 	let previewExpandedLine: string | null = null;
 	let previewEntries: { id: string; line: string; protocol: string; name: string }[] = [];
-	let previewStatus: string | null = null;
-	let ruleSaving = false;
-	let ruleDeleting = false;
-	let ruleStatus: string | null = null;
-	let ruleStatusType: "success" | "error" | null = null;
-	let ruleStatusTimer: ReturnType<typeof setTimeout> | null = null;
+	
+	let status: { message: string, type: 'success' | 'info' | 'error' } | null = null;
+	let statusTimer: ReturnType<typeof setTimeout> | null = null;
+
+	function setStatus(message: string, type: 'success' | 'info' | 'error' = 'success') {
+		status = { message, type };
+		if (statusTimer) clearTimeout(statusTimer);
+		statusTimer = setTimeout(() => status = null, 4000);
+	}
 
 	let selectedTargetId = "";
 	let publishTargetName = "";
@@ -44,18 +74,13 @@
 	let publishTargetFile = "subman-aggregate.txt";
 	let publishTargetDescription = "SubMan aggregate";
 	let publishTargetPublic = false;
-	let targetSaving = false;
-	let targetStatus: string | null = null;
-	let targetStatusType: "success" | "error" | null = null;
-	let targetStatusTimer: ReturnType<typeof setTimeout> | null = null;
-	let outputContent = "";
-	let publishStatus: string | null = null;
-	let publishUrl: string | null = null;
-	let buildWarnings: string[] = [];
-	let buildErrors: string[] = [];
+	
 	let publishing = false;
-	let initialized = false;
+	let outputContent = "";
+	let publishUrl: string | null = null;
 	let editingRuleId = "";
+	let initialized = false;
+
 	const protocolOptions: { id: ProxyType; label: string }[] = [
 		{ id: "vless", label: "VLESS" },
 		{ id: "vmess", label: "VMess" },
@@ -70,187 +95,74 @@
 	function parseLineSummary(line: string): { protocol: string; name: string } {
 		const trimmed = line.trim();
 		const schemeIndex = trimmed.indexOf("://");
-		if (schemeIndex <= 0) {
-			return { protocol: "unknown", name: "unnamed" };
-		}
-
+		if (schemeIndex <= 0) return { protocol: "unknown", name: "unnamed" };
 		const protocol = trimmed.slice(0, schemeIndex).toLowerCase();
 		const hashIndex = trimmed.lastIndexOf("#");
 		if (hashIndex > schemeIndex) {
 			const rawName = trimmed.slice(hashIndex + 1);
-			try {
-				const decoded = decodeURIComponent(rawName);
-				return { protocol, name: decoded || "unnamed" };
-			} catch {
-				return { protocol, name: rawName || "unnamed" };
-			}
+			try { return { protocol, name: decodeURIComponent(rawName) || "unnamed" }; }
+			catch { return { protocol, name: rawName || "unnamed" }; }
 		}
-
 		if (protocol === "vmess") {
 			const payload = trimmed.slice(schemeIndex + 3);
 			try {
 				const decoded = atob(payload);
 				const parsed = JSON.parse(decoded) as { ps?: string };
-				if (parsed.ps) {
-					return { protocol, name: parsed.ps };
-				}
-			} catch {
-				return { protocol, name: "unnamed" };
-			}
+				if (parsed.ps) return { protocol, name: parsed.ps };
+			} catch { /* ignore */ }
 		}
-
 		return { protocol, name: "unnamed" };
 	}
 
 	function buildPreviewEntries(content: string) {
-		const lines = content
-			.split("\n")
-			.map((line) => line.trim())
-			.filter(Boolean);
-
+		const lines = content.split("\n").map(l => l.trim()).filter(Boolean);
 		previewEntries = lines.map((line, index) => {
 			const { protocol, name } = parseLineSummary(line);
-			return {
-				id: `${protocol}-${name}-${index}`,
-				line,
-				protocol,
-				name
-			};
+			return { id: `${protocol}-${name}-${index}`, line, protocol, name };
 		});
 	}
 
 	$: if (!initialized) {
 		const firstTarget = $appState.publishTargets[0];
-		if (firstTarget) {
-			loadPublishTarget(firstTarget);
-		} else {
-			publishTargetRuleId = $appState.aggregates[0]?.id ?? "";
-		}
+		if (firstTarget) loadPublishTarget(firstTarget);
+		else publishTargetRuleId = $appState.aggregates[0]?.id ?? "";
 		initialized = true;
 	}
 
 	function toggleSelection(list: string[], id: string) {
-		return list.includes(id) ? list.filter((item) => item !== id) : [...list, id];
+		return list.includes(id) ? list.filter(item => item !== id) : [...list, id];
+	}
+
+	function toggleType(type: ProxyType) {
+		allowedTypes = allowedTypes.includes(type) ? allowedTypes.filter(t => t !== type) : [...allowedTypes, type];
 	}
 
 	function parseRenameMap(value: string): Record<string, string> {
-		const entries = value
-			.split("\n")
-			.map((line) => line.trim())
-			.filter(Boolean)
-			.map((line) => line.split("=").map((part) => part.trim()));
-
-		return Object.fromEntries(entries.filter((entry) => entry.length === 2));
-	}
-
-	function setRuleStatus(message: string, type: "success" | "error") {
-		ruleStatus = message;
-		ruleStatusType = type;
-		if (ruleStatusTimer) {
-			clearTimeout(ruleStatusTimer);
-		}
-		ruleStatusTimer = setTimeout(() => {
-			ruleStatus = null;
-			ruleStatusType = null;
-		}, 2200);
-	}
-
-	function setTargetStatus(message: string, type: "success" | "error") {
-		targetStatus = message;
-		targetStatusType = type;
-		if (targetStatusTimer) {
-			clearTimeout(targetStatusTimer);
-		}
-		targetStatusTimer = setTimeout(() => {
-			targetStatus = null;
-			targetStatusType = null;
-		}, 2200);
-	}
-
-	onDestroy(() => {
-		if (ruleStatusTimer) {
-			clearTimeout(ruleStatusTimer);
-		}
-		if (targetStatusTimer) {
-			clearTimeout(targetStatusTimer);
-		}
-	});
-
-	function toggleType(type: ProxyType) {
-		allowedTypes = allowedTypes.includes(type)
-			? allowedTypes.filter((item) => item !== type)
-			: [...allowedTypes, type];
-	}
-
-	function toFileSlug(value: string): string {
-		return value
-			.trim()
-			.toLowerCase()
-			.replace(/[^a-z0-9]+/g, "-")
-			.replace(/^-+|-+$/g, "");
-	}
-
-	function suggestPublishFile(ruleName: string): string {
-		const slug = toFileSlug(ruleName);
-		return `${slug || "aggregate"}.txt`;
-	}
-
-	function clearPublishOutputState() {
-		outputContent = "";
-		publishStatus = null;
-		publishUrl = null;
-		buildWarnings = [];
-		buildErrors = [];
+		const entries = value.split("\n").map(l => l.trim()).filter(Boolean).map(l => l.split("=").map(p => p.trim()));
+		return Object.fromEntries(entries.filter(e => e.length === 2));
 	}
 
 	function loadRule(rule: AggregateRule) {
 		editingRuleId = rule.id;
-		if (!selectedTargetId) {
-			publishTargetRuleId = rule.id;
-			if (!publishTargetFile || publishTargetFile === "subman-aggregate.txt") {
-				publishTargetFile = suggestPublishFile(rule.name);
-			}
-		}
+		publishTargetRuleId = rule.id;
 		ruleName = rule.name;
 		selectedNodeIds = [...rule.nodeIds];
 		selectedSubscriptionIds = [...rule.subscriptionIds];
 		excludeTags = rule.excludeTagIds.join(", ");
-		renameMap = Object.entries(rule.renameMap)
-			.map(([key, value]) => `${key}=${value}`)
-			.join("\n");
+		renameMap = Object.entries(rule.renameMap).map(([k, v]) => `${k}=${v}`).join("\n");
 		allowedTypes = rule.allowedTypes ?? [];
-		previewSummary = "";
-		previewContent = "";
-		previewLines = 0;
-		previewWarnings = [];
-		previewErrors = [];
-		previewEntries = [];
-		previewExpandedLine = null;
-		previewStatus = null;
+		clearPreview();
+	}
+
+	function clearPreview() {
+		previewSummary = ""; previewContent = ""; previewLines = 0;
+		previewWarnings = []; previewErrors = []; previewEntries = [];
 	}
 
 	function resetRuleForm() {
-		editingRuleId = "";
-		ruleName = "";
-		selectedNodeIds = [];
-		selectedSubscriptionIds = [];
-		excludeTags = "";
-		renameMap = "";
-		allowedTypes = [];
-		previewSummary = "";
-		previewContent = "";
-		previewLines = 0;
-		previewWarnings = [];
-		previewErrors = [];
-		previewEntries = [];
-		previewExpandedLine = null;
-		previewStatus = null;
-		ruleStatus = null;
-		ruleStatusType = null;
-		if (ruleStatusTimer) {
-			clearTimeout(ruleStatusTimer);
-			ruleStatusTimer = null;
-		}
+		editingRuleId = ""; ruleName = ""; selectedNodeIds = [];
+		selectedSubscriptionIds = []; excludeTags = ""; renameMap = "";
+		allowedTypes = []; clearPreview();
 	}
 
 	function loadPublishTarget(target: AggregatePublishTarget) {
@@ -261,848 +173,495 @@
 		publishTargetDescription = target.description;
 		publishTargetPublic = target.isPublic;
 		publishUrl = target.lastPublishedUrl;
-			publishStatus = target.lastPublishedAt
-				? $t("Updated: {time}", { time: target.lastPublishedAt })
-				: null;
-		targetStatus = null;
-		targetStatusType = null;
 		outputContent = "";
-		buildWarnings = [];
-		buildErrors = [];
 	}
 
-	function resetPublishTargetForm() {
+	function resetTargetForm() {
 		const firstRule = $appState.aggregates[0];
-		selectedTargetId = "";
-		publishTargetName = "";
+		selectedTargetId = ""; publishTargetName = "";
 		publishTargetRuleId = firstRule?.id ?? "";
-		publishTargetFile = firstRule ? suggestPublishFile(firstRule.name) : "subman-aggregate.txt";
+		publishTargetFile = firstRule ? `${firstRule.name.toLowerCase().replace(/\\s+/g, '-')}.txt` : "subman-aggregate.txt";
 		publishTargetDescription = "SubMan aggregate";
 		publishTargetPublic = false;
-		targetStatus = null;
-		targetStatusType = null;
-		clearPublishOutputState();
-	}
-
-	async function savePublishTarget() {
-		if (targetSaving) {
-			return;
-		}
-		if (!publishTargetRuleId) {
-			setTargetStatus($t("Select a rule for this publish target."), "error");
-			return;
-		}
-
-		const fileName = publishTargetFile.trim();
-		if (!fileName) {
-			setTargetStatus($t("File name is required."), "error");
-			return;
-		}
-
-		targetSaving = true;
-		try {
-			const existing = selectedTargetId
-				? $appState.publishTargets.find((item) => item.id === selectedTargetId)
-				: null;
-			const rule = $appState.aggregates.find((item) => item.id === publishTargetRuleId);
-			const fallbackName = rule ? `${rule.name} target` : fileName;
-				const next: AggregatePublishTarget = {
-				id: existing?.id ?? createId("pub"),
-				name: publishTargetName.trim() || fallbackName,
-				ruleId: publishTargetRuleId,
-				fileName,
-					description: publishTargetDescription.trim() || $t("SubMan aggregate"),
-				isPublic: publishTargetPublic,
-				lastPublishedAt: existing?.lastPublishedAt ?? null,
-				lastPublishedUrl: existing?.lastPublishedUrl ?? null,
-				updatedAt: nowIso()
-			};
-
-			upsertPublishTarget(next);
-			selectedTargetId = next.id;
-			publishTargetName = next.name;
-			publishUrl = next.lastPublishedUrl;
-				setTargetStatus(
-					existing ? $t("Publish target updated.") : $t("Publish target saved."),
-					"success"
-				);
-			} catch {
-				setTargetStatus($t("Failed to save publish target."), "error");
-			} finally {
-				targetSaving = false;
-			}
-		}
-
-	function deleteSelectedTarget() {
-		if (!selectedTargetId) {
-			return;
-		}
-		const ok = confirm($t("Delete this publish target? This does not delete gist files."));
-		if (!ok) {
-			return;
-		}
-		removePublishTarget(selectedTargetId);
-		resetPublishTargetForm();
-		publishStatus = $t("Publish target deleted.");
-	}
-
-	function summarizeList(values: string[], maxItems: number = 3): string {
-		if (values.length <= maxItems) {
-			return values.join(", ");
-		}
-		return `${values.slice(0, maxItems).join(", ")}, +${values.length - maxItems} more`;
-	}
-
-	function collectRuleDeletionImpact(ruleId: string): {
-		targetsToRemove: AggregatePublishTarget[];
-		safeFilesToDelete: string[];
-		sharedFilesSkipped: string[];
-	} {
-		const targetsToRemove = $appState.publishTargets.filter((target) => target.ruleId === ruleId);
-		const remainingTargets = $appState.publishTargets.filter((target) => target.ruleId !== ruleId);
-		const candidateFiles = [...new Set(targetsToRemove.map((target) => target.fileName.trim()))].filter(
-			(fileName) => fileName && fileName !== WORKSPACE_FILE
-		);
-
-		const safeFilesToDelete = candidateFiles.filter(
-			(fileName) =>
-				!remainingTargets.some((target) => target.fileName.trim() === fileName)
-		);
-		const safeFileSet = new Set(safeFilesToDelete);
-		const sharedFilesSkipped = candidateFiles.filter((fileName) => !safeFileSet.has(fileName));
-
-		return { targetsToRemove, safeFilesToDelete, sharedFilesSkipped };
-	}
-
-	async function deleteSelectedRule() {
-		if (!editingRuleId || ruleDeleting || ruleSaving) {
-			return;
-		}
-		const rule = $appState.aggregates.find((item) => item.id === editingRuleId);
-		if (!rule) {
-			setRuleStatus($t("Rule not found."), "error");
-			resetRuleForm();
-			return;
-		}
-
-		const impact = collectRuleDeletionImpact(rule.id);
-		const deleteRuleConfirmed = confirm(
-			$t('Delete rule "{name}"?\nThis will remove {count} publish target(s) bound to this rule.', {
-				name: rule.name,
-				count: impact.targetsToRemove.length
-			})
-		);
-		if (!deleteRuleConfirmed) {
-			return;
-		}
-
-		const token = $authState.token;
-		const workspaceId = $appState.activeGistId;
-		let deleteRemoteFiles = false;
-		if (impact.safeFilesToDelete.length > 0 && token && workspaceId) {
-			const fileSummary = summarizeList(impact.safeFilesToDelete);
-			deleteRemoteFiles = confirm(
-				$t("Also delete {count} workspace output file(s)?\n{files}", {
-					count: impact.safeFilesToDelete.length,
-					files: fileSummary
-				})
-			);
-		}
-
-		ruleDeleting = true;
-		try {
-			const selectedTargetDeleted =
-				Boolean(selectedTargetId) &&
-				impact.targetsToRemove.some((target) => target.id === selectedTargetId);
-			const publishRuleDeleted = !selectedTargetId && publishTargetRuleId === rule.id;
-
-			removeAggregate(rule.id);
-			resetRuleForm();
-			clearPublishOutputState();
-
-			if (selectedTargetDeleted || publishRuleDeleted) {
-				resetPublishTargetForm();
-			}
-
-			const statusMessages: string[] = [
-				$t("Rule deleted. Removed {count} publish target(s).", {
-					count: impact.targetsToRemove.length
-				})
-			];
-			if (impact.sharedFilesSkipped.length > 0) {
-				statusMessages.push(
-					$t("{count} shared file(s) kept: {files}.", {
-						count: impact.sharedFilesSkipped.length,
-						files: summarizeList(impact.sharedFilesSkipped)
-					})
-				);
-			}
-
-			if (deleteRemoteFiles && impact.safeFilesToDelete.length > 0 && token && workspaceId) {
-				try {
-					const files = Object.fromEntries(
-						impact.safeFilesToDelete.map((fileName) => [fileName, null] as const)
-					);
-					await updateGist(token, { gistId: workspaceId, files });
-					statusMessages.push(
-						$t("Deleted {count} workspace file(s): {files}.", {
-							count: impact.safeFilesToDelete.length,
-							files: summarizeList(impact.safeFilesToDelete)
-						})
-					);
-					setRuleStatus(statusMessages.join(" "), "success");
-				} catch (err) {
-					const errMessage =
-						err instanceof Error ? err.message : $t("Failed to delete workspace files.");
-					setRuleStatus(
-						`${statusMessages.join(" ")} ${$t("Workspace file cleanup failed: {message} Clean remaining files in /gists.", { message: errMessage })}`,
-						"error"
-					);
-				}
-				return;
-			}
-
-			if (impact.safeFilesToDelete.length > 0) {
-				if (!token || !workspaceId) {
-					statusMessages.push(
-						$t("Workspace files were not deleted (missing token or workspace gist): {files}.", {
-							files: summarizeList(impact.safeFilesToDelete)
-						})
-					);
-				} else {
-					statusMessages.push(
-						$t("Workspace files kept: {files}.", {
-							files: summarizeList(impact.safeFilesToDelete)
-						})
-					);
-				}
-			}
-			setRuleStatus(statusMessages.join(" "), "success");
-		} finally {
-			ruleDeleting = false;
-		}
-	}
-
-	function isPublishTargetDirty(target: AggregatePublishTarget) {
-		const nextName = publishTargetName.trim() || target.name;
-		const nextDescription = publishTargetDescription.trim() || "SubMan aggregate";
-		return (
-			nextName !== target.name ||
-			publishTargetRuleId !== target.ruleId ||
-			publishTargetFile.trim() !== target.fileName ||
-			nextDescription !== target.description ||
-			publishTargetPublic !== target.isPublic
-		);
+		outputContent = ""; publishUrl = null;
 	}
 
 	async function buildPreview() {
-		previewStatus = null;
-		const selectedNodes = $appState.nodes.filter((node) => selectedNodeIds.includes(node.id));
-		const selectedSubs = $appState.subscriptions.filter((sub) =>
-			selectedSubscriptionIds.includes(sub.id)
-		);
-
-		const lines = [
-			`Nodes: ${selectedNodes.map((node) => node.name).join(", ") || "None"}`,
-			`Subscriptions: ${selectedSubs.map((sub) => sub.name).join(", ") || "None"}`,
-			`Exclude tags: ${excludeTags || "None"}`,
-			`Rename map entries: ${Object.keys(parseRenameMap(renameMap)).length}`,
-			`Protocols: ${allowedTypes.length > 0 ? allowedTypes.join(", ") : "All"}`
-		];
-
-		previewSummary = lines.join("\n");
-
+		if (!selectedNodeIds.length && !selectedSubscriptionIds.length) {
+			setStatus($t("Select at least one node or subscription."), 'error');
+			return;
+		}
 		previewLoading = true;
-		previewWarnings = [];
-		previewErrors = [];
 		try {
 			const rule: AggregateRule = {
-				id: "preview",
-				name: ruleName || "Preview",
-				nodeIds: selectedNodeIds,
-				subscriptionIds: selectedSubscriptionIds,
-				excludeTagIds: excludeTags
-					.split(",")
-					.map((tag) => tag.trim())
-					.filter(Boolean),
-				renameMap: parseRenameMap(renameMap),
-				allowedTypes,
-				updatedAt: nowIso()
+				id: "preview", name: ruleName || "Preview",
+				nodeIds: selectedNodeIds, subscriptionIds: selectedSubscriptionIds,
+				excludeTagIds: excludeTags.split(",").map(t => t.trim()).filter(Boolean),
+				renameMap: parseRenameMap(renameMap), allowedTypes, updatedAt: nowIso()
 			};
-
 			const result = await buildAggregateOutput(rule, $appState.nodes, $appState.subscriptions);
-			previewContent = result.content;
-			previewLines = result.lines;
-			previewWarnings = result.warnings;
-			previewErrors = result.errors;
+			previewContent = result.content; previewLines = result.lines;
+			previewWarnings = result.warnings; previewErrors = result.errors;
 			buildPreviewEntries(result.content);
-		} finally {
-			previewLoading = false;
-		}
+			previewSummary = `${$t("Nodes")}: ${selectedNodeIds.length}, ${$t("Subscriptions")}: ${selectedSubscriptionIds.length}\n${$t("Output Lines")}: ${result.lines}`;
+		} finally { previewLoading = false; }
 	}
 
 	async function saveRule() {
-		if (ruleSaving) {
-			return;
-		}
-
-			if (!ruleName.trim()) {
-				setRuleStatus($t("Rule name is required."), "error");
-				return;
-			}
-
-		ruleSaving = true;
-		try {
-			const wasEditing = Boolean(editingRuleId);
-			const ruleId = editingRuleId || createId("agg");
-			const rule: AggregateRule = {
-				id: ruleId,
-				name: ruleName.trim(),
-				nodeIds: selectedNodeIds,
-				subscriptionIds: selectedSubscriptionIds,
-				excludeTagIds: excludeTags
-					.split(",")
-					.map((tag) => tag.trim())
-					.filter(Boolean),
-				renameMap: parseRenameMap(renameMap),
-				allowedTypes,
-				updatedAt: nowIso()
-			};
-
-			upsertAggregate(rule);
-			editingRuleId = ruleId;
-			if (!selectedTargetId) {
-				publishTargetRuleId = ruleId;
-				if (!publishTargetFile || publishTargetFile === "subman-aggregate.txt") {
-					publishTargetFile = suggestPublishFile(rule.name);
-				}
-			}
-
-				setRuleStatus(wasEditing ? $t("Rule updated.") : $t("Rule saved."), "success");
-			} catch {
-				setRuleStatus($t("Failed to save rule."), "error");
-			} finally {
-				ruleSaving = false;
-			}
+		if (!ruleName.trim()) { setStatus($t("Rule name is required."), 'error'); return; }
+		const id = editingRuleId || createId("agg");
+		upsertAggregate({
+			id, name: ruleName.trim(), nodeIds: selectedNodeIds, subscriptionIds: selectedSubscriptionIds,
+			excludeTagIds: excludeTags.split(",").map(t => t.trim()).filter(Boolean),
+			renameMap: parseRenameMap(renameMap), allowedTypes, updatedAt: nowIso()
+		});
+		editingRuleId = id;
+		setStatus($t("Rule saved."));
 	}
 
-	async function buildOutput() {
-		publishStatus = null;
-		publishUrl = selectedTargetId
-			? $appState.publishTargets.find((item) => item.id === selectedTargetId)?.lastPublishedUrl ?? null
-			: null;
-		buildWarnings = [];
-		buildErrors = [];
-
-			if (!selectedTargetId) {
-				publishStatus = $t("Save and select a publish target first.");
-				return;
-			}
-
-			const target = $appState.publishTargets.find((item) => item.id === selectedTargetId);
-			if (!target) {
-				publishStatus = $t("Publish target not found.");
-				return;
-			}
-			if (isPublishTargetDirty(target)) {
-				publishStatus = $t("Save target changes before building output.");
-				return;
-			}
-
-			const rule = $appState.aggregates.find((item) => item.id === target.ruleId);
-			if (!rule) {
-				publishStatus = $t("Selected target rule no longer exists.");
-				return;
-			}
-
-		publishing = true;
-		try {
-			const result = await buildAggregateOutput(rule, $appState.nodes, $appState.subscriptions);
-			outputContent = result.content;
-				buildWarnings = result.warnings;
-				buildErrors = result.errors;
-				publishStatus = result.content
-					? $t("Output ready for {file}.", { file: target.fileName })
-					: $t("No output generated.");
-		} finally {
-			publishing = false;
-		}
+	async function deleteRule() {
+		if (!editingRuleId || !confirm($t("Delete this rule?"))) return;
+		removeAggregate(editingRuleId);
+		resetRuleForm();
+		setStatus($t("Rule removed."), 'info');
 	}
 
-	async function publishOutput() {
-		publishStatus = null;
-		publishUrl = null;
-			const token = $authState.token;
-			if (!token) {
-				publishStatus = $t("Missing GitHub token. Connect first.");
-				return;
-			}
+	async function saveTarget() {
+		if (!publishTargetRuleId) { setStatus($t("Select a rule first."), 'error'); return; }
+		const id = selectedTargetId || createId("pub");
+		upsertPublishTarget({
+			id, name: publishTargetName.trim() || publishTargetFile,
+			ruleId: publishTargetRuleId, fileName: publishTargetFile,
+			description: publishTargetDescription.trim(), isPublic: publishTargetPublic,
+			lastPublishedAt: null, lastPublishedUrl: publishUrl, updatedAt: nowIso()
+		});
+		selectedTargetId = id;
+		setStatus($t("Publish target saved."));
+	}
 
-			if (!selectedTargetId) {
-				publishStatus = $t("Save and select a publish target first.");
-				return;
-			}
-			const target = $appState.publishTargets.find((item) => item.id === selectedTargetId);
-			if (!target) {
-				publishStatus = $t("Publish target not found.");
-				return;
-			}
-			if (isPublishTargetDirty(target)) {
-				publishStatus = $t("Save target changes before publishing.");
-				return;
-			}
-		if (!outputContent) {
-			await buildOutput();
-			if (!outputContent) {
-				return;
-			}
-		}
-
+	async function publish() {
+		if (!$authState.token) { setStatus($t("Connect GitHub first."), 'error'); return; }
+		if (!selectedTargetId) { setStatus($t("Save and select a target first."), 'error'); return; }
+		const target = $appState.publishTargets.find(t => t.id === selectedTargetId);
+		if (!target) return;
+		
 		publishing = true;
 		try {
-			const configFile = WORKSPACE_FILE;
+			const rule = $appState.aggregates.find(r => r.id === target.ruleId);
+			if (!rule) throw new Error("Rule not found");
+			
+			const buildResult = await buildAggregateOutput(rule, $appState.nodes, $appState.subscriptions);
+			outputContent = buildResult.content;
+			
 			const configContent = exportSyncState($appState);
 			let workspaceId = $appState.activeGistId || "";
 			let response;
 
 			if (workspaceId) {
-				response = await updateGist(token, {
-					gistId: workspaceId,
-					description: target.description || undefined,
-					files: {
-						[target.fileName]: { content: outputContent },
-						[configFile]: { content: configContent }
-					}
+				response = await updateGist($authState.token, {
+					gistId: workspaceId, description: target.description,
+					files: { [target.fileName]: { content: outputContent }, [WORKSPACE_FILE]: { content: configContent } }
 				});
 			} else {
-				response = await createGist(token, {
-					description: target.description || "SubMan workspace",
-					isPublic: target.isPublic,
-					files: {
-						[configFile]: { content: configContent },
-						[target.fileName]: { content: outputContent }
-					}
+				response = await createGist($authState.token, {
+					description: target.description || "SubMan workspace", isPublic: target.isPublic,
+					files: { [WORKSPACE_FILE]: { content: configContent }, [target.fileName]: { content: outputContent } }
 				});
 				workspaceId = response.id;
 			}
 
-			const fileMeta = response.files.find((file) => file.filename === target.fileName);
+			const fileMeta = response.files.find(f => f.filename === target.fileName);
 			publishUrl = fileMeta?.rawUrl ?? null;
-			const publishedAt = nowIso();
-
-			appState.update((state) => ({
-				...state,
-				activeGistId: workspaceId,
-				activeGistFile: configFile,
-				lastUpdated: nowIso()
-			}));
-			upsertPublishTarget({
-				...target,
-				lastPublishedAt: publishedAt,
-				lastPublishedUrl: publishUrl,
-				updatedAt: publishedAt
-			});
-
-				publishStatus = publishUrl
-					? $t("Aggregation published.")
-					: $t("Aggregation published (raw link unavailable).");
-			} catch (err) {
-				publishStatus = err instanceof Error ? err.message : $t("Failed to publish aggregation.");
-			} finally {
-				publishing = false;
-			}
+			
+			appState.update(s => ({ ...s, activeGistId: workspaceId, lastUpdated: nowIso() }));
+			upsertPublishTarget({ ...target, lastPublishedAt: nowIso(), lastPublishedUrl: publishUrl, updatedAt: nowIso() });
+			
+			setStatus($t("Published to Gist successfully!"), 'success');
+		} catch (err) {
+			setStatus(err instanceof Error ? err.message : $t("Publish failed."), 'error');
+		} finally { publishing = false; }
 	}
 
 	async function copyLink() {
-		if (!publishUrl) {
-			return;
-		}
-			try {
-				await navigator.clipboard.writeText(publishUrl);
-				publishStatus = $t("Link copied.");
-			} catch {
-				publishStatus = $t("Copy failed.");
-			}
-		}
-	</script>
+		if (!publishUrl) return;
+		try {
+			await navigator.clipboard.writeText(publishUrl);
+			setStatus($t("Link copied."));
+		} catch { setStatus($t("Copy failed."), 'error'); }
+	}
 
-	<section class="flex flex-col gap-8">
-		<header>
-			<h1 class="text-2xl font-semibold">{$t("Aggregation Builder")}</h1>
-			<p class="mt-2 text-sm text-slate-300">
-				{$t("Select nodes and subscriptions, apply filters, and generate a single subscription output.")}
-			</p>
-		</header>
+	onDestroy(() => { if (statusTimer) clearTimeout(statusTimer); });
+</script>
 
-	<div class="grid gap-6 lg:grid-cols-3">
-			<div class="rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
-				<h2 class="text-lg font-semibold">{$t("Pick Sources")}</h2>
-				<p class="mt-2 text-xs text-slate-400">{$t("Choose individual nodes and subscriptions.")}</p>
-				<div class="mt-4 grid gap-4">
-					<div>
-						<p class="text-xs uppercase text-slate-400">{$t("Nodes")}</p>
-						<div class="mt-2 grid gap-2">
-							{#if $appState.nodes.length === 0}
-								<p class="text-xs text-slate-500">{$t("No nodes available.")}</p>
-						{:else}
-							{#each $appState.nodes as node}
-								<label class="flex items-center gap-2 text-sm">
-									<input
-										type="checkbox"
-										checked={selectedNodeIds.includes(node.id)}
-										on:change={() => (selectedNodeIds = toggleSelection(selectedNodeIds, node.id))}
-									/>
-									{node.name}
-								</label>
-							{/each}
-						{/if}
-					</div>
-				</div>
-					<div>
-						<p class="text-xs uppercase text-slate-400">{$t("Subscriptions")}</p>
-						<div class="mt-2 grid gap-2">
-							{#if $appState.subscriptions.length === 0}
-								<p class="text-xs text-slate-500">{$t("No subscriptions available.")}</p>
-						{:else}
-							{#each $appState.subscriptions as sub}
-								<label class="flex items-center gap-2 text-sm">
-									<input
-										type="checkbox"
-										checked={selectedSubscriptionIds.includes(sub.id)}
-										on:change={() =>
-											(selectedSubscriptionIds = toggleSelection(selectedSubscriptionIds, sub.id))}
-									/>
-									{sub.name}
-								</label>
-							{/each}
-						{/if}
-					</div>
-				</div>
+<div class="space-y-8 pb-12">
+	<!-- Page Header -->
+	<header class="flex flex-col gap-2">
+		<div class="flex items-center gap-3">
+			<div class="flex h-12 w-12 items-center justify-center rounded-2xl bg-indigo-500/10 text-indigo-400">
+				<Zap class="h-6 w-6" />
+			</div>
+			<div>
+				<h1 class="text-3xl font-extrabold text-white tracking-tight">{$t("Aggregation Builder")}</h1>
+				<p class="text-slate-400 text-sm">{$t("Create and publish stable subscription links")}</p>
 			</div>
 		</div>
+	</header>
 
-			<div class="rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
-				<h2 class="text-lg font-semibold">{$t("Rules")}</h2>
-				<p class="mt-2 text-xs text-slate-400">
-					{$t("Edit names, remove tags, and prepare rename mappings.")}
-				</p>
-			<div class="mt-4 grid gap-3">
-				<select
-					class="w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-sm"
-					value={editingRuleId}
-					on:change={(event) => {
-						const nextId = event.currentTarget.value;
-						if (!nextId) {
-							resetRuleForm();
-							return;
-						}
-						const rule = $appState.aggregates.find((item) => item.id === nextId);
-						if (rule) {
-							loadRule(rule);
-						}
-					}}
-				>
-						<option value="">{$t("New rule")}</option>
-					{#each $appState.aggregates as rule}
-						<option value={rule.id}>{rule.name}</option>
-					{/each}
-				</select>
-					<input
-						class="w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-sm"
-						placeholder={$t("Rule name")}
-						bind:value={ruleName}
-					/>
-					<input
-						class="w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-sm"
-						placeholder={$t("Exclude tags (comma separated)")}
-						bind:value={excludeTags}
-					/>
-					<textarea
-						class="min-h-[120px] w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-sm"
-						placeholder={$t("Rename map: old=new per line")}
-						bind:value={renameMap}
-					/>
-					<div>
-						<p class="text-xs uppercase text-slate-400">{$t("Protocols")}</p>
-					<div class="mt-2 grid grid-cols-2 gap-2 text-xs md:grid-cols-4">
-						{#each protocolOptions as option}
-							<label class="flex items-center gap-2">
-								<input
-									type="checkbox"
-									checked={allowedTypes.includes(option.id)}
-									on:change={() => toggleType(option.id)}
-								/>
-								{option.label}
-							</label>
+	<!-- Status Bar -->
+	{#if status}
+		<div 
+			transition:fly={{ y: -20, duration: 300 }}
+			class={cn(
+				"fixed top-20 right-8 z-[100] flex items-center gap-3 rounded-2xl px-6 py-3 border shadow-2xl backdrop-blur-xl",
+				status.type === 'success' ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400" :
+				status.type === 'error' ? "bg-red-500/10 border-red-500/20 text-red-400" :
+				"bg-indigo-500/10 border-indigo-500/20 text-indigo-400"
+			)}
+		>
+			{#if status.type === 'success'}<CheckCircle2 class="h-5 w-5" />
+			{:else if status.type === 'error'}<AlertCircle class="h-5 w-5" />
+			{:else}<Zap class="h-5 w-5" />{/if}
+			<span class="text-sm font-bold tracking-tight">{status.message}</span>
+		</div>
+	{/if}
+
+	<div class="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+		<!-- Left Side: Config (8 cols) -->
+		<div class="lg:col-span-8 space-y-8">
+			<!-- Rule Definition -->
+			<section class="rounded-[2rem] border border-slate-800/60 bg-slate-900/30 p-8 space-y-6">
+				<div class="flex items-center justify-between">
+					<div class="flex items-center gap-3">
+						<Settings2 class="h-5 w-5 text-indigo-400" />
+						<h2 class="text-xl font-bold text-white">{$t("Define Aggregate Rule")}</h2>
+					</div>
+					<select 
+						class="rounded-xl border border-slate-800 bg-slate-950 px-3 py-1.5 text-xs text-slate-300 outline-none focus:border-indigo-500/40"
+						value={editingRuleId}
+						on:change={(e) => {
+							const id = e.currentTarget.value;
+							if (!id) resetRuleForm();
+							else { const r = $appState.aggregates.find(a => a.id === id); if (r) loadRule(r); }
+						}}
+					>
+						<option value="">+ {$t("New Rule")}</option>
+						{#each $appState.aggregates as rule}
+							<option value={rule.id}>{rule.name}</option>
 						{/each}
-					</div>
-						<p class="mt-2 text-[11px] text-slate-500">
-							{$t("Leave empty to include all protocols.")}
-						</p>
-					</div>
-				<div class="flex flex-wrap gap-3">
-					<button
-						class="rounded-full border border-slate-700 px-4 py-2 text-sm font-semibold"
-						on:click={buildPreview}
-						>
-							{$t("Preview")}
-						</button>
-					<button
-						class="rounded-full bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-950 disabled:opacity-60"
-						on:click={saveRule}
-						disabled={ruleSaving}
-						>
-							{ruleSaving ? $t("Saving...") : editingRuleId ? $t("Update Rule") : $t("Save Rule")}
-						</button>
-					<button
-						class="rounded-full border border-rose-700 px-4 py-2 text-sm font-semibold text-rose-200 disabled:opacity-40"
-						on:click={deleteSelectedRule}
-						disabled={!editingRuleId || ruleSaving || ruleDeleting}
-						>
-							{ruleDeleting ? $t("Deleting...") : $t("Delete Rule")}
-						</button>
-					</div>
-				{#if ruleStatus}
-					<p class={ruleStatusType === "error" ? "text-xs text-rose-300" : "text-xs text-emerald-300"}>
-						{ruleStatus}
-					</p>
-				{/if}
-			</div>
-		</div>
+					</select>
+				</div>
 
-			<div class="rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
-				<h2 class="text-lg font-semibold">{$t("Preview")}</h2>
-				<p class="mt-2 text-xs text-slate-400">{$t("Processed output for the current selections.")}</p>
-				<pre class="mt-3 whitespace-pre-wrap rounded-xl border border-slate-800 bg-slate-950 p-3 text-xs text-slate-300">
-	{previewSummary || $t("Summary will appear here.")}
-				</pre>
-				<div class="mt-3 min-h-[200px] rounded-xl border border-slate-800 bg-slate-950 p-4 text-xs text-slate-200">
-					{#if previewLoading}
-						<p>{$t("Building preview...")}</p>
-					{:else if previewEntries.length === 0}
-						<p>{$t("No output generated.")}</p>
-				{:else}
-					<div class="grid gap-2">
-						{#each previewEntries as entry}
-							<div class="rounded-lg border border-slate-800/80 bg-slate-950/70 px-3 py-2">
-								<button
-									class="flex w-full items-center justify-between gap-4 text-left text-xs"
-									on:click={() => {
-										previewExpandedLine =
-											previewExpandedLine === entry.line ? null : entry.line;
-									}}
-								>
-									<span class="text-slate-400">{entry.protocol}</span>
-									<span class="flex-1 truncate font-semibold text-slate-100">{entry.name}</span>
-										<span class="text-slate-500">{$t("View")}</span>
-								</button>
-								{#if previewExpandedLine === entry.line}
-									<div class="mt-2 rounded-md border border-slate-800 bg-slate-900/60 p-2 text-[11px] text-slate-200">
-										<p class="break-all">{entry.line}</p>
-										<button
-											class="mt-2 rounded-full border border-slate-700 px-3 py-1 text-[11px]"
-											on:click={async () => {
-													try {
-														await navigator.clipboard.writeText(entry.line);
-														previewStatus = $t("Line copied.");
-													} catch {
-														previewStatus = $t("Copy failed.");
-													}
-												}}
-											>
-												{$t("Copy Line")}
-											</button>
-									</div>
+				<div class="grid gap-6">
+					<div class="space-y-2">
+						<label class="text-[10px] font-bold uppercase tracking-widest text-slate-500 ml-1">{$t("Rule Name")}</label>
+						<input 
+							class="w-full rounded-2xl border border-slate-800 bg-slate-950 px-5 py-3 text-sm text-white outline-none focus:border-indigo-500/50 transition-all"
+							placeholder={$t("Global Proxy Rule...")}
+							bind:value={ruleName}
+						/>
+					</div>
+
+					<!-- Source Picker -->
+					<div class="grid gap-6 sm:grid-cols-2">
+						<div class="space-y-3">
+							<div class="flex items-center justify-between">
+								<label class="text-[10px] font-bold uppercase tracking-widest text-slate-500 ml-1">{$t("Nodes")}</label>
+								<span class="text-[10px] text-slate-600 font-bold">{selectedNodeIds.length}</span>
+							</div>
+							<div class="max-h-48 overflow-y-auto rounded-2xl border border-slate-800 bg-slate-950/50 p-3 space-y-1 custom-scrollbar">
+								{#each $appState.nodes as node}
+									<label class="flex items-center gap-3 p-2 rounded-xl hover:bg-slate-800/40 transition-colors cursor-pointer group">
+										<input 
+											type="checkbox" 
+											class="h-4 w-4 rounded-md border-slate-700 bg-slate-900 text-indigo-600 focus:ring-indigo-500"
+											checked={selectedNodeIds.includes(node.id)}
+											on:change={() => selectedNodeIds = toggleSelection(selectedNodeIds, node.id)}
+										/>
+										<span class="text-xs text-slate-400 group-hover:text-slate-200 transition-colors">{node.name}</span>
+									</label>
+								{/each}
+								{#if !$appState.nodes.length}
+									<p class="text-[10px] text-slate-600 italic p-2 text-center">{$t("No nodes available")}</p>
 								{/if}
 							</div>
-						{/each}
+						</div>
+						<div class="space-y-3">
+							<div class="flex items-center justify-between">
+								<label class="text-[10px] font-bold uppercase tracking-widest text-slate-500 ml-1">{$t("Subscriptions")}</label>
+								<span class="text-[10px] text-slate-600 font-bold">{selectedSubscriptionIds.length}</span>
+							</div>
+							<div class="max-h-48 overflow-y-auto rounded-2xl border border-slate-800 bg-slate-950/50 p-3 space-y-1 custom-scrollbar">
+								{#each $appState.subscriptions as sub}
+									<label class="flex items-center gap-3 p-2 rounded-xl hover:bg-slate-800/40 transition-colors cursor-pointer group">
+										<input 
+											type="checkbox" 
+											class="h-4 w-4 rounded-md border-slate-700 bg-slate-900 text-indigo-600 focus:ring-indigo-500"
+											checked={selectedSubscriptionIds.includes(sub.id)}
+											on:change={() => selectedSubscriptionIds = toggleSelection(selectedSubscriptionIds, sub.id)}
+										/>
+										<span class="text-xs text-slate-400 group-hover:text-slate-200 transition-colors">{sub.name}</span>
+									</label>
+								{/each}
+								{#if !$appState.subscriptions.length}
+									<p class="text-[10px] text-slate-600 italic p-2 text-center">{$t("No subscriptions available")}</p>
+								{/if}
+							</div>
+						</div>
 					</div>
-				{/if}
-			</div>
-				<p class="mt-3 text-xs text-slate-400">{$t("Lines: {count}", { count: previewLines })}</p>
-			{#if previewWarnings.length > 0}
-				<div class="mt-3 rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
-					{#each previewWarnings as warning}
-						<p>{warning}</p>
-					{/each}
-				</div>
-			{/if}
-			{#if previewErrors.length > 0}
-				<div class="mt-3 rounded-xl border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-xs text-rose-200">
-					{#each previewErrors as err}
-						<p>{err}</p>
-					{/each}
-				</div>
-			{/if}
-			{#if previewStatus}
-				<p class="mt-3 text-xs text-slate-400">{previewStatus}</p>
-			{/if}
-		</div>
-	</div>
 
-		<div class="rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
-			<h2 class="text-lg font-semibold">{$t("Publish Aggregation")}</h2>
-			<p class="mt-2 text-xs text-slate-400">
-				{$t("Bind rules to stable output files. Reuse one rule across multiple publish targets.")}
-			</p>
-		<div class="mt-4 grid gap-3 text-sm md:grid-cols-2">
-			<select
-				class="w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2"
-				value={selectedTargetId}
-				on:change={(event) => {
-					const nextId = event.currentTarget.value;
-					if (!nextId) {
-						resetPublishTargetForm();
-						return;
-					}
-					const target = $appState.publishTargets.find((item) => item.id === nextId);
-					if (target) {
-						loadPublishTarget(target);
-					}
-				}}
-			>
-					<option value="">{$t("New publish target")}</option>
-				{#each $appState.publishTargets as target}
-					<option value={target.id}>{target.name} -> {target.fileName}</option>
-				{/each}
-			</select>
-			<input
-				class="w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2"
-					placeholder={$t("Target name")}
-				bind:value={publishTargetName}
-			/>
-			<select
-				class="w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2"
-				value={publishTargetRuleId}
-				on:change={(event) => {
-					publishTargetRuleId = event.currentTarget.value;
-					if (!selectedTargetId) {
-						const selectedRule = $appState.aggregates.find(
-							(item) => item.id === publishTargetRuleId
-						);
-						if (selectedRule && publishTargetFile === "subman-aggregate.txt") {
-							publishTargetFile = suggestPublishFile(selectedRule.name);
-						}
-					}
-				}}
-			>
-					<option value="">{$t("Select rule")}</option>
-				{#each $appState.aggregates as rule}
-					<option value={rule.id}>{rule.name}</option>
-				{/each}
-			</select>
-			<input
-				class="w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2"
-					placeholder={$t("File name (e.g. aggregate.txt)")}
-				bind:value={publishTargetFile}
-			/>
-			<input
-				class="w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2"
-					placeholder={$t("Gist description")}
-				bind:value={publishTargetDescription}
-			/>
-			<label class="inline-flex items-center gap-2 text-xs text-slate-300">
-				<input type="checkbox" class="h-4 w-4" bind:checked={publishTargetPublic} />
-					{$t("Public gist")}
-				</label>
-			</div>
-		<div class="mt-4 flex flex-wrap gap-3">
-			<button
-				class="rounded-full border border-slate-700 px-4 py-2 text-sm font-semibold disabled:opacity-60"
-				on:click={savePublishTarget}
-				disabled={targetSaving}
-				>
-					{targetSaving ? $t("Saving...") : selectedTargetId ? $t("Update Target") : $t("Save Target")}
-				</button>
-			<button
-				class="rounded-full border border-slate-700 px-4 py-2 text-sm font-semibold disabled:opacity-60"
-				on:click={resetPublishTargetForm}
-				disabled={targetSaving}
-				>
-					{$t("New Target")}
-				</button>
-			<button
-				class="rounded-full border border-rose-700 px-4 py-2 text-sm font-semibold text-rose-200 disabled:opacity-40"
-				on:click={deleteSelectedTarget}
-				disabled={!selectedTargetId || targetSaving}
-				>
-					{$t("Delete Target")}
-				</button>
-		</div>
-		{#if targetStatus}
-			<p class={targetStatusType === "error" ? "mt-3 text-xs text-rose-300" : "mt-3 text-xs text-emerald-300"}>
-				{targetStatus}
-			</p>
-		{/if}
-			{#if $appState.activeGistId}
-				<p class="mt-3 text-xs text-slate-400">
-					{$t("Using workspace gist: {id} (config file: {file})", {
-						id: $appState.activeGistId,
-						file: $appState.activeGistFile || "subman.json"
-					})}
-				</p>
-			{:else}
-				<p class="mt-3 text-xs text-slate-400">
-					{$t(
-						"No workspace gist selected. Publishing will create a new gist containing config and output files."
-					)}
-				</p>
-			{/if}
-		<div class="mt-4 flex flex-wrap gap-3">
-			<button
-				class="rounded-full border border-slate-700 px-4 py-2 text-sm font-semibold"
-				on:click={buildOutput}
-				disabled={publishing}
-				>
-					{publishing ? $t("Building...") : $t("Build Output")}
-				</button>
-			<button
-				class="rounded-full bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-950"
-				on:click={publishOutput}
-				disabled={publishing}
-				>
-					{publishing ? $t("Publishing...") : $t("Publish to Gist")}
-				</button>
-		</div>
-		{#if publishStatus || publishUrl || buildErrors.length > 0 || buildWarnings.length > 0}
-			<div class="mt-4 rounded-xl border border-slate-800 bg-slate-950/70 p-4 text-xs text-slate-200">
-				{#if publishStatus}
-					<p class="text-sm font-semibold">{publishStatus}</p>
-				{/if}
-				{#if buildErrors.length > 0}
-					<div class="mt-2 rounded-lg border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-xs text-rose-200">
-						{#each buildErrors as err}
-							<p>{err}</p>
-						{/each}
-					</div>
-				{/if}
-				{#if buildWarnings.length > 0}
-					<div class="mt-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
-						{#each buildWarnings as warning}
-							<p>{warning}</p>
-						{/each}
-					</div>
-				{/if}
-					{#if publishUrl}
-						<div class="mt-3 grid gap-2 text-xs text-slate-300">
-							<p>{$t("Subscription link")}</p>
-						<div class="flex flex-wrap items-center gap-2">
-							<input
-								class="flex-1 rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-xs text-slate-100"
-								readonly
-								value={publishUrl}
+					<div class="grid gap-6 sm:grid-cols-2">
+						<div class="space-y-2">
+							<label class="text-[10px] font-bold uppercase tracking-widest text-slate-500 ml-1">{$t("Exclude Tags")}</label>
+							<input 
+								class="w-full rounded-2xl border border-slate-800 bg-slate-950 px-5 py-3 text-sm text-white outline-none focus:border-indigo-500/50"
+								placeholder={$t("domestic, gaming...")}
+								bind:value={excludeTags}
 							/>
-								<button
-									class="rounded-full border border-slate-700 px-3 py-2 text-xs font-semibold"
-									on:click={copyLink}
-								>
-									{$t("Copy")}
-								</button>
+						</div>
+						<div class="space-y-2">
+							<label class="text-[10px] font-bold uppercase tracking-widest text-slate-500 ml-1">{$t("Allowed Protocols")}</label>
+							<div class="flex flex-wrap gap-2">
+								{#each protocolOptions as opt}
+									<button 
+										on:click={() => toggleType(opt.id)}
+										class={cn(
+											"px-3 py-1 rounded-lg text-[10px] font-bold uppercase border transition-all",
+											allowedTypes.includes(opt.id) ? "bg-indigo-500/20 border-indigo-500/50 text-indigo-400" : "bg-slate-950 border-slate-800 text-slate-500 hover:border-slate-700"
+										)}
+									>
+										{opt.label}
+									</button>
+								{/each}
+							</div>
+						</div>
+					</div>
+
+					<div class="space-y-2">
+						<label class="text-[10px] font-bold uppercase tracking-widest text-slate-500 ml-1">{$t("Node Rename Mapping")}</label>
+						<textarea 
+							class="w-full h-24 rounded-2xl border border-slate-800 bg-slate-950 px-5 py-3 text-xs font-mono text-white outline-none focus:border-indigo-500/50 custom-scrollbar"
+							placeholder="Original Name = New Name&#10;HK-01 = Hong Kong Premium"
+							bind:value={renameMap}
+						/>
+					</div>
+				</div>
+
+				<div class="flex items-center gap-3 pt-4">
+					<button 
+						on:click={saveRule}
+						class="flex-1 flex items-center justify-center gap-2 rounded-xl bg-indigo-600 px-6 py-3 text-sm font-bold text-white transition-all hover:bg-indigo-500 active:scale-[0.98]"
+					>
+						<Save class="h-4 w-4" />
+						{editingRuleId ? $t("Update Rule") : $t("Save Rule")}
+					</button>
+					<button 
+						on:click={buildPreview}
+						class="flex items-center gap-2 rounded-xl border border-slate-800 bg-slate-800/50 px-6 py-3 text-sm font-bold text-white transition-all hover:bg-slate-700"
+					>
+						<Eye class="h-4 w-4" />
+						{$t("Preview Output")}
+					</button>
+					{#if editingRuleId}
+						<button 
+							on:click={deleteRule}
+							class="h-12 w-12 flex items-center justify-center rounded-xl border border-slate-800 text-slate-500 hover:bg-red-500/10 hover:text-red-400 transition-all"
+						>
+							<Trash2 class="h-5 w-5" />
+						</button>
+					{/if}
+				</div>
+			</section>
+
+			<!-- Preview Section -->
+			{#if previewEntries.length > 0 || previewLoading}
+				<section class="rounded-[2rem] border border-slate-800/60 bg-slate-900/10 p-8 space-y-6" in:slide>
+					<div class="flex items-center justify-between">
+						<div class="flex items-center gap-3">
+							<FileText class="h-5 w-5 text-indigo-400" />
+							<h2 class="text-xl font-bold text-white">{$t("Preview Output")}</h2>
+						</div>
+						<div class="text-[10px] font-bold uppercase tracking-widest text-slate-500">
+							{previewLines} {$t("Lines generated")}
+						</div>
+					</div>
+
+					{#if previewLoading}
+						<div class="py-20 flex flex-col items-center justify-center gap-4">
+							<RefreshCw class="h-8 w-8 text-indigo-500 animate-spin" />
+							<p class="text-sm font-medium text-slate-500">{$t("Building subscription output...")}</p>
+						</div>
+					{:else}
+						<div class="grid gap-3 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
+							{#each previewEntries as entry}
+								<div class="group flex flex-col rounded-2xl border border-slate-800 bg-slate-950/60 transition-all hover:border-slate-700/60">
+									<div class="flex items-center gap-4 p-4">
+										<span class="text-[10px] font-black uppercase text-indigo-500/60 w-12">{entry.protocol}</span>
+										<span class="flex-1 text-sm font-bold text-slate-200 truncate">{entry.name}</span>
+										<button 
+											on:click={() => previewExpandedLine = previewExpandedLine === entry.line ? null : entry.line}
+											class="text-slate-500 hover:text-white transition-colors"
+										>
+											<ChevronRight class={cn("h-4 w-4 transition-transform", previewExpandedLine === entry.line && "rotate-90")} />
+										</button>
+									</div>
+									{#if previewExpandedLine === entry.line}
+										<div transition:slide class="p-4 pt-0">
+											<div class="rounded-xl bg-slate-900 p-3 relative group/line">
+												<p class="text-[10px] font-mono text-slate-400 break-all">{entry.line}</p>
+												<button 
+													on:click={() => copyLink()} 
+													class="absolute right-2 bottom-2 p-1.5 rounded-lg bg-slate-800 text-slate-400 opacity-0 group-hover/line:opacity-100 transition-opacity hover:text-white"
+												>
+													<Copy class="h-3 w-3" />
+												</button>
+											</div>
+										</div>
+									{/if}
+								</div>
+							{/each}
+						</div>
+					{/if}
+				</section>
+			{/if}
+		</div>
+
+		<!-- Right Side: Publishing (4 cols) -->
+		<div class="lg:col-span-4 space-y-8 sticky top-24">
+			<section class="rounded-[2rem] border border-indigo-500/20 bg-indigo-500/5 p-8 space-y-6 shadow-2xl shadow-indigo-500/5">
+				<div class="flex items-center gap-3">
+					<CloudUpload class="h-5 w-5 text-indigo-400" />
+					<h2 class="text-xl font-bold text-white">{$t("Publish to Gist")}</h2>
+				</div>
+
+				<div class="space-y-4">
+					<div class="space-y-2">
+						<label class="text-[10px] font-bold uppercase tracking-widest text-slate-500">{$t("Publish Target")}</label>
+						<select 
+							class="w-full rounded-xl border border-slate-800 bg-slate-950 px-4 py-2.5 text-sm text-white outline-none focus:border-indigo-500/50"
+							value={selectedTargetId}
+							on:change={(e) => {
+								const id = e.currentTarget.value;
+								if (!id) resetTargetForm();
+								else { const t = $appState.publishTargets.find(x => x.id === id); if (t) loadPublishTarget(t); }
+							}}
+						>
+							<option value="">+ {$t("New Target")}</option>
+							{#each $appState.publishTargets as target}
+								<option value={target.id}>{target.name}</option>
+							{/each}
+						</select>
+					</div>
+
+					<div class="space-y-2">
+						<label class="text-[10px] font-bold uppercase tracking-widest text-slate-500">{$t("Target Name")}</label>
+						<input 
+							class="w-full rounded-xl border border-slate-800 bg-slate-950 px-4 py-2.5 text-sm text-white outline-none focus:border-indigo-500/50"
+							placeholder={$t("Clash Config...")}
+							bind:value={publishTargetName}
+						/>
+					</div>
+
+					<div class="space-y-2">
+						<label class="text-[10px] font-bold uppercase tracking-widest text-slate-500">{$t("File Name")}</label>
+						<input 
+							class="w-full rounded-xl border border-slate-800 bg-slate-950 px-4 py-2.5 text-sm font-mono text-white outline-none focus:border-indigo-500/50"
+							placeholder="config.txt"
+							bind:value={publishTargetFile}
+						/>
+					</div>
+
+					<div class="space-y-2">
+						<label class="flex items-center gap-2 cursor-pointer group">
+							<input 
+								type="checkbox" 
+								class="h-4 w-4 rounded-md border-slate-700 bg-slate-900 text-indigo-600 focus:ring-indigo-500"
+								bind:checked={publishTargetPublic}
+							/>
+							<span class="text-xs text-slate-400 group-hover:text-slate-300 transition-colors">{$t("Public Gist")}</span>
+						</label>
+					</div>
+				</div>
+
+				<div class="pt-4 space-y-3">
+					<button 
+						on:click={saveTarget}
+						class="w-full flex items-center justify-center gap-2 rounded-xl border border-slate-800 bg-slate-800/50 px-6 py-3 text-sm font-bold text-white hover:bg-slate-800 transition-all"
+					>
+						<Save class="h-4 w-4" />
+						{$t("Save Target")}
+					</button>
+
+					<button 
+						on:click={publish}
+						disabled={publishing || !$authState.token}
+						class="w-full flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 px-6 py-4 text-sm font-extrabold text-white shadow-xl shadow-indigo-600/20 transition-all hover:opacity-90 active:scale-[0.98] disabled:opacity-50"
+					>
+						{#if publishing}
+							<RefreshCw class="h-5 w-5 animate-spin" />
+							{$t("Publishing...")}
+						{:else}
+							<CloudUpload class="h-5 w-5" />
+							{$t("Publish Now")}
+						{/if}
+					</button>
+				</div>
+
+				{#if publishUrl}
+					<div class="pt-6 border-t border-indigo-500/10 space-y-3" in:fade>
+						<p class="text-[10px] font-bold uppercase tracking-widest text-emerald-500 flex items-center gap-1">
+							<ShieldCheck class="h-3 w-3" />
+							{$t("Live Link")}
+						</p>
+						<div class="flex items-center gap-2">
+							<div class="flex-1 min-w-0 rounded-lg bg-slate-950 border border-slate-800 px-3 py-2 text-[10px] font-mono text-slate-400 truncate">
+								{publishUrl}
+							</div>
+							<button 
+								on:click={copyLink}
+								class="h-8 w-8 flex items-center justify-center rounded-lg bg-slate-800 text-slate-400 hover:text-white transition-colors"
+							>
+								<Copy class="h-3.5 w-3.5" />
+							</button>
 						</div>
 					</div>
 				{/if}
-			</div>
-		{/if}
-	</div>
 
-</section>
+				{#if !$authState.token}
+					<div class="rounded-xl bg-amber-500/10 border border-amber-500/20 p-4 flex items-start gap-3">
+						<AlertCircle class="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
+						<p class="text-[11px] text-amber-200/80 leading-relaxed">
+							{$t("Connect your GitHub token in Workspace settings to publish this aggregation.")}
+						</p>
+					</div>
+				{/if}
+			</section>
+
+			<!-- Quick Info -->
+			<div class="px-6 space-y-4">
+				<div class="flex items-center gap-2 text-slate-500">
+					<Database class="h-4 w-4" />
+					<span class="text-[10px] font-bold uppercase tracking-widest">{$t("Workspace Status")}</span>
+				</div>
+				<p class="text-[11px] text-slate-400 leading-relaxed">
+					{$t("Changes to rules and targets are automatically synced to your workspace gist when active.")}
+				</p>
+			</div>
+		</div>
+	</div>
+</div>
+
+<style>
+	.custom-scrollbar::-webkit-scrollbar {
+		width: 4px;
+	}
+	.custom-scrollbar::-webkit-scrollbar-track {
+		background: transparent;
+	}
+	.custom-scrollbar::-webkit-scrollbar-thumb {
+		background: #1e293b;
+		border-radius: 10px;
+	}
+	.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+		background: #334155;
+	}
+</style>

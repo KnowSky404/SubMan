@@ -6,13 +6,39 @@
 	import { getGist, updateGist } from "$lib/gist";
 	import { nowIso } from "$lib/utils/time";
 	import { WORKSPACE_FILE } from "$lib/workspace";
+	import { cn } from "$lib/utils/cn";
+	import { 
+		FileJson, 
+		FileText, 
+		ExternalLink, 
+		Copy, 
+		Trash2, 
+		RefreshCw, 
+		ShieldCheck, 
+		Layers, 
+		FileCode,
+		Database,
+		CheckCircle2,
+		AlertCircle,
+		HardDrive,
+		FileQuestion,
+		Settings,
+		ArrowRight
+	} from "lucide-svelte";
+	import { fade, fly } from "svelte/transition";
 
 	let workspace: GistMeta | null = null;
 	let loading = false;
 	let deleting = false;
-	let error: string | null = null;
-	let status: string | null = null;
-	let managedFiles = new Set<string>();
+	
+	let status: { message: string, type: 'success' | 'info' | 'error' } | null = null;
+	let statusTimer: ReturnType<typeof setTimeout> | null = null;
+
+	function setStatus(message: string, type: 'success' | 'info' | 'error' = 'info') {
+		status = { message, type };
+		if (statusTimer) clearTimeout(statusTimer);
+		statusTimer = setTimeout(() => status = null, 4000);
+	}
 
 	$: managedFiles = new Set(
 		$appState.publishTargets
@@ -21,274 +47,275 @@
 	);
 
 	async function refreshWorkspace() {
-		error = null;
-		status = null;
 		const token = $authState.token;
 		const gistId = $appState.activeGistId;
-		if (!token) {
-			error = $t("Missing GitHub token. Configure workspace first.");
-			return;
-		}
-		if (!gistId) {
-			error = $t("Workspace gist not set. Configure workspace first.");
+		if (!token || !gistId) {
+			setStatus($t("Configure workspace first."), 'error');
 			return;
 		}
 
 		loading = true;
 		try {
 			workspace = await getGist(token, gistId);
-			status = $t("Workspace gist refreshed.");
+			setStatus($t("Workspace refreshed."), 'success');
 		} catch (err) {
-			error = err instanceof Error ? err.message : $t("Failed to fetch workspace gist.");
+			setStatus(err instanceof Error ? err.message : $t("Failed to fetch gist."), 'error');
 		} finally {
 			loading = false;
 		}
 	}
 
 	async function copyLink(url?: string) {
-		status = null;
-		if (!url) {
-			status = $t("Raw link unavailable.");
-			return;
-		}
+		if (!url) { setStatus($t("Link unavailable."), 'error'); return; }
 		try {
 			await navigator.clipboard.writeText(url);
-			status = $t("Link copied.");
-		} catch {
-			status = $t("Copy failed.");
-		}
+			setStatus($t("Link copied."));
+		} catch { setStatus($t("Copy failed."), 'error'); }
 	}
 
-	function isConfigFile(filename: string) {
-		return filename === WORKSPACE_FILE;
-	}
-
-	function isManagedOutput(filename: string) {
-		return managedFiles.has(filename);
-	}
-
-	function canDelete(filename: string) {
-		return !isConfigFile(filename);
-	}
+	const isConfigFile = (filename: string) => filename === WORKSPACE_FILE;
+	const isManagedOutput = (filename: string) => managedFiles.has(filename);
+	const canDelete = (filename: string) => !isConfigFile(filename);
 
 	async function deleteWorkspaceFile(filename: string) {
-		error = null;
-		status = null;
 		const token = $authState.token;
 		const gistId = $appState.activeGistId;
-		if (!token || !gistId) {
-			error = $t("Missing workspace authorization.");
-			return;
-		}
+		if (!token || !gistId) return;
 		if (!canDelete(filename)) {
-			status = $t("{file} is protected and cannot be deleted.", { file: WORKSPACE_FILE });
+			setStatus($t("{file} is protected.", { file: WORKSPACE_FILE }), 'error');
 			return;
 		}
 
-		const ok = confirm(
-			$t("Delete {filename} from workspace gist? This cannot be undone.", { filename })
-		);
-		if (!ok) {
-			return;
-		}
+		if (!confirm($t("Delete {filename} forever?", { filename }))) return;
 
 		deleting = true;
 		try {
-			workspace = await updateGist(token, {
-				gistId,
-				files: {
-					[filename]: null
-				}
-			});
+			workspace = await updateGist(token, { gistId, files: { [filename]: null } });
 			const updatedAt = nowIso();
 			appState.update((state) => ({
 				...state,
 				publishTargets: state.publishTargets.map((target) =>
 					target.fileName === filename
-						? {
-								...target,
-								lastPublishedAt: null,
-								lastPublishedUrl: null,
-								updatedAt
-							}
+						? { ...target, lastPublishedAt: null, lastPublishedUrl: null, updatedAt }
 						: target
 				),
 				lastUpdated: updatedAt
 			}));
-			status = $t("Deleted {filename}.", { filename });
+			setStatus($t("Deleted {filename}."), 'success');
 		} catch (err) {
-			error = err instanceof Error ? err.message : $t("Failed to delete file.");
+			setStatus(err instanceof Error ? err.message : $t("Delete failed."), 'error');
 		} finally {
 			deleting = false;
 		}
 	}
 
 	async function cleanWorkspaceFiles() {
-		error = null;
-		status = null;
 		const token = $authState.token;
 		const gistId = $appState.activeGistId;
-		if (!token || !gistId) {
-			error = $t("Missing workspace authorization.");
-			return;
-		}
-		if (!workspace) {
-			status = $t("Refresh workspace first.");
-			return;
-		}
+		if (!token || !gistId || !workspace) return;
 
 		const filesToDelete = workspace.files
 			.map((file) => file.filename)
 			.filter((name) => !isConfigFile(name));
+		
 		if (filesToDelete.length === 0) {
-			status = $t("No removable files found.");
+			setStatus($t("No removable files."), 'info');
 			return;
 		}
 
-		const ok = confirm(
-			$t("Delete {count} workspace file(s) except {file}? This cannot be undone.", {
-				count: filesToDelete.length,
-				file: WORKSPACE_FILE
-			})
-		);
-		if (!ok) {
-			return;
-		}
+		if (!confirm($t("Delete all {count} files except config?", { count: filesToDelete.length }))) return;
 
 		const files = Object.fromEntries(filesToDelete.map((name) => [name, null]));
 		deleting = true;
 		try {
-			workspace = await updateGist(token, {
-				gistId,
-				files
-			});
+			workspace = await updateGist(token, { gistId, files });
 			const removed = new Set(filesToDelete);
 			const updatedAt = nowIso();
 			appState.update((state) => ({
 				...state,
 				publishTargets: state.publishTargets.map((target) =>
 					removed.has(target.fileName)
-						? {
-								...target,
-								lastPublishedAt: null,
-								lastPublishedUrl: null,
-								updatedAt
-							}
+						? { ...target, lastPublishedAt: null, lastPublishedUrl: null, updatedAt }
 						: target
 				),
 				lastUpdated: updatedAt
 			}));
-			status = $t("Deleted {count} file(s).", { count: filesToDelete.length });
+			setStatus($t("Workspace cleaned."), 'success');
 		} catch (err) {
-			error = err instanceof Error ? err.message : $t("Failed to clean files.");
+			setStatus(err instanceof Error ? err.message : $t("Clean failed."), 'error');
 		} finally {
 			deleting = false;
 		}
 	}
 </script>
 
-	<section class="flex flex-col gap-6">
-		<div class="flex flex-wrap items-start justify-between gap-4">
+<div class="space-y-8 pb-12">
+	<!-- Page Header -->
+	<header class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+		<div class="flex items-center gap-3">
+			<div class="flex h-12 w-12 items-center justify-center rounded-2xl bg-indigo-500/10 text-indigo-400">
+				<Database class="h-6 w-6" />
+			</div>
 			<div>
-				<h1 class="text-2xl font-semibold">{$t("Gist Workspace")}</h1>
-				<p class="mt-2 text-sm text-slate-300">
-					{$t("View published files inside your workspace gist.")}
-				</p>
-			</div>
-			<div class="flex flex-wrap gap-3">
-				<a class="rounded-full border border-slate-700 px-4 py-2 text-sm font-semibold" href="/auth">
-					{$t("Open Workspace")}
-				</a>
-			<button
-				class="rounded-full bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-950 disabled:opacity-50"
-					on:click={refreshWorkspace}
-					disabled={loading}
-				>
-					{loading ? $t("Loading...") : $t("Refresh")}
-				</button>
+				<h1 class="text-3xl font-extrabold text-white tracking-tight">{$t("Gist Workspace")}</h1>
+				<p class="text-slate-400 text-sm">{$t("Manage raw files directly in your GitHub Gist")}</p>
 			</div>
 		</div>
-
-	{#if error}
-		<div class="rounded-xl border border-rose-500/40 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">
-			{error}
+		
+		<div class="flex items-center gap-2">
+			<button 
+				on:click={refreshWorkspace}
+				disabled={loading}
+				class="flex items-center justify-center gap-2 rounded-xl border border-slate-800 bg-slate-800/50 px-5 py-2.5 text-sm font-bold text-white transition-all hover:bg-slate-700 active:scale-[0.98]"
+			>
+				<RefreshCw class={cn("h-4 w-4", loading && "animate-spin")} />
+				{loading ? $t("Refreshing...") : $t("Refresh")}
+			</button>
+			<a 
+				href="/auth" 
+				class="flex items-center justify-center gap-2 rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-bold text-white shadow-lg shadow-indigo-600/20 transition-all hover:bg-indigo-500 active:scale-[0.98]"
+			>
+				<Settings class="h-4 w-4" />
+				{$t("Workspace Settings")}
+			</a>
 		</div>
-	{/if}
+	</header>
 
+	<!-- Status Toast -->
 	{#if status}
-		<p class="text-xs text-slate-300">{status}</p>
+		<div 
+			transition:fly={{ y: -20, duration: 300 }}
+			class={cn(
+				"fixed top-20 right-8 z-[100] flex items-center gap-3 rounded-2xl px-6 py-3 border shadow-2xl backdrop-blur-xl",
+				status.type === 'success' ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400" :
+				status.type === 'error' ? "bg-red-500/10 border-red-500/20 text-red-400" :
+				"bg-indigo-500/10 border-indigo-500/20 text-indigo-400"
+			)}
+		>
+			{#if status.type === 'success'}<CheckCircle2 class="h-5 w-5" />
+			{:else if status.type === 'error'}<AlertCircle class="h-5 w-5" />
+			{:else}<RefreshCw class="h-5 w-5" />{/if}
+			<span class="text-sm font-bold tracking-tight">{status.message}</span>
+		</div>
 	{/if}
 
-		<div class="rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
-			<div class="flex items-center justify-between">
-				<h2 class="text-lg font-semibold">{$t("Workspace Files")}</h2>
-				<span class="text-xs text-slate-400">
-					{$appState.activeGistId ? $appState.activeGistId : $t("No workspace")}
-				</span>
+	<!-- Stats & Clean Action -->
+	<section class="flex flex-col gap-6 md:flex-row md:items-center md:justify-between p-8 rounded-[2rem] border border-slate-800/60 bg-slate-900/30 overflow-hidden relative group">
+		<div class="relative z-10 flex items-center gap-6">
+			<div class="flex flex-col">
+				<span class="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500">{$t("Active Gist ID")}</span>
+				<span class="text-sm font-mono text-slate-300">{$appState.activeGistId || $t("None")}</span>
 			</div>
-			<p class="mt-2 text-xs text-slate-400">
-				{$t("{file} is protected. All other workspace files can be deleted.", { file: WORKSPACE_FILE })}
-			</p>
-			<div class="mt-3">
-			<button
-				class="rounded-full border border-slate-700 px-4 py-2 text-xs font-semibold disabled:opacity-50"
-					on:click={cleanWorkspaceFiles}
-					disabled={deleting}
-				>
-					{deleting
-						? $t("Working")
-						: $t("Clean All Except {file}", { file: WORKSPACE_FILE })}
+			<div class="h-10 w-px bg-slate-800"></div>
+			<div class="flex flex-col">
+				<span class="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500">{$t("Files")}</span>
+				<span class="text-sm font-bold text-white">{workspace?.files.length || 0}</span>
+			</div>
+		</div>
+
+		<button 
+			on:click={cleanWorkspaceFiles}
+			disabled={deleting || !workspace}
+			class="relative z-10 flex items-center justify-center gap-2 rounded-xl border border-red-500/20 bg-red-500/5 px-6 py-2.5 text-xs font-bold text-red-400 transition-all hover:bg-red-500/10 hover:border-red-500/40 active:scale-[0.98] disabled:opacity-30"
+		>
+			<Trash2 class="h-4 w-4" />
+			{$t("Clean All Output Files")}
+		</button>
+		
+		<!-- Background Glow -->
+		<div class="absolute -right-20 -top-20 h-64 w-64 bg-indigo-500/5 blur-[80px] group-hover:bg-indigo-500/10 transition-colors"></div>
+	</section>
+
+	<!-- File Grid -->
+	<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+		{#if !workspace}
+			<div class="col-span-full py-20 text-center rounded-[2.5rem] border border-slate-800/40 border-dashed">
+				<HardDrive class="h-12 w-12 text-slate-700 mx-auto mb-4" />
+				<p class="text-slate-500 font-medium">{$t("Refresh to view your cloud files.")}</p>
+				<button on:click={refreshWorkspace} class="mt-6 text-indigo-400 hover:text-indigo-300 text-sm font-bold uppercase tracking-widest flex items-center gap-2 mx-auto">
+					{$t("Load Workspace")}
+					<ArrowRight class="h-3 w-3" />
 				</button>
 			</div>
-			<div class="mt-4 grid gap-3">
-				{#if !workspace}
-					<p class="text-sm text-slate-400">{$t("Refresh to load files.")}</p>
-				{:else if workspace.files.length === 0}
-					<p class="text-sm text-slate-400">{$t("No files in workspace.")}</p>
-				{:else}
-				{#each workspace.files as file}
-					<div class="rounded-xl border border-slate-800/80 bg-slate-950/60 px-4 py-3">
-						<div class="flex flex-wrap items-center justify-between gap-3">
-							<div>
-								<p class="text-sm font-semibold">{file.filename}</p>
-								<p class="text-xs text-slate-400">{file.size} bytes</p>
-									{#if isConfigFile(file.filename)}
-										<p class="text-[11px] text-sky-300">{$t("Workspace config")}</p>
-									{:else if isManagedOutput(file.filename)}
-										<p class="text-[11px] text-emerald-300">{$t("Managed output")}</p>
-									{:else}
-										<p class="text-[11px] text-slate-500">{$t("Unmanaged file")}</p>
-									{/if}
-								</div>
-								<div class="flex items-center gap-2 text-xs">
-								{#if file.rawUrl}
-									<a
-										class="text-slate-300 hover:text-white"
-										href={file.rawUrl}
-											target="_blank"
-											rel="noreferrer"
-										>
-											{$t("Open")}
-										</a>
-									{/if}
-									<button
-										class="rounded-full border border-slate-700 px-3 py-1"
-										on:click={() => copyLink(file.rawUrl)}
-									>
-										{$t("Copy")}
-									</button>
-								<button
-									class="rounded-full border border-rose-700 px-3 py-1 text-rose-200 disabled:opacity-50"
-										on:click={() => deleteWorkspaceFile(file.filename)}
-										disabled={!canDelete(file.filename) || deleting}
-									>
-										{$t("Delete")}
-									</button>
-								</div>
+		{:else if workspace.files.length === 0}
+			<div class="col-span-full py-20 text-center">
+				<FileQuestion class="h-12 w-12 text-slate-700 mx-auto mb-4" />
+				<p class="text-slate-500 font-medium">{$t("The Gist is empty.")}</p>
+			</div>
+		{:else}
+			{#each workspace.files as file (file.filename)}
+				<div 
+					transition:fade
+					class="group flex flex-col rounded-3xl border border-slate-800/60 bg-slate-900/40 p-6 transition-all hover:bg-slate-900/60 hover:border-slate-700/60"
+				>
+					<div class="flex items-start justify-between gap-4 mb-4">
+						<div class={cn(
+							"flex h-12 w-12 items-center justify-center rounded-2xl shadow-inner transition-colors",
+							isConfigFile(file.filename) ? "bg-indigo-500/10 text-indigo-400" :
+							isManagedOutput(file.filename) ? "bg-emerald-500/10 text-emerald-400" :
+							"bg-slate-800 text-slate-500"
+						)}>
+							{#if isConfigFile(file.filename)}<ShieldCheck class="h-6 w-6" />
+							{:else if isManagedOutput(file.filename)}<Layers class="h-6 w-6" />
+							{:else}<FileCode class="h-6 w-6" />{/if}
+						</div>
+						
+						<div class="flex items-center gap-1">
+							{#if file.rawUrl}
+								<a 
+									href={file.rawUrl} 
+									target="_blank" 
+									rel="noreferrer"
+									class="h-8 w-8 flex items-center justify-center rounded-lg text-slate-500 hover:bg-slate-800 hover:text-white transition-all"
+									title="View Raw"
+								>
+									<ExternalLink class="h-4 w-4" />
+								</a>
+								<button 
+									on:click={() => copyLink(file.rawUrl)}
+									class="h-8 w-8 flex items-center justify-center rounded-lg text-slate-500 hover:bg-slate-800 hover:text-white transition-all"
+									title="Copy Raw URL"
+								>
+									<Copy class="h-4 w-4" />
+								</button>
+							{/if}
+							{#if canDelete(file.filename)}
+								<button 
+									on:click={() => deleteWorkspaceFile(file.filename)}
+									disabled={deleting}
+									class="h-8 w-8 flex items-center justify-center rounded-lg text-slate-500 hover:bg-red-500/10 hover:text-red-400 transition-all"
+									title="Delete File"
+								>
+									<Trash2 class="h-4 w-4" />
+								</button>
+							{/if}
 						</div>
 					</div>
-				{/each}
-			{/if}
-		</div>
+
+					<div class="space-y-1 min-w-0">
+						<h3 class="font-bold text-white truncate" title={file.filename}>{file.filename}</h3>
+						<p class="text-[10px] text-slate-500 font-bold uppercase tracking-wider">{file.size} Bytes</p>
+					</div>
+
+					<div class="mt-6 pt-4 border-t border-slate-800/60 flex items-center justify-between">
+						{#if isConfigFile(file.filename)}
+							<span class="text-[10px] font-bold text-indigo-500 uppercase tracking-widest">{$t("Protected Config")}</span>
+						{:else if isManagedOutput(file.filename)}
+							<span class="text-[10px] font-bold text-emerald-500 uppercase tracking-widest">{$t("Managed Output")}</span>
+						{:else}
+							<span class="text-[10px] font-bold text-slate-600 uppercase tracking-widest">{$t("Unmanaged File")}</span>
+						{/if}
+						
+						<div class="flex h-2 w-2 rounded-full shadow-[0_0_8px] transition-shadow" 
+							class:bg-indigo-500={isConfigFile(file.filename)}
+							class:shadow-indigo-500={isConfigFile(file.filename)}
+							class:bg-emerald-500={isManagedOutput(file.filename)}
+							class:shadow-emerald-500={isManagedOutput(file.filename)}
+							class:bg-slate-700={!isConfigFile(file.filename) && !isManagedOutput(file.filename)}
+						></div>
+					</div>
+				</div>
+			{/each}
+		{/if}
 	</div>
-</section>
+</div>

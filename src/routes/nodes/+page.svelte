@@ -11,465 +11,526 @@
 	import type { NodeItem, NodeTag, ProxyType, SubscriptionItem } from "$lib/models";
 	import { createId } from "$lib/utils/id";
 	import { nowIso } from "$lib/utils/time";
+	import { cn } from "$lib/utils/cn";
+	import { 
+		Plus, 
+		Search, 
+		Filter, 
+		Trash2, 
+		Copy, 
+		Edit3, 
+		ChevronDown, 
+		ChevronUp, 
+		Globe, 
+		Tag,
+		Network,
+		Link as LinkIcon,
+		Check,
+		AlertCircle,
+		MoreVertical,
+		Zap,
+		Shield,
+		Wifi,
+		Cpu
+	} from "lucide-svelte";
+	import { fade, slide, fly } from "svelte/transition";
 
+	let activeTab: 'nodes' | 'subscriptions' = 'nodes';
+	let isAddModalOpen = false;
+
+	// Node form
 	let nodeName = "";
 	let nodeType: ProxyType = "vless";
 	let nodeRaw = "";
 	let nodeTags = "";
 
+	// Sub form
 	let subName = "";
 	let subUrl = "";
 	let subTags = "";
-	let subscriptionQuery = "";
-	let subscriptionFilter: "all" | "enabled" | "disabled" = "all";
-	let expandedSubscriptionId: string | null = null;
-	let subscriptionStatus: string | null = null;
-	let subscriptionStatusTimer: ReturnType<typeof setTimeout> | null = null;
 
-	$: filteredSubscriptions = [...$appState.subscriptions]
-		.filter((subscription) =>
-			subscriptionFilter === "all"
-				? true
-				: subscriptionFilter === "enabled"
-					? subscription.enabled
-					: !subscription.enabled
-		)
-		.filter((subscription) => {
-			const query = subscriptionQuery.trim().toLowerCase();
-			if (!query) {
-				return true;
-			}
-			const tags = subscription.tags.map((tag) => tag.label.toLowerCase()).join(" ");
-			return (
-				subscription.name.toLowerCase().includes(query) ||
-				subscription.url.toLowerCase().includes(query) ||
-				tags.includes(query)
-			);
+	let searchQuery = "";
+	let filterStatus: "all" | "enabled" | "disabled" = "all";
+	let expandedId: string | null = null;
+	
+	let toast: { message: string, type: 'success' | 'info' | 'error' } | null = null;
+	let toastTimer: ReturnType<typeof setTimeout> | null = null;
+
+	function showToast(message: string, type: 'success' | 'info' | 'error' = 'success') {
+		toast = { message, type };
+		if (toastTimer) clearTimeout(toastTimer);
+		toastTimer = setTimeout(() => toast = null, 3000);
+	}
+
+	$: filteredNodes = $appState.nodes
+		.filter(node => filterStatus === 'all' ? true : filterStatus === 'enabled' ? node.enabled : !node.enabled)
+		.filter(node => {
+			const query = searchQuery.trim().toLowerCase();
+			if (!query) return true;
+			return node.name.toLowerCase().includes(query) || 
+				   node.type.toLowerCase().includes(query) ||
+				   node.tags.some(t => t.label.toLowerCase().includes(query));
+		})
+		.sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
+
+	$: filteredSubscriptions = $appState.subscriptions
+		.filter(sub => filterStatus === 'all' ? true : filterStatus === 'enabled' ? sub.enabled : !sub.enabled)
+		.filter(sub => {
+			const query = searchQuery.trim().toLowerCase();
+			if (!query) return true;
+			return sub.name.toLowerCase().includes(query) || 
+				   sub.url.toLowerCase().includes(query) ||
+				   sub.tags.some(t => t.label.toLowerCase().includes(query));
 		})
 		.sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
 
 	function parseTags(value: string): NodeTag[] {
-		return value
-			.split(",")
-			.map((tag) => tag.trim())
-			.filter(Boolean)
-			.map((label) => ({ id: createId("tag"), label }));
+		return value.split(",").map(t => t.trim()).filter(Boolean).map(label => ({ id: createId("tag"), label }));
 	}
 
-	function handleAddNode() {
-		if (!nodeName || !nodeRaw) {
-			return;
+	function handleAdd() {
+		if (activeTab === 'nodes') {
+			if (!nodeName || !nodeRaw) return;
+			upsertNode({
+				id: createId("node"), name: nodeName, type: nodeType, raw: nodeRaw,
+				tags: parseTags(nodeTags), enabled: true, updatedAt: nowIso(), source: "single"
+			});
+			nodeName = ""; nodeRaw = ""; nodeTags = "";
+			showToast($t("Node added successfully"));
+		} else {
+			if (!subName || !subUrl) return;
+			upsertSubscription({
+				id: createId("sub"), name: subName, url: subUrl, enabled: true,
+				tags: parseTags(subTags), updatedAt: nowIso()
+			});
+			subName = ""; subUrl = ""; subTags = "";
+			showToast($t("Subscription added successfully"));
 		}
-
-		upsertNode({
-			id: createId("node"),
-			name: nodeName,
-			type: nodeType,
-			raw: nodeRaw,
-			tags: parseTags(nodeTags),
-			enabled: true,
-			updatedAt: nowIso(),
-			source: "single"
-		});
-
-		nodeName = "";
-		nodeRaw = "";
-		nodeTags = "";
+		isAddModalOpen = false;
 	}
 
-	function handleAddSubscription() {
-		if (!subName || !subUrl) {
-			return;
+	function toggleEnabled(id: string, type: 'node' | 'sub') {
+		if (type === 'node') {
+			const node = $appState.nodes.find(n => n.id === id);
+			if (node) upsertNode({ ...node, enabled: !node.enabled, updatedAt: nowIso() });
+		} else {
+			const sub = $appState.subscriptions.find(s => s.id === id);
+			if (sub) upsertSubscription({ ...sub, enabled: !sub.enabled, updatedAt: nowIso() });
 		}
-
-		upsertSubscription({
-			id: createId("sub"),
-			name: subName,
-			url: subUrl,
-			enabled: true,
-			tags: parseTags(subTags),
-			updatedAt: nowIso()
-		});
-
-		subName = "";
-		subUrl = "";
-		subTags = "";
 	}
 
-	function updateNodeField<K extends keyof NodeItem>(nodeId: string, field: K, value: NodeItem[K]) {
-		const node = $appState.nodes.find((item) => item.id === nodeId);
-		if (!node) {
-			return;
-		}
-
-		upsertNode({
-			...node,
-			[field]: value,
-			updatedAt: nowIso()
-		});
+	function remove(id: string, type: 'node' | 'sub', name: string) {
+		if (!confirm($t("Are you sure you want to remove {name}?", { name }))) return;
+		if (type === 'node') removeNode(id);
+		else removeSubscription(id);
+		showToast($t("Removed {name}", { name }), 'info');
 	}
 
-	function updateNodeTags(nodeId: string, value: string) {
-		const node = $appState.nodes.find((item) => item.id === nodeId);
-		if (!node) {
-			return;
-		}
-
-		upsertNode({
-			...node,
-			tags: parseTags(value),
-			updatedAt: nowIso()
-		});
-	}
-
-	function updateSubscriptionField<K extends keyof SubscriptionItem>(
-		subscriptionId: string,
-		field: K,
-		value: SubscriptionItem[K]
-	) {
-		const subscription = $appState.subscriptions.find((item) => item.id === subscriptionId);
-		if (!subscription) {
-			return;
-		}
-
-		upsertSubscription({
-			...subscription,
-			[field]: value,
-			updatedAt: nowIso()
-		});
-	}
-
-	function updateSubscriptionTags(subscriptionId: string, value: string) {
-		const subscription = $appState.subscriptions.find((item) => item.id === subscriptionId);
-		if (!subscription) {
-			return;
-		}
-
-		upsertSubscription({
-			...subscription,
-			tags: parseTags(value),
-			updatedAt: nowIso()
-		});
-	}
-
-	function setSubscriptionStatus(message: string) {
-		subscriptionStatus = message;
-		if (subscriptionStatusTimer) {
-			clearTimeout(subscriptionStatusTimer);
-		}
-		subscriptionStatusTimer = setTimeout(() => {
-			subscriptionStatus = null;
-		}, 2200);
-	}
-
-	function getSubscriptionHost(url: string): string {
+	async function copy(text: string, label: string) {
 		try {
-			return new URL(url).host;
+			await navigator.clipboard.writeText(text);
+			showToast($t("Copied {label}", { label }));
 		} catch {
-			const stripped = url.replace(/^[a-z]+:\/\//i, "");
-			return stripped.split(/[/?#]/)[0] || "invalid-url";
+			showToast($t("Copy failed"), 'error');
 		}
 	}
 
-	function getVisibleTagLabels(tags: NodeTag[], max: number = 2): string[] {
-		return tags.slice(0, max).map((tag) => tag.label);
+	function getHost(url: string): string {
+		try { return new URL(url).host; } catch { return url; }
 	}
 
-	function toggleSubscriptionDetails(subscriptionId: string) {
-		expandedSubscriptionId =
-			expandedSubscriptionId === subscriptionId ? null : subscriptionId;
-	}
+	const typeColors: Record<ProxyType, string> = {
+		vless: "bg-indigo-500/10 text-indigo-400 border-indigo-500/20",
+		vmess: "bg-purple-500/10 text-purple-400 border-purple-500/20",
+		trojan: "bg-rose-500/10 text-rose-400 border-rose-500/20",
+		ss: "bg-amber-500/10 text-amber-400 border-amber-500/20",
+		hysteria2: "bg-cyan-500/10 text-cyan-400 border-cyan-500/20",
+		tuic: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
+		other: "bg-slate-500/10 text-slate-400 border-slate-500/20"
+	};
 
-	async function copySubscriptionUrl(subscription: SubscriptionItem) {
-		try {
-			await navigator.clipboard.writeText(subscription.url);
-			setSubscriptionStatus($t("Copied URL for {name}.", { name: subscription.name }));
-		} catch {
-			setSubscriptionStatus($t("Copy failed."));
-		}
-	}
-
-	function confirmRemoveSubscription(subscription: SubscriptionItem) {
-		const ok = confirm($t('Remove subscription "{name}"?', { name: subscription.name }));
-		if (!ok) {
-			return;
-		}
-		if (expandedSubscriptionId === subscription.id) {
-			expandedSubscriptionId = null;
-		}
-		removeSubscription(subscription.id);
-		setSubscriptionStatus($t("Removed {name}.", { name: subscription.name }));
-	}
-
-	onDestroy(() => {
-		if (subscriptionStatusTimer) {
-			clearTimeout(subscriptionStatusTimer);
-		}
-	});
+	onDestroy(() => { if (toastTimer) clearTimeout(toastTimer); });
 </script>
 
-<section class="flex flex-col gap-8">
-	<header>
-		<h1 class="text-2xl font-semibold">{$t("Nodes & Subscriptions")}</h1>
-		<p class="mt-2 text-sm text-slate-300">
-			{$t("Add single nodes or subscription URLs, tag them, and toggle availability.")}
-		</p>
+<div class="space-y-6 pb-12">
+	<!-- Header & Global Actions -->
+	<header class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+		<div>
+			<h1 class="text-3xl font-extrabold text-white tracking-tight">{$t("Nodes & Subscriptions")}</h1>
+			<p class="text-slate-400 text-sm">{$t("Manage your proxy sources and connectivity settings")}</p>
+		</div>
+		
+		<button 
+			on:click={() => isAddModalOpen = !isAddModalOpen}
+			class="flex items-center justify-center gap-2 rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-bold text-white shadow-lg shadow-indigo-600/20 transition-all hover:bg-indigo-500 active:scale-[0.98]"
+		>
+			<Plus class="h-4 w-4" />
+			{activeTab === 'nodes' ? $t("New Node") : $t("New Subscription")}
+		</button>
 	</header>
 
-	<div class="grid gap-6 lg:grid-cols-2">
-		<div class="rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
-			<h2 class="text-lg font-semibold">{$t("Add Node")}</h2>
-			<div class="mt-4 grid gap-3 text-sm">
-				<input
-					class="w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2"
-					placeholder={$t("Node name")}
-					bind:value={nodeName}
-				/>
-				<select
-					class="w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2"
-					bind:value={nodeType}
-				>
-					<option value="vless">VLESS</option>
-					<option value="vmess">VMess</option>
-					<option value="trojan">Trojan</option>
-					<option value="ss">Shadowsocks</option>
-					<option value="hysteria2">Hysteria2</option>
-					<option value="tuic">TUIC</option>
-					<option value="other">Other</option>
-				</select>
-					<textarea
-						class="min-h-[90px] w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2"
-						placeholder={$t("Raw node URI")}
-						bind:value={nodeRaw}
-					/>
-					<input
-						class="w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2"
-						placeholder={$t("Tags (comma separated)")}
-						bind:value={nodeTags}
-					/>
-				<button
-					class="rounded-full bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-950"
-					on:click={handleAddNode}
-				>
-					{$t("Add Node")}
+	<!-- Add Modal / Form (Collapsible) -->
+	{#if isAddModalOpen}
+		<section 
+			transition:slide
+			class="overflow-hidden rounded-3xl border border-indigo-500/20 bg-indigo-500/5 p-6 shadow-2xl shadow-indigo-500/5"
+		>
+			<div class="flex items-center justify-between mb-6">
+				<h2 class="text-lg font-bold text-white flex items-center gap-2">
+					<Plus class="h-5 w-5 text-indigo-400" />
+					{activeTab === 'nodes' ? $t("Add New Node") : $t("Add New Subscription")}
+				</h2>
+				<button on:click={() => isAddModalOpen = false} class="text-slate-500 hover:text-white transition-colors">
+					<ChevronUp class="h-5 w-5" />
 				</button>
 			</div>
-		</div>
 
-		<div class="rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
-			<h2 class="text-lg font-semibold">{$t("Add Subscription")}</h2>
-			<div class="mt-4 grid gap-3 text-sm">
-				<input
-					class="w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2"
-					placeholder={$t("Subscription name")}
-					bind:value={subName}
-				/>
-				<input
-					class="w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2"
-					placeholder={$t("Subscription URL")}
-					bind:value={subUrl}
-				/>
-				<input
-					class="w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2"
-					placeholder={$t("Tags (comma separated)")}
-					bind:value={subTags}
-				/>
-				<button
-					class="rounded-full bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-950"
-					on:click={handleAddSubscription}
-				>
-					{$t("Add Subscription")}
-				</button>
-			</div>
-		</div>
-	</div>
-
-	<div class="grid gap-6 lg:grid-cols-2">
-			<div class="rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
-				<div class="flex items-center justify-between">
-					<h2 class="text-lg font-semibold">{$t("Nodes")}</h2>
-					<span class="text-xs text-slate-400">{$appState.nodes.length} {$t("items")}</span>
-				</div>
-				<div class="mt-4 grid gap-4">
-					{#if $appState.nodes.length === 0}
-						<p class="text-sm text-slate-400">{$t("No nodes yet.")}</p>
-					{:else}
-					{#each $appState.nodes as node}
-						<div class="rounded-xl border border-slate-800/80 bg-slate-950/60 p-4">
-							<div class="flex flex-wrap items-center justify-between gap-3">
-								<input
-									class="w-full rounded-lg border border-slate-800 bg-slate-950 px-2 py-1 text-sm md:w-1/2"
-									value={node.name}
-									on:input={(event) => updateNodeField(node.id, "name", event.currentTarget.value)}
-								/>
-								<select
-									class="rounded-lg border border-slate-800 bg-slate-950 px-2 py-1 text-xs"
-									value={node.type}
-									on:change={(event) =>
-										updateNodeField(node.id, "type", event.currentTarget.value as ProxyType)}
-								>
-									<option value="vless">VLESS</option>
-									<option value="vmess">VMess</option>
-									<option value="trojan">Trojan</option>
-									<option value="ss">Shadowsocks</option>
-									<option value="hysteria2">Hysteria2</option>
-									<option value="tuic">TUIC</option>
-									<option value="other">Other</option>
-								</select>
-									<label class="inline-flex items-center gap-2 text-xs text-slate-300">
-									<input
-										type="checkbox"
-										class="h-4 w-4"
-										checked={node.enabled}
-										on:change={(event) => updateNodeField(node.id, "enabled", event.currentTarget.checked)}
-									/>
-										{$t("Enabled")}
-									</label>
-									<button
-										class="text-xs text-rose-300 hover:text-rose-200"
-										on:click={() => removeNode(node.id)}
-									>
-										{$t("Remove")}
-									</button>
-								</div>
-							<textarea
-								class="mt-3 min-h-[70px] w-full rounded-lg border border-slate-800 bg-slate-950 px-2 py-2 text-xs"
-								value={node.raw}
-								on:input={(event) => updateNodeField(node.id, "raw", event.currentTarget.value)}
-							/>
-							<input
-								class="mt-3 w-full rounded-lg border border-slate-800 bg-slate-950 px-2 py-1 text-xs"
-								value={node.tags.map((tag) => tag.label).join(", ")}
-									on:change={(event) => updateNodeTags(node.id, event.currentTarget.value)}
-									placeholder={$t("Tags")}
-								/>
-							</div>
-						{/each}
-				{/if}
-			</div>
-		</div>
-
-			<div class="rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
-				<div class="flex items-center justify-between">
-					<h2 class="text-lg font-semibold">{$t("Subscriptions")}</h2>
-					<span class="text-xs text-slate-400">{$appState.subscriptions.length} {$t("items")}</span>
-				</div>
-				<div class="mt-4 grid gap-3">
-					<div class="grid gap-3 md:grid-cols-[minmax(0,1fr)_180px]">
+			<div class="grid gap-4 sm:grid-cols-2">
+				{#if activeTab === 'nodes'}
+					<div class="space-y-4">
 						<input
-							class="w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-sm"
-							placeholder={$t("Search by name, URL, or tag")}
-							bind:value={subscriptionQuery}
+							class="w-full rounded-xl border border-slate-800 bg-slate-950 px-4 py-3 text-sm text-white placeholder:text-slate-600 outline-none focus:border-indigo-500/50 transition-all"
+							placeholder={$t("Node name")}
+							bind:value={nodeName}
 						/>
-					<select
-						class="w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-sm"
-						bind:value={subscriptionFilter}
+						<select
+							class="w-full rounded-xl border border-slate-800 bg-slate-950 px-4 py-3 text-sm text-white outline-none focus:border-indigo-500/50 transition-all"
+							bind:value={nodeType}
 						>
-							<option value="all">{$t("All")}</option>
-							<option value="enabled">{$t("Enabled only")}</option>
-							<option value="disabled">{$t("Disabled only")}</option>
+							<option value="vless">VLESS</option>
+							<option value="vmess">VMess</option>
+							<option value="trojan">Trojan</option>
+							<option value="ss">Shadowsocks</option>
+							<option value="hysteria2">Hysteria2</option>
+							<option value="tuic">TUIC</option>
+							<option value="other">Other</option>
 						</select>
 					</div>
-					<div class="flex items-center justify-between text-xs text-slate-400">
-						<p>
-							{$t("Showing {visible} of {total}", {
-								visible: filteredSubscriptions.length,
-								total: $appState.subscriptions.length
-							})}
-						</p>
-					{#if subscriptionStatus}
-						<p class="text-sky-300">{subscriptionStatus}</p>
-					{/if}
-				</div>
-					{#if $appState.subscriptions.length === 0}
-						<p class="text-sm text-slate-400">{$t("No subscriptions yet.")}</p>
-					{:else if filteredSubscriptions.length === 0}
-						<p class="text-sm text-slate-400">{$t("No subscriptions match current filters.")}</p>
-					{:else}
-					{#each filteredSubscriptions as subscription}
-						<div class="rounded-xl border border-slate-800/80 bg-slate-950/60 px-3 py-3">
-							<div class="flex flex-wrap items-center gap-2">
-									<label class="inline-flex items-center gap-2 text-xs text-slate-300">
-									<input
-										type="checkbox"
-										class="h-4 w-4"
-										checked={subscription.enabled}
-										on:change={(event) =>
-											updateSubscriptionField(subscription.id, "enabled", event.currentTarget.checked)}
-									/>
-										{$t("Enabled")}
-									</label>
-								<div class="min-w-0 flex-1">
-									<p class="truncate text-sm font-semibold text-slate-100">{subscription.name}</p>
-									<p class="truncate text-[11px] text-slate-400" title={subscription.url}>
-										{getSubscriptionHost(subscription.url)}
-									</p>
-								</div>
-								{#if subscription.tags.length > 0}
-									<div class="hidden items-center gap-1 text-[11px] text-slate-300 md:flex">
-										{#each getVisibleTagLabels(subscription.tags) as label}
-											<span class="rounded-full border border-slate-700 px-2 py-0.5">{label}</span>
-										{/each}
-										{#if subscription.tags.length > 2}
-											<span class="rounded-full border border-slate-700 px-2 py-0.5">
-												+{subscription.tags.length - 2}
-											</span>
-										{/if}
-									</div>
-								{/if}
-								<div class="flex items-center gap-2">
-										<button
-											class="rounded-full border border-slate-700 px-3 py-1 text-xs"
-											on:click={() => copySubscriptionUrl(subscription)}
-										>
-											{$t("Copy")}
-										</button>
-										<button
-											class="rounded-full border border-slate-700 px-3 py-1 text-xs"
-											on:click={() => toggleSubscriptionDetails(subscription.id)}
-										>
-											{expandedSubscriptionId === subscription.id ? $t("Hide") : $t("Details")}
-										</button>
-									<button
-										class="rounded-full border border-rose-700 px-3 py-1 text-xs text-rose-300"
-											on:click={() => confirmRemoveSubscription(subscription)}
-										>
-											{$t("Delete")}
-										</button>
-									</div>
-								</div>
-							{#if expandedSubscriptionId === subscription.id}
-								<div class="mt-3 grid gap-2 border-t border-slate-800/80 pt-3">
-									<input
-										class="w-full rounded-lg border border-slate-800 bg-slate-950 px-2 py-1 text-sm"
-										value={subscription.name}
-											on:input={(event) =>
-												updateSubscriptionField(subscription.id, "name", event.currentTarget.value)}
-											placeholder={$t("Subscription name")}
-										/>
-									<input
-										class="w-full rounded-lg border border-slate-800 bg-slate-950 px-2 py-2 text-xs"
-										value={subscription.url}
-											on:input={(event) =>
-												updateSubscriptionField(subscription.id, "url", event.currentTarget.value)}
-											placeholder={$t("Subscription URL")}
-										/>
-									<input
-										class="w-full rounded-lg border border-slate-800 bg-slate-950 px-2 py-1 text-xs"
-										value={subscription.tags.map((tag) => tag.label).join(", ")}
-											on:change={(event) =>
-												updateSubscriptionTags(subscription.id, event.currentTarget.value)}
-											placeholder={$t("Tags (comma separated)")}
-										/>
-										<p class="text-[11px] text-slate-500">
-											{$t("Updated: {time}", { time: subscription.updatedAt })}
-										</p>
-									</div>
-								{/if}
-						</div>
-					{/each}
+					<div class="space-y-4">
+						<textarea
+							class="w-full h-[104px] rounded-xl border border-slate-800 bg-slate-950 px-4 py-3 text-xs font-mono text-white placeholder:text-slate-600 outline-none focus:border-indigo-500/50 transition-all"
+							placeholder={$t("Raw node URI (vless://...)")}
+							bind:value={nodeRaw}
+						/>
+					</div>
+					<div class="sm:col-span-2">
+						<input
+							class="w-full rounded-xl border border-slate-800 bg-slate-950 px-4 py-3 text-sm text-white placeholder:text-slate-600 outline-none focus:border-indigo-500/50 transition-all"
+							placeholder={$t("Tags (comma separated)")}
+							bind:value={nodeTags}
+						/>
+					</div>
+				{:else}
+					<div class="space-y-4">
+						<input
+							class="w-full rounded-xl border border-slate-800 bg-slate-950 px-4 py-3 text-sm text-white placeholder:text-slate-600 outline-none focus:border-indigo-500/50 transition-all"
+							placeholder={$t("Subscription name")}
+							bind:value={subName}
+						/>
+						<input
+							class="w-full rounded-xl border border-slate-800 bg-slate-950 px-4 py-3 text-sm text-white placeholder:text-slate-600 outline-none focus:border-indigo-500/50 transition-all"
+							placeholder={$t("Subscription URL")}
+							bind:value={subUrl}
+						/>
+					</div>
+					<div class="sm:col-span-2">
+						<input
+							class="w-full rounded-xl border border-slate-800 bg-slate-950 px-4 py-3 text-sm text-white placeholder:text-slate-600 outline-none focus:border-indigo-500/50 transition-all"
+							placeholder={$t("Tags (comma separated)")}
+							bind:value={subTags}
+						/>
+					</div>
 				{/if}
 			</div>
+
+			<div class="mt-6 flex justify-end gap-3">
+				<button 
+					on:click={() => isAddModalOpen = false}
+					class="px-5 py-2.5 text-sm font-bold text-slate-400 hover:text-white transition-colors"
+				>
+					{$t("Cancel")}
+				</button>
+				<button 
+					on:click={handleAdd}
+					class="rounded-xl bg-indigo-600 px-8 py-2.5 text-sm font-bold text-white shadow-lg shadow-indigo-600/20 transition-all hover:bg-indigo-500 active:scale-[0.98]"
+				>
+					{$t("Save")}
+				</button>
+			</div>
+		</section>
+	{/if}
+
+	<!-- Tabs & Search -->
+	<div class="flex flex-col gap-4 md:flex-row md:items-center">
+		<div class="flex p-1 rounded-2xl bg-slate-900/50 border border-slate-800/60 w-fit">
+			<button 
+				on:click={() => activeTab = 'nodes'}
+				class={cn(
+					"px-6 py-2 rounded-xl text-sm font-bold transition-all",
+					activeTab === 'nodes' ? "bg-indigo-600 text-white shadow-lg" : "text-slate-500 hover:text-slate-300"
+				)}
+			>
+				{$t("Nodes")}
+			</button>
+			<button 
+				on:click={() => activeTab = 'subscriptions'}
+				class={cn(
+					"px-6 py-2 rounded-xl text-sm font-bold transition-all",
+					activeTab === 'subscriptions' ? "bg-indigo-600 text-white shadow-lg" : "text-slate-500 hover:text-slate-300"
+				)}
+			>
+				{$t("Subscriptions")}
+			</button>
 		</div>
+
+		<div class="relative flex-1 group">
+			<Search class="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500 group-focus-within:text-indigo-400 transition-colors" />
+			<input
+				class="w-full rounded-2xl border border-slate-800 bg-slate-900/40 pl-11 pr-4 py-2.5 text-sm text-white placeholder:text-slate-600 outline-none focus:border-indigo-500/50 transition-all"
+				placeholder={$t("Search {type}...", { type: activeTab })}
+				bind:value={searchQuery}
+			/>
+		</div>
+
+		<select
+			class="rounded-2xl border border-slate-800 bg-slate-900/40 px-4 py-2.5 text-sm text-white outline-none focus:border-indigo-500/50 transition-all"
+			bind:value={filterStatus}
+		>
+			<option value="all">{$t("All Status")}</option>
+			<option value="enabled">{$t("Enabled")}</option>
+			<option value="disabled">{$t("Disabled")}</option>
+		</select>
 	</div>
-</section>
+
+	<!-- List Section -->
+	<div class="grid grid-cols-1 gap-4">
+		{#if activeTab === 'nodes'}
+			{#if filteredNodes.length === 0}
+				<div class="py-20 text-center rounded-[2.5rem] border border-slate-800/40 border-dashed">
+					<Cpu class="h-12 w-12 text-slate-700 mx-auto mb-4" />
+					<p class="text-slate-500 font-medium">{$t("No nodes found matching your criteria.")}</p>
+				</div>
+			{:else}
+				{#each filteredNodes as node (node.id)}
+					<div 
+						transition:fade
+						class={cn(
+							"group relative overflow-hidden rounded-3xl border transition-all duration-300",
+							node.enabled ? "border-slate-800/60 bg-slate-900/30" : "border-slate-900/40 bg-slate-950/20 grayscale opacity-60"
+						)}
+					>
+						<div class="flex items-center gap-4 p-5">
+							<!-- Toggle -->
+							<button 
+								on:click={() => toggleEnabled(node.id, 'node')}
+								class={cn(
+									"h-10 w-10 flex items-center justify-center rounded-xl transition-all",
+									node.enabled ? "bg-indigo-500/10 text-indigo-400" : "bg-slate-800 text-slate-600"
+								)}
+							>
+								{#if node.enabled}<Wifi class="h-5 w-5" />{:else}<Shield class="h-5 w-5" />{/if}
+							</button>
+
+							<div class="min-w-0 flex-1">
+								<div class="flex items-center gap-2 flex-wrap">
+									<h3 class="font-bold text-white truncate">{node.name}</h3>
+									<span class={cn("px-2 py-0.5 rounded-lg text-[10px] font-black uppercase border", typeColors[node.type])}>
+										{node.type}
+									</span>
+								</div>
+								<div class="flex items-center gap-2 mt-1">
+									{#each node.tags as tag}
+										<span class="flex items-center gap-1 text-[10px] font-medium text-slate-500">
+											<Tag class="h-2.5 w-2.5" />
+											{tag.label}
+										</span>
+									{/each}
+								</div>
+							</div>
+
+							<div class="flex items-center gap-1">
+								<button 
+									on:click={() => copy(node.raw, node.name)}
+									class="h-9 w-9 flex items-center justify-center rounded-lg text-slate-500 hover:bg-slate-800 hover:text-white transition-all"
+								>
+									<Copy class="h-4 w-4" />
+								</button>
+								<button 
+									on:click={() => expandedId = expandedId === node.id ? null : node.id}
+									class="h-9 w-9 flex items-center justify-center rounded-lg text-slate-500 hover:bg-slate-800 hover:text-white transition-all"
+								>
+									<Edit3 class="h-4 w-4" />
+								</button>
+								<button 
+									on:click={() => remove(node.id, 'node', node.name)}
+									class="h-9 w-9 flex items-center justify-center rounded-lg text-slate-500 hover:bg-red-500/10 hover:text-red-400 transition-all"
+								>
+									<Trash2 class="h-4 w-4" />
+								</button>
+							</div>
+						</div>
+
+						{#if expandedId === node.id}
+							<div transition:slide class="border-t border-slate-800/60 p-5 bg-slate-950/40 space-y-4">
+								<div class="grid gap-4 sm:grid-cols-2">
+									<div class="space-y-1.5">
+										<label class="text-[10px] font-bold uppercase tracking-widest text-slate-500 ml-1">{$t("Name")}</label>
+										<input 
+											class="w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-indigo-500/40 transition-all"
+											value={node.name}
+											on:input={(e) => upsertNode({...node, name: e.currentTarget.value, updatedAt: nowIso()})}
+										/>
+									</div>
+									<div class="space-y-1.5">
+										<label class="text-[10px] font-bold uppercase tracking-widest text-slate-500 ml-1">{$t("Type")}</label>
+										<select 
+											class="w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-indigo-500/40 transition-all"
+											value={node.type}
+											on:change={(e) => upsertNode({...node, type: e.currentTarget.value, updatedAt: nowIso()})}
+										>
+											<option value="vless">VLESS</option>
+											<option value="vmess">VMess</option>
+											<option value="trojan">Trojan</option>
+											<option value="ss">Shadowsocks</option>
+											<option value="hysteria2">Hysteria2</option>
+											<option value="tuic">TUIC</option>
+											<option value="other">Other</option>
+										</select>
+									</div>
+								</div>
+								<div class="space-y-1.5">
+									<label class="text-[10px] font-bold uppercase tracking-widest text-slate-500 ml-1">{$t("Raw URI")}</label>
+									<textarea 
+										class="w-full h-24 rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-xs font-mono text-white outline-none focus:border-indigo-500/40 transition-all"
+										value={node.raw}
+										on:input={(e) => upsertNode({...node, raw: e.currentTarget.value, updatedAt: nowIso()})}
+									/>
+								</div>
+								<div class="space-y-1.5">
+									<label class="text-[10px] font-bold uppercase tracking-widest text-slate-500 ml-1">{$t("Tags (comma separated)")}</label>
+									<input 
+										class="w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-indigo-500/40 transition-all"
+										value={node.tags.map(t => t.label).join(", ")}
+										on:change={(e) => upsertNode({...node, tags: parseTags(e.currentTarget.value), updatedAt: nowIso()})}
+									/>
+								</div>
+							</div>
+						{/if}
+					</div>
+				{/each}
+			{/if}
+		{:else}
+			{#if filteredSubscriptions.length === 0}
+				<div class="py-20 text-center rounded-[2.5rem] border border-slate-800/40 border-dashed">
+					<LinkIcon class="h-12 w-12 text-slate-700 mx-auto mb-4" />
+					<p class="text-slate-500 font-medium">{$t("No subscriptions found.")}</p>
+				</div>
+			{:else}
+				{#each filteredSubscriptions as sub (sub.id)}
+					<div 
+						transition:fade
+						class={cn(
+							"group relative overflow-hidden rounded-3xl border transition-all duration-300",
+							sub.enabled ? "border-slate-800/60 bg-slate-900/30" : "border-slate-900/40 bg-slate-950/20 grayscale opacity-60"
+						)}
+					>
+						<div class="flex items-center gap-4 p-5">
+							<button 
+								on:click={() => toggleEnabled(sub.id, 'sub')}
+								class={cn(
+									"h-10 w-10 flex items-center justify-center rounded-xl transition-all",
+									sub.enabled ? "bg-emerald-500/10 text-emerald-400" : "bg-slate-800 text-slate-600"
+								)}
+							>
+								<LinkIcon class="h-5 w-5" />
+							</button>
+
+							<div class="min-w-0 flex-1">
+								<h3 class="font-bold text-white truncate">{sub.name}</h3>
+								<p class="text-[10px] text-slate-500 font-mono truncate">{getHost(sub.url)}</p>
+								<div class="flex items-center gap-2 mt-1">
+									{#each sub.tags as tag}
+										<span class="flex items-center gap-1 text-[10px] font-medium text-slate-500">
+											<Tag class="h-2.5 w-2.5" />
+											{tag.label}
+										</span>
+									{/each}
+								</div>
+							</div>
+
+							<div class="flex items-center gap-1">
+								<button 
+									on:click={() => copy(sub.url, sub.name)}
+									class="h-9 w-9 flex items-center justify-center rounded-lg text-slate-500 hover:bg-slate-800 hover:text-white transition-all"
+								>
+									<Copy class="h-4 w-4" />
+								</button>
+								<button 
+									on:click={() => expandedId = expandedId === sub.id ? null : sub.id}
+									class="h-9 w-9 flex items-center justify-center rounded-lg text-slate-500 hover:bg-slate-800 hover:text-white transition-all"
+								>
+									<Edit3 class="h-4 w-4" />
+								</button>
+								<button 
+									on:click={() => remove(sub.id, 'sub', sub.name)}
+									class="h-9 w-9 flex items-center justify-center rounded-lg text-slate-500 hover:bg-red-500/10 hover:text-red-400 transition-all"
+								>
+									<Trash2 class="h-4 w-4" />
+								</button>
+							</div>
+						</div>
+
+						{#if expandedId === sub.id}
+							<div transition:slide class="border-t border-slate-800/60 p-5 bg-slate-950/40 space-y-4">
+								<div class="grid gap-4 sm:grid-cols-2">
+									<div class="space-y-1.5">
+										<label class="text-[10px] font-bold uppercase tracking-widest text-slate-500 ml-1">{$t("Name")}</label>
+										<input 
+											class="w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-indigo-500/40 transition-all"
+											value={sub.name}
+											on:input={(e) => upsertSubscription({...sub, name: e.currentTarget.value, updatedAt: nowIso()})}
+										/>
+									</div>
+									<div class="space-y-1.5">
+										<label class="text-[10px] font-bold uppercase tracking-widest text-slate-500 ml-1">{$t("URL")}</label>
+										<input 
+											class="w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-indigo-500/40 transition-all"
+											value={sub.url}
+											on:input={(e) => upsertSubscription({...sub, url: e.currentTarget.value, updatedAt: nowIso()})}
+										/>
+									</div>
+								</div>
+								<div class="space-y-1.5">
+									<label class="text-[10px] font-bold uppercase tracking-widest text-slate-500 ml-1">{$t("Tags (comma separated)")}</label>
+									<input 
+										class="w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-indigo-500/40 transition-all"
+										value={sub.tags.map(t => t.label).join(", ")}
+										on:change={(e) => upsertSubscription({...sub, tags: parseTags(e.currentTarget.value), updatedAt: nowIso()})}
+									/>
+								</div>
+							</div>
+						{/if}
+					</div>
+				{/each}
+			{/if}
+		{/if}
+	</div>
+</div>
+
+<!-- Simple Toast -->
+{#if toast}
+	<div 
+		transition:fly={{ y: 50, duration: 400 }}
+		class={cn(
+			"fixed bottom-8 left-1/2 -translate-x-1/2 z-[100] flex items-center gap-2 rounded-2xl px-6 py-3 shadow-2xl border backdrop-blur-xl",
+			toast.type === 'success' ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400" :
+			toast.type === 'error' ? "bg-red-500/10 border-red-500/20 text-red-400" :
+			"bg-indigo-500/10 border-indigo-500/20 text-indigo-400"
+		)}
+	>
+		{#if toast.type === 'success'}<Check class="h-4 w-4" />
+		{:else if toast.type === 'error'}<AlertCircle class="h-4 w-4" />
+		{:else}<Zap class="h-4 w-4" />{/if}
+		<span class="text-sm font-bold">{toast.message}</span>
+	</div>
+{/if}

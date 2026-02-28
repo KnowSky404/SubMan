@@ -2,88 +2,248 @@
 	import "../app.css";
 	import { onMount } from "svelte";
 	import { page } from "$app/stores";
+	import { fade, fly } from "svelte/transition";
 	import { locale, t } from "$lib/i18n";
 	import { startAutoSync } from "$lib/sync";
+	import { authState } from "$lib/stores/auth";
+	import { appState } from "$lib/stores/app";
+	import { cn } from "$lib/utils/cn";
+	import { 
+		LayoutDashboard, 
+		Layers, 
+		Network, 
+		Zap, 
+		Settings, 
+		Github, 
+		Languages,
+		Menu,
+		X,
+		Cloud,
+		CloudOff
+	} from "lucide-svelte";
 
 	const PROJECT_GITHUB_URL = "https://github.com/KnowSky404/SubMan";
+	
 	const navItems = [
-		{ href: "/", label: "Overview" },
-		{ href: "/gists", label: "Gists" },
-		{ href: "/nodes", label: "Nodes" },
-		{ href: "/aggregate", label: "Aggregate" },
-		{ href: "/auth", label: "Workspace" }
+		{ href: "/", label: "Overview", icon: LayoutDashboard },
+		{ href: "/gists", label: "Gists", icon: Layers },
+		{ href: "/nodes", label: "Nodes", icon: Network },
+		{ href: "/aggregate", label: "Aggregate", icon: Zap },
+		{ href: "/auth", label: "Workspace", icon: Settings }
 	];
+
+	let isMobileMenuOpen = false;
 
 	$: pathname = $page.url.pathname;
 	$: isActive = (href) => (href === "/" ? pathname === "/" : pathname.startsWith(href));
+	$: isConnected = !!($authState.token && $appState.activeGistId);
 
-	function handleLocaleChange(event) {
-		const nextLocale = event.currentTarget.value;
+	function handleLocaleChange(nextLocale) {
 		if (nextLocale === "en" || nextLocale === "zh-CN") {
 			locale.set(nextLocale);
 		}
 	}
 
+	function toggleMobileMenu() {
+		isMobileMenuOpen = !isMobileMenuOpen;
+	}
+
 	onMount(() => startAutoSync());
 </script>
 
-<div class="min-h-screen bg-slate-950 text-slate-100">
-	<header class="border-b border-slate-800/70 bg-slate-950/80 backdrop-blur">
-		<div class="mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-5">
-			<div>
-				<p class="text-xs uppercase tracking-[0.3em] text-slate-400">{$t("SubMan")}</p>
-				<p class="text-lg font-semibold">{$t("Gist-first Proxy Manager")}</p>
+<div class="relative min-h-screen bg-[#020617] text-slate-200 selection:bg-indigo-500/30 selection:text-indigo-200">
+	<!-- Background Effects -->
+	<div class="pointer-events-none fixed inset-0 overflow-hidden">
+		<div class="absolute -top-[10%] -left-[10%] h-[40%] w-[40%] rounded-full bg-indigo-500/10 blur-[120px]"></div>
+		<div class="absolute top-[20%] -right-[10%] h-[30%] w-[30%] rounded-full bg-blue-500/10 blur-[100px]"></div>
+		<div class="absolute -bottom-[10%] left-[20%] h-[40%] w-[40%] rounded-full bg-purple-500/10 blur-[120px]"></div>
+	</div>
+
+	<!-- Header -->
+	<header class="sticky top-0 z-50 border-b border-slate-800/40 bg-[#020617]/80 backdrop-blur-xl">
+		<div class="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6">
+			<!-- Logo & Status -->
+			<div class="flex items-center gap-4">
+				<a href="/" class="group flex items-center gap-2.5 transition-opacity hover:opacity-90">
+					<div class="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-tr from-indigo-600 to-violet-500 shadow-lg shadow-indigo-500/20">
+						<Zap class="h-5 w-5 text-white fill-white/20" />
+					</div>
+					<div class="hidden flex-col leading-tight sm:flex">
+						<span class="text-sm font-bold tracking-tight text-white">SubMan</span>
+						<span class="text-[10px] font-medium text-slate-500 uppercase tracking-wider">{$t("Manager")}</span>
+					</div>
+				</a>
+
+				<div class={cn(
+					"flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-medium transition-colors",
+					isConnected ? "bg-emerald-500/10 text-emerald-400" : "bg-amber-500/10 text-amber-400"
+				)}>
+					{#if isConnected}
+						<Cloud class="h-3 w-3" />
+						<span class="hidden sm:inline">{$t("Connected")}</span>
+					{:else}
+						<CloudOff class="h-3 w-3" />
+						<span class="hidden sm:inline">{$t("Local Mode")}</span>
+					{/if}
+				</div>
 			</div>
 
-			<nav class="hidden flex-wrap items-center gap-4 text-sm md:flex">
+			<!-- Desktop Nav -->
+			<nav class="hidden items-center gap-1 md:flex">
 				{#each navItems as item}
 					<a
-						class={`rounded-full px-3 py-1 transition ${
-								isActive(item.href)
-									? "bg-slate-100 text-slate-950"
-									: "text-slate-300 hover:text-slate-100"
-						}`}
 						href={item.href}
+						class={cn(
+							"group relative flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-all duration-200",
+							isActive(item.href) 
+								? "text-white" 
+								: "text-slate-400 hover:bg-slate-800/50 hover:text-slate-200"
+						)}
 					>
+						<svelte:component this={item.icon} class={cn("h-4 w-4", isActive(item.href) ? "text-indigo-400" : "text-slate-500 group-hover:text-slate-400")} />
 						{$t(item.label)}
+						{#if isActive(item.href)}
+							<div class="absolute bottom-0 left-3 right-3 h-0.5 bg-indigo-500/50 rounded-full" in:fade></div>
+						{/if}
 					</a>
 				{/each}
 
-				<div class="h-5 w-px bg-slate-700/80" aria-hidden="true"></div>
-				<div class="relative">
-					<label class="sr-only" for="locale-switch">{$t("Language")}</label>
-					<select
-						id="locale-switch"
-						class="appearance-none rounded-full border border-slate-700 bg-slate-900/80 px-3 py-1 pr-7 text-xs text-slate-100 outline-none ring-0 focus:border-slate-500"
-						value={$locale}
-						on:change={handleLocaleChange}
+				<div class="mx-2 h-4 w-px bg-slate-800"></div>
+
+				<div class="flex items-center gap-2">
+					<!-- Language Selector -->
+					<div class="relative group">
+						<button class="flex h-9 w-9 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-800/50 hover:text-slate-200 transition-colors">
+							<Languages class="h-4.5 w-4.5" />
+						</button>
+						<div class="absolute right-0 mt-1 hidden w-32 origin-top-right flex-col rounded-xl border border-slate-800 bg-[#0f172a] p-1 shadow-2xl group-focus-within:flex group-hover:flex">
+							<button 
+								class={cn("flex w-full items-center px-3 py-2 text-xs font-medium rounded-lg transition-colors", $locale === 'en' ? "bg-indigo-500/10 text-indigo-400" : "text-slate-400 hover:bg-slate-800/50")}
+								on:click={() => handleLocaleChange('en')}
+							>
+								English
+							</button>
+							<button 
+								class={cn("flex w-full items-center px-3 py-2 text-xs font-medium rounded-lg transition-colors", $locale === 'zh-CN' ? "bg-indigo-500/10 text-indigo-400" : "text-slate-400 hover:bg-slate-800/50")}
+								on:click={() => handleLocaleChange('zh-CN')}
+							>
+								简体中文
+							</button>
+						</div>
+					</div>
+
+					<!-- GitHub -->
+					<a
+						href={PROJECT_GITHUB_URL}
+						target="_blank"
+						rel="noreferrer"
+						class="flex h-9 w-9 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-800/50 hover:text-slate-200 transition-colors"
+						title="GitHub"
 					>
-						<option value="en">{$t("English")}</option>
-						<option value="zh-CN">{$t("简体中文")}</option>
-					</select>
-					<span class="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-slate-400">
-						v
-					</span>
+						<Github class="h-4.5 w-4.5" />
+					</a>
 				</div>
-				<a
-					class="inline-flex h-8 w-8 items-center justify-center rounded-full border border-slate-700 text-slate-200 transition hover:border-slate-500 hover:text-white"
-					href={PROJECT_GITHUB_URL}
-					target="_blank"
-					rel="noreferrer"
-					aria-label={$t("GitHub")}
-					title={$t("GitHub")}
-				>
-					<svg viewBox="0 0 24 24" class="h-4 w-4 fill-current" aria-hidden="true">
-						<path
-							d="M12 1.5a10.5 10.5 0 0 0-3.32 20.47c.53.1.72-.22.72-.5v-1.85c-2.95.64-3.57-1.25-3.57-1.25-.49-1.22-1.18-1.55-1.18-1.55-.96-.65.07-.63.07-.63 1.06.08 1.62 1.07 1.62 1.07.94 1.6 2.47 1.14 3.07.87.09-.67.37-1.14.66-1.4-2.35-.26-4.81-1.15-4.81-5.13 0-1.14.42-2.07 1.1-2.8-.11-.27-.48-1.36.1-2.83 0 0 .9-.28 2.96 1.07A10.45 10.45 0 0 1 12 6.8c.92 0 1.85.12 2.72.35 2.06-1.35 2.96-1.07 2.96-1.07.58 1.47.21 2.56.1 2.83.69.73 1.1 1.66 1.1 2.8 0 3.99-2.47 4.86-4.82 5.12.38.32.72.94.72 1.9v2.82c0 .28.19.6.73.5A10.5 10.5 0 0 0 12 1.5Z"
-						></path>
-					</svg>
-				</a>
 			</nav>
+
+			<!-- Mobile Menu Button -->
+			<button 
+				class="flex h-10 w-10 items-center justify-center rounded-lg border border-slate-800 bg-slate-900/50 text-slate-400 md:hidden"
+				on:click={toggleMobileMenu}
+			>
+				{#if isMobileMenuOpen}
+					<X class="h-5 w-5" />
+				{:else}
+					<Menu class="h-5 w-5" />
+				{/if}
+			</button>
 		</div>
 	</header>
 
-	<main class="mx-auto w-full max-w-6xl px-6 py-10">
-		<slot />
+	<!-- Mobile Nav -->
+	{#if isMobileMenuOpen}
+		<div 
+			class="fixed inset-0 z-40 bg-[#020617]/60 backdrop-blur-md md:hidden"
+			on:click={toggleMobileMenu}
+			transition:fade={{ duration: 200 }}
+		></div>
+		<nav 
+			class="fixed inset-y-0 right-0 z-50 w-64 border-l border-slate-800 bg-[#0f172a] p-6 shadow-2xl md:hidden"
+			transition:fly={{ x: 300, duration: 300 }}
+		>
+			<div class="flex flex-col gap-6">
+				<div class="flex items-center justify-between">
+					<span class="text-sm font-bold uppercase tracking-widest text-slate-500">Menu</span>
+					<button on:click={toggleMobileMenu} class="text-slate-400"><X class="h-5 w-5" /></button>
+				</div>
+				<div class="flex flex-col gap-2">
+					{#each navItems as item}
+						<a
+							href={item.href}
+							on:click={toggleMobileMenu}
+							class={cn(
+								"flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium transition-all",
+								isActive(item.href) 
+									? "bg-indigo-500/10 text-indigo-400" 
+									: "text-slate-400 hover:bg-slate-800/50 hover:text-slate-200"
+							)}
+						>
+							<svelte:component this={item.icon} class="h-5 w-5" />
+							{$t(item.label)}
+						</a>
+					{/each}
+				</div>
+				
+				<div class="h-px bg-slate-800"></div>
+				
+				<div class="flex flex-col gap-4">
+					<span class="text-[10px] font-bold uppercase tracking-widest text-slate-500">Language</span>
+					<div class="grid grid-cols-2 gap-2">
+						<button 
+							class={cn("rounded-lg py-2 text-xs font-medium transition-all", $locale === 'en' ? "bg-indigo-500/10 text-indigo-400" : "bg-slate-800/50 text-slate-400")}
+							on:click={() => { handleLocaleChange('en'); toggleMobileMenu(); }}
+						>
+							English
+						</button>
+						<button 
+							class={cn("rounded-lg py-2 text-xs font-medium transition-all", $locale === 'zh-CN' ? "bg-indigo-500/10 text-indigo-400" : "bg-slate-800/50 text-slate-400")}
+							on:click={() => { handleLocaleChange('zh-CN'); toggleMobileMenu(); }}
+						>
+							中文
+						</button>
+					</div>
+				</div>
+			</div>
+		</nav>
+	{/if}
+
+	<!-- Main Content -->
+	<main class="relative mx-auto w-full max-w-7xl px-4 py-8 sm:px-6 lg:py-12">
+		{#key pathname}
+			<div in:fly={{ y: 10, duration: 400, delay: 100 }} out:fade={{ duration: 150 }}>
+				<slot />
+			</div>
+		{/key}
 	</main>
 </div>
+
+<style>
+	:global(html) {
+		scroll-behavior: smooth;
+	}
+	
+	/* Custom Scrollbar */
+	:global(::-webkit-scrollbar) {
+		width: 8px;
+		height: 8px;
+	}
+	:global(::-webkit-scrollbar-track) {
+		background: transparent;
+	}
+	:global(::-webkit-scrollbar-thumb) {
+		background: #1e293b;
+		border-radius: 10px;
+	}
+	:global(::-webkit-scrollbar-thumb:hover) {
+		background: #334155;
+	}
+</style>
