@@ -186,6 +186,10 @@
 		outputContent = ""; publishUrl = null;
 	}
 
+	$: if (publishTargetRuleId && !$appState.aggregates.some((rule) => rule.id === publishTargetRuleId)) {
+		publishTargetRuleId = $appState.aggregates[0]?.id ?? "";
+	}
+
 	async function buildPreview() {
 		if (!selectedNodeIds.length && !selectedSubscriptionIds.length) {
 			setStatus($t("Select at least one node or subscription."), 'error');
@@ -228,12 +232,20 @@
 
 	async function saveTarget() {
 		if (!publishTargetRuleId) { setStatus($t("Select a rule first."), 'error'); return; }
+		if (!$appState.aggregates.some((rule) => rule.id === publishTargetRuleId)) {
+			setStatus($t("Selected target rule no longer exists."), 'error');
+			return;
+		}
+		if (!publishTargetFile.trim()) { setStatus($t("File name is required."), 'error'); return; }
 		const id = selectedTargetId || createId("pub");
+		const existing = $appState.publishTargets.find((target) => target.id === id);
 		upsertPublishTarget({
 			id, name: publishTargetName.trim() || publishTargetFile,
-			ruleId: publishTargetRuleId, fileName: publishTargetFile,
+			ruleId: publishTargetRuleId, fileName: publishTargetFile.trim(),
 			description: publishTargetDescription.trim(), isPublic: publishTargetPublic,
-			lastPublishedAt: null, lastPublishedUrl: publishUrl, updatedAt: nowIso()
+			lastPublishedAt: existing?.lastPublishedAt ?? null,
+			lastPublishedUrl: existing?.lastPublishedUrl ?? publishUrl,
+			updatedAt: nowIso()
 		});
 		selectedTargetId = id;
 		setStatus($t("Publish target saved."));
@@ -288,6 +300,15 @@
 			await navigator.clipboard.writeText(publishUrl);
 			setStatus($t("Link copied."));
 		} catch { setStatus($t("Copy failed."), 'error'); }
+	}
+
+	async function copyLine(line: string) {
+		try {
+			await navigator.clipboard.writeText(line);
+			setStatus($t("Line copied."));
+		} catch {
+			setStatus($t("Copy failed."), 'error');
+		}
 	}
 
 	onDestroy(() => { if (statusTimer) clearTimeout(statusTimer); });
@@ -513,7 +534,7 @@
 											<div class="rounded-xl bg-slate-900 p-3 relative group/line">
 												<p class="text-[10px] font-mono text-slate-400 break-all">{entry.line}</p>
 												<button 
-													on:click={() => copyLink()} 
+													on:click={() => copyLine(entry.line)} 
 													class="absolute right-2 bottom-2 p-1.5 rounded-lg bg-slate-800 text-slate-400 opacity-0 group-hover/line:opacity-100 transition-opacity hover:text-white"
 												>
 													<Copy class="h-3 w-3" />
@@ -563,6 +584,23 @@
 							placeholder={$t("Clash Config...")}
 							bind:value={publishTargetName}
 						/>
+					</div>
+
+					<div class="space-y-2">
+						<label class="text-[10px] font-bold uppercase tracking-widest text-slate-500">{$t("Select rule")}</label>
+						<select
+							class="w-full rounded-xl border border-slate-800 bg-slate-950 px-4 py-2.5 text-sm text-white outline-none focus:border-indigo-500/50 disabled:opacity-50"
+							bind:value={publishTargetRuleId}
+							disabled={!$appState.aggregates.length}
+						>
+							{#if !$appState.aggregates.length}
+								<option value="">{$t("Select a rule first.")}</option>
+							{:else}
+								{#each $appState.aggregates as rule}
+									<option value={rule.id}>{rule.name}</option>
+								{/each}
+							{/if}
+						</select>
 					</div>
 
 					<div class="space-y-2">
