@@ -40,6 +40,7 @@ Gist-first 的代理订阅管理工具（VLESS/VMess 等）。纯前端实现。
 - 配置文件：`wrangler.toml`
 - 常用命令：
   - `bun run build`
+  - `bun run preview`
   - `bun run deploy`
 
 ## 约定

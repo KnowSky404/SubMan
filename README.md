@@ -40,6 +40,7 @@
 ```bash
 bun install
 bun run dev
+bun run preview
 ```
 
 ## Cloudflare Workers 部署
