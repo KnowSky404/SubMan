@@ -39,14 +39,14 @@ Gist-first 的代理订阅管理工具（VLESS/VMess 等）。纯前端实现。
 - Adapter: `@sveltejs/adapter-cloudflare`
 - 配置文件：`wrangler.toml`
 - 常用命令：
-  - `pnpm build`
-  - `pnpm deploy`
+  - `bun run build`
+  - `bun run deploy`
 
 ## 约定
 - 代码保持 ASCII 字符
 - **原子化提交**：每完成一个独立的功能点、UI 改进或 Bug 修复后，必须立即执行 git commit。
 - 所有文件写入同一个 Workspace Gist
-- 涉及依赖变更时仅使用默认 `pnpm` 命令：`pnpm add <pkg>`、`pnpm add -D <pkg>`、`pnpm remove <pkg>`；不要添加任何自定义包存储路径参数（如 `--store-dir`），保持 `pnpm` 默认存储路径
+- 涉及依赖变更时使用默认 `bun` 命令：`bun add <pkg>`、`bun add -d <pkg>`、`bun remove <pkg>`
 
 ## 后续方向
 - 更强的订阅解析与聚合能力

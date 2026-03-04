@@ -38,28 +38,28 @@
 
 ## 开发与构建
 ```bash
-pnpm install
-pnpm dev
+bun install
+bun run dev
 ```
 
 ## Cloudflare Workers 部署
 已适配 Workers：`@sveltejs/adapter-cloudflare` + `wrangler.toml`
 
 ```bash
-pnpm build
-pnpm deploy
+bun run build
+bun run deploy
 ```
 
 如需本地预览 Workers：
 ```bash
-pnpm dev:cf
+bun run dev:cf
 ```
 
 ## 技术栈
 - SvelteKit + TypeScript
 - TailwindCSS v4
 - Biome
-- pnpm
+- bun
 
 ## 约定
 - ASCII 字符
