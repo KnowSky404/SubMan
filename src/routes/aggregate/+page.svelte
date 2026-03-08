@@ -59,6 +59,7 @@
 	let prependRegionFlags = true;
 	let showBuiltInRegionMap = false;
 	let builtInRegionMapSearch = "";
+	let selectedBuiltInRegionRuleKey = "";
 	
 	let previewSummary = "";
 	let previewContent = "";
@@ -409,8 +410,22 @@
 		syncCustomRegionFlagMapSelection();
 	}
 
-	function handleBuiltInRegionRuleCardClick(event: MouseEvent, rule: { code: string; keywords: string[] }) {
-		void insertBuiltInRegionRuleAtCursor(rule, { keepBrowserOpen: event.metaKey || event.ctrlKey });
+	function handleBuiltInRegionRuleCardClick(
+		event: MouseEvent,
+		rule: { code: string; keywords: string[] },
+		ruleKey: string
+	) {
+		if (event.metaKey || event.ctrlKey) {
+			void insertBuiltInRegionRuleAtCursor(rule, { keepBrowserOpen: true });
+			return;
+		}
+
+		selectedBuiltInRegionRuleKey = ruleKey;
+	}
+
+	function handleBuiltInRegionRuleCardDoubleClick(rule: { code: string; keywords: string[] }, ruleKey: string) {
+		selectedBuiltInRegionRuleKey = ruleKey;
+		void insertBuiltInRegionRuleAtCursor(rule);
 	}
 
 	function normalizeAndSortCustomRegionFlagMap() {
@@ -1022,7 +1037,7 @@ JP = JP, JAPAN, TOKYO`}
 							</button>
 							<button
 								type="button"
-								on:click={() => (showBuiltInRegionMap = true)}
+								on:click={() => { showBuiltInRegionMap = true; selectedBuiltInRegionRuleKey = ""; }}
 								class="inline-flex items-center gap-2 rounded-xl border border-slate-800 bg-slate-950/60 px-4 py-2 text-[11px] font-bold uppercase tracking-[0.16em] text-slate-300 transition-all hover:bg-slate-800 hover:text-white"
 							>
 								<Globe class="h-3.5 w-3.5" />
@@ -1327,7 +1342,7 @@ JP = JP, JAPAN, TOKYO`}
 			type="button"
 			aria-label={$t("Close built-in region map")}
 			class="absolute inset-0 bg-slate-950/70 backdrop-blur-sm"
-			on:click={() => (showBuiltInRegionMap = false)}
+			on:click={() => { showBuiltInRegionMap = false; selectedBuiltInRegionRuleKey = ""; }}
 		></button>
 		<div class="relative flex min-h-full items-center justify-center p-4">
 			<div
@@ -1351,7 +1366,7 @@ JP = JP, JAPAN, TOKYO`}
 
 					<button
 						type="button"
-						on:click={() => (showBuiltInRegionMap = false)}
+						on:click={() => { showBuiltInRegionMap = false; selectedBuiltInRegionRuleKey = ""; }}
 						class="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-slate-800 bg-slate-950/70 text-slate-400 transition-all hover:bg-slate-800 hover:text-white"
 						aria-label={$t("Close built-in region map")}
 					>
@@ -1374,7 +1389,7 @@ JP = JP, JAPAN, TOKYO`}
 						<span>{$t("Built-in rules: {count}", { count: filteredBuiltInRegionRules.length })}</span>
 						<div class="flex flex-col items-end gap-1 text-right">
 							<span>{$t("Custom rules are matched before the built-in region table.")}</span>
-							<span class="text-[10px] font-medium uppercase tracking-[0.16em] text-indigo-400">{$t("Ctrl/Cmd + click to insert without closing")}</span>
+							<span class="text-[10px] font-medium uppercase tracking-[0.16em] text-indigo-400">{$t("Click to preview highlight. Ctrl/Cmd + click inserts without closing.")}</span>
 						</div>
 					</div>
 
@@ -1386,10 +1401,17 @@ JP = JP, JAPAN, TOKYO`}
 						<div class="max-h-[60vh] overflow-y-auto pr-1 custom-scrollbar">
 							<div class="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
 								{#each filteredBuiltInRegionRules as rule (rule.code + rule.keywords.join(','))}
+									{@const ruleKey = rule.code + rule.keywords.join(',')}
 									<button
 									type="button"
-									on:click={(event) => handleBuiltInRegionRuleCardClick(event, rule)}
-									class="w-full rounded-3xl border border-slate-800/60 bg-slate-950/40 p-5 space-y-3 text-left transition-all hover:border-indigo-500/30 hover:bg-slate-900/70"
+									on:click={(event) => handleBuiltInRegionRuleCardClick(event, rule, ruleKey)}
+									on:dblclick={() => handleBuiltInRegionRuleCardDoubleClick(rule, ruleKey)}
+									class={cn(
+										"w-full rounded-3xl border bg-slate-950/40 p-5 space-y-3 text-left transition-all hover:bg-slate-900/70",
+										selectedBuiltInRegionRuleKey === ruleKey
+											? "border-indigo-500/50 ring-1 ring-indigo-500/30"
+											: "border-slate-800/60 hover:border-indigo-500/30"
+									)}
 								>
 										<div class="flex items-center gap-3">
 											<div class="flex h-11 w-11 items-center justify-center rounded-2xl bg-indigo-500/10 text-xl">{regionCodeToFlagEmoji(rule.code) || "🏳️"}</div>
@@ -1400,10 +1422,10 @@ JP = JP, JAPAN, TOKYO`}
 										</div>
 										<p class="text-[11px] leading-relaxed text-slate-300 break-words">{rule.keywords.join(", ")}</p>
 										<div class="flex items-center justify-between gap-3 pt-1">
-											<span class="text-[10px] font-bold uppercase tracking-[0.18em] text-indigo-400">{$t("Click to insert at cursor")}</span>
+											<span class="text-[10px] font-bold uppercase tracking-[0.18em] text-indigo-400">{$t("Click to preview highlight")}</span>
 											<span class="inline-flex items-center gap-1 text-[11px] font-semibold text-slate-300">
 												<Plus class="h-3.5 w-3.5" />
-												{$t("Insert")}
+												{$t("Double-click to insert")}
 											</span>
 										</div>
 									</button>
