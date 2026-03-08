@@ -51,6 +51,9 @@
 
 	let batchContent = "";
 	let batchTags = "";
+	let batchPreviewSearch = "";
+	let batchPreviewStatusFilter: "all" | BatchImportPreviewStatus = "all";
+	let batchPreviewProtocolFilter: "all" | ProxyType = "all";
 
 	type BatchImportPreviewStatus = "import" | "duplicate" | "invalid";
 	type BatchImportPreviewItem = {
@@ -68,6 +71,8 @@
 			type?: ProxyType;
 		};
 	};
+
+const batchPreviewProtocolOptions: ("all" | ProxyType)[] = ["all", "vless", "vmess", "trojan", "ss", "ssr", "hysteria2", "tuic", "other"];
 
 	let searchQuery = "";
 	let filterStatus: "all" | "enabled" | "disabled" = "all";
@@ -213,6 +218,9 @@
 	function resetBatchForm() {
 		batchContent = "";
 		batchTags = "";
+		batchPreviewSearch = "";
+		batchPreviewStatusFilter = "all";
+		batchPreviewProtocolFilter = "all";
 	}
 
 	function closeAddModal() {
@@ -221,6 +229,9 @@
 
 	function openAddModal() {
 		addMode = "single";
+		batchPreviewSearch = "";
+		batchPreviewStatusFilter = "all";
+		batchPreviewProtocolFilter = "all";
 		isAddModalOpen = true;
 	}
 
@@ -367,7 +378,23 @@
 
 	$: batchImportPreview = buildBatchImportPreview();
 	$: batchLineCount = batchImportPreview.totalLines;
-	$: canImportBatch = batchImportPreview.importableCount > 0;
+	$: filteredBatchImportPreviewItems = batchImportPreview.items.filter((item) => {
+		if (batchPreviewStatusFilter !== "all" && item.status !== batchPreviewStatusFilter) {
+			return false;
+		}
+		if (activeTab === "nodes" && batchPreviewProtocolFilter !== "all") {
+			if (item.kind !== "node" || item.importData?.type !== batchPreviewProtocolFilter) {
+				return false;
+			}
+		}
+		const query = batchPreviewSearch.trim().toLowerCase();
+		if (!query) {
+			return true;
+		}
+		return item.label.toLowerCase().includes(query) || item.detail.toLowerCase().includes(query);
+	});
+	$: visibleImportableBatchCount = filteredBatchImportPreviewItems.filter((item) => item.status === "import").length;
+	$: canImportBatch = visibleImportableBatchCount > 0;
 
 	$: filteredNodes = $appState.nodes
 		.filter((node) => (filterStatus === "all" ? true : filterStatus === "enabled" ? node.enabled : !node.enabled))
@@ -446,12 +473,14 @@
 			expandedId = batchImportPreview.firstDuplicateId;
 		}
 
-		for (const item of batchImportPreview.items) {
-			if (item.status !== "import" || !item.importData) {
-				continue;
-			}
+		const importableItems = filteredBatchImportPreviewItems.filter((item) => item.status === "import" && item.importData);
+		if (importableItems.length === 0) {
+			showToast($t("No visible importable items to import."), "info");
+			return;
+		}
 
-			if (item.kind === "node" && item.importData.raw && item.importData.type) {
+		for (const item of importableItems) {
+			if (item.kind === "node" && item.importData?.raw && item.importData.type) {
 				upsertNode({
 					id: createId("node"),
 					name: item.importData.name,
@@ -465,7 +494,7 @@
 				continue;
 			}
 
-			if (item.kind === "sub" && item.importData.url) {
+			if (item.kind === "sub" && item.importData?.url) {
 				upsertSubscription({
 					id: createId("sub"),
 					name: item.importData.name,
@@ -477,19 +506,11 @@
 			}
 		}
 
-		if (batchImportPreview.importableCount === 0) {
-			showToast(
-				$t("No valid lines were imported."),
-				batchImportPreview.duplicateCount > 0 || batchImportPreview.invalidCount > 0 ? "error" : "info"
-			);
-			return;
-		}
-
 		resetBatchForm();
 		closeAddModal();
 		showToast(
 			$t("Batch import complete: {imported} imported, {duplicates} duplicate, {invalid} invalid.", {
-				imported: batchImportPreview.importableCount,
+				imported: importableItems.length,
 				duplicates: batchImportPreview.duplicateCount,
 				invalid: batchImportPreview.invalidCount
 			}),
@@ -731,11 +752,53 @@
 							<p class="text-sm font-bold text-white">{$t("Import Preview")}</p>
 							<p class="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">{$t("Preview import results before saving.")}</p>
 						</div>
-						{#if batchImportPreview.items.length === 0}
-							<p class="text-sm text-slate-500">{$t("No batch preview yet. Paste lines to preview them here.")}</p>
+						<div class="grid gap-3 sm:grid-cols-2">
+							<input
+								class="w-full rounded-xl border border-slate-800 bg-slate-950 px-4 py-2.5 text-sm text-white placeholder:text-slate-600 outline-none focus:border-indigo-500/50 transition-all"
+								placeholder={$t("Filter preview by name or detail") }
+								bind:value={batchPreviewSearch}
+							/>
+							<div class="flex flex-wrap gap-2">
+								{#each ["all", "import", "duplicate", "invalid"] as filter}
+									<button
+										type="button"
+										on:click={() => (batchPreviewStatusFilter = filter as typeof batchPreviewStatusFilter)}
+										class={cn(
+											"rounded-full border px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.16em] transition-all",
+											batchPreviewStatusFilter === filter
+												? "border-indigo-500/30 bg-indigo-500/10 text-indigo-300"
+												: "border-slate-800 bg-slate-950/60 text-slate-500 hover:text-slate-300"
+										)}
+									>
+										{$t(filter === "all" ? "All" : filter === "import" ? "Importable" : filter === "duplicate" ? "Duplicate" : "Invalid")}
+									</button>
+								{/each}
+							</div>
+						</div>
+						{#if activeTab === 'nodes'}
+							<div class="flex flex-wrap gap-2">
+								{#each batchPreviewProtocolOptions as protocol}
+									<button
+										type="button"
+										on:click={() => (batchPreviewProtocolFilter = protocol)}
+										class={cn(
+											"rounded-full border px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.16em] transition-all",
+											batchPreviewProtocolFilter === protocol
+												? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
+												: "border-slate-800 bg-slate-950/60 text-slate-500 hover:text-slate-300"
+										)}
+									>
+										{$t(protocol === "all" ? "All protocols" : protocol)}
+									</button>
+								{/each}
+							</div>
+						{/if}
+						<p class="text-[11px] leading-relaxed text-slate-500">{$t("Only visible importable items will be imported.")}</p>
+						{#if filteredBatchImportPreviewItems.length === 0}
+							<p class="text-sm text-slate-500">{$t("No preview items match the current filters.")}</p>
 						{:else}
 							<div class="max-h-72 space-y-2 overflow-y-auto pr-1 custom-scrollbar">
-								{#each batchImportPreview.items as item (item.id)}
+								{#each filteredBatchImportPreviewItems as item (item.id)}
 									<div class={cn(
 										"rounded-xl border px-4 py-3 space-y-1",
 										item.status === "import"
