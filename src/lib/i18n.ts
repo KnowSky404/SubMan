@@ -210,6 +210,8 @@ const zhCN: Record<string, string> = {
 	"Ctrl/Cmd + click to insert without closing": "按住 Ctrl/Cmd 点击可插入且不关闭弹窗",
 	"Click to preview highlight. Ctrl/Cmd + click inserts without closing.": "单击仅高亮预览；按住 Ctrl/Cmd 点击可插入且不关闭弹窗。",
 	"Click to preview highlight": "单击高亮预览",
+	"Already present": "已存在",
+	"Code already exists in custom map": "该代码已存在于自定义映射表中",
 	"Double-click to insert": "双击插入",
 	"Missing built-in rules appended.": "已追加缺失的内置规则。",
 	"All built-in rules are already present.": "所有内置规则都已存在。",

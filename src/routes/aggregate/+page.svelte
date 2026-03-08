@@ -325,6 +325,7 @@
 	$: customRegionFlagValidation = parseCustomRegionFlagRules(customRegionFlagMap);
 	$: customRegionFlagIssues = customRegionFlagValidation.issues;
 	$: normalizedCustomRegionFlagMap = normalizeCustomRegionFlagMap(customRegionFlagMap);
+	$: existingCustomRegionFlagCodes = getExistingCustomRegionFlagCodes(customRegionFlagMap);
 
 	const builtInRegionFlagTemplateLines = BUILT_IN_REGION_FLAG_RULES.map((rule) => `${rule.code} = ${rule.keywords.join(", ")}`);
 	const builtInRegionFlagTemplate = builtInRegionFlagTemplateLines.join("\n");
@@ -1402,6 +1403,7 @@ JP = JP, JAPAN, TOKYO`}
 							<div class="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
 								{#each filteredBuiltInRegionRules as rule (rule.code + rule.keywords.join(','))}
 									{@const ruleKey = rule.code + rule.keywords.join(',')}
+									{@const ruleAlreadyPresent = existingCustomRegionFlagCodes.has(rule.code)}
 									<button
 									type="button"
 									on:click={(event) => handleBuiltInRegionRuleCardClick(event, rule, ruleKey)}
@@ -1410,19 +1412,30 @@ JP = JP, JAPAN, TOKYO`}
 										"w-full rounded-3xl border bg-slate-950/40 p-5 space-y-3 text-left transition-all hover:bg-slate-900/70",
 										selectedBuiltInRegionRuleKey === ruleKey
 											? "border-indigo-500/50 ring-1 ring-indigo-500/30"
+											: ruleAlreadyPresent
+											? "border-emerald-500/25 hover:border-emerald-400/40"
 											: "border-slate-800/60 hover:border-indigo-500/30"
 									)}
 								>
 										<div class="flex items-center gap-3">
 											<div class="flex h-11 w-11 items-center justify-center rounded-2xl bg-indigo-500/10 text-xl">{regionCodeToFlagEmoji(rule.code) || "🏳️"}</div>
 											<div class="min-w-0">
-												<p class="text-sm font-bold text-white">{rule.code}</p>
+												<div class="flex items-center gap-2">
+													<p class="text-sm font-bold text-white">{rule.code}</p>
+													{#if ruleAlreadyPresent}
+														<span class="inline-flex items-center rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.16em] text-emerald-300">{$t("Already present")}</span>
+													{/if}
+												</div>
 												<p class="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-500">{$t("Keywords")}: {rule.keywords.length}</p>
 											</div>
 										</div>
 										<p class="text-[11px] leading-relaxed text-slate-300 break-words">{rule.keywords.join(", ")}</p>
 										<div class="flex items-center justify-between gap-3 pt-1">
+											{#if ruleAlreadyPresent}
+											<span class="text-[10px] font-bold uppercase tracking-[0.18em] text-emerald-300">{$t("Code already exists in custom map")}</span>
+										{:else}
 											<span class="text-[10px] font-bold uppercase tracking-[0.18em] text-indigo-400">{$t("Click to preview highlight")}</span>
+										{/if}
 											<span class="inline-flex items-center gap-1 text-[11px] font-semibold text-slate-300">
 												<Plus class="h-3.5 w-3.5" />
 												{$t("Double-click to insert")}
