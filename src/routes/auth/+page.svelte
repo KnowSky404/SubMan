@@ -85,6 +85,22 @@
 		});
 	}
 
+	$: workspaceGistUrl = $appState.activeGistId ? `https://gist.github.com/${$appState.activeGistId}` : "";
+
+	async function copyWorkspaceGistUrl() {
+		if (!workspaceGistUrl) {
+			setStatus($t("Workspace gist URL unavailable."), 'error');
+			return;
+		}
+
+		try {
+			await navigator.clipboard.writeText(workspaceGistUrl);
+			setStatus($t("Workspace gist URL copied."), 'success');
+		} catch {
+			setStatus($t("Clipboard copy failed."), 'error');
+		}
+	}
+
 	async function handleTokenSave() {
 		status = null;
 		conflict = null;
@@ -385,10 +401,19 @@
 						<p class="text-[10px] uppercase font-bold text-indigo-400/60 tracking-wider">{$t("Active Gist ID")}</p>
 						<p class="text-xs font-mono text-slate-300 truncate">{$appState.activeGistId}</p>
 					</div>
+					<button
+						type="button"
+						on:click={copyWorkspaceGistUrl}
+						class="h-8 w-8 flex items-center justify-center rounded-lg border border-slate-800 text-slate-500 hover:text-white transition-colors"
+						title={$t("Copy workspace gist URL")}
+					>
+						<Copy class="h-4 w-4" />
+					</button>
 					<a 
-						href="https://gist.github.com/{$appState.activeGistId}" 
+						href={workspaceGistUrl} 
 						target="_blank"
 						class="h-8 w-8 flex items-center justify-center rounded-lg border border-slate-800 text-slate-500 hover:text-white transition-colors"
+						title={$t("Open workspace gist")}
 					>
 						<ExternalLink class="h-4 w-4" />
 					</a>

@@ -233,6 +233,8 @@
 		} catch { setStatus($t("Copy failed."), 'error'); }
 	}
 
+	$: workspaceGistUrl = $appState.activeGistId ? `https://gist.github.com/${$appState.activeGistId}` : "";
+
 	const isConfigFile = (filename: string) => filename === WORKSPACE_FILE;
 	const isManagedOutput = (filename: string) => managedFiles.has(filename);
 	const canDelete = (filename: string) => !isConfigFile(filename);
@@ -383,6 +385,26 @@
 			<div class="flex flex-col">
 				<span class="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500">{$t("Active Gist ID")}</span>
 				<span class="text-sm font-mono text-slate-300">{$appState.activeGistId || $t("None")}</span>
+				{#if workspaceGistUrl}
+					<div class="mt-3 flex items-center gap-2">
+						<button
+							type="button"
+							on:click={() => copyLink(workspaceGistUrl)}
+							class="inline-flex items-center gap-1.5 rounded-lg border border-slate-800 bg-slate-950/70 px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-300 transition-all hover:bg-slate-800 hover:text-white"
+						>
+							<Copy class="h-3.5 w-3.5" />
+							{$t("Copy workspace gist URL")}
+						</button>
+						<a
+							href={workspaceGistUrl}
+							target="_blank"
+							class="inline-flex items-center gap-1.5 rounded-lg border border-slate-800 bg-slate-950/70 px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-300 transition-all hover:bg-slate-800 hover:text-white"
+						>
+							<ExternalLink class="h-3.5 w-3.5" />
+							{$t("Open workspace gist")}
+						</a>
+					</div>
+				{/if}
 			</div>
 			<div class="h-10 w-px bg-slate-800"></div>
 			<div class="flex flex-col">
