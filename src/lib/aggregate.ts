@@ -111,15 +111,34 @@ export function regionCodeToFlagEmoji(countryCode: string): string {
 		.join('');
 }
 
-function parseCustomRegionFlagRules(rawMap?: string): { rules: RegionFlagRule[]; warnings: string[] } {
+export type CustomRegionFlagRuleIssue = {
+	line: number;
+	reason: 'format' | 'keywords';
+	code?: string;
+};
+
+export function formatCustomRegionFlagRuleIssue(issue: CustomRegionFlagRuleIssue): string {
+	switch (issue.reason) {
+		case 'keywords':
+			return `Line ${issue.line}: add at least one keyword after ${issue.code ?? 'CODE'} =`;
+		default:
+			return `Line ${issue.line}: use FLAG_CODE = keyword1, keyword2`;
+	}
+}
+
+export function parseCustomRegionFlagRules(rawMap?: string): {
+	rules: RegionFlagRule[];
+	warnings: string[];
+	issues: CustomRegionFlagRuleIssue[];
+} {
 	if (!rawMap?.trim()) {
-		return { rules: [], warnings: [] };
+		return { rules: [], warnings: [], issues: [] };
 	}
 
-	const warnings: string[] = [];
+	const issues: CustomRegionFlagRuleIssue[] = [];
 	const rules: RegionFlagRule[] = [];
 
-	for (const rawLine of rawMap.split(/\r?\n/)) {
+	for (const [index, rawLine] of rawMap.split(/\r?\n/).entries()) {
 		const line = rawLine.trim();
 		if (!line) {
 			continue;
@@ -127,7 +146,7 @@ function parseCustomRegionFlagRules(rawMap?: string): { rules: RegionFlagRule[];
 
 		const match = line.match(CUSTOM_REGION_RULE_LINE_REGEX);
 		if (!match) {
-			warnings.push(`Invalid custom region flag rule: ${line}`);
+			issues.push({ line: index + 1, reason: 'format' });
 			continue;
 		}
 
@@ -138,14 +157,18 @@ function parseCustomRegionFlagRules(rawMap?: string): { rules: RegionFlagRule[];
 			.filter(Boolean);
 
 		if (keywords.length === 0) {
-			warnings.push(`Custom region flag rule has no keywords: ${line}`);
+			issues.push({ line: index + 1, reason: 'keywords', code });
 			continue;
 		}
 
 		rules.push({ code, keywords });
 	}
 
-	return { rules, warnings };
+	return {
+		rules,
+		warnings: issues.map(formatCustomRegionFlagRuleIssue),
+		issues
+	};
 }
 
 function inferRegionCodeFromName(name: string, rules: RegionFlagRule[]): string | null {

@@ -10,7 +10,7 @@
 	} from "$lib/stores/app";
 	import { authState } from "$lib/stores/auth";
 	import type { AggregatePublishTarget, AggregateRule, ProxyType } from "$lib/models";
-	import { BUILT_IN_REGION_FLAG_RULES, buildAggregateOutput, regionCodeToFlagEmoji } from "$lib/aggregate";
+	import { BUILT_IN_REGION_FLAG_RULES, buildAggregateOutput, parseCustomRegionFlagRules, regionCodeToFlagEmoji } from "$lib/aggregate";
 	import { createGist, toStableGistRawUrl, updateGist } from "$lib/gist";
 	import { exportSyncState } from "$lib/serialization";
 	import { WORKSPACE_FILE } from "$lib/workspace";
@@ -318,7 +318,11 @@
 		rule.keywords.some((keyword) => keyword.toUpperCase().includes(normalizedBuiltInRegionMapSearch))
 	);
 
+	$: customRegionFlagValidation = parseCustomRegionFlagRules(customRegionFlagMap);
+	$: customRegionFlagIssues = customRegionFlagValidation.issues;
+
 	async function buildPreview() {
+		if (customRegionFlagIssues.length > 0) { setStatus($t("Fix custom region flag map errors before previewing or saving."), "error"); return; }
 		if (!selectedNodeIds.length && !selectedSubscriptionIds.length) {
 			setStatus($t("Select at least one node or subscription."), 'error');
 			return;
@@ -341,6 +345,7 @@
 
 	async function saveRule() {
 		if (!ruleName.trim()) { setStatus($t("Rule name is required."), 'error'); return; }
+		if (customRegionFlagIssues.length > 0) { setStatus($t("Fix custom region flag map errors before previewing or saving."), 'error'); return; }
 		const id = editingRuleId || createId("agg");
 		upsertAggregate({
 			id, name: ruleName.trim(), nodeIds: selectedNodeIds, subscriptionIds: selectedSubscriptionIds,
@@ -819,13 +824,34 @@
 						<div class="space-y-2">
 							<p class="text-[10px] font-bold uppercase tracking-widest text-slate-500 ml-1">{$t("Custom region flag map")}</p>
 							<textarea 
-								class="w-full h-28 rounded-2xl border border-slate-800 bg-slate-950 px-5 py-3 text-xs font-mono text-white outline-none focus:border-indigo-500/50 custom-scrollbar"
+								class={cn(
+								"w-full h-28 rounded-2xl border bg-slate-950 px-5 py-3 text-xs font-mono text-white outline-none custom-scrollbar",
+								customRegionFlagIssues.length > 0
+									? "border-red-500/50 focus:border-red-500/60"
+									: "border-slate-800 focus:border-indigo-500/50"
+							)}
 								placeholder={`HK = HK, HKG, HONG KONG
 US = US, USA, NEW YORK
 JP = JP, JAPAN, TOKYO`}
 								bind:value={customRegionFlagMap}
 							></textarea>
 							<p class="text-[11px] leading-relaxed text-slate-500">{$t("Use one rule per line: FLAG_CODE = keyword1, keyword2. Custom rules are matched before the built-in region table.")}</p>
+						{#if customRegionFlagIssues.length > 0}
+							<div class="rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-3 space-y-2">
+								<p class="text-[11px] font-bold uppercase tracking-[0.16em] text-red-300">{$t("Custom region flag map issues")}</p>
+								<div class="space-y-1">
+									{#each customRegionFlagIssues as issue, index (`${issue.line}-${issue.reason}-${issue.code ?? index}`)}
+										<p class="text-[11px] leading-relaxed text-red-100/90">
+											{#if issue.reason === 'keywords'}
+												{$t("Line {line}: add at least one keyword after {code} =", { line: issue.line, code: issue.code ?? "CODE" })}
+											{:else}
+												{$t("Line {line}: use FLAG_CODE = keyword1, keyword2", { line: issue.line })}
+											{/if}
+										</p>
+									{/each}
+								</div>
+							</div>
+						{/if}
 						<button
 							type="button"
 							on:click={() => (showBuiltInRegionMap = true)}
