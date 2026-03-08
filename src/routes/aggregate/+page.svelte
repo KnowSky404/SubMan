@@ -321,7 +321,34 @@
 	$: customRegionFlagValidation = parseCustomRegionFlagRules(customRegionFlagMap);
 	$: customRegionFlagIssues = customRegionFlagValidation.issues;
 
-	const builtInRegionFlagTemplate = BUILT_IN_REGION_FLAG_RULES.map((rule) => `${rule.code} = ${rule.keywords.join(", ")}`).join("\n");
+	const builtInRegionFlagTemplateLines = BUILT_IN_REGION_FLAG_RULES.map((rule) => `${rule.code} = ${rule.keywords.join(", ")}`);
+	const builtInRegionFlagTemplate = builtInRegionFlagTemplateLines.join("\n");
+
+	function getExistingCustomRegionFlagCodes(rawMap: string): Set<string> {
+		const codes = new Set<string>();
+		for (const rawLine of rawMap.split(/\r?\n/)) {
+			const match = rawLine.trim().match(/^([A-Za-z]{2})\s*=/);
+			if (match?.[1]) {
+				codes.add(match[1].toUpperCase());
+			}
+		}
+		return codes;
+	}
+
+	function buildAppendMissingBuiltInRegionFlagTemplate(rawMap: string): string | null {
+		const existingCodes = getExistingCustomRegionFlagCodes(rawMap);
+		const missingLines = builtInRegionFlagTemplateLines.filter((line) => {
+			const code = line.slice(0, 2).toUpperCase();
+			return !existingCodes.has(code);
+		});
+
+		if (missingLines.length === 0) {
+			return null;
+		}
+
+		const current = rawMap.trim();
+		return current ? `${current}\n${missingLines.join("\n")}` : missingLines.join("\n");
+	}
 
 	async function importBuiltInRegionFlagTemplate() {
 		const currentValue = customRegionFlagMap.trim();
@@ -346,6 +373,17 @@
 
 		customRegionFlagMap = nextValue;
 		setStatus($t("Built-in template imported."), "success");
+	}
+
+	async function appendMissingBuiltInRegionFlagTemplate() {
+		const nextValue = buildAppendMissingBuiltInRegionFlagTemplate(customRegionFlagMap);
+		if (!nextValue) {
+			setStatus($t("All built-in rules are already present."), "info");
+			return;
+		}
+
+		customRegionFlagMap = nextValue;
+		setStatus($t("Missing built-in rules appended."), "success");
 	}
 
 	async function buildPreview() {
@@ -871,6 +909,14 @@ JP = JP, JAPAN, TOKYO`}
 							>
 								<Plus class="h-3.5 w-3.5" />
 								{$t("Import built-in template")}
+							</button>
+							<button
+								type="button"
+								on:click={appendMissingBuiltInRegionFlagTemplate}
+								class="inline-flex items-center gap-2 rounded-xl border border-slate-800 bg-slate-950/60 px-4 py-2 text-[11px] font-bold uppercase tracking-[0.16em] text-slate-300 transition-all hover:bg-slate-800 hover:text-white"
+							>
+								<Plus class="h-3.5 w-3.5" />
+								{$t("Append missing built-in rules")}
 							</button>
 							<button
 								type="button"
