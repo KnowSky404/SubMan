@@ -44,6 +44,7 @@ export type AggregateRule = {
 	renameMap: Record<string, string>;
 	allowedTypes: ProxyType[];
 	prependRegionFlags?: boolean;
+	customRegionFlagMap?: string;
 	updatedAt: string;
 };
 

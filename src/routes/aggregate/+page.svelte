@@ -50,6 +50,7 @@
 	let selectedSubscriptionIds: string[] = [];
 	let excludeTags = "";
 	let renameMap = "";
+	let customRegionFlagMap = "";
 	let allowedTypes: ProxyType[] = [];
 	let prependRegionFlags = true;
 	
@@ -242,6 +243,7 @@
 		selectedSubscriptionIds = [...rule.subscriptionIds];
 		excludeTags = rule.excludeTagIds.join(", ");
 		renameMap = Object.entries(rule.renameMap).map(([k, v]) => `${k}=${v}`).join("\n");
+		customRegionFlagMap = rule.customRegionFlagMap ?? "";
 		allowedTypes = rule.allowedTypes ?? [];
 		prependRegionFlags = rule.prependRegionFlags ?? true;
 		clearPreview();
@@ -254,7 +256,7 @@
 
 	function resetRuleForm() {
 		editingRuleId = ""; ruleName = ""; selectedNodeIds = [];
-		selectedSubscriptionIds = []; excludeTags = ""; renameMap = "";
+		selectedSubscriptionIds = []; excludeTags = ""; renameMap = ""; customRegionFlagMap = "";
 		allowedTypes = []; prependRegionFlags = true; clearPreview();
 	}
 
@@ -313,7 +315,7 @@
 				id: "preview", name: ruleName || "Preview",
 				nodeIds: selectedNodeIds, subscriptionIds: selectedSubscriptionIds,
 				excludeTagIds: excludeTags.split(",").map(t => t.trim()).filter(Boolean),
-				renameMap: parseRenameMap(renameMap), allowedTypes, prependRegionFlags, updatedAt: nowIso()
+				renameMap: parseRenameMap(renameMap), customRegionFlagMap: customRegionFlagMap.trim(), allowedTypes, prependRegionFlags, updatedAt: nowIso()
 			};
 			const result = await buildAggregateOutput(rule, $appState.nodes, $appState.subscriptions);
 			previewContent = result.content; previewLines = result.lines;
@@ -329,7 +331,7 @@
 		upsertAggregate({
 			id, name: ruleName.trim(), nodeIds: selectedNodeIds, subscriptionIds: selectedSubscriptionIds,
 			excludeTagIds: excludeTags.split(",").map(t => t.trim()).filter(Boolean),
-			renameMap: parseRenameMap(renameMap), allowedTypes, prependRegionFlags, updatedAt: nowIso()
+			renameMap: parseRenameMap(renameMap), customRegionFlagMap: customRegionFlagMap.trim(), allowedTypes, prependRegionFlags, updatedAt: nowIso()
 		});
 		editingRuleId = id;
 		setStatus($t("Rule saved."));
@@ -798,6 +800,18 @@
 								placeholder="Original Name = New Name&#10;HK-01 = Hong Kong Premium"
 								bind:value={renameMap}
 							></textarea>
+						</div>
+
+						<div class="space-y-2">
+							<p class="text-[10px] font-bold uppercase tracking-widest text-slate-500 ml-1">{$t("Custom region flag map")}</p>
+							<textarea 
+								class="w-full h-28 rounded-2xl border border-slate-800 bg-slate-950 px-5 py-3 text-xs font-mono text-white outline-none focus:border-indigo-500/50 custom-scrollbar"
+								placeholder={`HK = HK, HKG, HONG KONG
+US = US, USA, NEW YORK
+JP = JP, JAPAN, TOKYO`}
+								bind:value={customRegionFlagMap}
+							></textarea>
+							<p class="text-[11px] leading-relaxed text-slate-500">{$t("Use one rule per line: FLAG_CODE = keyword1, keyword2. Custom rules are matched before the built-in region table.")}</p>
 						</div>
 
 						<div class="rounded-2xl border border-slate-800 bg-slate-950/50 px-5 py-4 space-y-3">

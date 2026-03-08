@@ -192,6 +192,8 @@ const zhCN: Record<string, string> = {
 	"Exclude tags (comma separated)": "排除标签（逗号分隔）",
 	"Rename map: old=new per line": "重命名映射：每行 old=new",
 	"Auto prepend region flags": "自动添加地区旗帜",
+	"Custom region flag map": "自定义地区旗帜映射表",
+	"Use one rule per line: FLAG_CODE = keyword1, keyword2. Custom rules are matched before the built-in region table.": "每行一条规则：FLAG_CODE = keyword1, keyword2。自定义规则会优先于内置地区识别表匹配。",
 	"Detect country or region keywords like US, HK, JP, and SG in final node names and prepend the matching flag automatically.": "根据最终节点名称中的国家或地区关键词（如 US、HK、JP、SG）自动在名称前添加对应旗帜。",
 	Protocols: "协议",
 	"Leave empty to include all protocols.": "留空则包含所有协议。",
