@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { browser } from "$app/environment";
+import { onDestroy, onMount } from "svelte";
 import { t } from "$lib/i18n";
 	import { appState, replaceState } from "$lib/stores/app";
 	import { authState, clearAuth, setToken } from "$lib/stores/auth";
@@ -8,7 +9,7 @@ import { t } from "$lib/i18n";
 	import { ensureWorkspaceGist, WORKSPACE_DESCRIPTION, WORKSPACE_FILE } from "$lib/workspace";
 	import { mergeSyncState } from "$lib/merge";
 import { requestConfirm } from "$lib/stores/confirm";
-	import { setSyncBaseline } from "$lib/sync";
+	import { getAutoSyncStatusEventName, readAutoSyncStatus, setSyncBaseline, type AutoSyncStatus } from "$lib/sync";
 	import { nowIso } from "$lib/utils/time";
 	import { cn } from "$lib/utils/cn";
 	import type { AppState } from "$lib/models";
@@ -98,6 +99,7 @@ import { requestConfirm } from "$lib/stores/confirm";
 	let workspaceBusy = false;
 	let healthCheckBusy = false;
 	let healthReport: WorkspaceHealthReport | null = null;
+	let autoSyncStatus: AutoSyncStatus = readAutoSyncStatus();
 	let workspaceActivity = loadWorkspaceActivity();
 	let conflict: WorkspaceConflict | null = null;
 	let pendingGistId: string | null = null;
@@ -150,6 +152,29 @@ import { requestConfirm } from "$lib/stores/confirm";
 		workspaceActivity = [];
 		setStatus($t("Workspace activity log cleared."), 'success');
 	}
+
+	$: autoSyncSummary = autoSyncStatus.status === "error"
+		? "error"
+		: autoSyncStatus.status === "success"
+			? "success"
+			: autoSyncStatus.status === "syncing"
+				? "info"
+				: null;
+
+	onMount(() => {
+		if (!browser) {
+			return;
+		}
+
+		const eventName = getAutoSyncStatusEventName();
+		const handleSyncStatus = (event: Event) => {
+			const next = (event as CustomEvent<AutoSyncStatus>).detail;
+			autoSyncStatus = next;
+		};
+
+		window.addEventListener(eventName, handleSyncStatus as EventListener);
+		return () => window.removeEventListener(eventName, handleSyncStatus as EventListener);
+	});
 
 	function snapshotStats(state: AppState) {
 		return {
@@ -679,6 +704,60 @@ import { requestConfirm } from "$lib/stores/confirm";
 				</div>
 			</div>
 		{/if}
+	</section>
+
+	<section class="rounded-[2rem] border border-slate-800/60 bg-slate-900/10 p-8 space-y-6">
+		<div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+			<div class="flex items-start gap-3">
+				<RefreshCw class={cn("h-5 w-5", autoSyncStatus.status === "syncing" ? "animate-spin text-indigo-400" : autoSyncStatus.status === "error" ? "text-red-400" : "text-emerald-400")} />
+				<div>
+					<h2 class="text-xl font-bold text-white">{$t("Last Auto Sync")}</h2>
+					<p class="text-sm leading-relaxed text-slate-400">{$t("See the latest background sync status from this browser session and the most recent saved result.")}</p>
+				</div>
+			</div>
+
+			{#if autoSyncSummary}
+				<div class={cn(
+					"rounded-full border px-3 py-1 text-[10px] font-bold uppercase tracking-[0.16em]",
+					autoSyncSummary === "success"
+						? "border-emerald-500/20 bg-emerald-500/10 text-emerald-300"
+						: autoSyncSummary === "error"
+							? "border-red-500/20 bg-red-500/10 text-red-300"
+							: "border-indigo-500/20 bg-indigo-500/10 text-indigo-300"
+				)}>
+					{$t(autoSyncStatus.status === "success" ? "Last sync succeeded" : autoSyncStatus.status === "error" ? "Last sync failed" : "Sync in progress") }
+				</div>
+			{/if}
+		</div>
+
+		<div class="grid gap-4 md:grid-cols-2">
+			<div class="rounded-2xl border border-slate-800/60 bg-slate-950/40 p-5 space-y-2">
+				<p class="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-500">{$t("Latest attempt")}</p>
+				<p class="text-sm font-semibold text-white">{autoSyncStatus.lastAttemptAt ? new Date(autoSyncStatus.lastAttemptAt).toLocaleString() : $t("No auto sync attempt yet.")}</p>
+				<p class="text-sm leading-relaxed text-slate-400">{$t("Sync target file: {file}", { file: autoSyncStatus.lastSyncedFile ?? WORKSPACE_FILE })}</p>
+			</div>
+			<div class="rounded-2xl border border-slate-800/60 bg-slate-950/40 p-5 space-y-2">
+				<p class="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-500">{$t("Latest result")}</p>
+				<p class="text-sm font-semibold text-white">
+					{#if autoSyncStatus.status === "success" && autoSyncStatus.lastSuccessAt}
+						{$t("Last sync succeeded at {time}", { time: new Date(autoSyncStatus.lastSuccessAt).toLocaleString() })}
+					{:else if autoSyncStatus.status === "error" && autoSyncStatus.lastErrorAt}
+						{$t("Last sync failed at {time}", { time: new Date(autoSyncStatus.lastErrorAt).toLocaleString() })}
+					{:else if autoSyncStatus.status === "syncing"}
+						{$t("Sync in progress") }
+					{:else}
+						{$t("No sync result yet.")}
+					{/if}
+				</p>
+				<p class="text-sm leading-relaxed text-slate-400">
+					{#if autoSyncStatus.lastErrorMessage}
+						{$t("Failure reason: {message}", { message: autoSyncStatus.lastErrorMessage })}
+					{:else}
+						{$t("Background sync updates this status automatically when local changes are pushed to the workspace gist.")}
+					{/if}
+				</p>
+			</div>
+		</div>
 	</section>
 
 	<section class="rounded-[2rem] border border-slate-800/60 bg-slate-900/10 p-8 space-y-6">
