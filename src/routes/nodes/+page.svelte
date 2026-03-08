@@ -13,16 +13,16 @@
 	import { nowIso } from "$lib/utils/time";
 	import { requestConfirm } from "$lib/stores/confirm";
 	import { cn } from "$lib/utils/cn";
-	import { 
-		Plus, 
-		Search, 
-		Filter, 
-		Trash2, 
-		Copy, 
-		Edit3, 
-		ChevronDown, 
-		ChevronUp, 
-		Globe, 
+	import {
+		Plus,
+		Search,
+		Filter,
+		Trash2,
+		Copy,
+		Edit3,
+		ChevronDown,
+		ChevronUp,
+		Globe,
 		Tag,
 		Network,
 		Link as LinkIcon,
@@ -36,35 +36,141 @@
 	} from "lucide-svelte";
 	import { fade, slide, fly } from "svelte/transition";
 
-	let activeTab: 'nodes' | 'subscriptions' = 'nodes';
+	let activeTab: "nodes" | "subscriptions" = "nodes";
 	let isAddModalOpen = false;
+	let addMode: "single" | "batch" = "single";
 
-	// Node form
 	let nodeName = "";
 	let nodeType: ProxyType = "vless";
 	let nodeRaw = "";
 	let nodeTags = "";
 
-	// Sub form
 	let subName = "";
 	let subUrl = "";
 	let subTags = "";
 
+	let batchContent = "";
+	let batchTags = "";
+
 	let searchQuery = "";
 	let filterStatus: "all" | "enabled" | "disabled" = "all";
 	let expandedId: string | null = null;
-	
-	let toast: { message: string, type: 'success' | 'info' | 'error' } | null = null;
+
+	let toast: { message: string; type: "success" | "info" | "error" } | null = null;
 	let toastTimer: ReturnType<typeof setTimeout> | null = null;
 
-	function showToast(message: string, type: 'success' | 'info' | 'error' = 'success') {
+	function showToast(message: string, type: "success" | "info" | "error" = "success") {
 		toast = { message, type };
 		if (toastTimer) clearTimeout(toastTimer);
-		toastTimer = setTimeout(() => toast = null, 3000);
+		toastTimer = setTimeout(() => (toast = null), 3000);
 	}
 
 	function normalizeSourceValue(value: string): string {
 		return value.trim();
+	}
+
+	function parseTags(value: string): NodeTag[] {
+		return value
+			.split(",")
+			.map((tag) => tag.trim())
+			.filter(Boolean)
+			.map((label) => ({ id: createId("tag"), label }));
+	}
+
+	function decodeBase64Utf8(value: string): string | null {
+		try {
+			const compact = value.trim().replace(/\s+/g, "");
+			const binary = atob(compact);
+			const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+			return new TextDecoder().decode(bytes);
+		} catch {
+			return null;
+		}
+	}
+
+	function inferNodeTypeFromRaw(raw: string): ProxyType {
+		const index = raw.indexOf("://");
+		if (index <= 0) return "other";
+		const scheme = raw.slice(0, index).toLowerCase();
+		if (scheme === "hy2") return "hysteria2";
+		if (["vless", "vmess", "trojan", "ss", "ssr", "hysteria2", "tuic"].includes(scheme)) {
+			return scheme as ProxyType;
+		}
+		return "other";
+	}
+
+	function inferNodeNameFromRaw(raw: string, index: number): string {
+		const hashIndex = raw.lastIndexOf("#");
+		if (hashIndex > -1) {
+			const encoded = raw.slice(hashIndex + 1);
+			if (encoded) {
+				try {
+					const decoded = decodeURIComponent(encoded);
+					if (decoded) return decoded;
+				} catch {
+					if (encoded) return encoded;
+				}
+			}
+		}
+
+		if (raw.startsWith("vmess://")) {
+			const payload = raw.slice("vmess://".length);
+			const decoded = decodeBase64Utf8(payload);
+			if (decoded) {
+				try {
+					const parsed = JSON.parse(decoded) as { ps?: string };
+					if (parsed.ps) return parsed.ps;
+				} catch {
+					// ignore invalid vmess payloads
+				}
+			}
+		}
+
+		return $t("Imported Node {index}", { index });
+	}
+
+	function parseBatchSubscriptionLine(line: string, index: number): { name: string; url: string } | null {
+		const trimmed = normalizeSourceValue(line);
+		if (!trimmed) return null;
+
+		const namedMatch = trimmed.match(/^(.*?)\s*=\s*([A-Za-z][A-Za-z0-9+.-]*:\/\/.+)$/);
+		const name = namedMatch?.[1]?.trim() ?? "";
+		const url = normalizeSourceValue(namedMatch?.[2] ?? trimmed);
+
+		try {
+			new URL(url);
+		} catch {
+			return null;
+		}
+
+		return {
+			name: name || $t("Imported Subscription {index}", { index }) || getHost(url),
+			url
+		};
+	}
+
+	function resetSingleForm() {
+		nodeName = "";
+		nodeType = "vless";
+		nodeRaw = "";
+		nodeTags = "";
+		subName = "";
+		subUrl = "";
+		subTags = "";
+	}
+
+	function resetBatchForm() {
+		batchContent = "";
+		batchTags = "";
+	}
+
+	function closeAddModal() {
+		isAddModalOpen = false;
+	}
+
+	function openAddModal() {
+		addMode = "single";
+		isAddModalOpen = true;
 	}
 
 	$: normalizedNodeRaw = normalizeSourceValue(nodeRaw);
@@ -75,78 +181,187 @@
 	$: duplicateSubscription = normalizedSubUrl
 		? $appState.subscriptions.find((sub) => normalizeSourceValue(sub.url) === normalizedSubUrl) ?? null
 		: null;
-	$: canSaveDraft = activeTab === 'nodes'
+	$: canSaveDraft = activeTab === "nodes"
 		? Boolean(nodeName.trim() && normalizedNodeRaw && !duplicateNode)
 		: Boolean(subName.trim() && normalizedSubUrl && !duplicateSubscription);
+	$: batchLineCount = batchContent
+		.split(/\r?\n/)
+		.map((line) => line.trim())
+		.filter(Boolean).length;
+	$: canImportBatch = batchLineCount > 0;
 
 	$: filteredNodes = $appState.nodes
-		.filter(node => filterStatus === 'all' ? true : filterStatus === 'enabled' ? node.enabled : !node.enabled)
-		.filter(node => {
+		.filter((node) => (filterStatus === "all" ? true : filterStatus === "enabled" ? node.enabled : !node.enabled))
+		.filter((node) => {
 			const query = searchQuery.trim().toLowerCase();
 			if (!query) return true;
-			return node.name.toLowerCase().includes(query) || 
-				   node.type.toLowerCase().includes(query) ||
-				   node.tags.some(t => t.label.toLowerCase().includes(query));
+			return (
+				node.name.toLowerCase().includes(query) ||
+				node.type.toLowerCase().includes(query) ||
+				node.tags.some((tag) => tag.label.toLowerCase().includes(query))
+			);
 		})
-		.sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
+		.sort((left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt));
 
 	$: filteredSubscriptions = $appState.subscriptions
-		.filter(sub => filterStatus === 'all' ? true : filterStatus === 'enabled' ? sub.enabled : !sub.enabled)
-		.filter(sub => {
+		.filter((sub) => (filterStatus === "all" ? true : filterStatus === "enabled" ? sub.enabled : !sub.enabled))
+		.filter((sub) => {
 			const query = searchQuery.trim().toLowerCase();
 			if (!query) return true;
-			return sub.name.toLowerCase().includes(query) || 
-				   sub.url.toLowerCase().includes(query) ||
-				   sub.tags.some(t => t.label.toLowerCase().includes(query));
+			return (
+				sub.name.toLowerCase().includes(query) ||
+				sub.url.toLowerCase().includes(query) ||
+				sub.tags.some((tag) => tag.label.toLowerCase().includes(query))
+			);
 		})
-		.sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
-
-	function parseTags(value: string): NodeTag[] {
-		return value.split(",").map(t => t.trim()).filter(Boolean).map(label => ({ id: createId("tag"), label }));
-	}
+		.sort((left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt));
 
 	function handleAdd() {
-		if (activeTab === 'nodes') {
+		if (activeTab === "nodes") {
 			if (!nodeName.trim() || !normalizedNodeRaw) return;
 			if (duplicateNode) {
 				expandedId = duplicateNode.id;
-				showToast($t('A node with the same raw URI already exists: {name}', { name: duplicateNode.name }), 'error');
+				showToast($t("A node with the same raw URI already exists: {name}", { name: duplicateNode.name }), "error");
 				return;
 			}
 			upsertNode({
-				id: createId("node"), name: nodeName.trim(), type: nodeType, raw: normalizedNodeRaw,
-				tags: parseTags(nodeTags), enabled: true, updatedAt: nowIso(), source: "single"
+				id: createId("node"),
+				name: nodeName.trim(),
+				type: nodeType,
+				raw: normalizedNodeRaw,
+				tags: parseTags(nodeTags),
+				enabled: true,
+				updatedAt: nowIso(),
+				source: "single"
 			});
-			nodeName = ""; nodeRaw = ""; nodeTags = "";
+			resetSingleForm();
 			showToast($t("Node added successfully"));
 		} else {
 			if (!subName.trim() || !normalizedSubUrl) return;
 			if (duplicateSubscription) {
 				expandedId = duplicateSubscription.id;
-				showToast($t('A subscription with the same URL already exists: {name}', { name: duplicateSubscription.name }), 'error');
+				showToast($t("A subscription with the same URL already exists: {name}", { name: duplicateSubscription.name }), "error");
 				return;
 			}
 			upsertSubscription({
-				id: createId("sub"), name: subName.trim(), url: normalizedSubUrl, enabled: true,
-				tags: parseTags(subTags), updatedAt: nowIso()
+				id: createId("sub"),
+				name: subName.trim(),
+				url: normalizedSubUrl,
+				enabled: true,
+				tags: parseTags(subTags),
+				updatedAt: nowIso()
 			});
-			subName = ""; subUrl = ""; subTags = "";
+			resetSingleForm();
 			showToast($t("Subscription added successfully"));
 		}
-		isAddModalOpen = false;
+		closeAddModal();
 	}
 
-	function toggleEnabled(id: string, type: 'node' | 'sub') {
-		if (type === 'node') {
-			const node = $appState.nodes.find(n => n.id === id);
+	function handleBatchImport() {
+		const lines = batchContent
+			.split(/\r?\n/)
+			.map((line) => line.trim())
+			.filter(Boolean);
+		if (lines.length === 0) {
+			showToast($t("No lines to import."), "info");
+			return;
+		}
+
+		let imported = 0;
+		let duplicates = 0;
+		let invalid = 0;
+		let firstDuplicateId: string | null = null;
+
+		if (activeTab === "nodes") {
+			const existing = new Set($appState.nodes.map((node) => normalizeSourceValue(node.raw)));
+			const seen = new Set<string>();
+			for (const [index, rawLine] of lines.entries()) {
+				const raw = normalizeSourceValue(rawLine);
+				if (!raw || !raw.includes("://")) {
+					invalid += 1;
+					continue;
+				}
+				if (existing.has(raw) || seen.has(raw)) {
+					duplicates += 1;
+					if (!firstDuplicateId) {
+						firstDuplicateId = $appState.nodes.find((node) => normalizeSourceValue(node.raw) === raw)?.id ?? null;
+					}
+					continue;
+				}
+				seen.add(raw);
+				upsertNode({
+					id: createId("node"),
+					name: inferNodeNameFromRaw(raw, index + 1),
+					type: inferNodeTypeFromRaw(raw),
+					raw,
+					tags: parseTags(batchTags),
+					enabled: true,
+					updatedAt: nowIso(),
+					source: "single"
+				});
+				imported += 1;
+			}
+		} else {
+			const existing = new Set($appState.subscriptions.map((sub) => normalizeSourceValue(sub.url)));
+			const seen = new Set<string>();
+			for (const [index, line] of lines.entries()) {
+				const parsed = parseBatchSubscriptionLine(line, index + 1);
+				if (!parsed) {
+					invalid += 1;
+					continue;
+				}
+				if (existing.has(parsed.url) || seen.has(parsed.url)) {
+					duplicates += 1;
+					if (!firstDuplicateId) {
+						firstDuplicateId = $appState.subscriptions.find((sub) => normalizeSourceValue(sub.url) === parsed.url)?.id ?? null;
+					}
+					continue;
+				}
+				seen.add(parsed.url);
+				upsertSubscription({
+					id: createId("sub"),
+					name: parsed.name,
+					url: parsed.url,
+					enabled: true,
+					tags: parseTags(batchTags),
+					updatedAt: nowIso()
+				});
+				imported += 1;
+			}
+		}
+
+		if (firstDuplicateId) {
+			expandedId = firstDuplicateId;
+		}
+
+		if (imported === 0) {
+			showToast($t("No valid lines were imported."), duplicates > 0 || invalid > 0 ? "error" : "info");
+			return;
+		}
+
+		resetBatchForm();
+		closeAddModal();
+		showToast(
+			$t("Batch import complete: {imported} imported, {duplicates} duplicate, {invalid} invalid.", {
+				imported,
+				duplicates,
+				invalid
+			}),
+			duplicates > 0 || invalid > 0 ? "info" : "success"
+		);
+	}
+
+	function toggleEnabled(id: string, type: "node" | "sub") {
+		if (type === "node") {
+			const node = $appState.nodes.find((item) => item.id === id);
 			if (node) upsertNode({ ...node, enabled: !node.enabled, updatedAt: nowIso() });
 		} else {
-			const sub = $appState.subscriptions.find(s => s.id === id);
+			const sub = $appState.subscriptions.find((item) => item.id === id);
 			if (sub) upsertSubscription({ ...sub, enabled: !sub.enabled, updatedAt: nowIso() });
 		}
 	}
 
-	async function remove(id: string, type: 'node' | 'sub', name: string) {
+	async function remove(id: string, type: "node" | "sub", name: string) {
 		const confirmed = await requestConfirm({
 			title: $t("Confirm Action"),
 			message: $t("Are you sure you want to remove {name}?", { name }),
@@ -155,9 +370,9 @@
 			danger: true
 		});
 		if (!confirmed) return;
-		if (type === 'node') removeNode(id);
+		if (type === "node") removeNode(id);
 		else removeSubscription(id);
-		showToast($t("Removed {name}", { name }), 'info');
+		showToast($t("Removed {name}", { name }), "info");
 	}
 
 	async function copy(text: string, label: string) {
@@ -165,12 +380,16 @@
 			await navigator.clipboard.writeText(text);
 			showToast($t("Copied {label}", { label }));
 		} catch {
-			showToast($t("Copy failed"), 'error');
+			showToast($t("Copy failed"), "error");
 		}
 	}
 
 	function getHost(url: string): string {
-		try { return new URL(url).host; } catch { return url; }
+		try {
+			return new URL(url).host;
+		} catch {
+			return url;
+		}
 	}
 
 	const typeColors: Record<ProxyType, string> = {
@@ -184,7 +403,9 @@
 		other: "bg-slate-500/10 text-slate-400 border-slate-500/20"
 	};
 
-	onDestroy(() => { if (toastTimer) clearTimeout(toastTimer); });
+	onDestroy(() => {
+		if (toastTimer) clearTimeout(toastTimer);
+	});
 </script>
 
 <svelte:head>
@@ -200,7 +421,7 @@
 		</div>
 		
 		<button 
-			on:click={() => isAddModalOpen = !isAddModalOpen}
+			on:click={openAddModal}
 			class="flex items-center justify-center gap-2 rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-bold text-white shadow-lg shadow-indigo-600/20 transition-all hover:bg-indigo-500 active:scale-[0.98]"
 		>
 			<Plus class="h-4 w-4" />
@@ -219,83 +440,151 @@
 					<Plus class="h-5 w-5 text-indigo-400" />
 					{activeTab === 'nodes' ? $t("Add New Node") : $t("Add New Subscription")}
 				</h2>
-				<button on:click={() => isAddModalOpen = false} class="text-slate-500 hover:text-white transition-colors">
+				<button on:click={closeAddModal} class="text-slate-500 hover:text-white transition-colors">
 					<ChevronUp class="h-5 w-5" />
 				</button>
 			</div>
 
-			<div class="grid gap-4 sm:grid-cols-2">
-				{#if activeTab === 'nodes'}
-					<div class="space-y-4">
-						<input
-							class="w-full rounded-xl border border-slate-800 bg-slate-950 px-4 py-3 text-sm text-white placeholder:text-slate-600 outline-none focus:border-indigo-500/50 transition-all"
-							placeholder={$t("Node name")}
-							bind:value={nodeName}
-						/>
-						<select
-							class="w-full rounded-xl border border-slate-800 bg-slate-950 px-4 py-3 text-sm text-white outline-none focus:border-indigo-500/50 transition-all"
-							bind:value={nodeType}
-						>
-							<option value="vless">VLESS</option>
-							<option value="vmess">VMess</option>
-							<option value="trojan">Trojan</option>
-							<option value="ss">Shadowsocks</option>
-							<option value="ssr">SSR</option>
-							<option value="hysteria2">Hysteria2</option>
-							<option value="tuic">TUIC</option>
-							<option value="other">Other</option>
-						</select>
-					</div>
-					<div class="space-y-4">
-						<textarea
-							class="w-full h-[104px] rounded-xl border border-slate-800 bg-slate-950 px-4 py-3 text-xs font-mono text-white placeholder:text-slate-600 outline-none focus:border-indigo-500/50 transition-all"
-							placeholder={$t("Raw node URI (vless://...)")}
-							bind:value={nodeRaw}
-						></textarea>
-					</div>
-					<div class="sm:col-span-2">
-						<input
-							class="w-full rounded-xl border border-slate-800 bg-slate-950 px-4 py-3 text-sm text-white placeholder:text-slate-600 outline-none focus:border-indigo-500/50 transition-all"
-							placeholder={$t("Tags (comma separated)")}
-							bind:value={nodeTags}
-						/>
-					</div>
-				{:else}
-					<div class="space-y-4">
-						<input
-							class="w-full rounded-xl border border-slate-800 bg-slate-950 px-4 py-3 text-sm text-white placeholder:text-slate-600 outline-none focus:border-indigo-500/50 transition-all"
-							placeholder={$t("Subscription name")}
-							bind:value={subName}
-						/>
-						<input
-							class="w-full rounded-xl border border-slate-800 bg-slate-950 px-4 py-3 text-sm text-white placeholder:text-slate-600 outline-none focus:border-indigo-500/50 transition-all"
-							placeholder={$t("Subscription URL")}
-							bind:value={subUrl}
-						/>
-					</div>
-					<div class="sm:col-span-2">
-						<input
-							class="w-full rounded-xl border border-slate-800 bg-slate-950 px-4 py-3 text-sm text-white placeholder:text-slate-600 outline-none focus:border-indigo-500/50 transition-all"
-							placeholder={$t("Tags (comma separated)")}
-							bind:value={subTags}
-						/>
-					</div>
-				{/if}
+			<div class="mb-6 inline-flex rounded-2xl border border-slate-800 bg-slate-950/60 p-1">
+				<button
+					type="button"
+					on:click={() => (addMode = 'single')}
+					class={cn(
+						"rounded-xl px-4 py-2 text-xs font-bold uppercase tracking-[0.16em] transition-all",
+						addMode === 'single' ? "bg-indigo-500/15 text-indigo-300" : "text-slate-500 hover:text-slate-200"
+					)}
+				>
+					{$t("Single Entry")}
+				</button>
+				<button
+					type="button"
+					on:click={() => (addMode = 'batch')}
+					class={cn(
+						"rounded-xl px-4 py-2 text-xs font-bold uppercase tracking-[0.16em] transition-all",
+						addMode === 'batch' ? "bg-indigo-500/15 text-indigo-300" : "text-slate-500 hover:text-slate-200"
+					)}
+				>
+					{$t("Batch Import")}
+				</button>
 			</div>
+
+			{#if addMode === 'single'}
+				<div class="grid gap-4 sm:grid-cols-2">
+					{#if activeTab === 'nodes'}
+						<div class="space-y-4">
+							<input
+								class="w-full rounded-xl border border-slate-800 bg-slate-950 px-4 py-3 text-sm text-white placeholder:text-slate-600 outline-none focus:border-indigo-500/50 transition-all"
+								placeholder={$t("Node name")}
+								bind:value={nodeName}
+							/>
+							<select
+								class="w-full rounded-xl border border-slate-800 bg-slate-950 px-4 py-3 text-sm text-white outline-none focus:border-indigo-500/50 transition-all"
+								bind:value={nodeType}
+							>
+								<option value="vless">VLESS</option>
+								<option value="vmess">VMess</option>
+								<option value="trojan">Trojan</option>
+								<option value="ss">Shadowsocks</option>
+								<option value="ssr">SSR</option>
+								<option value="hysteria2">Hysteria2</option>
+								<option value="tuic">TUIC</option>
+								<option value="other">Other</option>
+							</select>
+						</div>
+						<div class="space-y-4">
+							<textarea
+								class={cn(
+									"w-full h-[104px] rounded-xl border bg-slate-950 px-4 py-3 text-xs font-mono text-white placeholder:text-slate-600 outline-none transition-all",
+									duplicateNode ? "border-red-500/50 focus:border-red-500/60" : "border-slate-800 focus:border-indigo-500/50"
+								)}
+								placeholder={$t("Raw node URI (vless://...)")}
+								bind:value={nodeRaw}
+							></textarea>
+							{#if duplicateNode}
+								<p class="text-[11px] leading-relaxed text-red-300">{$t("A node with the same raw URI already exists: {name}", { name: duplicateNode.name })}</p>
+								<p class="text-[10px] font-medium uppercase tracking-[0.14em] text-slate-500">{$t("The existing item has been expanded for quick review.")}</p>
+							{/if}
+						</div>
+						<div class="sm:col-span-2">
+							<input
+								class="w-full rounded-xl border border-slate-800 bg-slate-950 px-4 py-3 text-sm text-white placeholder:text-slate-600 outline-none focus:border-indigo-500/50 transition-all"
+								placeholder={$t("Tags (comma separated)")}
+								bind:value={nodeTags}
+							/>
+						</div>
+					{:else}
+						<div class="space-y-4">
+							<input
+								class="w-full rounded-xl border border-slate-800 bg-slate-950 px-4 py-3 text-sm text-white placeholder:text-slate-600 outline-none focus:border-indigo-500/50 transition-all"
+								placeholder={$t("Subscription name")}
+								bind:value={subName}
+							/>
+							<input
+								class={cn(
+									"w-full rounded-xl border bg-slate-950 px-4 py-3 text-sm text-white placeholder:text-slate-600 outline-none transition-all",
+									duplicateSubscription ? "border-red-500/50 focus:border-red-500/60" : "border-slate-800 focus:border-indigo-500/50"
+								)}
+								placeholder={$t("Subscription URL")}
+								bind:value={subUrl}
+							/>
+							{#if duplicateSubscription}
+								<p class="text-[11px] leading-relaxed text-red-300">{$t("A subscription with the same URL already exists: {name}", { name: duplicateSubscription.name })}</p>
+								<p class="text-[10px] font-medium uppercase tracking-[0.14em] text-slate-500">{$t("The existing item has been expanded for quick review.")}</p>
+							{/if}
+						</div>
+						<div class="sm:col-span-2">
+							<input
+								class="w-full rounded-xl border border-slate-800 bg-slate-950 px-4 py-3 text-sm text-white placeholder:text-slate-600 outline-none focus:border-indigo-500/50 transition-all"
+								placeholder={$t("Tags (comma separated)")}
+								bind:value={subTags}
+							/>
+						</div>
+					{/if}
+				</div>
+			{:else}
+				<div class="space-y-4">
+					<textarea
+						class="w-full min-h-[180px] rounded-xl border border-slate-800 bg-slate-950 px-4 py-3 text-xs font-mono text-white placeholder:text-slate-600 outline-none focus:border-indigo-500/50 transition-all"
+						placeholder={activeTab === 'nodes' ? $t("Raw node URI (one per line)") : $t("Subscription URL or Name = URL (one per line)")}
+						bind:value={batchContent}
+					></textarea>
+					<input
+						class="w-full rounded-xl border border-slate-800 bg-slate-950 px-4 py-3 text-sm text-white placeholder:text-slate-600 outline-none focus:border-indigo-500/50 transition-all"
+						placeholder={$t("Tags applied to all imported items (comma separated)")}
+						bind:value={batchTags}
+					/>
+				</div>
+				<div class="space-y-4 rounded-2xl border border-slate-800/60 bg-slate-950/40 p-5">
+					<p class="text-sm font-bold text-white">{activeTab === 'nodes' ? $t("Batch import nodes") : $t("Batch import subscriptions")}</p>
+					<p class="text-sm leading-relaxed text-slate-400">
+						{activeTab === 'nodes'
+							? $t("One node URI per line. Names and protocol types are inferred automatically.")
+							: $t("One subscription per line. Use either a raw URL or Name = URL.")}
+					</p>
+					<div class="rounded-xl border border-slate-800 bg-slate-950/70 px-4 py-3 text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400">
+						{$t("Lines detected: {count}", { count: batchLineCount })}
+					</div>
+					<p class="text-[11px] leading-relaxed text-slate-500">
+						{activeTab === 'nodes'
+							? $t("Existing or repeated raw URIs are skipped automatically during import.")
+							: $t("Existing or repeated subscription URLs are skipped automatically during import.")}
+					</p>
+				</div>
+			{/if}
 
 			<div class="mt-6 flex justify-end gap-3">
 				<button 
-					on:click={() => isAddModalOpen = false}
+					on:click={closeAddModal}
 					class="px-5 py-2.5 text-sm font-bold text-slate-400 hover:text-white transition-colors"
 				>
 					{$t("Cancel")}
 				</button>
 				<button 
-					on:click={handleAdd}
-					disabled={!canSaveDraft}
+					on:click={addMode === 'single' ? handleAdd : handleBatchImport}
+					disabled={addMode === 'single' ? !canSaveDraft : !canImportBatch}
 					class="rounded-xl bg-indigo-600 px-8 py-2.5 text-sm font-bold text-white shadow-lg shadow-indigo-600/20 transition-all hover:bg-indigo-500 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-indigo-600"
 				>
-					{$t("Save")}
+					{addMode === 'single' ? $t("Save") : $t("Import")}
 				</button>
 			</div>
 		</section>
