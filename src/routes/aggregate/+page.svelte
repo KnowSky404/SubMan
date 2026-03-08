@@ -321,6 +321,33 @@
 	$: customRegionFlagValidation = parseCustomRegionFlagRules(customRegionFlagMap);
 	$: customRegionFlagIssues = customRegionFlagValidation.issues;
 
+	const builtInRegionFlagTemplate = BUILT_IN_REGION_FLAG_RULES.map((rule) => `${rule.code} = ${rule.keywords.join(", ")}`).join("\n");
+
+	async function importBuiltInRegionFlagTemplate() {
+		const currentValue = customRegionFlagMap.trim();
+		const nextValue = builtInRegionFlagTemplate.trim();
+
+		if (currentValue === nextValue) {
+			setStatus($t("Built-in template is already loaded."), "info");
+			return;
+		}
+
+		if (currentValue) {
+			const confirmed = await requestConfirm({
+				title: $t("Confirm Action"),
+				message: $t("Replace the current custom region flag map with the built-in template?"),
+				confirmText: $t("Replace"),
+				cancelText: $t("Cancel")
+			});
+			if (!confirmed) {
+				return;
+			}
+		}
+
+		customRegionFlagMap = nextValue;
+		setStatus($t("Built-in template imported."), "success");
+	}
+
 	async function buildPreview() {
 		if (customRegionFlagIssues.length > 0) { setStatus($t("Fix custom region flag map errors before previewing or saving."), "error"); return; }
 		if (!selectedNodeIds.length && !selectedSubscriptionIds.length) {
@@ -836,6 +863,24 @@ JP = JP, JAPAN, TOKYO`}
 								bind:value={customRegionFlagMap}
 							></textarea>
 							<p class="text-[11px] leading-relaxed text-slate-500">{$t("Use one rule per line: FLAG_CODE = keyword1, keyword2. Custom rules are matched before the built-in region table.")}</p>
+						<div class="flex flex-wrap gap-2">
+							<button
+								type="button"
+								on:click={importBuiltInRegionFlagTemplate}
+								class="inline-flex items-center gap-2 rounded-xl border border-slate-800 bg-slate-950/60 px-4 py-2 text-[11px] font-bold uppercase tracking-[0.16em] text-slate-300 transition-all hover:bg-slate-800 hover:text-white"
+							>
+								<Plus class="h-3.5 w-3.5" />
+								{$t("Import built-in template")}
+							</button>
+							<button
+								type="button"
+								on:click={() => (showBuiltInRegionMap = true)}
+								class="inline-flex items-center gap-2 rounded-xl border border-slate-800 bg-slate-950/60 px-4 py-2 text-[11px] font-bold uppercase tracking-[0.16em] text-slate-300 transition-all hover:bg-slate-800 hover:text-white"
+							>
+								<Globe class="h-3.5 w-3.5" />
+								{$t("Browse built-in region map")}
+							</button>
+						</div>
 						{#if customRegionFlagIssues.length > 0}
 							<div class="rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-3 space-y-2">
 								<p class="text-[11px] font-bold uppercase tracking-[0.16em] text-red-300">{$t("Custom region flag map issues")}</p>
@@ -852,14 +897,6 @@ JP = JP, JAPAN, TOKYO`}
 								</div>
 							</div>
 						{/if}
-						<button
-							type="button"
-							on:click={() => (showBuiltInRegionMap = true)}
-							class="inline-flex items-center gap-2 rounded-xl border border-slate-800 bg-slate-950/60 px-4 py-2 text-[11px] font-bold uppercase tracking-[0.16em] text-slate-300 transition-all hover:bg-slate-800 hover:text-white"
-						>
-							<Globe class="h-3.5 w-3.5" />
-							{$t("Browse built-in region map")}
-						</button>
 						</div>
 
 						<div class="rounded-2xl border border-slate-800 bg-slate-950/50 px-5 py-4 space-y-3">
