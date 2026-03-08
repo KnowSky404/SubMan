@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { browser } from "$app/environment";
 	import type { AggregatePublishTarget, GistMeta, PublishTransitionOutcome } from "$lib/models";
 	import { t } from "$lib/i18n";
 	import { appState } from "$lib/stores/app";
@@ -55,6 +56,12 @@
 
 	type PublishEventFilter = 'all' | PublishTransitionOutcome;
 
+	const PUBLISH_EVENTS_UI_KEY = "subman:gists:publish-events-ui:v1";
+	const defaultPublishEventsUiState = {
+		expanded: true,
+		filter: 'all' as PublishEventFilter
+	};
+
 	const publishEventFilters: PublishEventFilter[] = [
 		'all',
 		'auto_deleted',
@@ -62,6 +69,35 @@
 		'kept_external',
 		'kept_manual'
 	];
+
+	function isPublishEventFilter(value: unknown): value is PublishEventFilter {
+		return typeof value === "string" && publishEventFilters.includes(value as PublishEventFilter);
+	}
+
+	function loadPublishEventsUiState(): typeof defaultPublishEventsUiState {
+		if (!browser) {
+			return defaultPublishEventsUiState;
+		}
+
+		const raw = localStorage.getItem(PUBLISH_EVENTS_UI_KEY);
+		if (!raw) {
+			return defaultPublishEventsUiState;
+		}
+
+		try {
+			const parsed = JSON.parse(raw) as { expanded?: boolean; filter?: unknown };
+			return {
+				expanded: typeof parsed.expanded === "boolean" ? parsed.expanded : defaultPublishEventsUiState.expanded,
+				filter: isPublishEventFilter(parsed.filter) ? parsed.filter : defaultPublishEventsUiState.filter
+			};
+		} catch {
+			return defaultPublishEventsUiState;
+		}
+	}
+
+	const initialPublishEventsUiState = loadPublishEventsUiState();
+	publishEventsExpanded = initialPublishEventsUiState.expanded;
+	publishEventFilter = initialPublishEventsUiState.filter;
 
 	function hasPublishTransition(target: AggregatePublishTarget): target is AggregatePublishTarget & {
 		lastPublishTransitionAt: string;
@@ -159,6 +195,16 @@
 	);
 
 	$: recentPublishLogs = filteredPublishLogs.slice(0, 6);
+
+	$: if (browser) {
+		localStorage.setItem(
+			PUBLISH_EVENTS_UI_KEY,
+			JSON.stringify({
+				expanded: publishEventsExpanded,
+				filter: publishEventFilter
+			})
+		);
+	}
 
 	async function refreshWorkspace() {
 		const token = $authState.token;
