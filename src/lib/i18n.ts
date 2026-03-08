@@ -90,6 +90,8 @@ const zhCN: Record<string, string> = {
 	"Duplicate of existing subscription: {name}": "与现有订阅重复：{name}",
 	"Duplicate line in this batch.": "与本次批量导入中的其他行重复。",
 	"Invalid node URI.": "无效的节点 URI。",
+	"Expanded from base64 subscription content.": "已从 Base64 订阅内容中展开。",
+	"Pasted base64 subscription content is expanded into individual nodes automatically.": "直接粘贴 Base64 订阅内容时，会自动展开为单个节点。",
 	"Invalid subscription URL.": "无效的订阅 URL。",
 	"Line {line}": "第 {line} 行",
 	"The existing item has been expanded for quick review.": "已自动展开现有条目，方便你快速检查。",

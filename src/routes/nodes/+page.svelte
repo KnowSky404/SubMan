@@ -105,6 +105,40 @@
 		}
 	}
 
+	function looksLikeBase64(value: string): boolean {
+		const compact = value.trim().replace(/\s+/g, "");
+		if (!compact || compact.length % 4 !== 0) {
+			return false;
+		}
+		return /^[A-Za-z0-9+/=]+$/.test(compact);
+	}
+
+	function expandBatchNodeInputLine(line: string): { raw: string; source: "direct" | "base64" }[] {
+		const trimmed = normalizeSourceValue(line);
+		if (!trimmed) {
+			return [];
+		}
+
+		if (trimmed.includes("://")) {
+			return [{ raw: trimmed, source: "direct" }];
+		}
+
+		if (!looksLikeBase64(trimmed)) {
+			return [];
+		}
+
+		const decoded = decodeBase64Utf8(trimmed);
+		if (!decoded || !decoded.includes("://")) {
+			return [];
+		}
+
+		return decoded
+			.split(/\r?\n/)
+			.map((item) => normalizeSourceValue(item))
+			.filter((item) => item.includes("://"))
+			.map((raw) => ({ raw, source: "base64" as const }));
+	}
+
 	function inferNodeTypeFromRaw(raw: string): ProxyType {
 		const index = raw.indexOf("://");
 		if (index <= 0) return "other";
@@ -225,8 +259,8 @@
 			const existingMap = new Map($appState.nodes.map((node) => [normalizeSourceValue(node.raw), node]));
 			const seen = new Set<string>();
 			for (const [index, rawLine] of lines.entries()) {
-				const raw = normalizeSourceValue(rawLine);
-				if (!raw || !raw.includes("://")) {
+				const expanded = expandBatchNodeInputLine(rawLine);
+				if (expanded.length === 0) {
 					invalidCount += 1;
 					items.push({
 						id: `batch-node-invalid-${index}`,
@@ -239,37 +273,44 @@
 					});
 					continue;
 				}
-				const existingNode = existingMap.get(raw) ?? null;
-				if (existingNode || seen.has(raw)) {
-					duplicateCount += 1;
-					if (!firstDuplicateId && existingNode) firstDuplicateId = existingNode.id;
+
+				for (const [expandedIndex, candidate] of expanded.entries()) {
+					const raw = candidate.raw;
+					const existingNode = existingMap.get(raw) ?? null;
+					if (existingNode || seen.has(raw)) {
+						duplicateCount += 1;
+						if (!firstDuplicateId && existingNode) firstDuplicateId = existingNode.id;
+						items.push({
+							id: `batch-node-duplicate-${index}-${expandedIndex}`,
+							kind: "node",
+							status: "duplicate",
+							lineNumber: index + 1,
+							label: inferNodeNameFromRaw(raw, index + 1),
+							detail: existingNode
+								? $t("Duplicate of existing node: {name}", { name: existingNode.name })
+								: $t("Duplicate line in this batch."),
+							existingId: existingNode?.id ?? null
+						});
+						continue;
+					}
+
+					seen.add(raw);
+					const name = inferNodeNameFromRaw(raw, index + 1);
+					const type = inferNodeTypeFromRaw(raw);
+					importableCount += 1;
 					items.push({
-						id: `batch-node-duplicate-${index}`,
+						id: `batch-node-import-${index}-${expandedIndex}`,
 						kind: "node",
-						status: "duplicate",
+						status: "import",
 						lineNumber: index + 1,
-						label: inferNodeNameFromRaw(raw, index + 1),
-						detail: existingNode
-							? $t("Duplicate of existing node: {name}", { name: existingNode.name })
-							: $t("Duplicate line in this batch."),
-						existingId: existingNode?.id ?? null
+						label: name,
+						detail: candidate.source === "base64"
+							? $t("Expanded from base64 subscription content.") + ` ${type.toUpperCase()} · ${raw}`
+							: `${type.toUpperCase()} · ${raw}`,
+						existingId: null,
+						importData: { name, raw, type }
 					});
-					continue;
 				}
-				seen.add(raw);
-				const name = inferNodeNameFromRaw(raw, index + 1);
-				const type = inferNodeTypeFromRaw(raw);
-				importableCount += 1;
-				items.push({
-					id: `batch-node-import-${index}`,
-					kind: "node",
-					status: "import",
-					lineNumber: index + 1,
-					label: name,
-					detail: `${type.toUpperCase()} · ${raw}`,
-					existingId: null,
-					importData: { name, raw, type }
-				});
 			}
 		} else {
 			const existingMap = new Map($appState.subscriptions.map((sub) => [normalizeSourceValue(sub.url), sub]));
@@ -663,7 +704,7 @@
 					<p class="text-sm font-bold text-white">{activeTab === 'nodes' ? $t("Batch import nodes") : $t("Batch import subscriptions")}</p>
 					<p class="text-sm leading-relaxed text-slate-400">
 						{activeTab === 'nodes'
-							? $t("One node URI per line. Names and protocol types are inferred automatically.")
+							? $t("One node URI per line. Names and protocol types are inferred automatically.") + " " + $t("Pasted base64 subscription content is expanded into individual nodes automatically.")
 							: $t("One subscription per line. Use either a raw URL or Name = URL.")}
 					</p>
 					<div class="grid gap-3 sm:grid-cols-3">
