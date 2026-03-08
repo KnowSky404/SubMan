@@ -63,6 +63,22 @@
 		toastTimer = setTimeout(() => toast = null, 3000);
 	}
 
+	function normalizeSourceValue(value: string): string {
+		return value.trim();
+	}
+
+	$: normalizedNodeRaw = normalizeSourceValue(nodeRaw);
+	$: normalizedSubUrl = normalizeSourceValue(subUrl);
+	$: duplicateNode = normalizedNodeRaw
+		? $appState.nodes.find((node) => normalizeSourceValue(node.raw) === normalizedNodeRaw) ?? null
+		: null;
+	$: duplicateSubscription = normalizedSubUrl
+		? $appState.subscriptions.find((sub) => normalizeSourceValue(sub.url) === normalizedSubUrl) ?? null
+		: null;
+	$: canSaveDraft = activeTab === 'nodes'
+		? Boolean(nodeName.trim() && normalizedNodeRaw && !duplicateNode)
+		: Boolean(subName.trim() && normalizedSubUrl && !duplicateSubscription);
+
 	$: filteredNodes = $appState.nodes
 		.filter(node => filterStatus === 'all' ? true : filterStatus === 'enabled' ? node.enabled : !node.enabled)
 		.filter(node => {
@@ -91,17 +107,27 @@
 
 	function handleAdd() {
 		if (activeTab === 'nodes') {
-			if (!nodeName || !nodeRaw) return;
+			if (!nodeName.trim() || !normalizedNodeRaw) return;
+			if (duplicateNode) {
+				expandedId = duplicateNode.id;
+				showToast($t('A node with the same raw URI already exists: {name}', { name: duplicateNode.name }), 'error');
+				return;
+			}
 			upsertNode({
-				id: createId("node"), name: nodeName, type: nodeType, raw: nodeRaw,
+				id: createId("node"), name: nodeName.trim(), type: nodeType, raw: normalizedNodeRaw,
 				tags: parseTags(nodeTags), enabled: true, updatedAt: nowIso(), source: "single"
 			});
 			nodeName = ""; nodeRaw = ""; nodeTags = "";
 			showToast($t("Node added successfully"));
 		} else {
-			if (!subName || !subUrl) return;
+			if (!subName.trim() || !normalizedSubUrl) return;
+			if (duplicateSubscription) {
+				expandedId = duplicateSubscription.id;
+				showToast($t('A subscription with the same URL already exists: {name}', { name: duplicateSubscription.name }), 'error');
+				return;
+			}
 			upsertSubscription({
-				id: createId("sub"), name: subName, url: subUrl, enabled: true,
+				id: createId("sub"), name: subName.trim(), url: normalizedSubUrl, enabled: true,
 				tags: parseTags(subTags), updatedAt: nowIso()
 			});
 			subName = ""; subUrl = ""; subTags = "";
@@ -266,7 +292,8 @@
 				</button>
 				<button 
 					on:click={handleAdd}
-					class="rounded-xl bg-indigo-600 px-8 py-2.5 text-sm font-bold text-white shadow-lg shadow-indigo-600/20 transition-all hover:bg-indigo-500 active:scale-[0.98]"
+					disabled={!canSaveDraft}
+					class="rounded-xl bg-indigo-600 px-8 py-2.5 text-sm font-bold text-white shadow-lg shadow-indigo-600/20 transition-all hover:bg-indigo-500 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-indigo-600"
 				>
 					{$t("Save")}
 				</button>
