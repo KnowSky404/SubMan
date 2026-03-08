@@ -32,6 +32,8 @@
 	let workspace: GistMeta | null = null;
 	let loading = false;
 	let deleting = false;
+	let publishEventsExpanded = true;
+	let publishEventFilter: PublishEventFilter = 'all';
 	
 	let status: { message: string, type: 'success' | 'info' | 'error' } | null = null;
 	let statusTimer: ReturnType<typeof setTimeout> | null = null;
@@ -50,6 +52,16 @@
 		at: string;
 		outcome: PublishTransitionOutcome;
 	};
+
+	type PublishEventFilter = 'all' | PublishTransitionOutcome;
+
+	const publishEventFilters: PublishEventFilter[] = [
+		'all',
+		'auto_deleted',
+		'kept_shared',
+		'kept_external',
+		'kept_manual'
+	];
 
 	function hasPublishTransition(target: AggregatePublishTarget): target is AggregatePublishTarget & {
 		lastPublishTransitionAt: string;
@@ -95,6 +107,10 @@
 		}
 	}
 
+	function getPublishEventFilterLabel(filter: PublishEventFilter): string {
+		return filter === 'all' ? $t("All") : getTransitionEventBadge(filter);
+	}
+
 	function getTransitionEventMessage(log: PublishTransitionLog): string {
 		switch (log.outcome) {
 			case 'auto_deleted':
@@ -126,10 +142,9 @@
 			.filter(Boolean)
 	);
 
-	$: recentPublishLogs = $appState.publishTargets
+	$: allPublishLogs = $appState.publishTargets
 		.filter(hasPublishTransition)
 		.sort((a, b) => Date.parse(b.lastPublishTransitionAt) - Date.parse(a.lastPublishTransitionAt))
-		.slice(0, 5)
 		.map((target) => ({
 			id: `${target.id}-${target.lastPublishTransitionAt}`,
 			targetName: target.name,
@@ -138,6 +153,12 @@
 			at: target.lastPublishTransitionAt,
 			outcome: target.lastPublishTransitionOutcome
 		} satisfies PublishTransitionLog));
+
+	$: filteredPublishLogs = allPublishLogs.filter((log) =>
+		publishEventFilter === 'all' ? true : log.outcome === publishEventFilter
+	);
+
+	$: recentPublishLogs = filteredPublishLogs.slice(0, 6);
 
 	async function refreshWorkspace() {
 		const token = $authState.token;
@@ -337,37 +358,73 @@
 		<div class="absolute -right-20 -top-20 h-64 w-64 bg-indigo-500/5 blur-[80px] group-hover:bg-indigo-500/10 transition-colors"></div>
 	</section>
 
-	{#if recentPublishLogs.length > 0}
+	{#if allPublishLogs.length > 0}
 		<section class="rounded-[2rem] border border-slate-800/60 bg-slate-900/30 p-8 space-y-5">
-			<div class="flex items-center gap-3">
-				<div class="flex h-11 w-11 items-center justify-center rounded-2xl bg-indigo-500/10 text-indigo-400">
-					<Layers class="h-5 w-5" />
+			<div class="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+				<div class="flex items-center gap-3">
+					<div class="flex h-11 w-11 items-center justify-center rounded-2xl bg-indigo-500/10 text-indigo-400">
+						<Layers class="h-5 w-5" />
+					</div>
+					<div>
+						<h2 class="text-lg font-bold text-white tracking-tight">{$t("Recent Publish Events")}</h2>
+						<p class="text-sm text-slate-400">{$t("Latest file replacement activity for workspace outputs.")}</p>
+					</div>
 				</div>
-				<div>
-					<h2 class="text-lg font-bold text-white tracking-tight">{$t("Recent Publish Events")}</h2>
-					<p class="text-sm text-slate-400">{$t("Latest file replacement activity for workspace outputs.")}</p>
-				</div>
+
+				<button
+					type="button"
+					on:click={() => (publishEventsExpanded = !publishEventsExpanded)}
+					class="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-800 bg-slate-950/60 px-4 py-2 text-xs font-bold uppercase tracking-[0.18em] text-slate-300 transition-all hover:bg-slate-800 hover:text-white"
+				>
+					{publishEventsExpanded ? $t("Hide") : $t("Show")}
+					<ArrowRight class={cn("h-3.5 w-3.5 transition-transform", publishEventsExpanded && "rotate-90")} />
+				</button>
 			</div>
 
-			<div class="grid gap-4 lg:grid-cols-2">
-				{#each recentPublishLogs as log (log.id)}
-					<div class="rounded-3xl border border-slate-800/60 bg-slate-950/40 p-5 space-y-3">
-						<div class="flex items-start justify-between gap-3">
-							<div class="min-w-0 space-y-1">
-								<p class="text-sm font-bold text-white truncate">{log.targetName}</p>
-								<p class="text-[10px] font-mono text-slate-500 truncate">{log.fromFileName} -&gt; {log.toFileName}</p>
-							</div>
-							<span class={cn("inline-flex items-center rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.18em]", getTransitionEventBadgeClass(log.outcome))}>
-								{getTransitionEventBadge(log.outcome)}
-							</span>
-						</div>
-						<p class="text-[11px] leading-relaxed text-slate-300">{getTransitionEventMessage(log)}</p>
-						<p class="text-[10px] font-medium uppercase tracking-[0.18em] text-slate-500">
-							{$t("Updated: {time}", { time: formatEventTime(log.at) })}
-						</p>
+			{#if publishEventsExpanded}
+				<div class="flex flex-wrap gap-2">
+					{#each publishEventFilters as filter}
+						<button
+							type="button"
+							on:click={() => (publishEventFilter = filter)}
+							class={cn(
+								"inline-flex items-center rounded-full border px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.18em] transition-all",
+								publishEventFilter === filter
+									? "border-indigo-500/40 bg-indigo-500/15 text-indigo-300"
+									: "border-slate-800 bg-slate-950/60 text-slate-500 hover:border-slate-700 hover:text-slate-200"
+							)}
+						>
+							{getPublishEventFilterLabel(filter)}
+						</button>
+					{/each}
+				</div>
+
+				{#if recentPublishLogs.length === 0}
+					<div class="rounded-3xl border border-slate-800/60 border-dashed bg-slate-950/30 px-6 py-8 text-center">
+						<p class="text-sm font-medium text-slate-400">{$t("No publish events match this filter.")}</p>
 					</div>
-				{/each}
-			</div>
+				{:else}
+					<div class="grid gap-4 lg:grid-cols-2">
+						{#each recentPublishLogs as log (log.id)}
+							<div class="rounded-3xl border border-slate-800/60 bg-slate-950/40 p-5 space-y-3">
+								<div class="flex items-start justify-between gap-3">
+									<div class="min-w-0 space-y-1">
+										<p class="text-sm font-bold text-white truncate">{log.targetName}</p>
+										<p class="text-[10px] font-mono text-slate-500 truncate">{log.fromFileName} -&gt; {log.toFileName}</p>
+									</div>
+									<span class={cn("inline-flex items-center rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.18em]", getTransitionEventBadgeClass(log.outcome))}>
+										{getTransitionEventBadge(log.outcome)}
+									</span>
+								</div>
+								<p class="text-[11px] leading-relaxed text-slate-300">{getTransitionEventMessage(log)}</p>
+								<p class="text-[10px] font-medium uppercase tracking-[0.18em] text-slate-500">
+									{$t("Updated: {time}", { time: formatEventTime(log.at) })}
+								</p>
+							</div>
+						{/each}
+					</div>
+				{/if}
+			{/if}
 		</section>
 	{/if}
 
