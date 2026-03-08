@@ -52,6 +52,23 @@
 	let batchContent = "";
 	let batchTags = "";
 
+	type BatchImportPreviewStatus = "import" | "duplicate" | "invalid";
+	type BatchImportPreviewItem = {
+		id: string;
+		kind: "node" | "sub";
+		status: BatchImportPreviewStatus;
+		lineNumber: number;
+		label: string;
+		detail: string;
+		existingId: string | null;
+		importData?: {
+			name: string;
+			raw?: string;
+			url?: string;
+			type?: ProxyType;
+		};
+	};
+
 	let searchQuery = "";
 	let filterStatus: "all" | "enabled" | "disabled" = "all";
 	let expandedId: string | null = null;
@@ -184,11 +201,132 @@
 	$: canSaveDraft = activeTab === "nodes"
 		? Boolean(nodeName.trim() && normalizedNodeRaw && !duplicateNode)
 		: Boolean(subName.trim() && normalizedSubUrl && !duplicateSubscription);
-	$: batchLineCount = batchContent
-		.split(/\r?\n/)
-		.map((line) => line.trim())
-		.filter(Boolean).length;
-	$: canImportBatch = batchLineCount > 0;
+
+	function buildBatchImportPreview(): {
+		items: BatchImportPreviewItem[];
+		importableCount: number;
+		duplicateCount: number;
+		invalidCount: number;
+		firstDuplicateId: string | null;
+		totalLines: number;
+	} {
+		const lines = batchContent
+			.split(/\r?\n/)
+			.map((line) => line.trim())
+			.filter(Boolean);
+
+		const items: BatchImportPreviewItem[] = [];
+		let importableCount = 0;
+		let duplicateCount = 0;
+		let invalidCount = 0;
+		let firstDuplicateId: string | null = null;
+
+		if (activeTab === "nodes") {
+			const existingMap = new Map($appState.nodes.map((node) => [normalizeSourceValue(node.raw), node]));
+			const seen = new Set<string>();
+			for (const [index, rawLine] of lines.entries()) {
+				const raw = normalizeSourceValue(rawLine);
+				if (!raw || !raw.includes("://")) {
+					invalidCount += 1;
+					items.push({
+						id: `batch-node-invalid-${index}`,
+						kind: "node",
+						status: "invalid",
+						lineNumber: index + 1,
+						label: $t("Imported Node {index}", { index: index + 1 }),
+						detail: $t("Invalid node URI."),
+						existingId: null
+					});
+					continue;
+				}
+				const existingNode = existingMap.get(raw) ?? null;
+				if (existingNode || seen.has(raw)) {
+					duplicateCount += 1;
+					if (!firstDuplicateId && existingNode) firstDuplicateId = existingNode.id;
+					items.push({
+						id: `batch-node-duplicate-${index}`,
+						kind: "node",
+						status: "duplicate",
+						lineNumber: index + 1,
+						label: inferNodeNameFromRaw(raw, index + 1),
+						detail: existingNode
+							? $t("Duplicate of existing node: {name}", { name: existingNode.name })
+							: $t("Duplicate line in this batch."),
+						existingId: existingNode?.id ?? null
+					});
+					continue;
+				}
+				seen.add(raw);
+				const name = inferNodeNameFromRaw(raw, index + 1);
+				const type = inferNodeTypeFromRaw(raw);
+				importableCount += 1;
+				items.push({
+					id: `batch-node-import-${index}`,
+					kind: "node",
+					status: "import",
+					lineNumber: index + 1,
+					label: name,
+					detail: `${type.toUpperCase()} · ${raw}`,
+					existingId: null,
+					importData: { name, raw, type }
+				});
+			}
+		} else {
+			const existingMap = new Map($appState.subscriptions.map((sub) => [normalizeSourceValue(sub.url), sub]));
+			const seen = new Set<string>();
+			for (const [index, line] of lines.entries()) {
+				const parsed = parseBatchSubscriptionLine(line, index + 1);
+				if (!parsed) {
+					invalidCount += 1;
+					items.push({
+						id: `batch-sub-invalid-${index}`,
+						kind: "sub",
+						status: "invalid",
+						lineNumber: index + 1,
+						label: $t("Imported Subscription {index}", { index: index + 1 }),
+						detail: $t("Invalid subscription URL."),
+						existingId: null
+					});
+					continue;
+				}
+				const existingSubscription = existingMap.get(parsed.url) ?? null;
+				if (existingSubscription || seen.has(parsed.url)) {
+					duplicateCount += 1;
+					if (!firstDuplicateId && existingSubscription) firstDuplicateId = existingSubscription.id;
+					items.push({
+						id: `batch-sub-duplicate-${index}`,
+						kind: "sub",
+						status: "duplicate",
+						lineNumber: index + 1,
+						label: parsed.name,
+						detail: existingSubscription
+							? $t("Duplicate of existing subscription: {name}", { name: existingSubscription.name })
+							: $t("Duplicate line in this batch."),
+						existingId: existingSubscription?.id ?? null
+					});
+					continue;
+				}
+				seen.add(parsed.url);
+				importableCount += 1;
+				items.push({
+					id: `batch-sub-import-${index}`,
+					kind: "sub",
+					status: "import",
+					lineNumber: index + 1,
+					label: parsed.name,
+					detail: parsed.url,
+					existingId: null,
+					importData: { name: parsed.name, url: parsed.url }
+				});
+			}
+		}
+
+		return { items, importableCount, duplicateCount, invalidCount, firstDuplicateId, totalLines: lines.length };
+	}
+
+	$: batchImportPreview = buildBatchImportPreview();
+	$: batchLineCount = batchImportPreview.totalLines;
+	$: canImportBatch = batchImportPreview.importableCount > 0;
 
 	$: filteredNodes = $appState.nodes
 		.filter((node) => (filterStatus === "all" ? true : filterStatus === "enabled" ? node.enabled : !node.enabled))
@@ -258,84 +396,51 @@
 	}
 
 	function handleBatchImport() {
-		const lines = batchContent
-			.split(/\r?\n/)
-			.map((line) => line.trim())
-			.filter(Boolean);
-		if (lines.length === 0) {
+		if (batchImportPreview.totalLines === 0) {
 			showToast($t("No lines to import."), "info");
 			return;
 		}
 
-		let imported = 0;
-		let duplicates = 0;
-		let invalid = 0;
-		let firstDuplicateId: string | null = null;
+		if (batchImportPreview.firstDuplicateId) {
+			expandedId = batchImportPreview.firstDuplicateId;
+		}
 
-		if (activeTab === "nodes") {
-			const existing = new Set($appState.nodes.map((node) => normalizeSourceValue(node.raw)));
-			const seen = new Set<string>();
-			for (const [index, rawLine] of lines.entries()) {
-				const raw = normalizeSourceValue(rawLine);
-				if (!raw || !raw.includes("://")) {
-					invalid += 1;
-					continue;
-				}
-				if (existing.has(raw) || seen.has(raw)) {
-					duplicates += 1;
-					if (!firstDuplicateId) {
-						firstDuplicateId = $appState.nodes.find((node) => normalizeSourceValue(node.raw) === raw)?.id ?? null;
-					}
-					continue;
-				}
-				seen.add(raw);
+		for (const item of batchImportPreview.items) {
+			if (item.status !== "import" || !item.importData) {
+				continue;
+			}
+
+			if (item.kind === "node" && item.importData.raw && item.importData.type) {
 				upsertNode({
 					id: createId("node"),
-					name: inferNodeNameFromRaw(raw, index + 1),
-					type: inferNodeTypeFromRaw(raw),
-					raw,
+					name: item.importData.name,
+					type: item.importData.type,
+					raw: item.importData.raw,
 					tags: parseTags(batchTags),
 					enabled: true,
 					updatedAt: nowIso(),
 					source: "single"
 				});
-				imported += 1;
+				continue;
 			}
-		} else {
-			const existing = new Set($appState.subscriptions.map((sub) => normalizeSourceValue(sub.url)));
-			const seen = new Set<string>();
-			for (const [index, line] of lines.entries()) {
-				const parsed = parseBatchSubscriptionLine(line, index + 1);
-				if (!parsed) {
-					invalid += 1;
-					continue;
-				}
-				if (existing.has(parsed.url) || seen.has(parsed.url)) {
-					duplicates += 1;
-					if (!firstDuplicateId) {
-						firstDuplicateId = $appState.subscriptions.find((sub) => normalizeSourceValue(sub.url) === parsed.url)?.id ?? null;
-					}
-					continue;
-				}
-				seen.add(parsed.url);
+
+			if (item.kind === "sub" && item.importData.url) {
 				upsertSubscription({
 					id: createId("sub"),
-					name: parsed.name,
-					url: parsed.url,
+					name: item.importData.name,
+					url: item.importData.url,
 					enabled: true,
 					tags: parseTags(batchTags),
 					updatedAt: nowIso()
 				});
-				imported += 1;
 			}
 		}
 
-		if (firstDuplicateId) {
-			expandedId = firstDuplicateId;
-		}
-
-		if (imported === 0) {
-			showToast($t("No valid lines were imported."), duplicates > 0 || invalid > 0 ? "error" : "info");
+		if (batchImportPreview.importableCount === 0) {
+			showToast(
+				$t("No valid lines were imported."),
+				batchImportPreview.duplicateCount > 0 || batchImportPreview.invalidCount > 0 ? "error" : "info"
+			);
 			return;
 		}
 
@@ -343,11 +448,11 @@
 		closeAddModal();
 		showToast(
 			$t("Batch import complete: {imported} imported, {duplicates} duplicate, {invalid} invalid.", {
-				imported,
-				duplicates,
-				invalid
+				imported: batchImportPreview.importableCount,
+				duplicates: batchImportPreview.duplicateCount,
+				invalid: batchImportPreview.invalidCount
 			}),
-			duplicates > 0 || invalid > 0 ? "info" : "success"
+			batchImportPreview.duplicateCount > 0 || batchImportPreview.invalidCount > 0 ? "info" : "success"
 		);
 	}
 
@@ -561,14 +666,65 @@
 							? $t("One node URI per line. Names and protocol types are inferred automatically.")
 							: $t("One subscription per line. Use either a raw URL or Name = URL.")}
 					</p>
-					<div class="rounded-xl border border-slate-800 bg-slate-950/70 px-4 py-3 text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400">
-						{$t("Lines detected: {count}", { count: batchLineCount })}
+					<div class="grid gap-3 sm:grid-cols-3">
+						<div class="rounded-xl border border-slate-800 bg-slate-950/70 px-4 py-3">
+							<p class="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">{$t("Lines detected: {count}", { count: batchLineCount })}</p>
+							<p class="mt-2 text-sm font-bold text-white">{batchImportPreview.totalLines}</p>
+						</div>
+						<div class="rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3">
+							<p class="text-[10px] font-bold uppercase tracking-[0.16em] text-emerald-300">{$t("Importable")}</p>
+							<p class="mt-2 text-sm font-bold text-white">{batchImportPreview.importableCount}</p>
+						</div>
+						<div class="rounded-xl border border-amber-500/20 bg-amber-500/10 px-4 py-3">
+							<p class="text-[10px] font-bold uppercase tracking-[0.16em] text-amber-300">{$t("Duplicates")}: {batchImportPreview.duplicateCount} · {$t("Invalid")}: {batchImportPreview.invalidCount}</p>
+							<p class="mt-2 text-sm font-bold text-white">{batchImportPreview.items.length}</p>
+						</div>
 					</div>
 					<p class="text-[11px] leading-relaxed text-slate-500">
 						{activeTab === 'nodes'
 							? $t("Existing or repeated raw URIs are skipped automatically during import.")
 							: $t("Existing or repeated subscription URLs are skipped automatically during import.")}
 					</p>
+					<div class="rounded-2xl border border-slate-800/60 bg-slate-950/50 p-4 space-y-3">
+						<div class="flex items-center justify-between gap-3">
+							<p class="text-sm font-bold text-white">{$t("Import Preview")}</p>
+							<p class="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">{$t("Preview import results before saving.")}</p>
+						</div>
+						{#if batchImportPreview.items.length === 0}
+							<p class="text-sm text-slate-500">{$t("No batch preview yet. Paste lines to preview them here.")}</p>
+						{:else}
+							<div class="max-h-72 space-y-2 overflow-y-auto pr-1 custom-scrollbar">
+								{#each batchImportPreview.items as item (item.id)}
+									<div class={cn(
+										"rounded-xl border px-4 py-3 space-y-1",
+										item.status === "import"
+											? "border-emerald-500/20 bg-emerald-500/10"
+											: item.status === "duplicate"
+												? "border-amber-500/20 bg-amber-500/10"
+												: "border-red-500/20 bg-red-500/10"
+									)}>
+										<div class="flex items-start justify-between gap-3">
+											<div class="min-w-0">
+												<p class="text-sm font-bold text-white">{item.label}</p>
+												<p class="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">{$t("Line {line}", { line: item.lineNumber })}</p>
+											</div>
+											<div class={cn(
+												"rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.16em]",
+												item.status === "import"
+													? "border-emerald-500/20 bg-emerald-500/10 text-emerald-300"
+													: item.status === "duplicate"
+														? "border-amber-500/20 bg-amber-500/10 text-amber-300"
+														: "border-red-500/20 bg-red-500/10 text-red-300"
+											)}>
+												{$t(item.status === "import" ? "Importable" : item.status === "duplicate" ? "Duplicate" : "Invalid")}
+											</div>
+										</div>
+										<p class="text-xs text-slate-300 break-all">{item.detail}</p>
+									</div>
+								{/each}
+							</div>
+						{/if}
+					</div>
 				</div>
 			{/if}
 
