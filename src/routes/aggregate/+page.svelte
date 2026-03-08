@@ -11,7 +11,7 @@
 	import { authState } from "$lib/stores/auth";
 	import type { AggregatePublishTarget, AggregateRule, ProxyType } from "$lib/models";
 	import { buildAggregateOutput } from "$lib/aggregate";
-	import { createGist, updateGist } from "$lib/gist";
+	import { createGist, toStableGistRawUrl, updateGist } from "$lib/gist";
 	import { exportSyncState } from "$lib/serialization";
 	import { WORKSPACE_FILE } from "$lib/workspace";
 	import { createId } from "$lib/utils/id";
@@ -173,7 +173,7 @@
 		publishTargetFile = target.fileName;
 		publishTargetDescription = target.description;
 		publishTargetPublic = target.isPublic;
-		publishUrl = target.lastPublishedUrl;
+		publishUrl = toStableGistRawUrl(target.lastPublishedUrl) ?? null;
 		outputContent = "";
 	}
 
@@ -370,7 +370,7 @@
 			ruleId: publishTargetRuleId, fileName: publishTargetFile.trim(),
 			description: publishTargetDescription.trim(), isPublic: publishTargetPublic,
 			lastPublishedAt: existing?.lastPublishedAt ?? null,
-			lastPublishedUrl: existing?.lastPublishedUrl ?? publishUrl,
+			lastPublishedUrl: toStableGistRawUrl(existing?.lastPublishedUrl ?? publishUrl) ?? null,
 			updatedAt: nowIso()
 		});
 		selectedTargetId = id;
@@ -409,7 +409,7 @@
 			}
 
 			const fileMeta = response.files.find(f => f.filename === target.fileName);
-			publishUrl = fileMeta?.rawUrl ?? null;
+			publishUrl = toStableGistRawUrl(fileMeta?.rawUrl) ?? null;
 			
 			appState.update(s => ({ ...s, activeGistId: workspaceId, lastUpdated: nowIso() }));
 			upsertPublishTarget({ ...target, lastPublishedAt: nowIso(), lastPublishedUrl: publishUrl, updatedAt: nowIso() });
@@ -788,7 +788,7 @@
 					<div class="pt-6 border-t border-indigo-500/10 space-y-3" in:fade>
 						<p class="text-[10px] font-bold uppercase tracking-widest text-emerald-500 flex items-center gap-1">
 							<ShieldCheck class="h-3 w-3" />
-							{$t("Live Link")}
+							{$t("Stable Link")}
 						</p>
 						<div class="flex items-center gap-2">
 							<div class="flex-1 min-w-0 rounded-lg bg-slate-950 border border-slate-800 px-3 py-2 text-[10px] font-mono text-slate-400 truncate">

@@ -211,6 +211,7 @@ const zhCN: Record<string, string> = {
 	"Publishing...": "发布中...",
 	"Publish to Gist": "发布到 Gist",
 	"Subscription link": "订阅链接",
+	"Stable Link": "稳定链接",
 	"Select a rule for this publish target.": "请为该发布目标选择规则。",
 	"File name is required.": "文件名不能为空。",
 	"SubMan aggregate": "SubMan 聚合",

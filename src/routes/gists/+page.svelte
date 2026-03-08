@@ -286,14 +286,14 @@
 									target="_blank" 
 									rel="noreferrer"
 									class="h-8 w-8 flex items-center justify-center rounded-lg text-slate-500 hover:bg-slate-800 hover:text-white transition-all"
-									title="View Raw"
+									title="Open Stable URL"
 								>
 									<ExternalLink class="h-4 w-4" />
 								</a>
 								<button 
 									on:click={() => copyLink(file.rawUrl)}
 									class="h-8 w-8 flex items-center justify-center rounded-lg text-slate-500 hover:bg-slate-800 hover:text-white transition-all"
-									title="Copy Raw URL"
+									title="Copy Stable URL"
 								>
 									<Copy class="h-4 w-4" />
 								</button>

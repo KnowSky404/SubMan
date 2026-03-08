@@ -20,6 +20,29 @@ type GistApiResponse = {
 	>;
 };
 
+export function toStableGistRawUrl(rawUrl?: string | null): string | undefined {
+	if (!rawUrl) {
+		return undefined;
+	}
+
+	try {
+		const url = new URL(rawUrl);
+		const segments = url.pathname.split('/').filter(Boolean);
+		const rawIndex = segments.indexOf('raw');
+
+		if (url.hostname !== 'gist.githubusercontent.com' || rawIndex < 0 || segments.length <= rawIndex + 2) {
+			return rawUrl;
+		}
+
+		url.pathname = `/${[...segments.slice(0, rawIndex + 1), ...segments.slice(rawIndex + 2)].join('/')}`;
+		url.search = '';
+		url.hash = '';
+		return url.toString();
+	} catch {
+		return rawUrl;
+	}
+}
+
 function mapGist(response: GistApiResponse): GistMeta {
 	return {
 		id: response.id,
@@ -30,7 +53,7 @@ function mapGist(response: GistApiResponse): GistMeta {
 			filename: file.filename,
 			language: file.language,
 			size: file.size,
-			rawUrl: file.raw_url
+			rawUrl: toStableGistRawUrl(file.raw_url)
 		}))
 	};
 }
