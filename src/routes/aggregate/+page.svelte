@@ -341,6 +341,11 @@
 		return codes;
 	}
 
+function getCustomRegionFlagCodeFromLine(line: string): string | null {
+		const match = line.trim().match(/^([A-Za-z]{2})\s*=/);
+		return match?.[1]?.toUpperCase() ?? null;
+	}
+
 	function buildAppendMissingBuiltInRegionFlagTemplate(rawMap: string): string | null {
 		const existingCodes = getExistingCustomRegionFlagCodes(rawMap);
 		const missingLines = builtInRegionFlagTemplateLines.filter((line) => {
@@ -383,20 +388,59 @@
 		return { value, cursor: before.length + insertion.length };
 	}
 
+function buildReplacedRegionFlagRuleMapValue(currentValue: string, rule: { code: string; keywords: string[] }): { value: string; cursor: number } {
+		const nextLine = `${rule.code} = ${rule.keywords.join(", ")}`;
+		const nextLines: string[] = [];
+		let replaced = false;
+		let cursorLineIndex = -1;
+
+		for (const rawLine of currentValue.split(/\r?\n/)) {
+			const code = getCustomRegionFlagCodeFromLine(rawLine);
+			if (code !== rule.code) {
+				nextLines.push(rawLine);
+				continue;
+			}
+
+			if (!replaced) {
+				nextLines.push(nextLine);
+				replaced = true;
+				cursorLineIndex = nextLines.length - 1;
+			}
+		}
+
+		if (!replaced) {
+			return buildInsertedRegionFlagRuleMapValue(currentValue, nextLine);
+		}
+
+		const value = nextLines.join("\n");
+		const linesBeforeCursor = nextLines.slice(0, cursorLineIndex + 1).join("\n");
+		return { value, cursor: linesBeforeCursor.length };
+	}
+
 	async function insertBuiltInRegionRuleAtCursor(
 		rule: { code: string; keywords: string[] },
 		options?: { keepBrowserOpen?: boolean }
 	) {
 		syncCustomRegionFlagMapSelection();
-		const insertedLine = `${rule.code} = ${rule.keywords.join(", ")}`;
-		const { value, cursor } = buildInsertedRegionFlagRuleMapValue(customRegionFlagMap, insertedLine);
+		const ruleAlreadyPresent = existingCustomRegionFlagCodes.has(rule.code);
+		const { value, cursor } = ruleAlreadyPresent
+			? buildReplacedRegionFlagRuleMapValue(customRegionFlagMap, rule)
+			: buildInsertedRegionFlagRuleMapValue(customRegionFlagMap, `${rule.code} = ${rule.keywords.join(", ")}`);
 		customRegionFlagMap = value;
 		customRegionFlagMapSelectionStart = cursor;
 		customRegionFlagMapSelectionEnd = cursor;
 		const keepBrowserOpen = options?.keepBrowserOpen ?? false;
 		showBuiltInRegionMap = keepBrowserOpen;
 		setStatus(
-			$t(keepBrowserOpen ? "Built-in rule inserted. Browser kept open." : "Built-in rule inserted at cursor."),
+			$t(
+				keepBrowserOpen
+					? ruleAlreadyPresent
+						? "Built-in rule replaced. Browser kept open."
+						: "Built-in rule inserted. Browser kept open."
+					: ruleAlreadyPresent
+						? "Built-in rule replaced in custom map."
+						: "Built-in rule inserted at cursor."
+			),
 			"success"
 		);
 		if (keepBrowserOpen) {
@@ -1390,7 +1434,7 @@ JP = JP, JAPAN, TOKYO`}
 						<span>{$t("Built-in rules: {count}", { count: filteredBuiltInRegionRules.length })}</span>
 						<div class="flex flex-col items-end gap-1 text-right">
 							<span>{$t("Custom rules are matched before the built-in region table.")}</span>
-							<span class="text-[10px] font-medium uppercase tracking-[0.16em] text-indigo-400">{$t("Click to preview highlight. Ctrl/Cmd + click inserts without closing.")}</span>
+							<span class="text-[10px] font-medium uppercase tracking-[0.16em] text-indigo-400">{$t("Click to preview highlight. Ctrl/Cmd + click inserts or replaces without closing.")}</span>
 						</div>
 					</div>
 
@@ -1432,13 +1476,13 @@ JP = JP, JAPAN, TOKYO`}
 										<p class="text-[11px] leading-relaxed text-slate-300 break-words">{rule.keywords.join(", ")}</p>
 										<div class="flex items-center justify-between gap-3 pt-1">
 											{#if ruleAlreadyPresent}
-											<span class="text-[10px] font-bold uppercase tracking-[0.18em] text-emerald-300">{$t("Code already exists in custom map")}</span>
+											<span class="text-[10px] font-bold uppercase tracking-[0.18em] text-emerald-300">{$t("This code already exists and will be replaced")}</span>
 										{:else}
 											<span class="text-[10px] font-bold uppercase tracking-[0.18em] text-indigo-400">{$t("Click to preview highlight")}</span>
 										{/if}
 											<span class="inline-flex items-center gap-1 text-[11px] font-semibold text-slate-300">
 												<Plus class="h-3.5 w-3.5" />
-												{$t("Double-click to insert")}
+												{#if ruleAlreadyPresent}{$t("Double-click to replace")}{:else}{$t("Double-click to insert")}{/if}
 											</span>
 										</div>
 									</button>
