@@ -73,6 +73,8 @@ import { requestConfirm } from "$lib/stores/confirm";
 		detail: string;
 	};
 
+	type WorkspaceActivityFilter = "all" | "errors" | "sync" | "repairs";
+
 	const WORKSPACE_ACTIVITY_KEY = "subman:auth:activity:v1";
 
 	function loadWorkspaceActivity(): WorkspaceActivity[] {
@@ -102,6 +104,7 @@ import { requestConfirm } from "$lib/stores/confirm";
 	let healthReport: WorkspaceHealthReport | null = null;
 	let autoSyncStatus: AutoSyncStatus = readAutoSyncStatus();
 	let workspaceActivity = loadWorkspaceActivity();
+	let workspaceActivityFilter: WorkspaceActivityFilter = "all";
 	let conflict: WorkspaceConflict | null = null;
 	let pendingGistId: string | null = null;
 
@@ -135,7 +138,37 @@ import { requestConfirm } from "$lib/stores/confirm";
 		].slice(0, 12);
 	}
 
-	async function clearWorkspaceActivityLog() {
+		function matchesWorkspaceActivityFilter(activity: WorkspaceActivity, filter: WorkspaceActivityFilter): boolean {
+		if (filter === "all") {
+			return true;
+		}
+		if (filter === "errors") {
+			return activity.type === "error";
+		}
+		if (filter === "repairs") {
+			return /repair/i.test(activity.title);
+		}
+		return /sync|workspace linked|workspace gist created|merged data saved|local data pushed|remote data loaded/i.test(activity.title);
+	}
+
+	function getWorkspaceActivityFilterLabel(filter: WorkspaceActivityFilter): string {
+		switch (filter) {
+			case "errors":
+				return $t("Errors");
+			case "sync":
+				return $t("Sync Events");
+			case "repairs":
+				return $t("Repairs");
+			default:
+				return $t("All");
+		}
+	}
+
+	$: filteredWorkspaceActivity = workspaceActivity.filter((activity) =>
+		matchesWorkspaceActivityFilter(activity, workspaceActivityFilter)
+	);
+
+async function clearWorkspaceActivityLog() {
 		if (workspaceActivity.length === 0) {
 			return;
 		}
@@ -890,24 +923,40 @@ async function handleManualSyncNow() {
 			</div>
 
 			{#if workspaceActivity.length > 0}
-				<button
-					type="button"
-					on:click={clearWorkspaceActivityLog}
-					class="inline-flex items-center gap-2 rounded-xl border border-slate-800 bg-slate-900/50 px-4 py-2 text-xs font-bold uppercase tracking-[0.16em] text-slate-300 transition-all hover:bg-slate-800 hover:text-white"
-				>
-					<Trash2 class="h-3.5 w-3.5" />
-					{$t("Clear history")}
-				</button>
+				<div class="flex flex-wrap items-center justify-end gap-2">
+					{#each ["all", "errors", "sync", "repairs"] as filter}
+						<button
+							type="button"
+							on:click={() => (workspaceActivityFilter = filter as WorkspaceActivityFilter)}
+							class={cn(
+								"inline-flex items-center rounded-full border px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.16em] transition-all",
+								workspaceActivityFilter === filter
+									? "border-indigo-500/30 bg-indigo-500/10 text-indigo-300"
+									: "border-slate-800 bg-slate-900/50 text-slate-400 hover:bg-slate-800 hover:text-white"
+							)}
+						>
+							{getWorkspaceActivityFilterLabel(filter as WorkspaceActivityFilter)}
+						</button>
+					{/each}
+					<button
+						type="button"
+						on:click={clearWorkspaceActivityLog}
+						class="inline-flex items-center gap-2 rounded-xl border border-slate-800 bg-slate-900/50 px-4 py-2 text-xs font-bold uppercase tracking-[0.16em] text-slate-300 transition-all hover:bg-slate-800 hover:text-white"
+					>
+						<Trash2 class="h-3.5 w-3.5" />
+						{$t("Clear history")}
+					</button>
+				</div>
 			{/if}
 		</div>
 
-		{#if workspaceActivity.length === 0}
+		{#if filteredWorkspaceActivity.length === 0}
 			<div class="rounded-3xl border border-slate-800/60 border-dashed bg-slate-950/40 px-6 py-10 text-center">
 				<p class="text-sm font-medium text-slate-400">{$t("No recent workspace activity yet.")}</p>
 			</div>
 		{:else}
 			<div class="space-y-4">
-				{#each workspaceActivity as activity (activity.id)}
+				{#each filteredWorkspaceActivity as activity (activity.id)}
 					<div class="rounded-2xl border border-slate-800/60 bg-slate-950/40 p-5 space-y-2">
 						<div class="flex items-start justify-between gap-3">
 							<div class="min-w-0">
