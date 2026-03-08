@@ -466,6 +466,10 @@
 			description: publishTargetDescription.trim(), isPublic: publishTargetPublic,
 			lastPublishedAt: existing?.lastPublishedAt ?? null,
 			lastPublishedUrl: toStableGistRawUrl(existing?.lastPublishedUrl ?? publishUrl) ?? null,
+			lastPublishTransitionAt: existing?.lastPublishTransitionAt ?? null,
+			lastPublishTransitionFromFileName: existing?.lastPublishTransitionFromFileName ?? null,
+			lastPublishTransitionToFileName: existing?.lastPublishTransitionToFileName ?? null,
+			lastPublishTransitionOutcome: existing?.lastPublishTransitionOutcome ?? null,
 			updatedAt: nowIso()
 		});
 		selectedTargetId = id;
@@ -560,9 +564,36 @@
 
 			const fileMeta = response.files.find(f => f.filename === target.fileName);
 			publishUrl = toStableGistRawUrl(fileMeta?.rawUrl) ?? null;
+			const publishedAt = nowIso();
+			const transitionOutcome = !renameTransition.willChange
+				? target.lastPublishTransitionOutcome ?? null
+				: renameTransition.canAutoDeletePrevious
+					? 'auto_deleted'
+					: renameTransition.previousFileShared
+						? 'kept_shared'
+						: renameTransition.currentPublishedGistId &&
+						  $appState.activeGistId &&
+						  renameTransition.currentPublishedGistId !== $appState.activeGistId
+							? 'kept_external'
+							: 'kept_manual';
 			
-			appState.update(s => ({ ...s, activeGistId: workspaceId, lastUpdated: nowIso() }));
-			upsertPublishTarget({ ...target, lastPublishedAt: nowIso(), lastPublishedUrl: publishUrl, updatedAt: nowIso() });
+			appState.update(s => ({ ...s, activeGistId: workspaceId, lastUpdated: publishedAt }));
+			upsertPublishTarget({
+				...target,
+				lastPublishedAt: publishedAt,
+				lastPublishedUrl: publishUrl,
+				lastPublishTransitionAt: renameTransition.willChange
+					? publishedAt
+					: target.lastPublishTransitionAt ?? null,
+				lastPublishTransitionFromFileName: renameTransition.willChange
+					? renameTransition.currentPublishedFileName ?? null
+					: target.lastPublishTransitionFromFileName ?? null,
+				lastPublishTransitionToFileName: renameTransition.willChange
+					? renameTransition.nextFileName
+					: target.lastPublishTransitionToFileName ?? null,
+				lastPublishTransitionOutcome: transitionOutcome,
+				updatedAt: publishedAt
+			});
 			
 			setStatus(
 				renameTransition.canAutoDeletePrevious && renameTransition.currentPublishedFileName

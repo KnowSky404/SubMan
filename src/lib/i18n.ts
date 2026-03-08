@@ -160,6 +160,20 @@ const zhCN: Record<string, string> = {
 	"No files in workspace.": "工作区中暂无文件。",
 	"Workspace config": "工作区配置",
 	"Managed output": "受管理输出",
+	"Recent Publish Events": "最近发布事件",
+	"Latest file replacement activity for workspace outputs.": "查看工作区输出文件最近的替换与清理记录。",
+	"Auto cleaned": "已自动清理",
+	"Shared old file": "旧文件被共用",
+	"Different workspace": "不同工作区",
+	"Manual cleanup": "需手动清理",
+	"Renamed output from {from} to {to}. Old workspace file was removed automatically.":
+		"输出文件已从 {from} 更名为 {to}。旧的工作区文件已自动删除。",
+	"Renamed output from {from} to {to}. Old file was kept because another publish target still uses it.":
+		"输出文件已从 {from} 更名为 {to}。旧文件仍被其他发布目标使用，因此被保留。",
+	"Renamed output from {from} to {to}. Old file was kept because it belongs to a different workspace gist.":
+		"输出文件已从 {from} 更名为 {to}。旧文件属于另一个工作区 gist，因此被保留。",
+	"Renamed output from {from} to {to}. Old file was kept for manual cleanup.":
+		"输出文件已从 {from} 更名为 {to}。旧文件保留待手动清理。",
 	"Unmanaged file": "未管理文件",
 	Open: "打开",
 	"Aggregation Builder": "聚合构建器",

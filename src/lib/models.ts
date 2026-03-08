@@ -46,6 +46,12 @@ export type AggregateRule = {
 	updatedAt: string;
 };
 
+export type PublishTransitionOutcome =
+	| 'auto_deleted'
+	| 'kept_shared'
+	| 'kept_external'
+	| 'kept_manual';
+
 export type AggregatePublishTarget = {
 	id: string;
 	name: string;
@@ -55,6 +61,10 @@ export type AggregatePublishTarget = {
 	isPublic: boolean;
 	lastPublishedAt: string | null;
 	lastPublishedUrl: string | null;
+	lastPublishTransitionAt: string | null;
+	lastPublishTransitionFromFileName: string | null;
+	lastPublishTransitionToFileName: string | null;
+	lastPublishTransitionOutcome: PublishTransitionOutcome | null;
 	updatedAt: string;
 };
 

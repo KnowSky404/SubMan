@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { GistMeta } from "$lib/models";
+	import type { AggregatePublishTarget, GistMeta, PublishTransitionOutcome } from "$lib/models";
 	import { t } from "$lib/i18n";
 	import { appState } from "$lib/stores/app";
 	import { authState } from "$lib/stores/auth";
@@ -41,11 +41,102 @@
 		statusTimer = setTimeout(() => status = null, 4000);
 	}
 
+	type PublishTransitionLog = {
+		id: string;
+		targetName: string;
+		fromFileName: string;
+		toFileName: string;
+		at: string;
+		outcome: PublishTransitionOutcome;
+	};
+
+	function hasPublishTransition(target: AggregatePublishTarget): target is AggregatePublishTarget & {
+		lastPublishTransitionAt: string;
+		lastPublishTransitionFromFileName: string;
+		lastPublishTransitionToFileName: string;
+		lastPublishTransitionOutcome: PublishTransitionOutcome;
+	} {
+		return Boolean(
+			target.lastPublishTransitionAt &&
+			target.lastPublishTransitionFromFileName &&
+			target.lastPublishTransitionToFileName &&
+			target.lastPublishTransitionOutcome
+		);
+	}
+
+	function formatEventTime(iso: string): string {
+		return Number.isNaN(Date.parse(iso)) ? iso : new Date(iso).toLocaleString();
+	}
+
+	function getTransitionEventBadge(outcome: PublishTransitionOutcome): string {
+		switch (outcome) {
+			case 'auto_deleted':
+				return $t("Auto cleaned");
+			case 'kept_shared':
+				return $t("Shared old file");
+			case 'kept_external':
+				return $t("Different workspace");
+			default:
+				return $t("Manual cleanup");
+		}
+	}
+
+	function getTransitionEventBadgeClass(outcome: PublishTransitionOutcome): string {
+		switch (outcome) {
+			case 'auto_deleted':
+				return "border-emerald-500/20 bg-emerald-500/10 text-emerald-400";
+			case 'kept_shared':
+				return "border-indigo-500/20 bg-indigo-500/10 text-indigo-400";
+			case 'kept_external':
+				return "border-amber-500/20 bg-amber-500/10 text-amber-400";
+			default:
+				return "border-slate-700 bg-slate-800/80 text-slate-300";
+		}
+	}
+
+	function getTransitionEventMessage(log: PublishTransitionLog): string {
+		switch (log.outcome) {
+			case 'auto_deleted':
+				return $t('Renamed output from {from} to {to}. Old workspace file was removed automatically.', {
+					from: log.fromFileName,
+					to: log.toFileName
+				});
+			case 'kept_shared':
+				return $t('Renamed output from {from} to {to}. Old file was kept because another publish target still uses it.', {
+					from: log.fromFileName,
+					to: log.toFileName
+				});
+			case 'kept_external':
+				return $t('Renamed output from {from} to {to}. Old file was kept because it belongs to a different workspace gist.', {
+					from: log.fromFileName,
+					to: log.toFileName
+				});
+			default:
+				return $t('Renamed output from {from} to {to}. Old file was kept for manual cleanup.', {
+					from: log.fromFileName,
+					to: log.toFileName
+				});
+		}
+	}
+
 	$: managedFiles = new Set(
 		$appState.publishTargets
 			.map((target) => target.fileName.trim())
 			.filter(Boolean)
 	);
+
+	$: recentPublishLogs = $appState.publishTargets
+		.filter(hasPublishTransition)
+		.sort((a, b) => Date.parse(b.lastPublishTransitionAt) - Date.parse(a.lastPublishTransitionAt))
+		.slice(0, 5)
+		.map((target) => ({
+			id: `${target.id}-${target.lastPublishTransitionAt}`,
+			targetName: target.name,
+			fromFileName: target.lastPublishTransitionFromFileName,
+			toFileName: target.lastPublishTransitionToFileName,
+			at: target.lastPublishTransitionAt,
+			outcome: target.lastPublishTransitionOutcome
+		} satisfies PublishTransitionLog));
 
 	async function refreshWorkspace() {
 		const token = $authState.token;
@@ -244,6 +335,40 @@
 		<!-- Background Glow -->
 		<div class="absolute -right-20 -top-20 h-64 w-64 bg-indigo-500/5 blur-[80px] group-hover:bg-indigo-500/10 transition-colors"></div>
 	</section>
+
+	{#if recentPublishLogs.length > 0}
+		<section class="rounded-[2rem] border border-slate-800/60 bg-slate-900/30 p-8 space-y-5">
+			<div class="flex items-center gap-3">
+				<div class="flex h-11 w-11 items-center justify-center rounded-2xl bg-indigo-500/10 text-indigo-400">
+					<Layers class="h-5 w-5" />
+				</div>
+				<div>
+					<h2 class="text-lg font-bold text-white tracking-tight">{$t("Recent Publish Events")}</h2>
+					<p class="text-sm text-slate-400">{$t("Latest file replacement activity for workspace outputs.")}</p>
+				</div>
+			</div>
+
+			<div class="grid gap-4 lg:grid-cols-2">
+				{#each recentPublishLogs as log (log.id)}
+					<div class="rounded-3xl border border-slate-800/60 bg-slate-950/40 p-5 space-y-3">
+						<div class="flex items-start justify-between gap-3">
+							<div class="min-w-0 space-y-1">
+								<p class="text-sm font-bold text-white truncate">{log.targetName}</p>
+								<p class="text-[10px] font-mono text-slate-500 truncate">{log.fromFileName} -&gt; {log.toFileName}</p>
+							</div>
+							<span class={cn("inline-flex items-center rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.18em]", getTransitionEventBadgeClass(log.outcome))}>
+								{getTransitionEventBadge(log.outcome)}
+							</span>
+						</div>
+						<p class="text-[11px] leading-relaxed text-slate-300">{getTransitionEventMessage(log)}</p>
+						<p class="text-[10px] font-medium uppercase tracking-[0.18em] text-slate-500">
+							{$t("Updated: {time}", { time: formatEventTime(log.at) })}
+						</p>
+					</div>
+				{/each}
+			</div>
+		</section>
+	{/if}
 
 	<!-- File Grid -->
 	<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
