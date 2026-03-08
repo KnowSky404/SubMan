@@ -381,13 +381,25 @@
 		return { value, cursor: before.length + insertion.length };
 	}
 
-	async function insertBuiltInRegionRuleAtCursor(rule: { code: string; keywords: string[] }) {
+	async function insertBuiltInRegionRuleAtCursor(
+		rule: { code: string; keywords: string[] },
+		options?: { keepBrowserOpen?: boolean }
+	) {
 		syncCustomRegionFlagMapSelection();
 		const insertedLine = `${rule.code} = ${rule.keywords.join(", ")}`;
 		const { value, cursor } = buildInsertedRegionFlagRuleMapValue(customRegionFlagMap, insertedLine);
 		customRegionFlagMap = value;
-		showBuiltInRegionMap = false;
-		setStatus($t("Built-in rule inserted at cursor."), "success");
+		customRegionFlagMapSelectionStart = cursor;
+		customRegionFlagMapSelectionEnd = cursor;
+		const keepBrowserOpen = options?.keepBrowserOpen ?? false;
+		showBuiltInRegionMap = keepBrowserOpen;
+		setStatus(
+			$t(keepBrowserOpen ? "Built-in rule inserted. Browser kept open." : "Built-in rule inserted at cursor."),
+			"success"
+		);
+		if (keepBrowserOpen) {
+			return;
+		}
 		await tick();
 		if (!customRegionFlagMapTextarea) {
 			return;
@@ -395,6 +407,10 @@
 		customRegionFlagMapTextarea.focus();
 		customRegionFlagMapTextarea.setSelectionRange(cursor, cursor);
 		syncCustomRegionFlagMapSelection();
+	}
+
+	function handleBuiltInRegionRuleCardClick(event: MouseEvent, rule: { code: string; keywords: string[] }) {
+		void insertBuiltInRegionRuleAtCursor(rule, { keepBrowserOpen: event.metaKey || event.ctrlKey });
 	}
 
 	function normalizeAndSortCustomRegionFlagMap() {
@@ -1356,7 +1372,10 @@ JP = JP, JAPAN, TOKYO`}
 
 					<div class="flex items-center justify-between text-[11px] font-bold uppercase tracking-[0.18em] text-slate-500">
 						<span>{$t("Built-in rules: {count}", { count: filteredBuiltInRegionRules.length })}</span>
-						<span>{$t("Custom rules are matched before the built-in region table.")}</span>
+						<div class="flex flex-col items-end gap-1 text-right">
+							<span>{$t("Custom rules are matched before the built-in region table.")}</span>
+							<span class="text-[10px] font-medium uppercase tracking-[0.16em] text-indigo-400">{$t("Ctrl/Cmd + click to insert without closing")}</span>
+						</div>
 					</div>
 
 					{#if filteredBuiltInRegionRules.length === 0}
@@ -1369,7 +1388,7 @@ JP = JP, JAPAN, TOKYO`}
 								{#each filteredBuiltInRegionRules as rule (rule.code + rule.keywords.join(','))}
 									<button
 									type="button"
-									on:click={() => insertBuiltInRegionRuleAtCursor(rule)}
+									on:click={(event) => handleBuiltInRegionRuleCardClick(event, rule)}
 									class="w-full rounded-3xl border border-slate-800/60 bg-slate-950/40 p-5 space-y-3 text-left transition-all hover:border-indigo-500/30 hover:bg-slate-900/70"
 								>
 										<div class="flex items-center gap-3">
