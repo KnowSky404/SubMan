@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onMount } from "svelte";
 	import { browser } from "$app/environment";
 	import type { AggregatePublishTarget, GistMeta, PublishTransitionOutcome } from "$lib/models";
 	import { t } from "$lib/i18n";
@@ -224,6 +225,12 @@
 			loading = false;
 		}
 	}
+
+	onMount(() => {
+		if ($authState.token && $appState.activeGistId) {
+			void refreshWorkspace();
+		}
+	});
 
 	async function copyLink(url?: string) {
 		if (!url) { setStatus($t("Link unavailable."), 'error'); return; }
