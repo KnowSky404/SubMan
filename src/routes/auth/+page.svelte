@@ -219,6 +219,55 @@ import { requestConfirm } from "$lib/stores/confirm";
 				? "warning"
 				: "healthy";
 
+	async function handleManualSyncNow() {
+		const token = $authState.token;
+		if (!token) {
+			setStatus($t("Token is required."), 'error');
+			return;
+		}
+
+		workspaceBusy = true;
+		try {
+			const localPayload = exportSyncState($appState);
+			let gistId = $appState.activeGistId;
+
+			if (!gistId) {
+				const { gist } = await ensureWorkspaceGist(token, localPayload);
+				gistId = gist.id;
+				appState.update((state) => ({
+					...state,
+					activeGistId: gistId,
+					activeGistFile: WORKSPACE_FILE,
+					lastUpdated: nowIso()
+				}));
+			}
+
+			await updateGist(token, {
+				gistId,
+				files: { [WORKSPACE_FILE]: { content: localPayload } }
+			});
+
+			setSyncBaseline(localPayload);
+			conflict = null;
+			pendingGistId = null;
+			pushWorkspaceActivity(
+				"success",
+				$t("Manual workspace sync complete."),
+				$t("Current local state was pushed to workspace gist {id}.", { id: gistId })
+			);
+			setStatus($t("Manual workspace sync complete."), 'success');
+		} catch (err) {
+			pushWorkspaceActivity(
+				"error",
+				$t("Manual workspace sync failed."),
+				err instanceof Error ? err.message : $t("Manual workspace sync failed.")
+			);
+			setStatus(err instanceof Error ? err.message : $t("Manual workspace sync failed."), 'error');
+		} finally {
+			workspaceBusy = false;
+		}
+	}
+
 	async function runWorkspaceHealthCheck() {
 		healthCheckBusy = true;
 		try {
@@ -593,6 +642,14 @@ import { requestConfirm } from "$lib/stores/confirm";
 					</button>
 					
 					{#if $authState.token}
+						<button
+							class="flex items-center gap-2 rounded-xl border border-slate-800 bg-slate-900/50 px-6 py-3 text-sm font-bold text-slate-300 transition-all hover:bg-slate-800 active:scale-[0.98] disabled:opacity-50"
+							on:click={handleManualSyncNow}
+							disabled={workspaceBusy}
+						>
+							<Upload class="h-4 w-4" />
+							{$t("Sync Local State Now")}
+						</button>
 						<button
 							class="flex items-center gap-2 rounded-xl border border-slate-800 bg-slate-900/50 px-6 py-3 text-sm font-bold text-slate-300 transition-all hover:bg-red-500/10 hover:border-red-500/30 hover:text-red-400 active:scale-[0.98]"
 							on:click={handleTokenClear}
