@@ -33,6 +33,7 @@
 		AlertCircle,
 		CheckCircle2,
 		ChevronRight,
+		CircleHelp,
 		ExternalLink,
 		RefreshCw,
 		Filter,
@@ -918,15 +919,27 @@
 					</div>
 
 					<div class="space-y-2">
-						<p class="text-[10px] font-bold uppercase tracking-widest text-slate-500">{$t("File Name")}</p>
+						<div class="flex items-center gap-2">
+							<p class="text-[10px] font-bold uppercase tracking-widest text-slate-500">{$t("File Name")}</p>
+							<div class="group/tooltip relative inline-flex">
+								<button
+									type="button"
+									class="inline-flex h-4 w-4 items-center justify-center rounded-full text-slate-500 transition-colors hover:text-white focus-visible:text-white focus-visible:outline-none"
+									aria-label={$t("Stable link help")}
+									title={$t("Stable link help")}
+								>
+									<CircleHelp class="h-3.5 w-3.5" />
+								</button>
+								<div class="pointer-events-none absolute left-0 top-full z-20 mt-2 hidden w-64 rounded-2xl border border-slate-800 bg-slate-950/95 px-3 py-2 text-[11px] leading-relaxed text-slate-300 shadow-2xl group-hover/tooltip:block group-focus-within/tooltip:block">
+									{$t("Keep the same file name to keep the stable link unchanged across republishes.")}
+								</div>
+							</div>
+						</div>
 						<input 
 							class="w-full rounded-xl border border-slate-800 bg-slate-950 px-4 py-2.5 text-sm font-mono text-white outline-none focus:border-indigo-500/50"
 							placeholder="config.txt"
 							bind:value={publishTargetFile}
 						/>
-						<p class="text-[11px] leading-relaxed text-slate-500">
-							{$t("Keep the same file name to keep the stable link unchanged across republishes.")}
-						</p>
 						{#if willChangePublishedFileName}
 							<div class="rounded-xl border border-amber-500/20 bg-amber-500/10 p-3 flex items-start gap-3">
 								<AlertCircle class="h-4 w-4 text-amber-400 shrink-0 mt-0.5" />

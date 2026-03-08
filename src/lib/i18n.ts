@@ -227,6 +227,7 @@ const zhCN: Record<string, string> = {
 	"Publish to Gist": "发布到 Gist",
 	"Subscription link": "订阅链接",
 	"Stable Link": "稳定链接",
+	"Stable link help": "稳定链接说明",
 	"Keep the same file name to keep the stable link unchanged across republishes.": "保持相同文件名，重复发布时稳定链接就不会变化。",
 	"Changing the file name will create a new stable link on next publish. The old workspace file stays until you delete it, and clients using the old link must be updated manually.":
 		"修改文件名会在下次发布时生成新的稳定链接。旧的工作区文件会保留，直到你手动删除；仍在使用旧链接的客户端也需要手动更新。",

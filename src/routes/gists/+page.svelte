@@ -24,7 +24,8 @@
 		HardDrive,
 		FileQuestion,
 		Settings,
-		ArrowRight
+		ArrowRight,
+		CircleHelp
 	} from "lucide-svelte";
 	import { fade, fly } from "svelte/transition";
 
@@ -437,13 +438,25 @@
 					</div>
 
 					<div class="space-y-1 min-w-0">
-						<h3 class="font-bold text-white truncate" title={file.filename}>{file.filename}</h3>
+						<div class="flex items-center gap-2 min-w-0">
+							<h3 class="font-bold text-white truncate" title={file.filename}>{file.filename}</h3>
+							{#if isManagedOutput(file.filename)}
+								<div class="group/tooltip relative inline-flex shrink-0">
+									<button
+										type="button"
+										class="inline-flex h-4 w-4 items-center justify-center rounded-full text-slate-500 transition-colors hover:text-white focus-visible:text-white focus-visible:outline-none"
+										aria-label={$t("Stable link help")}
+										title={$t("Stable link help")}
+									>
+										<CircleHelp class="h-3.5 w-3.5" />
+									</button>
+									<div class="pointer-events-none absolute left-0 top-full z-20 mt-2 hidden w-64 rounded-2xl border border-slate-800 bg-slate-950/95 px-3 py-2 text-[11px] leading-relaxed text-slate-300 shadow-2xl group-hover/tooltip:block group-focus-within/tooltip:block">
+										{$t("Keep the same file name to keep the stable link unchanged across republishes.")}
+									</div>
+								</div>
+							{/if}
+						</div>
 						<p class="text-[10px] text-slate-500 font-bold uppercase tracking-wider">{file.size} Bytes</p>
-						{#if isManagedOutput(file.filename)}
-							<p class="text-[11px] leading-relaxed text-slate-500">
-								{$t("Keep the same file name to keep the stable link unchanged across republishes.")}
-							</p>
-						{/if}
 					</div>
 
 					<div class="mt-6 pt-4 border-t border-slate-800/60 flex items-center justify-between">
