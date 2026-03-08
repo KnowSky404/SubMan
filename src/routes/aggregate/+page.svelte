@@ -94,6 +94,17 @@
 		{ id: "other", label: $t("Other") }
 	];
 
+	function decodeBase64Utf8(value: string): string | null {
+		try {
+			const compact = value.trim().replace(/\s+/g, "");
+			const binary = atob(compact);
+			const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+			return new TextDecoder().decode(bytes);
+		} catch {
+			return null;
+		}
+	}
+
 	function parseLineSummary(line: string): { protocol: string; name: string } {
 		const trimmed = line.trim();
 		const schemeIndex = trimmed.indexOf("://");
@@ -107,11 +118,13 @@
 		}
 		if (protocol === "vmess") {
 			const payload = trimmed.slice(schemeIndex + 3);
-			try {
-				const decoded = atob(payload);
-				const parsed = JSON.parse(decoded) as { ps?: string };
-				if (parsed.ps) return { protocol, name: parsed.ps };
-			} catch { /* ignore */ }
+			const decoded = decodeBase64Utf8(payload);
+			if (decoded) {
+				try {
+					const parsed = JSON.parse(decoded) as { ps?: string };
+					if (parsed.ps) return { protocol, name: parsed.ps };
+				} catch { /* ignore */ }
+			}
 		}
 		return { protocol, name: "unnamed" };
 	}
