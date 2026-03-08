@@ -171,6 +171,48 @@ export function parseCustomRegionFlagRules(rawMap?: string): {
 	};
 }
 
+export function normalizeCustomRegionFlagMap(rawMap?: string): {
+	value: string;
+	issues: CustomRegionFlagRuleIssue[];
+} {
+	const trimmed = rawMap?.trim() ?? '';
+	if (!trimmed) {
+		return { value: '', issues: [] };
+	}
+
+	const { rules, issues } = parseCustomRegionFlagRules(trimmed);
+	if (issues.length > 0) {
+		return { value: trimmed, issues };
+	}
+
+	const byCode = new Map<string, string[]>();
+	const seenKeywords = new Map<string, Set<string>>();
+
+	for (const rule of rules) {
+		const existingKeywords = byCode.get(rule.code) ?? [];
+		const keywordSet = seenKeywords.get(rule.code) ?? new Set<string>();
+
+		for (const keyword of rule.keywords) {
+			const normalizedKeyword = normalizeRegionKeyword(keyword);
+			if (!normalizedKeyword || keywordSet.has(normalizedKeyword)) {
+				continue;
+			}
+			keywordSet.add(normalizedKeyword);
+			existingKeywords.push(keyword.trim());
+		}
+
+		byCode.set(rule.code, existingKeywords);
+		seenKeywords.set(rule.code, keywordSet);
+	}
+
+	const value = Array.from(byCode.entries())
+		.sort(([left], [right]) => left.localeCompare(right))
+		.map(([code, keywords]) => `${code} = ${keywords.join(', ')}`)
+		.join('\n');
+
+	return { value, issues: [] };
+}
+
 function inferRegionCodeFromName(name: string, rules: RegionFlagRule[]): string | null {
 	const normalizedName = normalizeRegionName(name);
 

@@ -10,7 +10,7 @@
 	} from "$lib/stores/app";
 	import { authState } from "$lib/stores/auth";
 	import type { AggregatePublishTarget, AggregateRule, ProxyType } from "$lib/models";
-	import { BUILT_IN_REGION_FLAG_RULES, buildAggregateOutput, parseCustomRegionFlagRules, regionCodeToFlagEmoji } from "$lib/aggregate";
+	import { BUILT_IN_REGION_FLAG_RULES, buildAggregateOutput, normalizeCustomRegionFlagMap, parseCustomRegionFlagRules, regionCodeToFlagEmoji } from "$lib/aggregate";
 	import { createGist, toStableGistRawUrl, updateGist } from "$lib/gist";
 	import { exportSyncState } from "$lib/serialization";
 	import { WORKSPACE_FILE } from "$lib/workspace";
@@ -320,6 +320,7 @@
 
 	$: customRegionFlagValidation = parseCustomRegionFlagRules(customRegionFlagMap);
 	$: customRegionFlagIssues = customRegionFlagValidation.issues;
+	$: normalizedCustomRegionFlagMap = normalizeCustomRegionFlagMap(customRegionFlagMap);
 
 	const builtInRegionFlagTemplateLines = BUILT_IN_REGION_FLAG_RULES.map((rule) => `${rule.code} = ${rule.keywords.join(", ")}`);
 	const builtInRegionFlagTemplate = builtInRegionFlagTemplateLines.join("\n");
@@ -348,6 +349,28 @@
 
 		const current = rawMap.trim();
 		return current ? `${current}\n${missingLines.join("\n")}` : missingLines.join("\n");
+	}
+
+	function normalizeAndSortCustomRegionFlagMap() {
+		if (customRegionFlagIssues.length > 0) {
+			setStatus($t("Fix custom region flag map errors before normalizing."), "error");
+			return;
+		}
+
+		const currentValue = customRegionFlagMap.trim();
+		if (!currentValue) {
+			setStatus($t("No custom region flag rules to normalize."), "info");
+			return;
+		}
+
+		const nextValue = normalizedCustomRegionFlagMap.value;
+		if (currentValue === nextValue) {
+			setStatus($t("Custom region flag map is already normalized."), "info");
+			return;
+		}
+
+		customRegionFlagMap = nextValue;
+		setStatus($t("Custom region flag map normalized."), "success");
 	}
 
 	async function importBuiltInRegionFlagTemplate() {
@@ -394,11 +417,12 @@
 		}
 		previewLoading = true;
 		try {
+			const normalizedRegionFlagMap = normalizedCustomRegionFlagMap.value;
 			const rule: AggregateRule = {
 				id: "preview", name: ruleName || "Preview",
 				nodeIds: selectedNodeIds, subscriptionIds: selectedSubscriptionIds,
 				excludeTagIds: excludeTags.split(",").map(t => t.trim()).filter(Boolean),
-				renameMap: parseRenameMap(renameMap), customRegionFlagMap: customRegionFlagMap.trim(), allowedTypes, prependRegionFlags, updatedAt: nowIso()
+				renameMap: parseRenameMap(renameMap), customRegionFlagMap: normalizedRegionFlagMap, allowedTypes, prependRegionFlags, updatedAt: nowIso()
 			};
 			const result = await buildAggregateOutput(rule, $appState.nodes, $appState.subscriptions);
 			previewContent = result.content; previewLines = result.lines;
@@ -411,11 +435,13 @@
 	async function saveRule() {
 		if (!ruleName.trim()) { setStatus($t("Rule name is required."), 'error'); return; }
 		if (customRegionFlagIssues.length > 0) { setStatus($t("Fix custom region flag map errors before previewing or saving."), 'error'); return; }
+		const normalizedRegionFlagMap = normalizedCustomRegionFlagMap.value;
+		customRegionFlagMap = normalizedRegionFlagMap;
 		const id = editingRuleId || createId("agg");
 		upsertAggregate({
 			id, name: ruleName.trim(), nodeIds: selectedNodeIds, subscriptionIds: selectedSubscriptionIds,
 			excludeTagIds: excludeTags.split(",").map(t => t.trim()).filter(Boolean),
-			renameMap: parseRenameMap(renameMap), customRegionFlagMap: customRegionFlagMap.trim(), allowedTypes, prependRegionFlags, updatedAt: nowIso()
+			renameMap: parseRenameMap(renameMap), customRegionFlagMap: normalizedRegionFlagMap, allowedTypes, prependRegionFlags, updatedAt: nowIso()
 		});
 		editingRuleId = id;
 		setStatus($t("Rule saved."));
@@ -909,6 +935,14 @@ JP = JP, JAPAN, TOKYO`}
 							>
 								<Plus class="h-3.5 w-3.5" />
 								{$t("Import built-in template")}
+							</button>
+							<button
+								type="button"
+								on:click={normalizeAndSortCustomRegionFlagMap}
+								class="inline-flex items-center gap-2 rounded-xl border border-slate-800 bg-slate-950/60 px-4 py-2 text-[11px] font-bold uppercase tracking-[0.16em] text-slate-300 transition-all hover:bg-slate-800 hover:text-white"
+							>
+								<RefreshCw class="h-3.5 w-3.5" />
+								{$t("Normalize and sort map")}
 							</button>
 							<button
 								type="button"
