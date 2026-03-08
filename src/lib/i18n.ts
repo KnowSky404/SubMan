@@ -212,6 +212,9 @@ const zhCN: Record<string, string> = {
 	"Publish to Gist": "发布到 Gist",
 	"Subscription link": "订阅链接",
 	"Stable Link": "稳定链接",
+	"Changing the file name will create a new stable link on next publish. The old workspace file stays until you delete it, and clients using the old link must be updated manually.":
+		"修改文件名会在下次发布时生成新的稳定链接。旧的工作区文件会保留，直到你手动删除；仍在使用旧链接的客户端也需要手动更新。",
+	"Current published file: {file}": "当前已发布文件：{file}",
 	"Select a rule for this publish target.": "请为该发布目标选择规则。",
 	"File name is required.": "文件名不能为空。",
 	"SubMan aggregate": "SubMan 聚合",

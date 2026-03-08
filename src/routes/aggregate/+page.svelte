@@ -143,6 +143,21 @@
 		return Object.fromEntries(entries.filter(e => e.length === 2));
 	}
 
+	function getPublishedFileName(rawUrl?: string | null): string | null {
+		const stableUrl = toStableGistRawUrl(rawUrl);
+		if (!stableUrl) {
+			return null;
+		}
+
+		try {
+			const segments = new URL(stableUrl).pathname.split("/").filter(Boolean);
+			const filename = segments.at(-1);
+			return filename ? decodeURIComponent(filename) : null;
+		} catch {
+			return null;
+		}
+	}
+
 	function loadRule(rule: AggregateRule) {
 		editingRuleId = rule.id;
 		publishTargetRuleId = rule.id;
@@ -190,6 +205,14 @@
 	$: if (publishTargetRuleId && !$appState.aggregates.some((rule) => rule.id === publishTargetRuleId)) {
 		publishTargetRuleId = $appState.aggregates[0]?.id ?? "";
 	}
+
+	$: selectedPublishTarget = selectedTargetId
+		? $appState.publishTargets.find((target) => target.id === selectedTargetId) ?? null
+		: null;
+	$: publishedFileName = getPublishedFileName(selectedPublishTarget?.lastPublishedUrl);
+	$: willChangePublishedFileName = Boolean(
+		publishedFileName && publishTargetFile.trim() && publishTargetFile.trim() !== publishedFileName
+	);
 
 	async function buildPreview() {
 		if (!selectedNodeIds.length && !selectedSubscriptionIds.length) {
@@ -736,6 +759,19 @@
 							placeholder="config.txt"
 							bind:value={publishTargetFile}
 						/>
+						{#if willChangePublishedFileName}
+							<div class="rounded-xl border border-amber-500/20 bg-amber-500/10 p-3 flex items-start gap-3">
+								<AlertCircle class="h-4 w-4 text-amber-400 shrink-0 mt-0.5" />
+								<div class="space-y-1">
+									<p class="text-[11px] text-amber-100/90 leading-relaxed">
+										{$t("Changing the file name will create a new stable link on next publish. The old workspace file stays until you delete it, and clients using the old link must be updated manually.")}
+									</p>
+									<p class="text-[10px] font-mono text-amber-200/80">
+										{$t("Current published file: {file}", { file: publishedFileName ?? "-" })}
+									</p>
+								</div>
+							</div>
+						{/if}
 					</div>
 
 					<div class="space-y-2">
