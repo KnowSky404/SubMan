@@ -54,6 +54,8 @@
 	let batchPreviewSearch = "";
 	let batchPreviewStatusFilter: "all" | BatchImportPreviewStatus = "all";
 	let batchPreviewProtocolFilter: "all" | ProxyType = "all";
+	let selectedBatchImportIds: string[] = [];
+	let lastBatchPreviewSignature = "";
 
 	type BatchImportPreviewStatus = "import" | "duplicate" | "invalid";
 	type BatchImportPreviewItem = {
@@ -221,6 +223,8 @@ const batchPreviewProtocolOptions: ("all" | ProxyType)[] = ["all", "vless", "vme
 		batchPreviewSearch = "";
 		batchPreviewStatusFilter = "all";
 		batchPreviewProtocolFilter = "all";
+		selectedBatchImportIds = [];
+		lastBatchPreviewSignature = "";
 	}
 
 	function closeAddModal() {
@@ -394,7 +398,36 @@ const batchPreviewProtocolOptions: ("all" | ProxyType)[] = ["all", "vless", "vme
 		return item.label.toLowerCase().includes(query) || item.detail.toLowerCase().includes(query);
 	});
 	$: visibleImportableBatchCount = filteredBatchImportPreviewItems.filter((item) => item.status === "import").length;
-	$: canImportBatch = visibleImportableBatchCount > 0;
+	$: importableBatchItemIds = batchImportPreview.items.filter((item) => item.status === "import").map((item) => item.id);
+	$: batchPreviewSignature = importableBatchItemIds.join("|");
+	$: if (batchPreviewSignature !== lastBatchPreviewSignature) {
+		selectedBatchImportIds = importableBatchItemIds;
+		lastBatchPreviewSignature = batchPreviewSignature;
+	}
+	$: visibleSelectedImportableCount = filteredBatchImportPreviewItems.filter(
+		(item) => item.status === "import" && selectedBatchImportIds.includes(item.id)
+	).length;
+	$: canImportBatch = visibleSelectedImportableCount > 0;
+
+	function toggleBatchImportSelection(id: string) {
+		selectedBatchImportIds = selectedBatchImportIds.includes(id)
+			? selectedBatchImportIds.filter((itemId) => itemId !== id)
+			: [...selectedBatchImportIds, id];
+	}
+
+	function selectAllVisibleBatchImportItems() {
+		const visibleIds = filteredBatchImportPreviewItems
+			.filter((item) => item.status === "import")
+			.map((item) => item.id);
+		selectedBatchImportIds = Array.from(new Set([...selectedBatchImportIds, ...visibleIds]));
+	}
+
+	function clearVisibleBatchImportItemsSelection() {
+		const visibleIds = new Set(
+			filteredBatchImportPreviewItems.filter((item) => item.status === "import").map((item) => item.id)
+		);
+		selectedBatchImportIds = selectedBatchImportIds.filter((id) => !visibleIds.has(id));
+	}
 
 	$: filteredNodes = $appState.nodes
 		.filter((node) => (filterStatus === "all" ? true : filterStatus === "enabled" ? node.enabled : !node.enabled))
@@ -473,9 +506,9 @@ const batchPreviewProtocolOptions: ("all" | ProxyType)[] = ["all", "vless", "vme
 			expandedId = batchImportPreview.firstDuplicateId;
 		}
 
-		const importableItems = filteredBatchImportPreviewItems.filter((item) => item.status === "import" && item.importData);
+		const importableItems = filteredBatchImportPreviewItems.filter((item) => item.status === "import" && item.importData && selectedBatchImportIds.includes(item.id));
 		if (importableItems.length === 0) {
-			showToast($t("No visible importable items to import."), "info");
+			showToast($t("No visible selected items to import."), "info");
 			return;
 		}
 
@@ -793,7 +826,14 @@ const batchPreviewProtocolOptions: ("all" | ProxyType)[] = ["all", "vless", "vme
 								{/each}
 							</div>
 						{/if}
-						<p class="text-[11px] leading-relaxed text-slate-500">{$t("Only visible importable items will be imported.")}</p>
+						<div class="flex flex-wrap items-center justify-between gap-3">
+							<p class="text-[11px] leading-relaxed text-slate-500">{$t("Only visible selected importable items will be imported.")}</p>
+							<div class="flex flex-wrap gap-2">
+								<button type="button" on:click={selectAllVisibleBatchImportItems} class="inline-flex items-center gap-1.5 rounded-lg border border-slate-800 bg-slate-950/70 px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-300 transition-all hover:bg-slate-800 hover:text-white">{$t("Select visible")}</button>
+								<button type="button" on:click={clearVisibleBatchImportItemsSelection} class="inline-flex items-center gap-1.5 rounded-lg border border-slate-800 bg-slate-950/70 px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-300 transition-all hover:bg-slate-800 hover:text-white">{$t("Clear visible selection")}</button>
+							</div>
+						</div>
+						<p class="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">{$t("Selected importable items: {count}", { count: visibleSelectedImportableCount })}</p>
 						{#if filteredBatchImportPreviewItems.length === 0}
 							<p class="text-sm text-slate-500">{$t("No preview items match the current filters.")}</p>
 						{:else}
@@ -801,6 +841,7 @@ const batchPreviewProtocolOptions: ("all" | ProxyType)[] = ["all", "vless", "vme
 								{#each filteredBatchImportPreviewItems as item (item.id)}
 									<div class={cn(
 										"rounded-xl border px-4 py-3 space-y-1",
+										item.status === "import" && selectedBatchImportIds.includes(item.id) ? "ring-1 ring-emerald-400/40" : "",
 										item.status === "import"
 											? "border-emerald-500/20 bg-emerald-500/10"
 											: item.status === "duplicate"
@@ -808,6 +849,11 @@ const batchPreviewProtocolOptions: ("all" | ProxyType)[] = ["all", "vless", "vme
 												: "border-red-500/20 bg-red-500/10"
 									)}>
 										<div class="flex items-start justify-between gap-3">
+											{#if item.status === "import"}
+												<label class="mt-0.5 flex items-center gap-2 text-emerald-200">
+													<input type="checkbox" class="h-4 w-4 rounded border-emerald-500/40 bg-slate-950 text-emerald-500 focus:ring-emerald-500" checked={selectedBatchImportIds.includes(item.id)} on:change={() => toggleBatchImportSelection(item.id)} />
+												</label>
+											{/if}
 											<div class="min-w-0">
 												<p class="text-sm font-bold text-white">{item.label}</p>
 												<p class="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">{$t("Line {line}", { line: item.lineNumber })}</p>
