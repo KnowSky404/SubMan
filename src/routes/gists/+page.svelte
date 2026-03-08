@@ -439,6 +439,11 @@
 					<div class="space-y-1 min-w-0">
 						<h3 class="font-bold text-white truncate" title={file.filename}>{file.filename}</h3>
 						<p class="text-[10px] text-slate-500 font-bold uppercase tracking-wider">{file.size} Bytes</p>
+						{#if isManagedOutput(file.filename)}
+							<p class="text-[11px] leading-relaxed text-slate-500">
+								{$t("Keep the same file name to keep the stable link unchanged across republishes.")}
+							</p>
+						{/if}
 					</div>
 
 					<div class="mt-6 pt-4 border-t border-slate-800/60 flex items-center justify-between">
