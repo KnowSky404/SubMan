@@ -1,9 +1,10 @@
 <script lang="ts">
-	import { t } from "$lib/i18n";
+	import { browser } from "$app/environment";
+import { t } from "$lib/i18n";
 	import { appState, replaceState } from "$lib/stores/app";
 	import { authState, clearAuth, setToken } from "$lib/stores/auth";
 	import { exportState, exportSyncState, importState } from "$lib/serialization";
-	import { getGistFileContent, updateGist } from "$lib/gist";
+	import { getGist, getGistFileContent, updateGist } from "$lib/gist";
 	import { ensureWorkspaceGist, WORKSPACE_DESCRIPTION, WORKSPACE_FILE } from "$lib/workspace";
 	import { mergeSyncState } from "$lib/merge";
 	import { setSyncBaseline } from "$lib/sync";
@@ -50,10 +51,24 @@
 		};
 	};
 
+	type WorkspaceHealthItem = {
+		id: string;
+		label: string;
+		status: "healthy" | "warning" | "error";
+		detail: string;
+	};
+
+	type WorkspaceHealthReport = {
+		checkedAt: string;
+		items: WorkspaceHealthItem[];
+	};
+
 	let tokenInput = "";
 	let status: { type: 'info' | 'success' | 'error', message: string } | null = null;
 	let payload = "";
 	let workspaceBusy = false;
+	let healthCheckBusy = false;
+	let healthReport: WorkspaceHealthReport | null = null;
 	let conflict: WorkspaceConflict | null = null;
 	let pendingGistId: string | null = null;
 
@@ -98,6 +113,93 @@
 			setStatus($t("Workspace gist URL copied."), 'success');
 		} catch {
 			setStatus($t("Clipboard copy failed."), 'error');
+		}
+	}
+
+	$: healthSummary = !healthReport
+		? null
+		: healthReport.items.some((item) => item.status === "error")
+			? "error"
+			: healthReport.items.some((item) => item.status === "warning")
+				? "warning"
+				: "healthy";
+
+	async function runWorkspaceHealthCheck() {
+		healthCheckBusy = true;
+		try {
+			const items: WorkspaceHealthItem[] = [];
+			const token = $authState.token;
+			const gistId = $appState.activeGistId;
+
+			items.push({
+				id: "token",
+				label: $t("GitHub token"),
+				status: token ? "healthy" : "error",
+				detail: token ? $t("GitHub token is connected.") : $t("GitHub token is missing.")
+			});
+
+			items.push({
+				id: "binding",
+				label: $t("Workspace binding"),
+				status: gistId ? "healthy" : "warning",
+				detail: gistId
+					? $t("Workspace gist is bound to {id}.", { id: gistId })
+					: $t("Workspace gist is not bound yet.")
+			});
+
+			if (token && gistId) {
+				try {
+					const gist = await getGist(token, gistId);
+					items.push({
+						id: "gist",
+						label: $t("Workspace gist access"),
+						status: "healthy",
+						detail: $t("Workspace gist is reachable with {count} file(s).", { count: gist.files.length })
+					});
+
+					const configFile = gist.files.find((file) => file.filename === WORKSPACE_FILE);
+					items.push({
+						id: "config-file",
+						label: $t("Workspace config file"),
+						status: configFile ? "healthy" : "warning",
+						detail: configFile
+							? $t("Workspace config file {file} exists.", { file: WORKSPACE_FILE })
+							: $t("Workspace config file {file} is missing.", { file: WORKSPACE_FILE })
+					});
+
+					if (configFile) {
+						try {
+							const content = await getGistFileContent(token, gistId, WORKSPACE_FILE);
+							importState(content);
+							items.push({
+								id: "config-data",
+								label: $t("Workspace data format"),
+								status: "healthy",
+								detail: $t("Workspace config data is readable.")
+							});
+						} catch (err) {
+							items.push({
+								id: "config-data",
+								label: $t("Workspace data format"),
+								status: "error",
+								detail: err instanceof Error ? err.message : $t("Workspace data unreadable.")
+							});
+						}
+					}
+				} catch (err) {
+					items.push({
+						id: "gist",
+						label: $t("Workspace gist access"),
+						status: "error",
+						detail: err instanceof Error ? err.message : $t("Workspace gist check failed.")
+					});
+				}
+			}
+
+			healthReport = { checkedAt: nowIso(), items };
+			setStatus($t("Workspace health check complete."), "success");
+		} finally {
+			healthCheckBusy = false;
 		}
 	}
 
@@ -420,6 +522,71 @@
 				</div>
 			{/if}
 		</div>
+	</section>
+
+	<section class="rounded-[2rem] border border-slate-800/60 bg-slate-900/10 p-8 space-y-6">
+		<div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+			<div class="flex items-start gap-3">
+				<ShieldCheck class="h-5 w-5 text-emerald-400" />
+				<div>
+					<h2 class="text-xl font-bold text-white">{$t("Workspace Health")}</h2>
+					<p class="text-sm leading-relaxed text-slate-400">{$t("Run a quick check for token access, gist binding, workspace config, and readable sync data.")}</p>
+				</div>
+			</div>
+
+			<div class="flex items-center gap-3">
+				{#if healthSummary}
+					<div class={cn(
+						"rounded-full border px-3 py-1 text-[10px] font-bold uppercase tracking-[0.16em]",
+						healthSummary === "healthy"
+							? "border-emerald-500/20 bg-emerald-500/10 text-emerald-300"
+							: healthSummary === "warning"
+								? "border-amber-500/20 bg-amber-500/10 text-amber-300"
+								: "border-red-500/20 bg-red-500/10 text-red-300"
+					)}>
+						{$t(healthSummary === "healthy" ? "Healthy" : healthSummary === "warning" ? "Needs attention" : "Action needed")}
+					</div>
+				{/if}
+
+				<button
+					type="button"
+					on:click={runWorkspaceHealthCheck}
+					disabled={healthCheckBusy}
+					class="inline-flex items-center gap-2 rounded-xl border border-slate-800 bg-slate-900/50 px-5 py-3 text-sm font-bold text-white transition-all hover:bg-slate-800 active:scale-[0.98] disabled:opacity-50"
+				>
+					<RefreshCw class={cn("h-4 w-4", healthCheckBusy && "animate-spin")} />
+					{healthCheckBusy ? $t("Checking...") : $t("Run Health Check")}
+				</button>
+			</div>
+		</div>
+
+		{#if healthReport}
+			<div class="space-y-4">
+				<p class="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-500">{$t("Last checked: {time}", { time: new Date(healthReport.checkedAt).toLocaleString() })}</p>
+				<div class="grid gap-4 md:grid-cols-2">
+					{#each healthReport.items as item (item.id)}
+						<div class="rounded-2xl border border-slate-800/60 bg-slate-950/40 p-5 space-y-2">
+							<div class="flex items-start justify-between gap-3">
+								<div>
+									<p class="text-sm font-bold text-white">{item.label}</p>
+								</div>
+								<div class={cn(
+									"rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.16em]",
+									item.status === "healthy"
+										? "border-emerald-500/20 bg-emerald-500/10 text-emerald-300"
+										: item.status === "warning"
+											? "border-amber-500/20 bg-amber-500/10 text-amber-300"
+											: "border-red-500/20 bg-red-500/10 text-red-300"
+								)}>
+									{$t(item.status === "healthy" ? "Healthy" : item.status === "warning" ? "Warning" : "Error")}
+								</div>
+							</div>
+							<p class="text-sm leading-relaxed text-slate-400">{item.detail}</p>
+						</div>
+					{/each}
+				</div>
+			</div>
+		{/if}
 	</section>
 
 	<!-- Conflict Resolution -->
