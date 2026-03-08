@@ -98,6 +98,7 @@ import { requestConfirm } from "$lib/stores/confirm";
 	let payload = "";
 	let workspaceBusy = false;
 	let healthCheckBusy = false;
+	let repairBusy = false;
 	let healthReport: WorkspaceHealthReport | null = null;
 	let autoSyncStatus: AutoSyncStatus = readAutoSyncStatus();
 	let workspaceActivity = loadWorkspaceActivity();
@@ -219,7 +220,57 @@ import { requestConfirm } from "$lib/stores/confirm";
 				? "warning"
 				: "healthy";
 
-	async function handleManualSyncNow() {
+	$: workspaceConfigRepairNeeded = Boolean(
+		$authState.token &&
+		$appState.activeGistId &&
+		healthReport?.items.some((item) =>
+			(item.id === "config-file" && item.status !== "healthy") ||
+			(item.id === "config-data" && item.status === "error")
+		)
+	);
+
+	async function handleRepairWorkspaceConfig() {
+		const token = $authState.token;
+		const gistId = $appState.activeGistId;
+		if (!token || !gistId) {
+			setStatus($t("Workspace repair unavailable."), 'error');
+			return;
+		}
+
+		repairBusy = true;
+		try {
+			const localPayload = exportSyncState($appState);
+			await updateGist(token, {
+				gistId,
+				files: { [WORKSPACE_FILE]: { content: localPayload } }
+			});
+			appState.update((state) => ({
+				...state,
+				activeGistId: gistId,
+				activeGistFile: WORKSPACE_FILE,
+				lastUpdated: nowIso()
+			}));
+			setSyncBaseline(localPayload);
+			pushWorkspaceActivity(
+				"success",
+				$t("Workspace config repaired."),
+				$t("Workspace config file was restored from the current local state.")
+			);
+			setStatus($t("Workspace config repaired."), 'success');
+			await runWorkspaceHealthCheck();
+		} catch (err) {
+			pushWorkspaceActivity(
+				"error",
+				$t("Workspace config repair failed."),
+				err instanceof Error ? err.message : $t("Workspace config repair failed.")
+			);
+			setStatus(err instanceof Error ? err.message : $t("Workspace config repair failed."), 'error');
+		} finally {
+			repairBusy = false;
+		}
+	}
+
+async function handleManualSyncNow() {
 		const token = $authState.token;
 		if (!token) {
 			setStatus($t("Token is required."), 'error');
@@ -731,6 +782,17 @@ import { requestConfirm } from "$lib/stores/confirm";
 					<RefreshCw class={cn("h-4 w-4", healthCheckBusy && "animate-spin")} />
 					{healthCheckBusy ? $t("Checking...") : $t("Run Health Check")}
 				</button>
+				{#if workspaceConfigRepairNeeded}
+					<button
+						type="button"
+						on:click={handleRepairWorkspaceConfig}
+						disabled={repairBusy}
+						class="inline-flex items-center gap-2 rounded-xl border border-amber-500/20 bg-amber-500/10 px-5 py-3 text-sm font-bold text-amber-200 transition-all hover:bg-amber-500/15 active:scale-[0.98] disabled:opacity-50"
+					>
+						<ShieldCheck class={cn("h-4 w-4", repairBusy && "animate-pulse")} />
+						{repairBusy ? $t("Repairing...") : $t("Repair Workspace Config")}
+					</button>
+				{/if}
 			</div>
 		</div>
 
