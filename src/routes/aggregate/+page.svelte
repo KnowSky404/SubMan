@@ -158,6 +158,67 @@
 		}
 	}
 
+	function getPublishedGistId(rawUrl?: string | null): string | null {
+		const stableUrl = toStableGistRawUrl(rawUrl);
+		if (!stableUrl) {
+			return null;
+		}
+
+		try {
+			const segments = new URL(stableUrl).pathname.split("/").filter(Boolean);
+			return segments.length >= 4 ? (segments[1] ?? null) : null;
+		} catch {
+			return null;
+		}
+	}
+
+	function isTargetFormDirty(target: AggregatePublishTarget | null): boolean {
+		if (!target) {
+			return false;
+		}
+
+		return (
+			publishTargetName.trim() !== target.name ||
+			publishTargetRuleId !== target.ruleId ||
+			publishTargetFile.trim() !== target.fileName ||
+			publishTargetDescription.trim() !== target.description ||
+			publishTargetPublic !== target.isPublic
+		);
+	}
+
+	function getPublishRenameTransition(target: AggregatePublishTarget | null, nextFileName: string) {
+		const currentPublishedFileName = getPublishedFileName(target?.lastPublishedUrl);
+		const currentPublishedGistId = getPublishedGistId(target?.lastPublishedUrl);
+		const previousFileShared = Boolean(
+			target &&
+			currentPublishedFileName &&
+			$appState.publishTargets.some(
+				(item) => item.id !== target.id && item.fileName.trim() === currentPublishedFileName
+			)
+		);
+		const willChange = Boolean(
+			currentPublishedFileName && nextFileName && nextFileName !== currentPublishedFileName
+		);
+		const canAutoDeletePrevious = Boolean(
+			willChange &&
+			currentPublishedFileName &&
+			currentPublishedFileName !== WORKSPACE_FILE &&
+			currentPublishedGistId &&
+			$appState.activeGistId &&
+			currentPublishedGistId === $appState.activeGistId &&
+			!previousFileShared
+		);
+
+		return {
+			currentPublishedFileName,
+			currentPublishedGistId,
+			nextFileName,
+			previousFileShared,
+			willChange,
+			canAutoDeletePrevious
+		};
+	}
+
 	function loadRule(rule: AggregateRule) {
 		editingRuleId = rule.id;
 		publishTargetRuleId = rule.id;
@@ -209,10 +270,21 @@
 	$: selectedPublishTarget = selectedTargetId
 		? $appState.publishTargets.find((target) => target.id === selectedTargetId) ?? null
 		: null;
-	$: publishedFileName = getPublishedFileName(selectedPublishTarget?.lastPublishedUrl);
-	$: willChangePublishedFileName = Boolean(
-		publishedFileName && publishTargetFile.trim() && publishTargetFile.trim() !== publishedFileName
-	);
+	$: hasUnsavedTargetChanges = isTargetFormDirty(selectedPublishTarget);
+	$: selectedPublishTransition = getPublishRenameTransition(selectedPublishTarget, publishTargetFile.trim());
+	$: publishedFileName = selectedPublishTransition.currentPublishedFileName;
+	$: willChangePublishedFileName = selectedPublishTransition.willChange;
+	$: renameWarningMessage = !willChangePublishedFileName
+		? ""
+		: selectedPublishTransition.canAutoDeletePrevious
+			? $t("On next publish, SubMan will create a new stable link and delete the previous workspace file automatically. Clients using the old link still need to be updated manually.")
+			: selectedPublishTransition.previousFileShared
+				? $t("On next publish, SubMan will create a new stable link. The previous workspace file is still used by another publish target, so it will be kept.")
+				: selectedPublishTransition.currentPublishedGistId &&
+				  $appState.activeGistId &&
+				  selectedPublishTransition.currentPublishedGistId !== $appState.activeGistId
+					? $t("On next publish, SubMan will create a new stable link. The previous file belongs to a different workspace gist, so it cannot be deleted automatically.")
+					: $t("On next publish, SubMan will create a new stable link. The previous workspace file cannot be deleted automatically, so you may need to clean it up manually.");
 
 	async function buildPreview() {
 		if (!selectedNodeIds.length && !selectedSubscriptionIds.length) {
@@ -405,23 +477,46 @@
 		if (!selectedTargetId) { setStatus($t("Save and select a target first."), 'error'); return; }
 		const target = $appState.publishTargets.find(t => t.id === selectedTargetId);
 		if (!target) return;
+		if (hasUnsavedTargetChanges) { setStatus($t("Save target changes before publishing."), 'error'); return; }
 
-		const currentPublishedFileName = getPublishedFileName(target.lastPublishedUrl);
-		const nextPublishedFileName = target.fileName.trim();
-		if (
-			currentPublishedFileName &&
-			nextPublishedFileName &&
-			nextPublishedFileName !== currentPublishedFileName
-		) {
+		const renameTransition = getPublishRenameTransition(target, target.fileName.trim());
+		if (renameTransition.willChange) {
+			const confirmMessage = renameTransition.canAutoDeletePrevious
+				? $t(
+					'Publishing to "{next}" will create a new stable link and delete the previous workspace file "{current}" automatically. Existing clients using the old link must be updated manually.',
+					{
+						next: renameTransition.nextFileName,
+						current: renameTransition.currentPublishedFileName ?? "-"
+					}
+				)
+				: renameTransition.previousFileShared
+					? $t(
+						'Publishing to "{next}" will create a new stable link. The previous workspace file "{current}" is still used by another publish target, so it will be kept.',
+						{
+							next: renameTransition.nextFileName,
+							current: renameTransition.currentPublishedFileName ?? "-"
+						}
+					)
+					: renameTransition.currentPublishedGistId &&
+					  $appState.activeGistId &&
+					  renameTransition.currentPublishedGistId !== $appState.activeGistId
+						? $t(
+							'Publishing to "{next}" will create a new stable link. The previous file "{current}" belongs to a different workspace gist, so it cannot be deleted automatically.',
+							{
+								next: renameTransition.nextFileName,
+								current: renameTransition.currentPublishedFileName ?? "-"
+							}
+						)
+						: $t(
+							'Publishing to "{next}" will create a new stable link. The previous workspace file "{current}" cannot be deleted automatically, so you may need to clean it up manually.',
+							{
+								next: renameTransition.nextFileName,
+								current: renameTransition.currentPublishedFileName ?? "-"
+							}
+						);
 			const confirmed = await requestConfirm({
 				title: $t("Confirm Action"),
-				message: $t(
-					'Publishing to "{next}" will create a new stable link. Current published file: {current}. Existing clients using the old link must be updated manually.',
-					{
-						next: nextPublishedFileName,
-						current: currentPublishedFileName
-					}
-				),
+				message: confirmMessage,
 				confirmText: $t("Publish Now"),
 				cancelText: $t("Cancel")
 			});
@@ -441,16 +536,24 @@
 			const configContent = exportSyncState($appState);
 			let workspaceId = $appState.activeGistId || "";
 			let response;
+			const nextFiles = {
+				[target.fileName]: { content: outputContent },
+				[WORKSPACE_FILE]: { content: configContent }
+			};
 
 			if (workspaceId) {
+				const files: Record<string, { content: string } | null> = { ...nextFiles };
+				if (renameTransition.canAutoDeletePrevious && renameTransition.currentPublishedFileName) {
+					files[renameTransition.currentPublishedFileName] = null;
+				}
 				response = await updateGist($authState.token, {
 					gistId: workspaceId, description: target.description,
-					files: { [target.fileName]: { content: outputContent }, [WORKSPACE_FILE]: { content: configContent } }
+					files
 				});
 			} else {
 				response = await createGist($authState.token, {
 					description: target.description || "SubMan workspace", isPublic: target.isPublic,
-					files: { [WORKSPACE_FILE]: { content: configContent }, [target.fileName]: { content: outputContent } }
+					files: nextFiles
 				});
 				workspaceId = response.id;
 			}
@@ -461,7 +564,14 @@
 			appState.update(s => ({ ...s, activeGistId: workspaceId, lastUpdated: nowIso() }));
 			upsertPublishTarget({ ...target, lastPublishedAt: nowIso(), lastPublishedUrl: publishUrl, updatedAt: nowIso() });
 			
-			setStatus($t("Published to Gist successfully!"), 'success');
+			setStatus(
+				renameTransition.canAutoDeletePrevious && renameTransition.currentPublishedFileName
+					? $t('Published to Gist successfully! Previous workspace file "{file}" was removed automatically.', {
+						file: renameTransition.currentPublishedFileName
+					})
+					: $t("Published to Gist successfully!"),
+				'success'
+			);
 		} catch (err) {
 			setStatus(err instanceof Error ? err.message : $t("Publish failed."), 'error');
 		} finally { publishing = false; }
@@ -788,7 +898,7 @@
 								<AlertCircle class="h-4 w-4 text-amber-400 shrink-0 mt-0.5" />
 								<div class="space-y-1">
 									<p class="text-[11px] text-amber-100/90 leading-relaxed">
-										{$t("Changing the file name will create a new stable link on next publish. The old workspace file stays until you delete it, and clients using the old link must be updated manually.")}
+										{renameWarningMessage}
 									</p>
 									<p class="text-[10px] font-mono text-amber-200/80">
 										{$t("Current published file: {file}", { file: publishedFileName ?? "-" })}

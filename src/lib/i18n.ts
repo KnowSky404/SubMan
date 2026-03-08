@@ -216,8 +216,26 @@ const zhCN: Record<string, string> = {
 	"Changing the file name will create a new stable link on next publish. The old workspace file stays until you delete it, and clients using the old link must be updated manually.":
 		"修改文件名会在下次发布时生成新的稳定链接。旧的工作区文件会保留，直到你手动删除；仍在使用旧链接的客户端也需要手动更新。",
 	"Current published file: {file}": "当前已发布文件：{file}",
+	"On next publish, SubMan will create a new stable link and delete the previous workspace file automatically. Clients using the old link still need to be updated manually.":
+		"下次发布时，SubMan 会生成新的稳定链接，并自动删除之前的工作区文件。仍在使用旧链接的客户端仍需要手动更新。",
+	"On next publish, SubMan will create a new stable link. The previous workspace file is still used by another publish target, so it will be kept.":
+		"下次发布时，SubMan 会生成新的稳定链接。之前的工作区文件仍被其他发布目标使用，因此会被保留。",
+	"On next publish, SubMan will create a new stable link. The previous file belongs to a different workspace gist, so it cannot be deleted automatically.":
+		"下次发布时，SubMan 会生成新的稳定链接。之前的文件属于另一个工作区 gist，因此无法自动删除。",
+	"On next publish, SubMan will create a new stable link. The previous workspace file cannot be deleted automatically, so you may need to clean it up manually.":
+		"下次发布时，SubMan 会生成新的稳定链接。之前的工作区文件无法自动删除，因此你可能仍需要手动清理。",
 	'Publishing to "{next}" will create a new stable link. Current published file: {current}. Existing clients using the old link must be updated manually.':
 		'发布到“{next}”会生成新的稳定链接。当前已发布文件为：{current}。仍在使用旧链接的客户端需要手动更新。',
+	'Publishing to "{next}" will create a new stable link and delete the previous workspace file "{current}" automatically. Existing clients using the old link must be updated manually.':
+		'发布到“{next}”会生成新的稳定链接，并自动删除之前的工作区文件“{current}”。仍在使用旧链接的客户端需要手动更新。',
+	'Publishing to "{next}" will create a new stable link. The previous workspace file "{current}" is still used by another publish target, so it will be kept.':
+		'发布到“{next}”会生成新的稳定链接。之前的工作区文件“{current}”仍被其他发布目标使用，因此会被保留。',
+	'Publishing to "{next}" will create a new stable link. The previous file "{current}" belongs to a different workspace gist, so it cannot be deleted automatically.':
+		'发布到“{next}”会生成新的稳定链接。之前的文件“{current}”属于另一个工作区 gist，因此无法自动删除。',
+	'Publishing to "{next}" will create a new stable link. The previous workspace file "{current}" cannot be deleted automatically, so you may need to clean it up manually.':
+		'发布到“{next}”会生成新的稳定链接。之前的工作区文件“{current}”无法自动删除，因此你可能仍需要手动清理。',
+	'Published to Gist successfully! Previous workspace file "{file}" was removed automatically.':
+		'已成功发布到 Gist，之前的工作区文件“{file}”已自动删除。',
 	"Select a rule for this publish target.": "请为该发布目标选择规则。",
 	"File name is required.": "文件名不能为空。",
 	"SubMan aggregate": "SubMan 聚合",
