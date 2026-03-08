@@ -405,6 +405,30 @@
 		if (!selectedTargetId) { setStatus($t("Save and select a target first."), 'error'); return; }
 		const target = $appState.publishTargets.find(t => t.id === selectedTargetId);
 		if (!target) return;
+
+		const currentPublishedFileName = getPublishedFileName(target.lastPublishedUrl);
+		const nextPublishedFileName = target.fileName.trim();
+		if (
+			currentPublishedFileName &&
+			nextPublishedFileName &&
+			nextPublishedFileName !== currentPublishedFileName
+		) {
+			const confirmed = await requestConfirm({
+				title: $t("Confirm Action"),
+				message: $t(
+					'Publishing to "{next}" will create a new stable link. Current published file: {current}. Existing clients using the old link must be updated manually.',
+					{
+						next: nextPublishedFileName,
+						current: currentPublishedFileName
+					}
+				),
+				confirmText: $t("Publish Now"),
+				cancelText: $t("Cancel")
+			});
+			if (!confirmed) {
+				return;
+			}
+		}
 		
 		publishing = true;
 		try {
