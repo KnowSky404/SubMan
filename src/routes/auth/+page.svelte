@@ -7,6 +7,7 @@ import { t } from "$lib/i18n";
 	import { getGist, getGistFileContent, updateGist } from "$lib/gist";
 	import { ensureWorkspaceGist, WORKSPACE_DESCRIPTION, WORKSPACE_FILE } from "$lib/workspace";
 	import { mergeSyncState } from "$lib/merge";
+import { requestConfirm } from "$lib/stores/confirm";
 	import { setSyncBaseline } from "$lib/sync";
 	import { nowIso } from "$lib/utils/time";
 	import { cn } from "$lib/utils/cn";
@@ -63,12 +64,41 @@ import { t } from "$lib/i18n";
 		items: WorkspaceHealthItem[];
 	};
 
+	type WorkspaceActivity = {
+		id: string;
+		at: string;
+		type: 'success' | 'info' | 'warning' | 'error';
+		title: string;
+		detail: string;
+	};
+
+	const WORKSPACE_ACTIVITY_KEY = "subman:auth:activity:v1";
+
+	function loadWorkspaceActivity(): WorkspaceActivity[] {
+		if (!browser) {
+			return [];
+		}
+
+		const raw = localStorage.getItem(WORKSPACE_ACTIVITY_KEY);
+		if (!raw) {
+			return [];
+		}
+
+		try {
+			const parsed = JSON.parse(raw) as WorkspaceActivity[];
+			return Array.isArray(parsed) ? parsed : [];
+		} catch {
+			return [];
+		}
+	}
+
 	let tokenInput = "";
 	let status: { type: 'info' | 'success' | 'error', message: string } | null = null;
 	let payload = "";
 	let workspaceBusy = false;
 	let healthCheckBusy = false;
 	let healthReport: WorkspaceHealthReport | null = null;
+	let workspaceActivity = loadWorkspaceActivity();
 	let conflict: WorkspaceConflict | null = null;
 	let pendingGistId: string | null = null;
 
@@ -79,6 +109,46 @@ import { t } from "$lib/i18n";
 				if (status?.message === message) status = null;
 			}, 5000);
 		}
+	}
+
+	$: if (browser) {
+		localStorage.setItem(WORKSPACE_ACTIVITY_KEY, JSON.stringify(workspaceActivity));
+	}
+
+	function pushWorkspaceActivity(
+		type: 'success' | 'info' | 'warning' | 'error',
+		title: string,
+		detail: string
+	) {
+		workspaceActivity = [
+			{
+				id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+				at: nowIso(),
+				type,
+				title,
+				detail
+			},
+			...workspaceActivity
+		].slice(0, 12);
+	}
+
+	async function clearWorkspaceActivityLog() {
+		if (workspaceActivity.length === 0) {
+			return;
+		}
+
+		const confirmed = await requestConfirm({
+			title: $t("Confirm Action"),
+			message: $t("Clear recent workspace activity log?"),
+			confirmText: $t("Clear"),
+			cancelText: $t("Cancel")
+		});
+		if (!confirmed) {
+			return;
+		}
+
+		workspaceActivity = [];
+		setStatus($t("Workspace activity log cleared."), 'success');
 	}
 
 	function snapshotStats(state: AppState) {
@@ -196,7 +266,18 @@ import { t } from "$lib/i18n";
 				}
 			}
 
-			healthReport = { checkedAt: nowIso(), items };
+			const checkedAt = nowIso();
+			const summary = items.some((item) => item.status === "error")
+				? "error"
+				: items.some((item) => item.status === "warning")
+					? "warning"
+					: "healthy";
+			healthReport = { checkedAt, items };
+			pushWorkspaceActivity(
+				summary === "error" ? "error" : summary === "warning" ? "warning" : "success",
+				$t("Workspace health check complete."),
+				items.map((item) => `${item.label}: ${item.detail}`).join(" | ")
+			);
 			setStatus($t("Workspace health check complete."), "success");
 		} finally {
 			healthCheckBusy = false;
@@ -229,6 +310,7 @@ import { t } from "$lib/i18n";
 					lastUpdated: nowIso()
 				}));
 				setSyncBaseline(localPayload);
+				pushWorkspaceActivity("success", $t("Workspace gist created."), $t("Workspace gist is bound to {id}.", { id: gist.id }));
 				setStatus($t("Workspace gist created."), 'success');
 				return;
 			}
@@ -246,6 +328,7 @@ import { t } from "$lib/i18n";
 						}
 					});
 					content = localPayload;
+					pushWorkspaceActivity("warning", $t("Workspace file missing. Local data seeded."), $t("Workspace config file {file} is missing.", { file: WORKSPACE_FILE }));
 					setStatus($t("Workspace file missing. Local data seeded."), 'info');
 				} else {
 					throw err;
@@ -275,12 +358,15 @@ import { t } from "$lib/i18n";
 			if (!gistMismatch && !payloadMismatch) {
 				applyWorkspaceState(remoteState, gist.id);
 				setSyncBaseline(remotePayload);
+				pushWorkspaceActivity("success", $t("Workspace linked. No sync needed."), $t("Workspace gist is bound to {id}.", { id: gist.id }));
 				setStatus($t("Workspace linked. No sync needed."), 'success');
 				conflict = null;
 			} else {
+				pushWorkspaceActivity("warning", $t("Review sync options to finish setup."), $t("Workspace gist is bound to {id}.", { id: gist.id }));
 				setStatus($t("Review sync options to finish setup."), 'info');
 			}
 		} catch (err) {
+			pushWorkspaceActivity("error", $t("Failed to setup workspace."), err instanceof Error ? err.message : $t("Failed to setup workspace."));
 			setStatus(err instanceof Error ? err.message : $t("Failed to setup workspace."), 'error');
 		} finally {
 			workspaceBusy = false;
@@ -297,6 +383,7 @@ import { t } from "$lib/i18n";
 			if (action === "remote") {
 				applyWorkspaceState(activeConflict.remoteState, activeConflict.gistId);
 				setSyncBaseline(activeConflict.remotePayload);
+				pushWorkspaceActivity("success", $t("Remote data loaded."), $t("Remote workspace state replaced the local view."));
 				setStatus($t("Remote data loaded."), 'success');
 				conflict = null;
 				return;
@@ -316,6 +403,7 @@ import { t } from "$lib/i18n";
 					lastUpdated: nowIso()
 				}));
 				setSyncBaseline(activeConflict.localPayload);
+				pushWorkspaceActivity("success", $t("Local data pushed."), $t("Local state was uploaded to the workspace gist."));
 				setStatus($t("Local data pushed."), 'success');
 				conflict = null;
 				return;
@@ -331,9 +419,11 @@ import { t } from "$lib/i18n";
 
 			applyWorkspaceState(mergedState, activeConflict.gistId);
 			setSyncBaseline(mergedPayload);
+			pushWorkspaceActivity("success", $t("Merged data saved."), $t("Local and remote workspace states were merged and saved."));
 			setStatus($t("Merged data saved."), 'success');
 			conflict = null;
 		} catch (err) {
+			pushWorkspaceActivity("error", $t("Conflict resolution failed."), err instanceof Error ? err.message : $t("Conflict resolution failed."));
 			setStatus(err instanceof Error ? err.message : $t("Conflict resolution failed."), 'error');
 		} finally {
 			workspaceBusy = false;
@@ -350,6 +440,7 @@ import { t } from "$lib/i18n";
 			lastUpdated: nowIso()
 		}));
 		setSyncBaseline(baseline);
+		pushWorkspaceActivity("info", $t("Workspace linked (Local only)."), $t("Workspace gist is bound to {id}.", { id: pendingGistId }));
 		setStatus($t("Workspace linked (Local only)."), 'info');
 		conflict = null;
 	}
@@ -362,6 +453,7 @@ import { t } from "$lib/i18n";
 			activeGistFile: WORKSPACE_FILE,
 			lastUpdated: nowIso()
 		}));
+		pushWorkspaceActivity("info", $t("Token cleared. Local mode."), $t("Workspace sync is disabled until a token is connected again."));
 		setStatus($t("Token cleared. Local mode."), 'info');
 		conflict = null;
 	}
@@ -585,6 +677,59 @@ import { t } from "$lib/i18n";
 						</div>
 					{/each}
 				</div>
+			</div>
+		{/if}
+	</section>
+
+	<section class="rounded-[2rem] border border-slate-800/60 bg-slate-900/10 p-8 space-y-6">
+		<div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+			<div class="flex items-start gap-3">
+				<History class="h-5 w-5 text-indigo-400" />
+				<div>
+					<h2 class="text-xl font-bold text-white">{$t("Recent Workspace Activity")}</h2>
+					<p class="text-sm leading-relaxed text-slate-400">{$t("Track recent workspace setup, sync, and repair actions on this device.")}</p>
+				</div>
+			</div>
+
+			{#if workspaceActivity.length > 0}
+				<button
+					type="button"
+					on:click={clearWorkspaceActivityLog}
+					class="inline-flex items-center gap-2 rounded-xl border border-slate-800 bg-slate-900/50 px-4 py-2 text-xs font-bold uppercase tracking-[0.16em] text-slate-300 transition-all hover:bg-slate-800 hover:text-white"
+				>
+					<Trash2 class="h-3.5 w-3.5" />
+					{$t("Clear history")}
+				</button>
+			{/if}
+		</div>
+
+		{#if workspaceActivity.length === 0}
+			<div class="rounded-3xl border border-slate-800/60 border-dashed bg-slate-950/40 px-6 py-10 text-center">
+				<p class="text-sm font-medium text-slate-400">{$t("No recent workspace activity yet.")}</p>
+			</div>
+		{:else}
+			<div class="space-y-4">
+				{#each workspaceActivity as activity (activity.id)}
+					<div class="rounded-2xl border border-slate-800/60 bg-slate-950/40 p-5 space-y-2">
+						<div class="flex items-start justify-between gap-3">
+							<div class="min-w-0">
+								<p class="text-sm font-bold text-white">{activity.title}</p>
+								<p class="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-500">{$t("Updated: {time}", { time: new Date(activity.at).toLocaleString() })}</p>
+							</div>
+							<div class={cn(
+								"rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.16em]",
+								activity.type === "success"
+									? "border-emerald-500/20 bg-emerald-500/10 text-emerald-300"
+									: activity.type === "warning"
+										? "border-amber-500/20 bg-amber-500/10 text-amber-300"
+										: activity.type === "error"
+											? "border-red-500/20 bg-red-500/10 text-red-300"
+											: "border-indigo-500/20 bg-indigo-500/10 text-indigo-300"
+							)}>{$t(activity.type === "success" ? "Healthy" : activity.type === "warning" ? "Warning" : activity.type === "error" ? "Error" : "Info")}</div>
+						</div>
+						<p class="text-sm leading-relaxed text-slate-400">{activity.detail}</p>
+					</div>
+				{/each}
 			</div>
 		{/if}
 	</section>
