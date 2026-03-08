@@ -7,7 +7,7 @@ export type AggregateBuildResult = {
 	errors: string[];
 };
 
-type RegionFlagRule = {
+export type RegionFlagRule = {
 	code: string;
 	keywords: string[];
 };
@@ -15,7 +15,7 @@ type RegionFlagRule = {
 const KNOWN_PROXY_TYPES = new Set(['vless', 'vmess', 'trojan', 'ss', 'ssr', 'hysteria2', 'tuic']);
 const LEADING_FLAG_REGEX = /^(?:[\u{1F1E6}-\u{1F1FF}]{2})\s*/u;
 const CUSTOM_REGION_RULE_LINE_REGEX = /^([A-Za-z]{2})\s*=\s*(.+)$/;
-const REGION_FLAG_RULES: RegionFlagRule[] = [
+export const BUILT_IN_REGION_FLAG_RULES: RegionFlagRule[] = [
 	{ code: 'EU', keywords: ['EU', 'EUR', 'EUROPE', '欧洲'] },
 	{ code: 'HK', keywords: ['HK', 'HKG', 'HONG KONG', 'HONGKONG', '香港'] },
 	{ code: 'MO', keywords: ['MO', 'MAC', 'MACAU', '澳门'] },
@@ -101,7 +101,7 @@ function normalizeRegionName(name: string): string {
 	return normalized ? ` ${normalized} ` : ' ';
 }
 
-function toFlagEmoji(countryCode: string): string {
+export function regionCodeToFlagEmoji(countryCode: string): string {
 	if (!/^[A-Z]{2}$/.test(countryCode)) {
 		return '';
 	}
@@ -176,7 +176,7 @@ function prependRegionFlag(name: string, rules: RegionFlagRule[]): string {
 		return name;
 	}
 
-	const flag = toFlagEmoji(regionCode);
+	const flag = regionCodeToFlagEmoji(regionCode);
 	return flag ? `${flag} ${trimmed}` : name;
 }
 
@@ -371,7 +371,7 @@ export async function buildAggregateOutput(
 		rule.customRegionFlagMap
 	);
 	warnings.push(...customRegionWarnings);
-	const activeRegionFlagRules = [...customRegionFlagRules, ...REGION_FLAG_RULES];
+	const activeRegionFlagRules = [...customRegionFlagRules, ...BUILT_IN_REGION_FLAG_RULES];
 
 	const selectedNodes = nodes.filter(
 		(node) =>

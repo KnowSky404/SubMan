@@ -10,7 +10,7 @@
 	} from "$lib/stores/app";
 	import { authState } from "$lib/stores/auth";
 	import type { AggregatePublishTarget, AggregateRule, ProxyType } from "$lib/models";
-	import { buildAggregateOutput } from "$lib/aggregate";
+	import { BUILT_IN_REGION_FLAG_RULES, buildAggregateOutput, regionCodeToFlagEmoji } from "$lib/aggregate";
 	import { createGist, toStableGistRawUrl, updateGist } from "$lib/gist";
 	import { exportSyncState } from "$lib/serialization";
 	import { WORKSPACE_FILE } from "$lib/workspace";
@@ -41,7 +41,8 @@
 		Search,
 		Cpu,
 		Globe,
-		Database
+		Database,
+		X
 	} from "lucide-svelte";
 	import { fade, slide, fly } from "svelte/transition";
 
@@ -53,6 +54,8 @@
 	let customRegionFlagMap = "";
 	let allowedTypes: ProxyType[] = [];
 	let prependRegionFlags = true;
+	let showBuiltInRegionMap = false;
+	let builtInRegionMapSearch = "";
 	
 	let previewSummary = "";
 	let previewContent = "";
@@ -303,6 +306,17 @@
 				  selectedPublishTransition.currentPublishedGistId !== $appState.activeGistId
 					? $t("On next publish, SubMan will create a new stable link. The previous file belongs to a different workspace gist, so it cannot be deleted automatically.")
 					: $t("On next publish, SubMan will create a new stable link. The previous workspace file cannot be deleted automatically, so you may need to clean it up manually.");
+
+	function normalizeBuiltInRegionMapSearch(value: string): string {
+		return value.trim().toUpperCase();
+	}
+
+	$: normalizedBuiltInRegionMapSearch = normalizeBuiltInRegionMapSearch(builtInRegionMapSearch);
+	$: filteredBuiltInRegionRules = BUILT_IN_REGION_FLAG_RULES.filter((rule) =>
+		!normalizedBuiltInRegionMapSearch ||
+		rule.code.includes(normalizedBuiltInRegionMapSearch) ||
+		rule.keywords.some((keyword) => keyword.toUpperCase().includes(normalizedBuiltInRegionMapSearch))
+	);
 
 	async function buildPreview() {
 		if (!selectedNodeIds.length && !selectedSubscriptionIds.length) {
@@ -812,6 +826,14 @@ JP = JP, JAPAN, TOKYO`}
 								bind:value={customRegionFlagMap}
 							></textarea>
 							<p class="text-[11px] leading-relaxed text-slate-500">{$t("Use one rule per line: FLAG_CODE = keyword1, keyword2. Custom rules are matched before the built-in region table.")}</p>
+						<button
+							type="button"
+							on:click={() => (showBuiltInRegionMap = true)}
+							class="inline-flex items-center gap-2 rounded-xl border border-slate-800 bg-slate-950/60 px-4 py-2 text-[11px] font-bold uppercase tracking-[0.16em] text-slate-300 transition-all hover:bg-slate-800 hover:text-white"
+						>
+							<Globe class="h-3.5 w-3.5" />
+							{$t("Browse built-in region map")}
+						</button>
 						</div>
 
 						<div class="rounded-2xl border border-slate-800 bg-slate-950/50 px-5 py-4 space-y-3">
@@ -1087,6 +1109,88 @@ JP = JP, JAPAN, TOKYO`}
 		</div>
 	</div>
 </div>
+
+{#if showBuiltInRegionMap}
+	<div class="fixed inset-0 z-[120]">
+		<button
+			type="button"
+			aria-label={$t("Close built-in region map")}
+			class="absolute inset-0 bg-slate-950/70 backdrop-blur-sm"
+			on:click={() => (showBuiltInRegionMap = false)}
+		></button>
+		<div class="relative flex min-h-full items-center justify-center p-4">
+			<div
+				role="dialog"
+				aria-modal="true"
+				aria-label={$t("Built-in region flag map")}
+				class="w-full max-w-4xl rounded-3xl border border-slate-800 bg-slate-900/95 p-6 shadow-2xl shadow-indigo-500/10"
+				in:fly={{ y: 12, duration: 220 }}
+				out:fade={{ duration: 140 }}
+			>
+				<div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+					<div class="flex items-start gap-3">
+						<div class="flex h-11 w-11 items-center justify-center rounded-2xl bg-indigo-500/10 text-indigo-400">
+							<Globe class="h-5 w-5" />
+						</div>
+						<div class="space-y-1">
+							<h2 class="text-lg font-bold text-white tracking-tight">{$t("Built-in region flag map")}</h2>
+							<p class="text-sm text-slate-400">{$t("Search built-in region rules by country code, city, or keyword.")}</p>
+						</div>
+					</div>
+
+					<button
+						type="button"
+						on:click={() => (showBuiltInRegionMap = false)}
+						class="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-slate-800 bg-slate-950/70 text-slate-400 transition-all hover:bg-slate-800 hover:text-white"
+						aria-label={$t("Close built-in region map")}
+					>
+						<X class="h-4.5 w-4.5" />
+					</button>
+				</div>
+
+				<div class="mt-5 flex flex-col gap-4">
+					<div class="relative">
+						<Search class="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
+						<input
+							type="text"
+							class="w-full rounded-2xl border border-slate-800 bg-slate-950 px-12 py-3 text-sm text-white outline-none focus:border-indigo-500/50"
+							placeholder={$t("Search code or keyword") }
+							bind:value={builtInRegionMapSearch}
+						/>
+					</div>
+
+					<div class="flex items-center justify-between text-[11px] font-bold uppercase tracking-[0.18em] text-slate-500">
+						<span>{$t("Built-in rules: {count}", { count: filteredBuiltInRegionRules.length })}</span>
+						<span>{$t("Custom rules are matched before the built-in region table.")}</span>
+					</div>
+
+					{#if filteredBuiltInRegionRules.length === 0}
+						<div class="rounded-3xl border border-slate-800/60 border-dashed bg-slate-950/40 px-6 py-12 text-center">
+							<p class="text-sm font-medium text-slate-400">{$t("No built-in region rules match this search.")}</p>
+						</div>
+					{:else}
+						<div class="max-h-[60vh] overflow-y-auto pr-1 custom-scrollbar">
+							<div class="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+								{#each filteredBuiltInRegionRules as rule (rule.code + rule.keywords.join(','))}
+									<div class="rounded-3xl border border-slate-800/60 bg-slate-950/40 p-5 space-y-3">
+										<div class="flex items-center gap-3">
+											<div class="flex h-11 w-11 items-center justify-center rounded-2xl bg-indigo-500/10 text-xl">{regionCodeToFlagEmoji(rule.code) || "🏳️"}</div>
+											<div class="min-w-0">
+												<p class="text-sm font-bold text-white">{rule.code}</p>
+												<p class="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-500">{$t("Keywords")}: {rule.keywords.length}</p>
+											</div>
+										</div>
+										<p class="text-[11px] leading-relaxed text-slate-300 break-words">{rule.keywords.join(", ")}</p>
+									</div>
+								{/each}
+							</div>
+						</div>
+					{/if}
+				</div>
+			</div>
+		</div>
+	</div>
+{/if}
 
 <style>
 	.custom-scrollbar::-webkit-scrollbar {
