@@ -15,38 +15,76 @@ type RegionFlagRule = {
 const KNOWN_PROXY_TYPES = new Set(['vless', 'vmess', 'trojan', 'ss', 'ssr', 'hysteria2', 'tuic']);
 const LEADING_FLAG_REGEX = /^(?:[\u{1F1E6}-\u{1F1FF}]{2})\s*/u;
 const REGION_FLAG_RULES: RegionFlagRule[] = [
+	{ code: 'EU', keywords: ['EU', 'EUR', 'EUROPE'] },
 	{ code: 'HK', keywords: ['HK', 'HKG', 'HONG KONG', 'HONGKONG'] },
-	{ code: 'TW', keywords: ['TW', 'TWN', 'TAIWAN', 'TAIPEI'] },
-	{ code: 'JP', keywords: ['JP', 'JPN', 'JAPAN', 'TOKYO', 'OSAKA'] },
-	{ code: 'SG', keywords: ['SG', 'SGP', 'SINGAPORE'] },
-	{ code: 'KR', keywords: ['KR', 'KOR', 'KOREA', 'SEOUL'] },
-	{ code: 'US', keywords: ['US', 'USA', 'UNITED STATES', 'AMERICA', 'NEW YORK', 'LOS ANGELES', 'SEATTLE', 'SAN JOSE'] },
-	{ code: 'GB', keywords: ['UK', 'GB', 'GBR', 'UNITED KINGDOM', 'BRITAIN', 'ENGLAND', 'LONDON'] },
-	{ code: 'DE', keywords: ['DE', 'DEU', 'GERMANY', 'FRANKFURT'] },
-	{ code: 'FR', keywords: ['FR', 'FRA', 'FRANCE', 'PARIS'] },
-	{ code: 'NL', keywords: ['NL', 'NLD', 'NETHERLANDS', 'AMSTERDAM'] },
-	{ code: 'CA', keywords: ['CA', 'CAN', 'CANADA', 'TORONTO', 'VANCOUVER'] },
-	{ code: 'AU', keywords: ['AU', 'AUS', 'AUSTRALIA', 'SYDNEY', 'MELBOURNE'] },
-	{ code: 'CN', keywords: ['CN', 'CHN', 'CHINA', 'BEIJING', 'SHANGHAI', 'GUANGZHOU', 'SHENZHEN'] },
 	{ code: 'MO', keywords: ['MO', 'MAC', 'MACAU'] },
-	{ code: 'IN', keywords: ['IN', 'IND', 'INDIA'] },
-	{ code: 'TR', keywords: ['TR', 'TUR', 'TURKEY', 'TURKIYE'] },
-	{ code: 'RU', keywords: ['RU', 'RUS', 'RUSSIA', 'MOSCOW'] },
-	{ code: 'BR', keywords: ['BR', 'BRA', 'BRAZIL'] },
-	{ code: 'VN', keywords: ['VN', 'VNM', 'VIETNAM'] },
+	{ code: 'TW', keywords: ['TW', 'TWN', 'TAIWAN', 'TAIPEI', 'KAOHSIUNG'] },
+	{ code: 'JP', keywords: ['JP', 'JPN', 'JAPAN', 'TOKYO', 'OSAKA', 'NAGOYA'] },
+	{ code: 'SG', keywords: ['SG', 'SGP', 'SINGAPORE'] },
+	{ code: 'KR', keywords: ['KR', 'KOR', 'KOREA', 'SOUTH KOREA', 'SEOUL', 'BUSAN'] },
+	{ code: 'US', keywords: ['US', 'USA', 'UNITED STATES', 'AMERICA', 'NEW YORK', 'LOS ANGELES', 'SEATTLE', 'SAN JOSE', 'SAN FRANCISCO', 'CHICAGO', 'DALLAS', 'MIAMI', 'LAS VEGAS', 'PHOENIX'] },
+	{ code: 'CA', keywords: ['CA', 'CAN', 'CANADA', 'TORONTO', 'VANCOUVER', 'MONTREAL'] },
+	{ code: 'MX', keywords: ['MX', 'MEX', 'MEXICO', 'MEXICO CITY'] },
+	{ code: 'GB', keywords: ['UK', 'GB', 'GBR', 'UNITED KINGDOM', 'BRITAIN', 'ENGLAND', 'LONDON', 'MANCHESTER'] },
+	{ code: 'IE', keywords: ['IE', 'IRL', 'IRELAND', 'DUBLIN'] },
+	{ code: 'DE', keywords: ['DE', 'DEU', 'GERMANY', 'FRANKFURT', 'BERLIN', 'MUNICH'] },
+	{ code: 'FR', keywords: ['FR', 'FRA', 'FRANCE', 'PARIS', 'MARSEILLE'] },
+	{ code: 'NL', keywords: ['NL', 'NLD', 'NETHERLANDS', 'AMSTERDAM', 'ROTTERDAM'] },
+	{ code: 'BE', keywords: ['BE', 'BEL', 'BELGIUM', 'BRUSSELS'] },
+	{ code: 'LU', keywords: ['LU', 'LUX', 'LUXEMBOURG'] },
+	{ code: 'CH', keywords: ['CH', 'CHE', 'SWITZERLAND', 'ZURICH', 'GENEVA'] },
+	{ code: 'AT', keywords: ['AT', 'AUT', 'AUSTRIA', 'VIENNA'] },
+	{ code: 'IT', keywords: ['IT', 'ITA', 'ITALY', 'MILAN', 'ROME'] },
+	{ code: 'ES', keywords: ['ES', 'ESP', 'SPAIN', 'MADRID', 'BARCELONA'] },
+	{ code: 'PT', keywords: ['PT', 'PRT', 'PORTUGAL', 'LISBON'] },
+	{ code: 'SE', keywords: ['SE', 'SWE', 'SWEDEN', 'STOCKHOLM'] },
+	{ code: 'NO', keywords: ['NO', 'NOR', 'NORWAY', 'OSLO'] },
+	{ code: 'FI', keywords: ['FI', 'FIN', 'FINLAND', 'HELSINKI'] },
+	{ code: 'DK', keywords: ['DK', 'DNK', 'DENMARK', 'COPENHAGEN'] },
+	{ code: 'IS', keywords: ['IS', 'ISL', 'ICELAND', 'REYKJAVIK'] },
+	{ code: 'PL', keywords: ['PL', 'POL', 'POLAND', 'WARSAW'] },
+	{ code: 'CZ', keywords: ['CZ', 'CZE', 'CZECH', 'PRAGUE'] },
+	{ code: 'SK', keywords: ['SK', 'SVK', 'SLOVAKIA', 'BRATISLAVA'] },
+	{ code: 'HU', keywords: ['HU', 'HUN', 'HUNGARY', 'BUDAPEST'] },
+	{ code: 'RO', keywords: ['RO', 'ROU', 'ROMANIA', 'BUCHAREST'] },
+	{ code: 'BG', keywords: ['BG', 'BGR', 'BULGARIA', 'SOFIA'] },
+	{ code: 'GR', keywords: ['GR', 'GRC', 'GREECE', 'ATHENS'] },
+	{ code: 'HR', keywords: ['HR', 'HRV', 'CROATIA', 'ZAGREB'] },
+	{ code: 'SI', keywords: ['SI', 'SVN', 'SLOVENIA', 'LJUBLJANA'] },
+	{ code: 'RS', keywords: ['RS', 'SRB', 'SERBIA', 'BELGRADE'] },
+	{ code: 'UA', keywords: ['UA', 'UKR', 'UKRAINE', 'KYIV', 'KIEV'] },
+	{ code: 'TR', keywords: ['TR', 'TUR', 'TURKEY', 'TURKIYE', 'ISTANBUL'] },
+	{ code: 'RU', keywords: ['RU', 'RUS', 'RUSSIA', 'MOSCOW', 'SAINT PETERSBURG'] },
+	{ code: 'IL', keywords: ['IL', 'ISR', 'ISRAEL', 'TEL AVIV'] },
+	{ code: 'AE', keywords: ['AE', 'ARE', 'UAE', 'DUBAI', 'ABU DHABI'] },
+	{ code: 'SA', keywords: ['SA', 'SAU', 'SAUDI', 'RIYADH', 'JEDDAH'] },
+	{ code: 'QA', keywords: ['QA', 'QAT', 'QATAR', 'DOHA'] },
+	{ code: 'EG', keywords: ['EG', 'EGY', 'EGYPT', 'CAIRO'] },
+	{ code: 'ZA', keywords: ['ZA', 'ZAF', 'SOUTH AFRICA', 'JOHANNESBURG'] },
+	{ code: 'IN', keywords: ['IN', 'IND', 'INDIA', 'MUMBAI', 'DELHI', 'BANGALORE'] },
+	{ code: 'PK', keywords: ['PK', 'PAK', 'PAKISTAN', 'KARACHI'] },
+	{ code: 'BD', keywords: ['BD', 'BGD', 'BANGLADESH', 'DHAKA'] },
+	{ code: 'LK', keywords: ['LK', 'LKA', 'SRI LANKA', 'COLOMBO'] },
+	{ code: 'NP', keywords: ['NP', 'NPL', 'NEPAL', 'KATHMANDU'] },
+	{ code: 'KZ', keywords: ['KZ', 'KAZ', 'KAZAKHSTAN', 'ALMATY'] },
+	{ code: 'UZ', keywords: ['UZ', 'UZB', 'UZBEKISTAN', 'TASHKENT'] },
 	{ code: 'TH', keywords: ['TH', 'THA', 'THAILAND', 'BANGKOK'] },
-	{ code: 'MY', keywords: ['MY', 'MYS', 'MALAYSIA'] },
+	{ code: 'VN', keywords: ['VN', 'VNM', 'VIETNAM', 'HANOI', 'HO CHI MINH', 'SAIGON'] },
+	{ code: 'MY', keywords: ['MY', 'MYS', 'MALAYSIA', 'KUALA LUMPUR'] },
 	{ code: 'ID', keywords: ['ID', 'IDN', 'INDONESIA', 'JAKARTA'] },
 	{ code: 'PH', keywords: ['PH', 'PHL', 'PHILIPPINES', 'MANILA'] },
-	{ code: 'AE', keywords: ['AE', 'ARE', 'UAE', 'DUBAI', 'ABU DHABI'] },
-	{ code: 'SA', keywords: ['SA', 'SAU', 'SAUDI', 'RIYADH'] },
-	{ code: 'CH', keywords: ['CH', 'CHE', 'SWITZERLAND', 'ZURICH'] },
-	{ code: 'SE', keywords: ['SE', 'SWE', 'SWEDEN'] },
-	{ code: 'NO', keywords: ['NO', 'NOR', 'NORWAY'] },
-	{ code: 'FI', keywords: ['FI', 'FIN', 'FINLAND'] },
-	{ code: 'IT', keywords: ['IT', 'ITA', 'ITALY', 'MILAN'] },
-	{ code: 'ES', keywords: ['ES', 'ESP', 'SPAIN', 'MADRID'] },
-	{ code: 'PL', keywords: ['PL', 'POL', 'POLAND'] }
+	{ code: 'KH', keywords: ['KH', 'KHM', 'CAMBODIA', 'PHNOM PENH'] },
+	{ code: 'LA', keywords: ['LA', 'LAO', 'LAOS', 'VIENTIANE'] },
+	{ code: 'MM', keywords: ['MM', 'MMR', 'MYANMAR', 'YANGON'] },
+	{ code: 'CN', keywords: ['CN', 'CHN', 'CHINA', 'MAINLAND', 'BEIJING', 'SHANGHAI', 'GUANGZHOU', 'SHENZHEN', 'HANGZHOU', 'CHENGDU'] },
+	{ code: 'AU', keywords: ['AU', 'AUS', 'AUSTRALIA', 'SYDNEY', 'MELBOURNE', 'BRISBANE', 'PERTH'] },
+	{ code: 'NZ', keywords: ['NZ', 'NZL', 'NEW ZEALAND', 'AUCKLAND'] },
+	{ code: 'BR', keywords: ['BR', 'BRA', 'BRAZIL', 'SAO PAULO'] },
+	{ code: 'AR', keywords: ['AR', 'ARG', 'ARGENTINA', 'BUENOS AIRES'] },
+	{ code: 'CL', keywords: ['CL', 'CHL', 'CHILE', 'SANTIAGO'] },
+	{ code: 'CO', keywords: ['CO', 'COL', 'COLOMBIA', 'BOGOTA'] },
+	{ code: 'PE', keywords: ['PE', 'PER', 'PERU', 'LIMA'] },
+	{ code: 'NG', keywords: ['NG', 'NGA', 'NIGERIA', 'LAGOS'] }
 ];
 
 function normalize(value: string): string {
@@ -281,6 +319,7 @@ export async function buildAggregateOutput(
 	const errors: string[] = [];
 	const excludeTags = rule.excludeTagIds.map((tag) => normalize(tag));
 	const allowedTypes = rule.allowedTypes && rule.allowedTypes.length > 0 ? rule.allowedTypes : null;
+	const shouldPrependRegionFlags = rule.prependRegionFlags ?? true;
 
 	const selectedNodes = nodes.filter(
 		(node) =>
@@ -293,11 +332,10 @@ export async function buildAggregateOutput(
 		(sub) => sub.enabled && rule.subscriptionIds.includes(sub.id)
 	);
 
-	const nodeLines = selectedNodes.map((node) =>
-		applyRegionFlagByName(
-			applyRenameByName(node.raw, node.name.trim() || getLineName(node.raw), rule.renameMap)
-		)
-	);
+	const nodeLines = selectedNodes.map((node) => {
+		const renamed = applyRenameByName(node.raw, node.name.trim() || getLineName(node.raw), rule.renameMap);
+		return shouldPrependRegionFlags ? applyRegionFlagByName(renamed) : renamed;
+	});
 
 	const subscriptionLines: string[] = [];
 	for (const sub of selectedSubs) {
@@ -316,9 +354,10 @@ export async function buildAggregateOutput(
 		}
 	}
 
-	const renamedSubscriptionLines = subscriptionLines.map((line) =>
-		applyRegionFlagByName(applyRenameByName(line, getLineName(line), rule.renameMap))
-	);
+	const renamedSubscriptionLines = subscriptionLines.map((line) => {
+		const renamed = applyRenameByName(line, getLineName(line), rule.renameMap);
+		return shouldPrependRegionFlags ? applyRegionFlagByName(renamed) : renamed;
+	});
 	const filteredSubscriptionLines = filterByAllowedTypes(renamedSubscriptionLines, allowedTypes);
 	const content = normalizeContent([...nodeLines, ...filteredSubscriptionLines].join('\n'));
 	return {

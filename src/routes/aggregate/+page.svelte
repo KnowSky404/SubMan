@@ -51,6 +51,7 @@
 	let excludeTags = "";
 	let renameMap = "";
 	let allowedTypes: ProxyType[] = [];
+	let prependRegionFlags = true;
 	
 	let previewSummary = "";
 	let previewContent = "";
@@ -242,6 +243,7 @@
 		excludeTags = rule.excludeTagIds.join(", ");
 		renameMap = Object.entries(rule.renameMap).map(([k, v]) => `${k}=${v}`).join("\n");
 		allowedTypes = rule.allowedTypes ?? [];
+		prependRegionFlags = rule.prependRegionFlags ?? true;
 		clearPreview();
 	}
 
@@ -253,7 +255,7 @@
 	function resetRuleForm() {
 		editingRuleId = ""; ruleName = ""; selectedNodeIds = [];
 		selectedSubscriptionIds = []; excludeTags = ""; renameMap = "";
-		allowedTypes = []; clearPreview();
+		allowedTypes = []; prependRegionFlags = true; clearPreview();
 	}
 
 	function loadPublishTarget(target: AggregatePublishTarget) {
@@ -311,7 +313,7 @@
 				id: "preview", name: ruleName || "Preview",
 				nodeIds: selectedNodeIds, subscriptionIds: selectedSubscriptionIds,
 				excludeTagIds: excludeTags.split(",").map(t => t.trim()).filter(Boolean),
-				renameMap: parseRenameMap(renameMap), allowedTypes, updatedAt: nowIso()
+				renameMap: parseRenameMap(renameMap), allowedTypes, prependRegionFlags, updatedAt: nowIso()
 			};
 			const result = await buildAggregateOutput(rule, $appState.nodes, $appState.subscriptions);
 			previewContent = result.content; previewLines = result.lines;
@@ -327,7 +329,7 @@
 		upsertAggregate({
 			id, name: ruleName.trim(), nodeIds: selectedNodeIds, subscriptionIds: selectedSubscriptionIds,
 			excludeTagIds: excludeTags.split(",").map(t => t.trim()).filter(Boolean),
-			renameMap: parseRenameMap(renameMap), allowedTypes, updatedAt: nowIso()
+			renameMap: parseRenameMap(renameMap), allowedTypes, prependRegionFlags, updatedAt: nowIso()
 		});
 		editingRuleId = id;
 		setStatus($t("Rule saved."));
@@ -796,6 +798,20 @@
 								placeholder="Original Name = New Name&#10;HK-01 = Hong Kong Premium"
 								bind:value={renameMap}
 							></textarea>
+						</div>
+
+						<div class="rounded-2xl border border-slate-800 bg-slate-950/50 px-5 py-4 space-y-3">
+							<label class="flex items-start gap-3 cursor-pointer group">
+								<input
+									type="checkbox"
+									class="mt-0.5 h-4 w-4 rounded-md border-slate-700 bg-slate-900 text-indigo-600 focus:ring-indigo-500"
+									bind:checked={prependRegionFlags}
+								/>
+								<div class="space-y-1">
+									<p class="text-sm font-bold text-white group-hover:text-indigo-200 transition-colors">{$t("Auto prepend region flags")}</p>
+									<p class="text-[11px] leading-relaxed text-slate-400">{$t("Detect country or region keywords like US, HK, JP, and SG in final node names and prepend the matching flag automatically.")}</p>
+								</div>
+							</label>
 						</div>
 					</div>
 
