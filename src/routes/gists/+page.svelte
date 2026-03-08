@@ -34,6 +34,7 @@
 	let workspace: GistMeta | null = null;
 	let loading = false;
 	let deleting = false;
+	let workspaceLoadError: string | null = null;
 	let publishEventsExpanded = true;
 	let publishEventFilter: PublishEventFilter = 'all';
 	
@@ -211,6 +212,7 @@
 		const token = $authState.token;
 		const gistId = $appState.activeGistId;
 		if (!token || !gistId) {
+			workspaceLoadError = $t("Configure workspace first.");
 			setStatus($t("Configure workspace first."), 'error');
 			return;
 		}
@@ -218,9 +220,11 @@
 		loading = true;
 		try {
 			workspace = await getGist(token, gistId);
+			workspaceLoadError = null;
 			setStatus($t("Workspace refreshed."), 'success');
 		} catch (err) {
-			setStatus(err instanceof Error ? err.message : $t("Failed to fetch gist."), 'error');
+			workspaceLoadError = err instanceof Error ? err.message : $t("Failed to fetch gist.");
+			setStatus(workspaceLoadError, 'error');
 		} finally {
 			loading = false;
 		}
@@ -384,6 +388,35 @@
 			{:else}<RefreshCw class="h-5 w-5" />{/if}
 			<span class="text-sm font-bold tracking-tight">{status.message}</span>
 		</div>
+	{/if}
+
+	{#if workspaceLoadError}
+		<section class="rounded-[2rem] border border-red-500/20 bg-red-500/10 p-5 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+			<div class="flex items-start gap-3">
+				<AlertCircle class="h-5 w-5 text-red-400 shrink-0 mt-0.5" />
+				<div class="space-y-1">
+					<p class="text-sm font-bold text-red-200">{$t("Workspace auto-refresh failed.")}</p>
+					<p class="text-sm leading-relaxed text-red-100/80">{workspaceLoadError}</p>
+				</div>
+			</div>
+			<div class="flex items-center gap-3">
+				<button
+					type="button"
+					on:click={refreshWorkspace}
+					class="inline-flex items-center gap-2 rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-2 text-xs font-bold uppercase tracking-[0.16em] text-red-100 transition-all hover:bg-red-500/20"
+				>
+					<RefreshCw class={cn("h-3.5 w-3.5", loading && "animate-spin")} />
+					{$t("Refresh")}
+				</button>
+				<a
+					href="/auth"
+					class="inline-flex items-center gap-2 rounded-xl border border-slate-800 bg-slate-950/70 px-4 py-2 text-xs font-bold uppercase tracking-[0.16em] text-slate-200 transition-all hover:bg-slate-800"
+				>
+					<Settings class="h-3.5 w-3.5" />
+					{$t("Workspace Settings")}
+				</a>
+			</div>
+		</section>
 	{/if}
 
 	<!-- Stats & Clean Action -->

@@ -175,6 +175,7 @@ const zhCN: Record<string, string> = {
 	"Missing GitHub token. Configure workspace first.": "缺少 GitHub Token，请先配置工作区。",
 	"Workspace gist not set. Configure workspace first.": "未设置工作区 Gist，请先配置工作区。",
 	"Workspace gist refreshed.": "Workspace Gist 已刷新。",
+	"Workspace auto-refresh failed.": "Workspace 自动刷新失败。",
 	"Open workspace gist": "打开 Workspace Gist",
 	"Copy workspace gist URL": "复制 Workspace Gist URL",
 	"Workspace gist URL unavailable.": "Workspace Gist URL 不可用。",
