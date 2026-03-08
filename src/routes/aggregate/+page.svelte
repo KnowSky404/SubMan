@@ -924,6 +924,9 @@
 							placeholder="config.txt"
 							bind:value={publishTargetFile}
 						/>
+						<p class="text-[11px] leading-relaxed text-slate-500">
+							{$t("Keep the same file name to keep the stable link unchanged across republishes.")}
+						</p>
 						{#if willChangePublishedFileName}
 							<div class="rounded-xl border border-amber-500/20 bg-amber-500/10 p-3 flex items-start gap-3">
 								<AlertCircle class="h-4 w-4 text-amber-400 shrink-0 mt-0.5" />
