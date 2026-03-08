@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onDestroy } from "svelte";
+	import { onDestroy, tick } from "svelte";
 	import { t } from "$lib/i18n";
 	import {
 		appState,
@@ -52,6 +52,9 @@
 	let excludeTags = "";
 	let renameMap = "";
 	let customRegionFlagMap = "";
+	let customRegionFlagMapTextarea: HTMLTextAreaElement | null = null;
+	let customRegionFlagMapSelectionStart = 0;
+	let customRegionFlagMapSelectionEnd = 0;
 	let allowedTypes: ProxyType[] = [];
 	let prependRegionFlags = true;
 	let showBuiltInRegionMap = false;
@@ -349,6 +352,49 @@
 
 		const current = rawMap.trim();
 		return current ? `${current}\n${missingLines.join("\n")}` : missingLines.join("\n");
+	}
+
+	function syncCustomRegionFlagMapSelection() {
+		if (!customRegionFlagMapTextarea) {
+			return;
+		}
+
+		customRegionFlagMapSelectionStart = customRegionFlagMapTextarea.selectionStart ?? customRegionFlagMap.length;
+		customRegionFlagMapSelectionEnd = customRegionFlagMapTextarea.selectionEnd ?? customRegionFlagMapSelectionStart;
+	}
+
+	function buildInsertedRegionFlagRuleMapValue(currentValue: string, insertedLine: string): { value: string; cursor: number } {
+		const start = Math.min(customRegionFlagMapSelectionStart, customRegionFlagMapSelectionEnd, currentValue.length);
+		const end = Math.min(Math.max(customRegionFlagMapSelectionStart, customRegionFlagMapSelectionEnd), currentValue.length);
+		const before = currentValue.slice(0, start);
+		const after = currentValue.slice(end);
+		let insertion = insertedLine.trim();
+
+		if (before && !before.endsWith("\n")) {
+			insertion = `\n${insertion}`;
+		}
+		if (after && !after.startsWith("\n")) {
+			insertion = `${insertion}\n`;
+		}
+
+		const value = `${before}${insertion}${after}`;
+		return { value, cursor: before.length + insertion.length };
+	}
+
+	async function insertBuiltInRegionRuleAtCursor(rule: { code: string; keywords: string[] }) {
+		syncCustomRegionFlagMapSelection();
+		const insertedLine = `${rule.code} = ${rule.keywords.join(", ")}`;
+		const { value, cursor } = buildInsertedRegionFlagRuleMapValue(customRegionFlagMap, insertedLine);
+		customRegionFlagMap = value;
+		showBuiltInRegionMap = false;
+		setStatus($t("Built-in rule inserted at cursor."), "success");
+		await tick();
+		if (!customRegionFlagMapTextarea) {
+			return;
+		}
+		customRegionFlagMapTextarea.focus();
+		customRegionFlagMapTextarea.setSelectionRange(cursor, cursor);
+		syncCustomRegionFlagMapSelection();
 	}
 
 	function normalizeAndSortCustomRegionFlagMap() {
@@ -925,6 +971,12 @@
 US = US, USA, NEW YORK
 JP = JP, JAPAN, TOKYO`}
 								bind:value={customRegionFlagMap}
+							bind:this={customRegionFlagMapTextarea}
+							on:click={syncCustomRegionFlagMapSelection}
+							on:focus={syncCustomRegionFlagMapSelection}
+							on:input={syncCustomRegionFlagMapSelection}
+							on:keyup={syncCustomRegionFlagMapSelection}
+							on:select={syncCustomRegionFlagMapSelection}
 							></textarea>
 							<p class="text-[11px] leading-relaxed text-slate-500">{$t("Use one rule per line: FLAG_CODE = keyword1, keyword2. Custom rules are matched before the built-in region table.")}</p>
 						<div class="flex flex-wrap gap-2">
@@ -1315,7 +1367,11 @@ JP = JP, JAPAN, TOKYO`}
 						<div class="max-h-[60vh] overflow-y-auto pr-1 custom-scrollbar">
 							<div class="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
 								{#each filteredBuiltInRegionRules as rule (rule.code + rule.keywords.join(','))}
-									<div class="rounded-3xl border border-slate-800/60 bg-slate-950/40 p-5 space-y-3">
+									<button
+									type="button"
+									on:click={() => insertBuiltInRegionRuleAtCursor(rule)}
+									class="w-full rounded-3xl border border-slate-800/60 bg-slate-950/40 p-5 space-y-3 text-left transition-all hover:border-indigo-500/30 hover:bg-slate-900/70"
+								>
 										<div class="flex items-center gap-3">
 											<div class="flex h-11 w-11 items-center justify-center rounded-2xl bg-indigo-500/10 text-xl">{regionCodeToFlagEmoji(rule.code) || "🏳️"}</div>
 											<div class="min-w-0">
@@ -1324,7 +1380,14 @@ JP = JP, JAPAN, TOKYO`}
 											</div>
 										</div>
 										<p class="text-[11px] leading-relaxed text-slate-300 break-words">{rule.keywords.join(", ")}</p>
-									</div>
+										<div class="flex items-center justify-between gap-3 pt-1">
+											<span class="text-[10px] font-bold uppercase tracking-[0.18em] text-indigo-400">{$t("Click to insert at cursor")}</span>
+											<span class="inline-flex items-center gap-1 text-[11px] font-semibold text-slate-300">
+												<Plus class="h-3.5 w-3.5" />
+												{$t("Insert")}
+											</span>
+										</div>
+									</button>
 								{/each}
 							</div>
 						</div>
