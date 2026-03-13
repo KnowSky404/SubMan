@@ -1,40 +1,52 @@
 # SubMan
 
-纯前端的 Gist-first 订阅管理工具，支持 VLESS / VMess 等协议的节点与订阅聚合。
-核心目标是：在一个固定的 GitHub Workspace Gist 内完成数据管理与稳定订阅发布。
+[English README](README.en.md)
+
+Gist-first 的纯前端代理订阅管理工具，支持 VLESS / VMess 等节点与订阅聚合。
+核心目标是在一个固定的 GitHub Workspace Gist 内完成数据管理与稳定订阅发布。
 
 默认 Workspace 标识：
 - 描述：`SubMan-Data`
 - 配置文件：`subman.json`
 
 ## 主要能力
-- **Workspace Gist**：保存 Token 后自动查找/创建固定标识的 Gist
-- **本地/远端双模式**：
-  - 无 Token -> 本地模式，仅 localStorage
-  - 有 Token -> Workspace 模式，自动同步到 Gist
-- **冲突处理**：本地 / 远端 / 合并 / 仅绑定
-- **节点与订阅管理**：新增、编辑、标签、协议筛选
-- **聚合规则与发布目标**：
-  - 规则（Rule）负责聚合逻辑
-  - 发布目标（Publish Target）负责输出文件、描述、发布可见性
-  - 支持一个规则复用到多个发布目标
-- **稳定订阅链接发布**：同一 Gist + 同一文件名覆盖发布，客户端链接可长期不变
-- **Workspace 文件管理**：
-  - 查看 Workspace 文件与 raw 链接
-  - 删除非关键文件（`subman.json` 受保护）
-  - 支持批量清理非关键文件
+- Workspace Gist：保存 Token 后自动查找或创建固定标识的 Gist，并绑定为工作区
+- 本地与远端双模式：无 Token 仅 localStorage；有 Token 自动与 Gist 同步
+- 冲突处理与修复：本地覆盖远端、远端覆盖本地、合并保存、仅绑定；提供健康检查与配置修复
+- 自动同步：浏览器本地状态变更后自动写入 workspace gist，并可查看最近同步状态
+- 节点与订阅管理：新增、编辑、启用/停用、标签、搜索与过滤
+- 批量导入：支持多行导入节点或订阅，自动去重与预览；支持解析 base64 订阅内容
+- 聚合规则：按节点/订阅选择、排除标签、协议类型过滤、名称重命名、自动区域旗标
+- 自定义区域规则：自定义区域旗标映射，内置模板导入与快速查找
+- 发布目标：规则可绑定多个发布目标，支持文件名、描述、可见性设置
+- 稳定订阅链接：同一 Gist + 同一文件名保持稳定 raw URL，改名时提供自动清理策略提示
+- Workspace 文件管理：查看文件列表、复制 raw 链接、删除输出文件、批量清理非配置文件
+- 活动日志：记录 workspace 初始化、同步与修复操作
+
+## 使用流程
+1. 在 `/auth` 保存 GitHub Token（需要 `gist` 权限）并绑定 Workspace
+2. 在 `/nodes` 添加节点与订阅（支持批量导入）
+3. 在 `/aggregate` 创建规则并预览输出
+4. 创建发布目标并发布到 Workspace Gist，复制稳定订阅链接
 
 ## 页面说明
-- `/auth`：Workspace（Token、冲突处理、本地导入导出）
-- `/gists`：Workspace 文件列表、链接复制、文件清理
-- `/nodes`：节点与订阅管理（订阅列表支持搜索/筛选/紧凑展示）
+- `/auth`：Workspace 设置、冲突处理、健康检查、导入导出、同步状态
+- `/gists`：Workspace 文件列表、raw 链接复制、文件清理
+- `/nodes`：节点与订阅管理（搜索、筛选、批量导入）
 - `/aggregate`：规则编辑、发布目标管理、聚合输出发布
 
+## 聚合与发布细节
+- 规则支持：节点/订阅选择、排除标签、协议类型过滤、名称重命名映射
+- 订阅内容：发布时拉取订阅链接，自动识别并解码 base64 内容
+- 区域旗标：可开启自动识别节点名称中的地区关键字并添加旗标
+- 输出预览：提供行数统计、协议识别、警告与错误提示
+- 发布策略：保持文件名可维持稳定链接；改名会生成新稳定链接并提示旧文件清理策略
+
 ## Workspace 机制
-- 保存 Token 后：
-  - 如果 Gist 不存在 -> 创建并写入本地数据
-  - 如果存在 -> 仅绑定，不自动覆盖
-  - 提供“本地/远端/合并/仅绑定”的选择
+- 保存 Token 后自动查找或创建固定标识的 Gist，并写入 `subman.json`
+- 数据统一写入同一 Workspace Gist，配置文件受保护不可在 UI 中删除
+- 冲突处理支持本地覆盖、远端覆盖、合并保存或仅绑定
+- 提供健康检查与配置修复入口
 
 ## 开发与构建
 ```bash
@@ -44,14 +56,12 @@ bun run preview
 ```
 
 ## Cloudflare Workers 部署
-已适配 Workers：`@sveltejs/adapter-cloudflare` + `wrangler.toml`
-
 ```bash
 bun run build
 bun run deploy
 ```
 
-如需本地预览 Workers：
+本地预览 Workers：
 ```bash
 bun run dev:cf
 ```
@@ -63,6 +73,6 @@ bun run dev:cf
 - bun
 
 ## 约定
-- ASCII 字符
-- 每次改动后直接 commit
-- 所有项目数据统一写入同一个 Workspace Gist
+- 代码保持 ASCII 字符
+- 每完成一个独立功能点或修复后立即提交
+- 所有数据统一写入同一个 Workspace Gist
