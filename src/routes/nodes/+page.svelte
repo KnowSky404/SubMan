@@ -294,7 +294,12 @@ const batchPreviewProtocolOptions: ("all" | ProxyType)[] = ["all", "vless", "vme
 		? Boolean(nodeName.trim() && normalizedNodeRaw && !duplicateNode)
 		: Boolean(subName.trim() && normalizedSubUrl && !duplicateSubscription);
 
-	function buildBatchImportPreview(): {
+	function buildBatchImportPreview(
+		content: string,
+		tab: "nodes" | "subscriptions",
+		nodes: NodeItem[],
+		subscriptions: SubscriptionItem[]
+	): {
 		items: BatchImportPreviewItem[];
 		importableCount: number;
 		duplicateCount: number;
@@ -302,7 +307,7 @@ const batchPreviewProtocolOptions: ("all" | ProxyType)[] = ["all", "vless", "vme
 		firstDuplicateId: string | null;
 		totalLines: number;
 	} {
-		const lines = batchContent
+		const lines = content
 			.split(/\r?\n/)
 			.map((line) => line.trim())
 			.filter(Boolean);
@@ -313,8 +318,8 @@ const batchPreviewProtocolOptions: ("all" | ProxyType)[] = ["all", "vless", "vme
 		let invalidCount = 0;
 		let firstDuplicateId: string | null = null;
 
-		if (activeTab === "nodes") {
-			const existingMap = new Map($appState.nodes.map((node) => [normalizeSourceValue(node.raw), node]));
+		if (tab === "nodes") {
+			const existingMap = new Map(nodes.map((node) => [normalizeSourceValue(node.raw), node]));
 			const seen = new Set<string>();
 			for (const [index, rawLine] of lines.entries()) {
 				const expanded = expandBatchNodeInputLine(rawLine);
@@ -371,7 +376,7 @@ const batchPreviewProtocolOptions: ("all" | ProxyType)[] = ["all", "vless", "vme
 				}
 			}
 		} else {
-			const existingMap = new Map($appState.subscriptions.map((sub) => [normalizeSourceValue(sub.url), sub]));
+			const existingMap = new Map(subscriptions.map((sub) => [normalizeSourceValue(sub.url), sub]));
 			const seen = new Set<string>();
 			for (const [index, line] of lines.entries()) {
 				const parsed = parseBatchSubscriptionLine(line, index + 1);
@@ -423,7 +428,7 @@ const batchPreviewProtocolOptions: ("all" | ProxyType)[] = ["all", "vless", "vme
 		return { items, importableCount, duplicateCount, invalidCount, firstDuplicateId, totalLines: lines.length };
 	}
 
-	$: batchImportPreview = buildBatchImportPreview();
+	$: batchImportPreview = buildBatchImportPreview(batchContent, activeTab, $appState.nodes, $appState.subscriptions);
 	$: batchLineCount = batchImportPreview.totalLines;
 	$: filteredBatchImportPreviewItems = batchImportPreview.items.filter((item) => {
 		if (batchPreviewStatusFilter !== "all" && item.status !== batchPreviewStatusFilter) {
