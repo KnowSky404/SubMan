@@ -399,11 +399,35 @@ function looksLikeBase64(value: string): boolean {
 	return /^[A-Za-z0-9+/=]+$/.test(compact);
 }
 
+const MULTI_NODE_SCHEME_REGEX = /(vless|vmess|trojan|ssr?|hysteria2|hy2|tuic):\/\//gi;
+
+function splitMultiNodeLine(line: string): string[] {
+	const value = line.trim();
+	if (!value) {
+		return [];
+	}
+	const matches = Array.from(value.matchAll(MULTI_NODE_SCHEME_REGEX));
+	if (matches.length === 0) {
+		return [value];
+	}
+	const parts: string[] = [];
+	for (let index = 0; index < matches.length; index += 1) {
+		const start = matches[index].index ?? 0;
+		const end = index + 1 < matches.length ? (matches[index + 1].index ?? value.length) : value.length;
+		const slice = value.slice(start, end).trim();
+		if (slice) {
+			parts.push(slice);
+		}
+	}
+	return parts;
+}
+
 function normalizeContent(text: string): string {
 	return text
 		.split(/\r?\n/)
+		.flatMap((line) => splitMultiNodeLine(line))
 		.map((line) => line.trim())
-		.filter(Boolean)
+		.filter((line) => line.length > 0)
 		.join('\n');
 }
 
