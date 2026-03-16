@@ -101,10 +101,34 @@ const batchPreviewProtocolOptions: ("all" | ProxyType)[] = ["all", "vless", "vme
 			.map((label) => ({ id: createId("tag"), label }));
 	}
 
+	function normalizeBase64(value: string): string | null {
+		const compact = value.trim().replace(/\s+/g, "");
+		if (!compact) {
+			return null;
+		}
+		if (!/^[A-Za-z0-9+/=_-]+$/.test(compact)) {
+			return null;
+		}
+		let normalized = compact.replace(/-/g, "+").replace(/_/g, "/");
+		const padding = normalized.length % 4;
+		if (padding === 1) {
+			return null;
+		}
+		if (padding === 2) {
+			normalized += "==";
+		} else if (padding === 3) {
+			normalized += "=";
+		}
+		return normalized;
+	}
+
 	function decodeBase64Utf8(value: string): string | null {
 		try {
-			const compact = value.trim().replace(/\s+/g, "");
-			const binary = atob(compact);
+			const normalized = normalizeBase64(value);
+			if (!normalized) {
+				return null;
+			}
+			const binary = atob(normalized);
 			const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
 			return new TextDecoder().decode(bytes);
 		} catch {
@@ -113,11 +137,7 @@ const batchPreviewProtocolOptions: ("all" | ProxyType)[] = ["all", "vless", "vme
 	}
 
 	function looksLikeBase64(value: string): boolean {
-		const compact = value.trim().replace(/\s+/g, "");
-		if (!compact || compact.length % 4 !== 0) {
-			return false;
-		}
-		return /^[A-Za-z0-9+/=]+$/.test(compact);
+		return Boolean(normalizeBase64(value));
 	}
 
 	const multiNodeSchemePattern = /(vless|vmess|trojan|ssr?|hysteria2|hy2|tuic):\/\//gi;

@@ -253,10 +253,34 @@ function isExcluded(node: NodeItem, excludeTags: string[]): boolean {
 	return excludeTags.some((tag) => tags.includes(normalize(tag)));
 }
 
+function normalizeBase64(value: string): string | null {
+	const compact = value.trim().replace(/\s+/g, '');
+	if (!compact) {
+		return null;
+	}
+	if (!/^[A-Za-z0-9+/=_-]+$/.test(compact)) {
+		return null;
+	}
+	let normalized = compact.replace(/-/g, '+').replace(/_/g, '/');
+	const padding = normalized.length % 4;
+	if (padding === 1) {
+		return null;
+	}
+	if (padding === 2) {
+		normalized += '==';
+	} else if (padding === 3) {
+		normalized += '=';
+	}
+	return normalized;
+}
+
 function decodeBase64Binary(value: string): string | null {
 	try {
-		const compact = value.trim().replace(/\s+/g, '');
-		return atob(compact);
+		const normalized = normalizeBase64(value);
+		if (!normalized) {
+			return null;
+		}
+		return atob(normalized);
 	} catch {
 		return null;
 	}
@@ -392,11 +416,7 @@ function filterByAllowedTypes(lines: string[], allowedTypes: NodeItem['type'][] 
 }
 
 function looksLikeBase64(value: string): boolean {
-	const compact = value.trim().replace(/\s+/g, '');
-	if (!compact || compact.length % 4 !== 0) {
-		return false;
-	}
-	return /^[A-Za-z0-9+/=]+$/.test(compact);
+	return Boolean(normalizeBase64(value));
 }
 
 const MULTI_NODE_SCHEME_REGEX = /(vless|vmess|trojan|ssr?|hysteria2|hy2|tuic):\/\//gi;
