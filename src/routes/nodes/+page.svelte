@@ -120,6 +120,29 @@ const batchPreviewProtocolOptions: ("all" | ProxyType)[] = ["all", "vless", "vme
 		return /^[A-Za-z0-9+/=]+$/.test(compact);
 	}
 
+	const multiNodeSchemePattern = /(vless|vmess|trojan|ssr?|hysteria2|hy2|tuic):\/\//gi;
+
+	function splitMultiNodeLine(line: string): string[] {
+		const value = normalizeSourceValue(line);
+		if (!value) {
+			return [];
+		}
+		const matches = Array.from(value.matchAll(multiNodeSchemePattern));
+		if (matches.length === 0) {
+			return value.includes("://") ? [value] : [];
+		}
+		const parts: string[] = [];
+		for (let index = 0; index < matches.length; index += 1) {
+			const start = matches[index].index ?? 0;
+			const end = index + 1 < matches.length ? (matches[index + 1].index ?? value.length) : value.length;
+			const slice = value.slice(start, end).trim();
+			if (slice) {
+				parts.push(slice);
+			}
+		}
+		return parts;
+	}
+
 	function expandBatchNodeInputLine(line: string): { raw: string; source: "direct" | "base64" }[] {
 		const trimmed = normalizeSourceValue(line);
 		if (!trimmed) {
@@ -127,7 +150,7 @@ const batchPreviewProtocolOptions: ("all" | ProxyType)[] = ["all", "vless", "vme
 		}
 
 		if (trimmed.includes("://")) {
-			return [{ raw: trimmed, source: "direct" }];
+			return splitMultiNodeLine(trimmed).map((raw) => ({ raw, source: "direct" }));
 		}
 
 		if (!looksLikeBase64(trimmed)) {
@@ -139,11 +162,11 @@ const batchPreviewProtocolOptions: ("all" | ProxyType)[] = ["all", "vless", "vme
 			return [];
 		}
 
-		return decoded
+		const expanded = decoded
 			.split(/\r?\n/)
-			.map((item) => normalizeSourceValue(item))
-			.filter((item) => item.includes("://"))
-			.map((raw) => ({ raw, source: "base64" as const }));
+			.flatMap((item) => splitMultiNodeLine(item));
+
+		return expanded.map((raw) => ({ raw, source: "base64" as const }));
 	}
 
 	function inferNodeTypeFromRaw(raw: string): ProxyType {
