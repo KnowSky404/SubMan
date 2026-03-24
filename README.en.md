@@ -72,6 +72,9 @@ bun run dev:cf
 - Biome
 - bun
 
+## License
+GNU Affero General Public License v3.0 only. See [LICENSE](LICENSE).
+
 ## Conventions
 - Keep code ASCII-only
 - Commit after each independent feature or fix

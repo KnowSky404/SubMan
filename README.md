@@ -72,6 +72,9 @@ bun run dev:cf
 - Biome
 - bun
 
+## License
+GNU Affero General Public License v3.0 only. See [LICENSE](LICENSE).
+
 ## 约定
 - 代码保持 ASCII 字符
 - 每完成一个独立功能点或修复后立即提交
