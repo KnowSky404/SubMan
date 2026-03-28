@@ -120,6 +120,7 @@
 	let searchQuery = "";
 	let filterStatus: "all" | "enabled" | "disabled" = "all";
 	let expandedId: string | null = null;
+	let editSubscriptionId: string | null = null;
 	let previewSubscriptionId: string | null = null;
 	let previewSearchQuery = "";
 	let previewTypeFilter: "all" | ProxyType = "all";
@@ -536,6 +537,9 @@
 	$: previewSubscription = previewSubscriptionId
 		? $appState.subscriptions.find((item) => item.id === previewSubscriptionId) ?? null
 		: null;
+	$: editingSubscription = editSubscriptionId
+		? $appState.subscriptions.find((item) => item.id === editSubscriptionId) ?? null
+		: null;
 	$: activeSubscriptionPreview = previewSubscriptionId ? subscriptionPreviewCache[previewSubscriptionId] ?? null : null;
 	$: filteredSubscriptionPreviewNodes = (activeSubscriptionPreview?.nodes ?? []).filter((node) => {
 		if (previewTypeFilter !== "all" && node.type !== previewTypeFilter) {
@@ -618,14 +622,11 @@
 	}
 
 	function toggleSubscriptionEditor(subscription: SubscriptionItem): void {
-		if (expandedId === subscription.id) {
-			expandedId = null;
-			return;
-		}
 		if (!subscriptionDrafts[subscription.id]) {
 			setSubscriptionDraft(subscription.id, createSubscriptionDraft(subscription));
 		}
-		expandedId = subscription.id;
+		closeSubscriptionPreview();
+		editSubscriptionId = subscription.id;
 	}
 
 	function openExistingNodeEditor(id: string): void {
@@ -643,7 +644,8 @@
 		if (!subscriptionDrafts[id]) {
 			setSubscriptionDraft(id, createSubscriptionDraft(subscription));
 		}
-		expandedId = id;
+		closeSubscriptionPreview();
+		editSubscriptionId = id;
 	}
 
 	function cancelNodeEdit(id: string): void {
@@ -655,8 +657,8 @@
 
 	function cancelSubscriptionEdit(id: string): void {
 		clearSubscriptionDraft(id);
-		if (expandedId === id) {
-			expandedId = null;
+		if (editSubscriptionId === id) {
+			editSubscriptionId = null;
 		}
 	}
 
@@ -671,6 +673,9 @@
 	}
 
 	function openSubscriptionPreview(subscription: SubscriptionItem): void {
+		if (editSubscriptionId) {
+			cancelSubscriptionEdit(editSubscriptionId);
+		}
 		previewSubscriptionId = subscription.id;
 		previewSearchQuery = "";
 		previewTypeFilter = "all";
@@ -683,9 +688,16 @@
 		previewTypeFilter = "all";
 	}
 
-	function handlePreviewDialogKeydown(event: KeyboardEvent): void {
-		if (event.key === "Escape" && previewSubscriptionId) {
+	function handleDialogKeydown(event: KeyboardEvent): void {
+		if (event.key !== "Escape") {
+			return;
+		}
+		if (previewSubscriptionId) {
 			closeSubscriptionPreview();
+			return;
+		}
+		if (editSubscriptionId) {
+			cancelSubscriptionEdit(editSubscriptionId);
 		}
 	}
 
@@ -879,7 +891,7 @@
 		});
 		clearSubscriptionDraft(subscription.id);
 		clearSubscriptionPreviewState(subscription.id);
-		expandedId = null;
+		editSubscriptionId = null;
 		showToast($t("Subscription updated."));
 	}
 
@@ -948,7 +960,7 @@
 	});
 </script>
 
-<svelte:window on:keydown={handlePreviewDialogKeydown} />
+<svelte:window on:keydown={handleDialogKeydown} />
 
 <svelte:head>
 	<title>{$t("Nodes & Subscriptions")} | {$t("SubMan")}</title>
@@ -1559,7 +1571,6 @@
 											<span class="inline-badge inline-badge--success">{$t("Subscription")}</span>
 										</div>
 										<p class="resource-card__subtitle truncate">{getHost(sub.url)}</p>
-										<p class="soft-code line-clamp-2 break-all">{sub.url}</p>
 										{#if sub.tags.length > 0}
 											<div class="flex flex-wrap gap-2">
 												{#each sub.tags as tag}
@@ -1580,7 +1591,7 @@
 										aria-label={$t("Edit")}
 									>
 										<Edit3 class="h-3.5 w-3.5" />
-										{$t(expandedId === sub.id ? "Hide" : "Edit")}
+										{$t("Edit")}
 									</button>
 									<button
 										type="button"
@@ -1606,71 +1617,6 @@
 									</button>
 								</div>
 							</div>
-
-							{#if expandedId === sub.id}
-								{@const draft = subscriptionDrafts[sub.id] ?? createSubscriptionDraft(sub)}
-								{@const duplicateSubscriptionEdit = findDuplicateSubscriptionForDraft(sub.id, draft.url)}
-								<div transition:slide class="resource-card__editor">
-									<div class="section-divider"></div>
-									<div class="resource-card__editor-state">
-										<div class="space-y-2">
-											<span class={cn("inline-badge", isSubscriptionDraftDirty(sub, draft) ? "inline-badge--warning" : "inline-badge--accent")}>
-												{isSubscriptionDraftDirty(sub, draft) ? $t("Unsaved changes") : $t("Editing draft")}
-											</span>
-											<p class="field-note">{$t("Changes apply only after you click Save.")}</p>
-										</div>
-									</div>
-									<div class="grid gap-4 sm:grid-cols-2">
-										<div class="space-y-2">
-											<p class="field-label">{$t("Name")}</p>
-											<input
-												class="field-input"
-												value={draft.name}
-												on:input={(e) => patchSubscriptionDraft(sub, { name: e.currentTarget.value })}
-											/>
-										</div>
-										<div class="space-y-2">
-											<p class="field-label">{$t("URL")}</p>
-											<input
-												class={cn("field-input", duplicateSubscriptionEdit && "border-red-500/50 focus:border-red-500/60")}
-												value={draft.url}
-												on:input={(e) => patchSubscriptionDraft(sub, { url: e.currentTarget.value })}
-											/>
-										</div>
-									</div>
-									{#if duplicateSubscriptionEdit}
-										<div class="inline-badge inline-badge--danger">
-											<AlertCircle class="h-3.5 w-3.5" />
-											{$t("A subscription with the same URL already exists: {name}", { name: duplicateSubscriptionEdit.name })}
-										</div>
-									{/if}
-									<div class="space-y-2">
-										<p class="field-label">{$t("Tags (comma separated)")}</p>
-										<input
-											class="field-input"
-											value={draft.tags}
-											on:input={(e) => patchSubscriptionDraft(sub, { tags: e.currentTarget.value })}
-										/>
-									</div>
-									<div class="resource-card__editor-actions">
-										<button
-											type="button"
-											on:click={() => cancelSubscriptionEdit(sub.id)}
-											class="button-secondary button-secondary--compact"
-										>
-											{$t("Cancel")}
-										</button>
-										<button
-											type="button"
-											on:click={() => saveSubscriptionEdit(sub)}
-											disabled={!canSaveSubscriptionDraft(sub, draft)}
-											class="button-primary button-primary--compact disabled:cursor-not-allowed disabled:opacity-50"
-										>
-											{$t("Save")}
-										</button>
-									</div>
-								</div>
-							{/if}
 						</div>
 					{/each}
 				{/if}
@@ -1678,6 +1624,112 @@
 		</div>
 	</section>
 </div>
+
+{#if editingSubscription}
+	{@const draft = subscriptionDrafts[editingSubscription.id] ?? createSubscriptionDraft(editingSubscription)}
+	{@const duplicateSubscriptionEdit = findDuplicateSubscriptionForDraft(editingSubscription.id, draft.url)}
+	<div class="fixed inset-0 z-[120]">
+		<button
+			type="button"
+			aria-label={$t("Cancel")}
+			class="dialog-scrim"
+			on:click={() => cancelSubscriptionEdit(editingSubscription.id)}
+		></button>
+		<div class="relative flex min-h-full items-center justify-center p-4">
+			<div
+				role="dialog"
+				aria-modal="true"
+				aria-label={$t("Edit")}
+				class="dialog-card"
+				in:fly={{ y: 12, duration: 220 }}
+				out:fade={{ duration: 140 }}
+			>
+				<div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+					<div class="flex items-start gap-3">
+						<div class="dialog-card__icon dialog-card__icon--normal">
+							<Edit3 class="h-5 w-5" />
+						</div>
+						<div class="space-y-1">
+							<h2 class="dialog-card__title">{$t("Edit")}</h2>
+							<p class="text-sm font-semibold text-[var(--app-text)]">{editingSubscription.name}</p>
+							<p class="text-sm text-[var(--app-text-soft)]">{getHost(editingSubscription.url)}</p>
+						</div>
+					</div>
+
+					<button
+						type="button"
+						on:click={() => cancelSubscriptionEdit(editingSubscription.id)}
+						class="button-icon button-icon--compact"
+						aria-label={$t("Cancel")}
+					>
+						<X class="h-4.5 w-4.5" />
+					</button>
+				</div>
+
+				<div class="mt-6 space-y-4">
+					<div class="space-y-2">
+						<span class={cn("inline-badge", isSubscriptionDraftDirty(editingSubscription, draft) ? "inline-badge--warning" : "inline-badge--accent")}>
+							{isSubscriptionDraftDirty(editingSubscription, draft) ? $t("Unsaved changes") : $t("Editing draft")}
+						</span>
+						<p class="field-note">{$t("Changes apply only after you click Save.")}</p>
+					</div>
+
+					<div class="space-y-2">
+						<p class="field-label">{$t("Name")}</p>
+						<input
+							class="field-input"
+							value={draft.name}
+							on:input={(e) => patchSubscriptionDraft(editingSubscription, { name: e.currentTarget.value })}
+						/>
+					</div>
+
+					<div class="space-y-2">
+						<p class="field-label">{$t("URL")}</p>
+						<input
+							class={cn("field-input field-input--mono", duplicateSubscriptionEdit && "border-red-500/50 focus:border-red-500/60")}
+							value={draft.url}
+							on:input={(e) => patchSubscriptionDraft(editingSubscription, { url: e.currentTarget.value })}
+						/>
+					</div>
+
+					{#if duplicateSubscriptionEdit}
+						<div class="inline-badge inline-badge--danger">
+							<AlertCircle class="h-3.5 w-3.5" />
+							{$t("A subscription with the same URL already exists: {name}", { name: duplicateSubscriptionEdit.name })}
+						</div>
+					{/if}
+
+					<div class="space-y-2">
+						<p class="field-label">{$t("Tags (comma separated)")}</p>
+						<input
+							class="field-input"
+							value={draft.tags}
+							on:input={(e) => patchSubscriptionDraft(editingSubscription, { tags: e.currentTarget.value })}
+						/>
+					</div>
+				</div>
+
+				<div class="dialog-card__actions">
+					<button
+						type="button"
+						on:click={() => cancelSubscriptionEdit(editingSubscription.id)}
+						class="button-secondary button-secondary--compact"
+					>
+						{$t("Cancel")}
+					</button>
+					<button
+						type="button"
+						on:click={() => saveSubscriptionEdit(editingSubscription)}
+						disabled={!canSaveSubscriptionDraft(editingSubscription, draft)}
+						class="button-primary button-primary--compact disabled:cursor-not-allowed disabled:opacity-50"
+					>
+						{$t("Save")}
+					</button>
+				</div>
+			</div>
+		</div>
+	</div>
+{/if}
 
 {#if previewSubscription}
 	<div class="fixed inset-0 z-[120]">
