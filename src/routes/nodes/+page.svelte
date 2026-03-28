@@ -101,6 +101,19 @@
 		fetchedAt: string | null;
 	};
 
+	type NodeEditDraft = {
+		name: string;
+		type: ProxyType;
+		raw: string;
+		tags: string;
+	};
+
+	type SubscriptionEditDraft = {
+		name: string;
+		url: string;
+		tags: string;
+	};
+
 	const batchPreviewProtocolOptions: ("all" | ProxyType)[] = ["all", "vless", "vmess", "trojan", "ss", "ssr", "hysteria2", "tuic", "other"];
 	const subscriptionPreviewProtocolOptions = batchPreviewProtocolOptions;
 
@@ -111,6 +124,8 @@
 	let previewSearchQuery = "";
 	let previewTypeFilter: "all" | ProxyType = "all";
 	let subscriptionPreviewCache: Record<string, SubscriptionPreviewState> = {};
+	let nodeDrafts: Record<string, NodeEditDraft> = {};
+	let subscriptionDrafts: Record<string, SubscriptionEditDraft> = {};
 
 	let toast: { message: string; type: "success" | "info" | "error" } | null = null;
 	let toastTimer: ReturnType<typeof setTimeout> | null = null;
@@ -131,6 +146,86 @@
 			.map((tag) => tag.trim())
 			.filter(Boolean)
 			.map((label) => ({ id: createId("tag"), label }));
+	}
+
+	function stringifyTags(tags: NodeTag[]): string {
+		return tags.map((tag) => tag.label).join(", ");
+	}
+
+	function normalizeTagDraft(value: string): string {
+		return value
+			.split(",")
+			.map((tag) => tag.trim())
+			.filter(Boolean)
+			.join(", ");
+	}
+
+	function createNodeDraft(node: NodeItem): NodeEditDraft {
+		return {
+			name: node.name,
+			type: node.type,
+			raw: node.raw,
+			tags: stringifyTags(node.tags)
+		};
+	}
+
+	function createSubscriptionDraft(subscription: SubscriptionItem): SubscriptionEditDraft {
+		return {
+			name: subscription.name,
+			url: subscription.url,
+			tags: stringifyTags(subscription.tags)
+		};
+	}
+
+	function setNodeDraft(id: string, draft: NodeEditDraft): void {
+		nodeDrafts = {
+			...nodeDrafts,
+			[id]: draft
+		};
+	}
+
+	function setSubscriptionDraft(id: string, draft: SubscriptionEditDraft): void {
+		subscriptionDrafts = {
+			...subscriptionDrafts,
+			[id]: draft
+		};
+	}
+
+	function patchNodeDraft(node: NodeItem, patch: Partial<NodeEditDraft>): void {
+		const current = nodeDrafts[node.id] ?? createNodeDraft(node);
+		setNodeDraft(node.id, {
+			...current,
+			...patch
+		});
+	}
+
+	function patchSubscriptionDraft(subscription: SubscriptionItem, patch: Partial<SubscriptionEditDraft>): void {
+		const current = subscriptionDrafts[subscription.id] ?? createSubscriptionDraft(subscription);
+		setSubscriptionDraft(subscription.id, {
+			...current,
+			...patch
+		});
+	}
+
+	function clearNodeDraft(id: string): void {
+		if (!(id in nodeDrafts)) return;
+		const nextDrafts = { ...nodeDrafts };
+		delete nextDrafts[id];
+		nodeDrafts = nextDrafts;
+	}
+
+	function clearSubscriptionDraft(id: string): void {
+		if (!(id in subscriptionDrafts)) return;
+		const nextDrafts = { ...subscriptionDrafts };
+		delete nextDrafts[id];
+		subscriptionDrafts = nextDrafts;
+	}
+
+	function clearSubscriptionPreviewState(id: string): void {
+		if (!(id in subscriptionPreviewCache)) return;
+		const nextCache = { ...subscriptionPreviewCache };
+		delete nextCache[id];
+		subscriptionPreviewCache = nextCache;
 	}
 
 	function expandBatchNodeInputLine(line: string): { raw: string; source: "direct" | "base64" }[] {
@@ -419,6 +514,12 @@
 		})
 		.sort((left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt));
 
+	$: enabledNodeCount = $appState.nodes.filter((node) => node.enabled).length;
+	$: enabledSubscriptionCount = $appState.subscriptions.filter((sub) => sub.enabled).length;
+	$: visibleResourceCount = activeTab === "nodes" ? filteredNodes.length : filteredSubscriptions.length;
+	$: searchStateLabel = searchQuery.trim() ? $t("Filtered") : $t("None");
+	$: searchStateMeta = searchQuery.trim() ? searchQuery : $t("No filters applied.");
+
 	$: filteredSubscriptions = $appState.subscriptions
 		.filter((sub) => (filterStatus === "all" ? true : filterStatus === "enabled" ? sub.enabled : !sub.enabled))
 		.filter((sub) => {
@@ -452,6 +553,111 @@
 			...subscriptionPreviewCache,
 			[id]: nextState
 		};
+	}
+
+	function findDuplicateNodeForDraft(id: string, raw: string): NodeItem | null {
+		const normalized = normalizeSourceValue(raw);
+		if (!normalized) {
+			return null;
+		}
+		return $appState.nodes.find((item) => item.id !== id && normalizeSourceValue(item.raw) === normalized) ?? null;
+	}
+
+	function findDuplicateSubscriptionForDraft(id: string, url: string): SubscriptionItem | null {
+		const normalized = normalizeSourceValue(url);
+		if (!normalized) {
+			return null;
+		}
+		return $appState.subscriptions.find((item) => item.id !== id && normalizeSourceValue(item.url) === normalized) ?? null;
+	}
+
+	function isNodeDraftDirty(node: NodeItem, draft: NodeEditDraft): boolean {
+		return (
+			draft.name.trim() !== node.name ||
+			draft.type !== node.type ||
+			normalizeSourceValue(draft.raw) !== normalizeSourceValue(node.raw) ||
+			normalizeTagDraft(draft.tags) !== stringifyTags(node.tags)
+		);
+	}
+
+	function isSubscriptionDraftDirty(subscription: SubscriptionItem, draft: SubscriptionEditDraft): boolean {
+		return (
+			draft.name.trim() !== subscription.name ||
+			normalizeSourceValue(draft.url) !== normalizeSourceValue(subscription.url) ||
+			normalizeTagDraft(draft.tags) !== stringifyTags(subscription.tags)
+		);
+	}
+
+	function canSaveNodeDraft(node: NodeItem, draft: NodeEditDraft): boolean {
+		return Boolean(
+			draft.name.trim() &&
+			normalizeSourceValue(draft.raw) &&
+			!findDuplicateNodeForDraft(node.id, draft.raw) &&
+			isNodeDraftDirty(node, draft)
+		);
+	}
+
+	function canSaveSubscriptionDraft(subscription: SubscriptionItem, draft: SubscriptionEditDraft): boolean {
+		return Boolean(
+			draft.name.trim() &&
+			normalizeSourceValue(draft.url) &&
+			!findDuplicateSubscriptionForDraft(subscription.id, draft.url) &&
+			isSubscriptionDraftDirty(subscription, draft)
+		);
+	}
+
+	function toggleNodeEditor(node: NodeItem): void {
+		if (expandedId === node.id) {
+			expandedId = null;
+			return;
+		}
+		if (!nodeDrafts[node.id]) {
+			setNodeDraft(node.id, createNodeDraft(node));
+		}
+		expandedId = node.id;
+	}
+
+	function toggleSubscriptionEditor(subscription: SubscriptionItem): void {
+		if (expandedId === subscription.id) {
+			expandedId = null;
+			return;
+		}
+		if (!subscriptionDrafts[subscription.id]) {
+			setSubscriptionDraft(subscription.id, createSubscriptionDraft(subscription));
+		}
+		expandedId = subscription.id;
+	}
+
+	function openExistingNodeEditor(id: string): void {
+		const node = $appState.nodes.find((item) => item.id === id);
+		if (!node) return;
+		if (!nodeDrafts[id]) {
+			setNodeDraft(id, createNodeDraft(node));
+		}
+		expandedId = id;
+	}
+
+	function openExistingSubscriptionEditor(id: string): void {
+		const subscription = $appState.subscriptions.find((item) => item.id === id);
+		if (!subscription) return;
+		if (!subscriptionDrafts[id]) {
+			setSubscriptionDraft(id, createSubscriptionDraft(subscription));
+		}
+		expandedId = id;
+	}
+
+	function cancelNodeEdit(id: string): void {
+		clearNodeDraft(id);
+		if (expandedId === id) {
+			expandedId = null;
+		}
+	}
+
+	function cancelSubscriptionEdit(id: string): void {
+		clearSubscriptionDraft(id);
+		if (expandedId === id) {
+			expandedId = null;
+		}
 	}
 
 	function buildSubscriptionPreviewNodes(content: string): SubscriptionPreviewNode[] {
@@ -522,7 +728,7 @@
 		if (activeTab === "nodes") {
 			if (!nodeName.trim() || !normalizedNodeRaw) return;
 			if (duplicateNode) {
-				expandedId = duplicateNode.id;
+				openExistingNodeEditor(duplicateNode.id);
 				showToast($t("A node with the same raw URI already exists: {name}", { name: duplicateNode.name }), "error");
 				return;
 			}
@@ -541,7 +747,7 @@
 		} else {
 			if (!subName.trim() || !normalizedSubUrl) return;
 			if (duplicateSubscription) {
-				expandedId = duplicateSubscription.id;
+				openExistingSubscriptionEditor(duplicateSubscription.id);
 				showToast($t("A subscription with the same URL already exists: {name}", { name: duplicateSubscription.name }), "error");
 				return;
 			}
@@ -566,7 +772,11 @@
 		}
 
 		if (batchImportPreview.firstDuplicateId) {
-			expandedId = batchImportPreview.firstDuplicateId;
+			if (activeTab === "nodes") {
+				openExistingNodeEditor(batchImportPreview.firstDuplicateId);
+			} else {
+				openExistingSubscriptionEditor(batchImportPreview.firstDuplicateId);
+			}
 		}
 
 		const importableItems = filteredBatchImportPreviewItems.filter((item) => item.status === "import" && item.importData && selectedBatchImportIds.includes(item.id));
@@ -622,6 +832,55 @@
 			const sub = $appState.subscriptions.find((item) => item.id === id);
 			if (sub) upsertSubscription({ ...sub, enabled: !sub.enabled, updatedAt: nowIso() });
 		}
+	}
+
+	function saveNodeEdit(node: NodeItem): void {
+		const draft = nodeDrafts[node.id] ?? createNodeDraft(node);
+		const duplicate = findDuplicateNodeForDraft(node.id, draft.raw);
+		if (!draft.name.trim() || !normalizeSourceValue(draft.raw)) {
+			return;
+		}
+		if (duplicate) {
+			showToast($t("A node with the same raw URI already exists: {name}", { name: duplicate.name }), "error");
+			return;
+		}
+		upsertNode({
+			...node,
+			name: draft.name.trim(),
+			type: draft.type,
+			raw: normalizeSourceValue(draft.raw),
+			tags: parseTags(draft.tags),
+			updatedAt: nowIso()
+		});
+		clearNodeDraft(node.id);
+		expandedId = null;
+		showToast($t("Node updated."));
+	}
+
+	function saveSubscriptionEdit(subscription: SubscriptionItem): void {
+		const draft = subscriptionDrafts[subscription.id] ?? createSubscriptionDraft(subscription);
+		const duplicate = findDuplicateSubscriptionForDraft(subscription.id, draft.url);
+		if (!draft.name.trim() || !normalizeSourceValue(draft.url)) {
+			return;
+		}
+		if (duplicate) {
+			showToast(
+				$t("A subscription with the same URL already exists: {name}", { name: duplicate.name }),
+				"error"
+			);
+			return;
+		}
+		upsertSubscription({
+			...subscription,
+			name: draft.name.trim(),
+			url: normalizeSourceValue(draft.url),
+			tags: parseTags(draft.tags),
+			updatedAt: nowIso()
+		});
+		clearSubscriptionDraft(subscription.id);
+		clearSubscriptionPreviewState(subscription.id);
+		expandedId = null;
+		showToast($t("Subscription updated."));
 	}
 
 	async function remove(id: string, type: "node" | "sub", name: string) {
@@ -705,39 +964,33 @@
 				<p class="page-hero__eyebrow">{activeTab === "nodes" ? $t("Nodes") : $t("Subscriptions")}</p>
 				<h1 class="page-hero__title">{$t("Nodes & Subscriptions")}</h1>
 				<p class="page-hero__description">{$t("Manage your proxy sources and connectivity settings")}</p>
+				<div class="page-hero__stats">
+					<div class="page-hero__stat">
+						<p class="page-hero__stat-label">{$t("Nodes")}</p>
+						<p class="page-hero__stat-value">{$appState.nodes.length}</p>
+						<p class="page-hero__stat-meta">{$t("Enabled")}: {enabledNodeCount}</p>
+					</div>
+					<div class="page-hero__stat">
+						<p class="page-hero__stat-label">{$t("Subscriptions")}</p>
+						<p class="page-hero__stat-value">{$appState.subscriptions.length}</p>
+						<p class="page-hero__stat-meta">{$t("Enabled")}: {enabledSubscriptionCount}</p>
+					</div>
+					<div class="page-hero__stat">
+						<p class="page-hero__stat-label">{$t("Visible")}</p>
+						<p class="page-hero__stat-value">{visibleResourceCount}</p>
+						<p class="page-hero__stat-meta">
+							{$t("All Status")}: {$t(filterStatus === "all" ? "All" : filterStatus === "enabled" ? "Enabled" : "Disabled")}
+						</p>
+					</div>
+					<div class="page-hero__stat">
+						<p class="page-hero__stat-label">{$t("Search")}</p>
+						<p class="page-hero__stat-value">{searchStateLabel}</p>
+						<p class="page-hero__stat-meta">{searchStateMeta}</p>
+					</div>
+				</div>
 			</div>
 		</div>
-
-		<div class="page-hero__actions">
-			<button on:click={openAddModal} class="button-primary">
-				<Plus class="h-4 w-4" />
-				{activeTab === "nodes" ? $t("New Node") : $t("New Subscription")}
-			</button>
-		</div>
 	</section>
-
-	<div class="metric-grid">
-		<div class="metric-card">
-			<p class="metric-card__label">{$t("Nodes")}</p>
-			<p class="metric-card__value">{$appState.nodes.length}</p>
-			<p class="metric-card__meta">{$t("Enabled")}: {$appState.nodes.filter((node) => node.enabled).length}</p>
-		</div>
-		<div class="metric-card">
-			<p class="metric-card__label">{$t("Subscriptions")}</p>
-			<p class="metric-card__value">{$appState.subscriptions.length}</p>
-			<p class="metric-card__meta">{$t("Enabled")}: {$appState.subscriptions.filter((sub) => sub.enabled).length}</p>
-		</div>
-		<div class="metric-card">
-			<p class="metric-card__label">{$t("Visible")}</p>
-			<p class="metric-card__value">{activeTab === "nodes" ? filteredNodes.length : filteredSubscriptions.length}</p>
-			<p class="metric-card__meta">{$t("All Status")}: {$t(filterStatus === "all" ? "All" : filterStatus === "enabled" ? "Enabled" : "Disabled")}</p>
-		</div>
-		<div class="metric-card">
-			<p class="metric-card__label">{$t("Search")}</p>
-			<p class="metric-card__value">{searchQuery.trim() ? "1" : "0"}</p>
-			<p class="metric-card__meta">{searchQuery.trim() ? searchQuery : $t("No filters applied.")}</p>
-		</div>
-	</div>
 
 	{#if isAddModalOpen}
 		<section transition:slide class="surface-card section-card section-card--accent">
@@ -1039,6 +1292,12 @@
 					<p class="section-card__text">{$t("Filter saved nodes and subscriptions by type, status, or keyword.")}</p>
 				</div>
 			</div>
+			<div class="section-card__actions">
+				<button type="button" on:click={openAddModal} class="button-primary button-primary--compact">
+					<Plus class="h-4 w-4" />
+					{activeTab === "nodes" ? $t("New Node") : $t("New Subscription")}
+				</button>
+			</div>
 		</div>
 
 		<div class="flex flex-col gap-4">
@@ -1158,7 +1417,7 @@
 
 								<div class="resource-card__actions">
 									<button
-										on:click={() => (expandedId = expandedId === node.id ? null : node.id)}
+										on:click={() => toggleNodeEditor(node)}
 										class="button-secondary button-secondary--compact"
 										aria-label={$t("Edit")}
 									>
@@ -1179,23 +1438,33 @@
 							</div>
 
 							{#if expandedId === node.id}
-								<div transition:slide class="space-y-4">
+								{@const draft = nodeDrafts[node.id] ?? createNodeDraft(node)}
+								{@const duplicateNodeEdit = findDuplicateNodeForDraft(node.id, draft.raw)}
+								<div transition:slide class="resource-card__editor">
 									<div class="section-divider"></div>
+									<div class="resource-card__editor-state">
+										<div class="space-y-2">
+											<span class={cn("inline-badge", isNodeDraftDirty(node, draft) ? "inline-badge--warning" : "inline-badge--accent")}>
+												{isNodeDraftDirty(node, draft) ? $t("Unsaved changes") : $t("Editing draft")}
+											</span>
+											<p class="field-note">{$t("Changes apply only after you click Save.")}</p>
+										</div>
+									</div>
 									<div class="grid gap-4 sm:grid-cols-2">
 										<div class="space-y-2">
 											<p class="field-label">{$t("Name")}</p>
 											<input
 												class="field-input"
-												value={node.name}
-												on:input={(e) => upsertNode({ ...node, name: e.currentTarget.value, updatedAt: nowIso() })}
+												value={draft.name}
+												on:input={(e) => patchNodeDraft(node, { name: e.currentTarget.value })}
 											/>
 										</div>
 										<div class="space-y-2">
 											<p class="field-label">{$t("Type")}</p>
 											<select
 												class="field-select"
-												value={node.type}
-												on:change={(e) => upsertNode({ ...node, type: e.currentTarget.value as ProxyType, updatedAt: nowIso() })}
+												value={draft.type}
+												on:change={(e) => patchNodeDraft(node, { type: e.currentTarget.value as ProxyType })}
 											>
 												<option value="vless">VLESS</option>
 												<option value="vmess">VMess</option>
@@ -1211,18 +1480,40 @@
 									<div class="space-y-2">
 										<p class="field-label">{$t("Raw URI")}</p>
 										<textarea
-											class="field-textarea field-textarea--mono h-24"
-											value={node.raw}
-											on:input={(e) => upsertNode({ ...node, raw: e.currentTarget.value, updatedAt: nowIso() })}
+											class={cn(
+												"field-textarea field-textarea--mono h-24",
+												duplicateNodeEdit && "border-red-500/50 focus:border-red-500/60"
+											)}
+											value={draft.raw}
+											on:input={(e) => patchNodeDraft(node, { raw: e.currentTarget.value })}
 										></textarea>
 									</div>
+									{#if duplicateNodeEdit}
+										<div class="inline-badge inline-badge--danger">
+											<AlertCircle class="h-3.5 w-3.5" />
+											{$t("A node with the same raw URI already exists: {name}", { name: duplicateNodeEdit.name })}
+										</div>
+									{/if}
 									<div class="space-y-2">
 										<p class="field-label">{$t("Tags (comma separated)")}</p>
 										<input
 											class="field-input"
-											value={node.tags.map((t) => t.label).join(", ")}
-											on:change={(e) => upsertNode({ ...node, tags: parseTags(e.currentTarget.value), updatedAt: nowIso() })}
+											value={draft.tags}
+											on:input={(e) => patchNodeDraft(node, { tags: e.currentTarget.value })}
 										/>
+									</div>
+									<div class="resource-card__editor-actions">
+										<button type="button" on:click={() => cancelNodeEdit(node.id)} class="button-secondary button-secondary--compact">
+											{$t("Cancel")}
+										</button>
+										<button
+											type="button"
+											on:click={() => saveNodeEdit(node)}
+											disabled={!canSaveNodeDraft(node, draft)}
+											class="button-primary button-primary--compact disabled:cursor-not-allowed disabled:opacity-50"
+										>
+											{$t("Save")}
+										</button>
 									</div>
 								</div>
 							{/if}
@@ -1241,7 +1532,6 @@
 				{:else}
 					{#each filteredSubscriptions as sub (sub.id)}
 						{@const preview = subscriptionPreviewCache[sub.id] ?? null}
-						{@const previewTypeSummary = preview ? getPreviewTypeSummary(preview.nodes) : []}
 						<div
 							transition:fade
 							class={cn(
@@ -1269,18 +1559,6 @@
 											<span class="inline-badge inline-badge--success">{$t("Subscription")}</span>
 										</div>
 										<p class="resource-card__subtitle truncate">{getHost(sub.url)}</p>
-										<div class="resource-meta">
-											<span class="resource-meta__item">
-												<span class="resource-meta__label">{$t("Updated")}</span>
-												<span class="resource-meta__value">{formatTimestamp(sub.updatedAt)}</span>
-											</span>
-											<span class="resource-meta__item">
-												<span class="resource-meta__label">{$t("Detected nodes")}</span>
-												<span class="resource-meta__value">
-													{preview?.status === "ready" ? preview.nodes.length : "--"}
-												</span>
-											</span>
-										</div>
 										<p class="soft-code line-clamp-2 break-all">{sub.url}</p>
 										{#if sub.tags.length > 0}
 											<div class="flex flex-wrap gap-2">
@@ -1297,12 +1575,24 @@
 
 								<div class="resource-card__actions">
 									<button
-										on:click={() => (expandedId = expandedId === sub.id ? null : sub.id)}
+										on:click={() => toggleSubscriptionEditor(sub)}
 										class="button-secondary button-secondary--compact"
 										aria-label={$t("Edit")}
 									>
 										<Edit3 class="h-3.5 w-3.5" />
 										{$t(expandedId === sub.id ? "Hide" : "Edit")}
+									</button>
+									<button
+										type="button"
+										on:click={() => openSubscriptionPreview(sub)}
+										class="button-secondary button-secondary--compact"
+									>
+										{#if preview?.status === "loading"}
+											<RefreshCw class="h-4 w-4 animate-spin" />
+										{:else}
+											<Eye class="h-4 w-4" />
+										{/if}
+										{$t("Preview")}
 									</button>
 									<button on:click={() => copy(sub.url, sub.name)} class="button-icon button-icon--compact" aria-label={$t("Copy")}>
 										<Copy class="h-4 w-4" />
@@ -1317,97 +1607,67 @@
 								</div>
 							</div>
 
-							<div class="resource-panel">
-								<div class="resource-panel__header">
-									<div class="space-y-1">
-										<p class="resource-card__eyebrow">{$t("Subscription Preview")}</p>
-										<h4 class="resource-panel__title">{$t("Preview")}</h4>
-										<p class="resource-panel__text">{$t("Click preview to inspect included nodes.")}</p>
-									</div>
-									<button
-										type="button"
-										on:click={() => openSubscriptionPreview(sub)}
-										class="button-primary button-primary--compact"
-									>
-										{#if preview?.status === "loading"}
-											<RefreshCw class="h-4 w-4 animate-spin" />
-										{:else}
-											<Eye class="h-4 w-4" />
-										{/if}
-										{$t("Preview")}
-									</button>
-								</div>
-
-								<div class="resource-meta">
-									<span class="resource-meta__item">
-										<span class="resource-meta__label">{$t("Detected nodes")}</span>
-										<span class="resource-meta__value">{preview?.status === "ready" ? preview.nodes.length : "--"}</span>
-									</span>
-									<span class="resource-meta__item">
-										<span class="resource-meta__label">{$t("Last preview")}</span>
-										<span class="resource-meta__value">{preview?.fetchedAt ? formatTimestamp(preview.fetchedAt) : "--"}</span>
-									</span>
-								</div>
-
-								{#if preview?.status === "ready"}
-									{#if preview.nodes.length === 0}
-										<div class="empty-state empty-state--compact">
-											<div class="empty-state__icon">
-												<LinkIcon class="h-5 w-5" />
-											</div>
-											<p class="empty-state__text">{$t("No detectable nodes found in this subscription.")}</p>
-										</div>
-									{:else}
-										<div class="flex flex-wrap gap-2">
-											{#each previewTypeSummary.slice(0, 4) as item}
-												<span class={typePillClasses[item.type]}>
-													{item.type} · {item.count}
-												</span>
-											{/each}
-										</div>
-									{/if}
-								{:else if preview?.status === "loading"}
-									<div class="inline-badge inline-badge--accent">
-										<RefreshCw class="h-3.5 w-3.5 animate-spin" />
-										{$t("Loading subscription preview...")}
-									</div>
-								{:else if preview?.status === "error"}
-									<div class="inline-badge inline-badge--danger">
-										<AlertCircle class="h-3.5 w-3.5" />
-										{$t("Subscription preview failed.")}
-									</div>
-									<p class="break-all text-sm text-[color:var(--app-danger)]">{preview.error}</p>
-								{/if}
-							</div>
-
 							{#if expandedId === sub.id}
-								<div transition:slide class="space-y-4">
+								{@const draft = subscriptionDrafts[sub.id] ?? createSubscriptionDraft(sub)}
+								{@const duplicateSubscriptionEdit = findDuplicateSubscriptionForDraft(sub.id, draft.url)}
+								<div transition:slide class="resource-card__editor">
 									<div class="section-divider"></div>
+									<div class="resource-card__editor-state">
+										<div class="space-y-2">
+											<span class={cn("inline-badge", isSubscriptionDraftDirty(sub, draft) ? "inline-badge--warning" : "inline-badge--accent")}>
+												{isSubscriptionDraftDirty(sub, draft) ? $t("Unsaved changes") : $t("Editing draft")}
+											</span>
+											<p class="field-note">{$t("Changes apply only after you click Save.")}</p>
+										</div>
+									</div>
 									<div class="grid gap-4 sm:grid-cols-2">
 										<div class="space-y-2">
 											<p class="field-label">{$t("Name")}</p>
 											<input
 												class="field-input"
-												value={sub.name}
-												on:input={(e) => upsertSubscription({ ...sub, name: e.currentTarget.value, updatedAt: nowIso() })}
+												value={draft.name}
+												on:input={(e) => patchSubscriptionDraft(sub, { name: e.currentTarget.value })}
 											/>
 										</div>
 										<div class="space-y-2">
 											<p class="field-label">{$t("URL")}</p>
 											<input
-												class="field-input"
-												value={sub.url}
-												on:input={(e) => upsertSubscription({ ...sub, url: e.currentTarget.value, updatedAt: nowIso() })}
+												class={cn("field-input", duplicateSubscriptionEdit && "border-red-500/50 focus:border-red-500/60")}
+												value={draft.url}
+												on:input={(e) => patchSubscriptionDraft(sub, { url: e.currentTarget.value })}
 											/>
 										</div>
 									</div>
+									{#if duplicateSubscriptionEdit}
+										<div class="inline-badge inline-badge--danger">
+											<AlertCircle class="h-3.5 w-3.5" />
+											{$t("A subscription with the same URL already exists: {name}", { name: duplicateSubscriptionEdit.name })}
+										</div>
+									{/if}
 									<div class="space-y-2">
 										<p class="field-label">{$t("Tags (comma separated)")}</p>
 										<input
 											class="field-input"
-											value={sub.tags.map((t) => t.label).join(", ")}
-											on:change={(e) => upsertSubscription({ ...sub, tags: parseTags(e.currentTarget.value), updatedAt: nowIso() })}
+											value={draft.tags}
+											on:input={(e) => patchSubscriptionDraft(sub, { tags: e.currentTarget.value })}
 										/>
+									</div>
+									<div class="resource-card__editor-actions">
+										<button
+											type="button"
+											on:click={() => cancelSubscriptionEdit(sub.id)}
+											class="button-secondary button-secondary--compact"
+										>
+											{$t("Cancel")}
+										</button>
+										<button
+											type="button"
+											on:click={() => saveSubscriptionEdit(sub)}
+											disabled={!canSaveSubscriptionDraft(sub, draft)}
+											class="button-primary button-primary--compact disabled:cursor-not-allowed disabled:opacity-50"
+										>
+											{$t("Save")}
+										</button>
 									</div>
 								</div>
 							{/if}
