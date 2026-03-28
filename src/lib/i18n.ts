@@ -272,6 +272,8 @@ const zhCN: Record<string, string> = {
 	"Refresh to load files.": "请刷新以加载文件。",
 	"No files in workspace.": "工作区中暂无文件。",
 	"Workspace config": "工作区配置",
+	"Remote config matches current local state.": "远端配置与当前本地状态一致。",
+	"Remote config differs from current local state.": "远端配置与当前本地状态不一致。",
 	"Managed output": "受管理输出",
 	"Recent Publish Events": "最近发布事件",
 	"Latest file replacement activity for workspace outputs.": "查看工作区输出文件最近的替换与清理记录。",

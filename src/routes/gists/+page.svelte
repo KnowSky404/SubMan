@@ -1,12 +1,13 @@
 <script lang="ts">
 	import { onMount } from "svelte";
 	import { browser } from "$app/environment";
-	import type { AggregatePublishTarget, GistMeta, PublishTransitionOutcome } from "$lib/models";
+	import type { AggregatePublishTarget, AppState, GistMeta, PublishTransitionOutcome } from "$lib/models";
 	import { t } from "$lib/i18n";
 	import { appState } from "$lib/stores/app";
 	import { authState } from "$lib/stores/auth";
 	import { requestConfirm } from "$lib/stores/confirm";
-	import { getGist, updateGist } from "$lib/gist";
+	import { getGist, getGistFileContent, updateGist } from "$lib/gist";
+	import { getSyncStateSignature, importState } from "$lib/serialization";
 	import { nowIso } from "$lib/utils/time";
 	import { WORKSPACE_FILE } from "$lib/workspace";
 	import { cn } from "$lib/utils/cn";
@@ -32,9 +33,11 @@
 	import { fade, fly } from "svelte/transition";
 
 	let workspace: GistMeta | null = null;
+	let workspaceConfig: AppState | null = null;
 	let loading = false;
 	let deleting = false;
 	let workspaceLoadError: string | null = null;
+	let workspaceConfigError: string | null = null;
 	let publishEventsExpanded = true;
 	let publishEventFilter: PublishEventFilter = 'all';
 	
@@ -180,6 +183,12 @@
 			.filter(Boolean)
 	);
 
+	$: localWorkspaceSignature = getSyncStateSignature($appState);
+	$: remoteWorkspaceSignature = workspaceConfig ? getSyncStateSignature(workspaceConfig) : null;
+	$: workspaceConfigMatchesLocal = Boolean(
+		remoteWorkspaceSignature && remoteWorkspaceSignature === localWorkspaceSignature
+	);
+
 	$: allPublishLogs = $appState.publishTargets
 		.filter(hasPublishTransition)
 		.sort((a, b) => Date.parse(b.lastPublishTransitionAt) - Date.parse(a.lastPublishTransitionAt))
@@ -212,7 +221,10 @@
 		const token = $authState.token;
 		const gistId = $appState.activeGistId;
 		if (!token || !gistId) {
+			workspace = null;
+			workspaceConfig = null;
 			workspaceLoadError = $t("Configure workspace first.");
+			workspaceConfigError = null;
 			setStatus($t("Configure workspace first."), 'error');
 			return;
 		}
@@ -220,9 +232,21 @@
 		loading = true;
 		try {
 			workspace = await getGist(token, gistId);
+			workspaceConfig = null;
+			workspaceConfigError = null;
+
+			try {
+				const rawConfig = await getGistFileContent(token, gistId, WORKSPACE_FILE);
+				workspaceConfig = importState(rawConfig);
+			} catch (err) {
+				workspaceConfigError = err instanceof Error ? err.message : $t("Workspace data unreadable.");
+			}
+
 			workspaceLoadError = null;
 			setStatus($t("Workspace gist refreshed."), 'success');
 		} catch (err) {
+			workspaceConfig = null;
+			workspaceConfigError = null;
 			workspaceLoadError = err instanceof Error ? err.message : $t("Failed to fetch gist.");
 			setStatus(workspaceLoadError, 'error');
 		} finally {
@@ -464,6 +488,69 @@
 		
 		<!-- Background Glow -->
 		<div class="absolute -right-20 -top-20 h-64 w-64 bg-indigo-500/5 blur-[80px] group-hover:bg-indigo-500/10 transition-colors"></div>
+	</section>
+
+	<section class="rounded-[2rem] border border-slate-800/60 bg-slate-900/30 p-8 space-y-5">
+		<div class="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+			<div class="flex items-center gap-3">
+				<div class="flex h-11 w-11 items-center justify-center rounded-2xl bg-indigo-500/10 text-indigo-400">
+					<FileJson class="h-5 w-5" />
+				</div>
+				<div>
+					<h2 class="text-lg font-bold text-white tracking-tight">{$t("Workspace config")}</h2>
+					<p class="text-sm text-slate-400">{WORKSPACE_FILE}</p>
+				</div>
+			</div>
+
+			{#if workspaceConfig}
+				<span
+					class={cn(
+						"inline-flex items-center rounded-full border px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.18em]",
+						workspaceConfigMatchesLocal
+							? "border-emerald-500/20 bg-emerald-500/10 text-emerald-300"
+							: "border-amber-500/20 bg-amber-500/10 text-amber-300"
+					)}
+				>
+					{workspaceConfigMatchesLocal
+						? $t("Remote config matches current local state.")
+						: $t("Remote config differs from current local state.")}
+				</span>
+			{/if}
+		</div>
+
+		{#if workspaceConfig}
+			<div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+				<div class="rounded-3xl border border-slate-800/60 bg-slate-950/40 p-5 space-y-2">
+					<p class="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-500">{$t("Nodes")}</p>
+					<p class="text-2xl font-bold text-white">{workspaceConfig.nodes.length}</p>
+				</div>
+				<div class="rounded-3xl border border-slate-800/60 bg-slate-950/40 p-5 space-y-2">
+					<p class="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-500">{$t("Subscriptions")}</p>
+					<p class="text-2xl font-bold text-white">{workspaceConfig.subscriptions.length}</p>
+				</div>
+				<div class="rounded-3xl border border-slate-800/60 bg-slate-950/40 p-5 space-y-2">
+					<p class="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-500">{$t("Rules")}</p>
+					<p class="text-2xl font-bold text-white">{workspaceConfig.aggregates.length}</p>
+				</div>
+				<div class="rounded-3xl border border-slate-800/60 bg-slate-950/40 p-5 space-y-2">
+					<p class="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-500">{$t("Publish Targets")}</p>
+					<p class="text-2xl font-bold text-white">{workspaceConfig.publishTargets.length}</p>
+				</div>
+			</div>
+
+			<p class="text-[11px] font-medium uppercase tracking-[0.18em] text-slate-500">
+				{$t("Updated: {time}", { time: formatEventTime(workspaceConfig.lastUpdated) })}
+			</p>
+		{:else if workspaceConfigError}
+			<div class="rounded-3xl border border-amber-500/20 bg-amber-500/10 px-5 py-4 text-sm text-amber-100">
+				<p class="font-bold text-amber-200">{$t("Workspace data unreadable.")}</p>
+				<p class="mt-1 text-amber-100/80">{workspaceConfigError}</p>
+			</div>
+		{:else}
+			<div class="rounded-3xl border border-slate-800/60 border-dashed bg-slate-950/30 px-6 py-8 text-center">
+				<p class="text-sm font-medium text-slate-400">{$t("Refresh to load files.")}</p>
+			</div>
+		{/if}
 	</section>
 
 	{#if allPublishLogs.length > 0}
