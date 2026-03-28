@@ -44,8 +44,7 @@ export const appState = writable<AppState>(loadInitialState());
 
 if (browser) {
 	appState.subscribe((value) => {
-		const next = { ...value, lastUpdated: nowIso() };
-		localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+		localStorage.setItem(STORAGE_KEY, JSON.stringify(value));
 	});
 }
 

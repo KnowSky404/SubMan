@@ -14,6 +14,13 @@ function buildSyncState(state: AppState): AppState {
 	};
 }
 
+export function getSyncStateSignature(state: AppState): string {
+	return JSON.stringify({
+		version: EXPORT_VERSION,
+		data: buildSyncState(state)
+	});
+}
+
 export function exportState(state: AppState): string {
 	return JSON.stringify(
 		{

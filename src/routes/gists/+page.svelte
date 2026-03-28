@@ -221,7 +221,7 @@
 		try {
 			workspace = await getGist(token, gistId);
 			workspaceLoadError = null;
-			setStatus($t("Workspace refreshed."), 'success');
+			setStatus($t("Workspace gist refreshed."), 'success');
 		} catch (err) {
 			workspaceLoadError = err instanceof Error ? err.message : $t("Failed to fetch gist.");
 			setStatus(workspaceLoadError, 'error');

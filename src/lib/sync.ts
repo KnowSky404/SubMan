@@ -3,7 +3,7 @@ import { get } from 'svelte/store';
 import { appState } from '$lib/stores/app';
 import { authState } from '$lib/stores/auth';
 import { updateGist } from '$lib/gist';
-import { exportSyncState } from '$lib/serialization';
+import { exportSyncState, getSyncStateSignature } from '$lib/serialization';
 
 const DEFAULT_DELAY = 1200;
 const BASELINE_KEY = 'subman:sync:baseline';
@@ -37,11 +37,11 @@ function readBaseline(): string {
 	return localStorage.getItem(BASELINE_KEY) ?? '';
 }
 
-function writeBaseline(payload: string): void {
+function writeBaseline(baseline: string): void {
 	if (!browser) {
 		return;
 	}
-	localStorage.setItem(BASELINE_KEY, payload);
+	localStorage.setItem(BASELINE_KEY, baseline);
 }
 
 export function readAutoSyncStatus(): AutoSyncStatus {
@@ -78,8 +78,8 @@ export function getAutoSyncStatusEventName(): string {
 	return AUTO_SYNC_STATUS_EVENT;
 }
 
-export function setSyncBaseline(payload: string): void {
-	writeBaseline(payload);
+export function setSyncBaseline(baseline: string): void {
+	writeBaseline(baseline);
 }
 
 export function startAutoSync(delayMs: number = DEFAULT_DELAY): () => void {
@@ -91,7 +91,7 @@ export function startAutoSync(delayMs: number = DEFAULT_DELAY): () => void {
 	let timer: ReturnType<typeof setTimeout> | null = null;
 	let syncing = false;
 	let pending = false;
-	let lastPayload = readBaseline();
+	let lastSignature = readBaseline();
 	let latestState = get(appState);
 	let lastStatus = readAutoSyncStatus();
 
@@ -131,11 +131,12 @@ export function startAutoSync(delayMs: number = DEFAULT_DELAY): () => void {
 			return;
 		}
 
-		const payload = exportSyncState(latestState);
-		if (payload === lastPayload) {
+		const signature = getSyncStateSignature(latestState);
+		if (signature === lastSignature) {
 			return;
 		}
 
+		const payload = exportSyncState(latestState);
 		syncing = true;
 		const attemptedAt = new Date().toISOString();
 		const syncedFile = latestState.activeGistFile || 'subman.json';
@@ -153,8 +154,8 @@ export function startAutoSync(delayMs: number = DEFAULT_DELAY): () => void {
 					[syncedFile]: { content: payload }
 				}
 			});
-			lastPayload = payload;
-			writeBaseline(payload);
+			lastSignature = signature;
+			writeBaseline(signature);
 			updateStatus({
 				status: 'success',
 				gistId: latestState.activeGistId,

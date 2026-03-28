@@ -1,14 +1,19 @@
 <script lang="ts">
 	import { browser } from "$app/environment";
-import { onDestroy, onMount } from "svelte";
-import { t } from "$lib/i18n";
+	import { onDestroy, onMount } from "svelte";
+	import { t } from "$lib/i18n";
 	import { appState, replaceState } from "$lib/stores/app";
 	import { authState, clearAuth, setToken } from "$lib/stores/auth";
-	import { exportState, exportSyncState, importState } from "$lib/serialization";
+	import {
+		exportState,
+		exportSyncState,
+		getSyncStateSignature,
+		importState
+	} from "$lib/serialization";
 	import { getGist, getGistFileContent, updateGist } from "$lib/gist";
 	import { ensureWorkspaceGist, WORKSPACE_DESCRIPTION, WORKSPACE_FILE } from "$lib/workspace";
 	import { mergeSyncState } from "$lib/merge";
-import { requestConfirm } from "$lib/stores/confirm";
+	import { requestConfirm } from "$lib/stores/confirm";
 	import { getAutoSyncStatusEventName, readAutoSyncStatus, setSyncBaseline, type AutoSyncStatus } from "$lib/sync";
 	import { nowIso } from "$lib/utils/time";
 	import { cn } from "$lib/utils/cn";
@@ -35,7 +40,9 @@ import { requestConfirm } from "$lib/stores/confirm";
 	type WorkspaceConflict = {
 		gistId: string;
 		localPayload: string;
+		localSignature: string;
 		remotePayload: string;
+		remoteSignature: string;
 		remoteState: AppState;
 		localStats: {
 			nodes: number;
@@ -138,7 +145,7 @@ import { requestConfirm } from "$lib/stores/confirm";
 		].slice(0, 12);
 	}
 
-		function matchesWorkspaceActivityFilter(activity: WorkspaceActivity, filter: WorkspaceActivityFilter): boolean {
+	function matchesWorkspaceActivityFilter(activity: WorkspaceActivity, filter: WorkspaceActivityFilter): boolean {
 		if (filter === "all") {
 			return true;
 		}
@@ -168,7 +175,7 @@ import { requestConfirm } from "$lib/stores/confirm";
 		matchesWorkspaceActivityFilter(activity, workspaceActivityFilter)
 	);
 
-async function clearWorkspaceActivityLog() {
+	async function clearWorkspaceActivityLog() {
 		if (workspaceActivity.length === 0) {
 			return;
 		}
@@ -273,6 +280,7 @@ async function clearWorkspaceActivityLog() {
 		repairBusy = true;
 		try {
 			const localPayload = exportSyncState($appState);
+			const localSignature = getSyncStateSignature($appState);
 			await updateGist(token, {
 				gistId,
 				files: { [WORKSPACE_FILE]: { content: localPayload } }
@@ -283,7 +291,7 @@ async function clearWorkspaceActivityLog() {
 				activeGistFile: WORKSPACE_FILE,
 				lastUpdated: nowIso()
 			}));
-			setSyncBaseline(localPayload);
+			setSyncBaseline(localSignature);
 			pushWorkspaceActivity(
 				"success",
 				$t("Workspace config repaired."),
@@ -303,7 +311,7 @@ async function clearWorkspaceActivityLog() {
 		}
 	}
 
-async function handleManualSyncNow() {
+	async function handleManualSyncNow() {
 		const token = $authState.token;
 		if (!token) {
 			setStatus($t("Token is required."), 'error');
@@ -313,6 +321,7 @@ async function handleManualSyncNow() {
 		workspaceBusy = true;
 		try {
 			const localPayload = exportSyncState($appState);
+			const localSignature = getSyncStateSignature($appState);
 			let gistId = $appState.activeGistId;
 
 			if (!gistId) {
@@ -331,7 +340,7 @@ async function handleManualSyncNow() {
 				files: { [WORKSPACE_FILE]: { content: localPayload } }
 			});
 
-			setSyncBaseline(localPayload);
+			setSyncBaseline(localSignature);
 			conflict = null;
 			pendingGistId = null;
 			pushWorkspaceActivity(
@@ -458,6 +467,7 @@ async function handleManualSyncNow() {
 
 		try {
 			const localPayload = exportSyncState($appState);
+			const localSignature = getSyncStateSignature($appState);
 			const { gist, created } = await ensureWorkspaceGist(token, localPayload);
 
 			if (created) {
@@ -467,7 +477,7 @@ async function handleManualSyncNow() {
 					activeGistFile: WORKSPACE_FILE,
 					lastUpdated: nowIso()
 				}));
-				setSyncBaseline(localPayload);
+				setSyncBaseline(localSignature);
 				pushWorkspaceActivity("success", $t("Workspace gist created."), $t("Workspace gist is bound to {id}.", { id: gist.id }));
 				setStatus($t("Workspace gist created."), 'success');
 				return;
@@ -500,14 +510,17 @@ async function handleManualSyncNow() {
 
 			const remoteState = importState(content);
 			const remotePayload = exportSyncState(remoteState);
+			const remoteSignature = getSyncStateSignature(remoteState);
 			const gistMismatch = Boolean($appState.activeGistId && $appState.activeGistId !== gist.id);
-			const payloadMismatch = localPayload !== remotePayload;
+			const payloadMismatch = localSignature !== remoteSignature;
 
 			pendingGistId = gist.id;
 			conflict = {
 				gistId: gist.id,
 				localPayload,
+				localSignature,
 				remotePayload,
+				remoteSignature,
 				remoteState,
 				localStats: snapshotStats($appState),
 				remoteStats: snapshotStats(remoteState)
@@ -515,7 +528,7 @@ async function handleManualSyncNow() {
 
 			if (!gistMismatch && !payloadMismatch) {
 				applyWorkspaceState(remoteState, gist.id);
-				setSyncBaseline(remotePayload);
+				setSyncBaseline(remoteSignature);
 				pushWorkspaceActivity("success", $t("Workspace linked. No sync needed."), $t("Workspace gist is bound to {id}.", { id: gist.id }));
 				setStatus($t("Workspace linked. No sync needed."), 'success');
 				conflict = null;
@@ -540,7 +553,7 @@ async function handleManualSyncNow() {
 		try {
 			if (action === "remote") {
 				applyWorkspaceState(activeConflict.remoteState, activeConflict.gistId);
-				setSyncBaseline(activeConflict.remotePayload);
+				setSyncBaseline(activeConflict.remoteSignature);
 				pushWorkspaceActivity("success", $t("Remote data loaded."), $t("Remote workspace state replaced the local view."));
 				setStatus($t("Remote data loaded."), 'success');
 				conflict = null;
@@ -560,7 +573,7 @@ async function handleManualSyncNow() {
 					activeGistFile: WORKSPACE_FILE,
 					lastUpdated: nowIso()
 				}));
-				setSyncBaseline(activeConflict.localPayload);
+				setSyncBaseline(activeConflict.localSignature);
 				pushWorkspaceActivity("success", $t("Local data pushed."), $t("Local state was uploaded to the workspace gist."));
 				setStatus($t("Local data pushed."), 'success');
 				conflict = null;
@@ -570,13 +583,14 @@ async function handleManualSyncNow() {
 			const merged = mergeSyncState($appState, activeConflict.remoteState);
 			const mergedState: AppState = { ...$appState, ...merged, lastUpdated: nowIso() };
 			const mergedPayload = exportSyncState(mergedState);
+			const mergedSignature = getSyncStateSignature(mergedState);
 			await updateGist(token, {
 				gistId: activeConflict.gistId,
 				files: { [WORKSPACE_FILE]: { content: mergedPayload } }
 			});
 
 			applyWorkspaceState(mergedState, activeConflict.gistId);
-			setSyncBaseline(mergedPayload);
+			setSyncBaseline(mergedSignature);
 			pushWorkspaceActivity("success", $t("Merged data saved."), $t("Local and remote workspace states were merged and saved."));
 			setStatus($t("Merged data saved."), 'success');
 			conflict = null;
@@ -590,7 +604,7 @@ async function handleManualSyncNow() {
 
 	function linkWorkspaceOnly() {
 		if (!pendingGistId) return;
-		const baseline = exportSyncState($appState);
+		const baseline = getSyncStateSignature($appState);
 		appState.update((state) => ({
 			...state,
 			activeGistId: pendingGistId,
