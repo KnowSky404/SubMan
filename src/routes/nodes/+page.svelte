@@ -695,264 +695,318 @@
 	<title>{$t("Nodes & Subscriptions")} | {$t("SubMan")}</title>
 </svelte:head>
 
-<div class="space-y-6 pb-12">
-	<!-- Header & Global Actions -->
-	<header class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-		<div>
-			<h1 class="text-3xl font-extrabold text-white tracking-tight">{$t("Nodes & Subscriptions")}</h1>
-			<p class="text-slate-400 text-sm">{$t("Manage your proxy sources and connectivity settings")}</p>
+<div class="page-stack">
+	<section class="page-hero surface-card">
+		<div class="page-hero__intro">
+			<div class="page-hero__icon">
+				<Network class="h-6 w-6" />
+			</div>
+			<div class="page-hero__body">
+				<p class="page-hero__eyebrow">{activeTab === "nodes" ? $t("Nodes") : $t("Subscriptions")}</p>
+				<h1 class="page-hero__title">{$t("Nodes & Subscriptions")}</h1>
+				<p class="page-hero__description">{$t("Manage your proxy sources and connectivity settings")}</p>
+			</div>
 		</div>
-		
-		<button 
-			on:click={openAddModal}
-			class="flex items-center justify-center gap-2 rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-bold text-white shadow-lg shadow-indigo-600/20 transition-all hover:bg-indigo-500 active:scale-[0.98]"
-		>
-			<Plus class="h-4 w-4" />
-			{activeTab === 'nodes' ? $t("New Node") : $t("New Subscription")}
-		</button>
-	</header>
 
-	<!-- Add Modal / Form (Collapsible) -->
+		<div class="page-hero__actions">
+			<button on:click={openAddModal} class="button-primary">
+				<Plus class="h-4 w-4" />
+				{activeTab === "nodes" ? $t("New Node") : $t("New Subscription")}
+			</button>
+		</div>
+	</section>
+
+	<div class="metric-grid">
+		<div class="metric-card">
+			<p class="metric-card__label">{$t("Nodes")}</p>
+			<p class="metric-card__value">{$appState.nodes.length}</p>
+			<p class="metric-card__meta">{$t("Enabled")}: {$appState.nodes.filter((node) => node.enabled).length}</p>
+		</div>
+		<div class="metric-card">
+			<p class="metric-card__label">{$t("Subscriptions")}</p>
+			<p class="metric-card__value">{$appState.subscriptions.length}</p>
+			<p class="metric-card__meta">{$t("Enabled")}: {$appState.subscriptions.filter((sub) => sub.enabled).length}</p>
+		</div>
+		<div class="metric-card">
+			<p class="metric-card__label">{$t("Visible")}</p>
+			<p class="metric-card__value">{activeTab === "nodes" ? filteredNodes.length : filteredSubscriptions.length}</p>
+			<p class="metric-card__meta">{$t("All Status")}: {$t(filterStatus === "all" ? "All" : filterStatus === "enabled" ? "Enabled" : "Disabled")}</p>
+		</div>
+		<div class="metric-card">
+			<p class="metric-card__label">{$t("Search")}</p>
+			<p class="metric-card__value">{searchQuery.trim() ? "1" : "0"}</p>
+			<p class="metric-card__meta">{searchQuery.trim() ? searchQuery : $t("No filters applied.")}</p>
+		</div>
+	</div>
+
 	{#if isAddModalOpen}
-		<section 
-			transition:slide
-			class="overflow-hidden rounded-3xl border border-indigo-500/20 bg-indigo-500/5 p-6 shadow-2xl shadow-indigo-500/5"
-		>
-			<div class="flex items-center justify-between mb-6">
-				<h2 class="text-lg font-bold text-white flex items-center gap-2">
-					<Plus class="h-5 w-5 text-indigo-400" />
-					{activeTab === 'nodes' ? $t("Add New Node") : $t("Add New Subscription")}
-				</h2>
-				<button on:click={closeAddModal} class="text-slate-500 hover:text-white transition-colors">
-					<ChevronUp class="h-5 w-5" />
-				</button>
+		<section transition:slide class="surface-card section-card section-card--accent">
+			<div class="section-card__header">
+				<div class="section-card__header-main">
+					<div class="section-card__icon">
+						<Plus class="h-5 w-5" />
+					</div>
+					<div class="section-card__title-wrap">
+						<h2 class="section-card__title">{activeTab === "nodes" ? $t("Add New Node") : $t("Add New Subscription")}</h2>
+						<p class="section-card__text">
+							{activeTab === "nodes"
+								? $t("Create a single node or import a batch of raw URIs.")
+								: $t("Create a single subscription or import a batch of URLs.")}
+						</p>
+					</div>
+				</div>
+
+				<div class="section-card__actions">
+					<div class="filter-pills">
+						<button
+							type="button"
+							on:click={() => (addMode = "single")}
+							class={cn("filter-pill", addMode === "single" && "filter-pill--active")}
+						>
+							{$t("Single Entry")}
+						</button>
+						<button
+							type="button"
+							on:click={() => (addMode = "batch")}
+							class={cn("filter-pill", addMode === "batch" && "filter-pill--active")}
+						>
+							{$t("Batch Import")}
+						</button>
+					</div>
+
+					<button type="button" on:click={closeAddModal} class="button-icon" aria-label={$t("Cancel")}>
+						<ChevronUp class="h-4.5 w-4.5" />
+					</button>
+				</div>
 			</div>
 
-			<div class="mb-6 inline-flex rounded-2xl border border-slate-800 bg-slate-950/60 p-1">
-				<button
-					type="button"
-					on:click={() => (addMode = 'single')}
-					class={cn(
-						"rounded-xl px-4 py-2 text-xs font-bold uppercase tracking-[0.16em] transition-all",
-						addMode === 'single' ? "bg-indigo-500/15 text-indigo-300" : "text-slate-500 hover:text-slate-200"
-					)}
-				>
-					{$t("Single Entry")}
-				</button>
-				<button
-					type="button"
-					on:click={() => (addMode = 'batch')}
-					class={cn(
-						"rounded-xl px-4 py-2 text-xs font-bold uppercase tracking-[0.16em] transition-all",
-						addMode === 'batch' ? "bg-indigo-500/15 text-indigo-300" : "text-slate-500 hover:text-slate-200"
-					)}
-				>
-					{$t("Batch Import")}
-				</button>
-			</div>
-
-			{#if addMode === 'single'}
+			{#if addMode === "single"}
 				<div class="grid gap-4 sm:grid-cols-2">
-					{#if activeTab === 'nodes'}
+					{#if activeTab === "nodes"}
 						<div class="space-y-4">
-							<input
-								class="w-full rounded-xl border border-slate-800 bg-slate-950 px-4 py-3 text-sm text-white placeholder:text-slate-600 outline-none focus:border-indigo-500/50 transition-all"
-								placeholder={$t("Node name")}
-								bind:value={nodeName}
-							/>
-							<select
-								class="w-full rounded-xl border border-slate-800 bg-slate-950 px-4 py-3 text-sm text-white outline-none focus:border-indigo-500/50 transition-all"
-								bind:value={nodeType}
-							>
-								<option value="vless">VLESS</option>
-								<option value="vmess">VMess</option>
-								<option value="trojan">Trojan</option>
-								<option value="ss">Shadowsocks</option>
-								<option value="ssr">SSR</option>
-								<option value="hysteria2">Hysteria2</option>
-								<option value="tuic">TUIC</option>
-								<option value="other">Other</option>
-							</select>
+							<div class="space-y-2">
+								<p class="field-label">{$t("Name")}</p>
+								<input class="field-input" placeholder={$t("Node name")} bind:value={nodeName} />
+							</div>
+							<div class="space-y-2">
+								<p class="field-label">{$t("Type")}</p>
+								<select class="field-select" bind:value={nodeType}>
+									<option value="vless">VLESS</option>
+									<option value="vmess">VMess</option>
+									<option value="trojan">Trojan</option>
+									<option value="ss">Shadowsocks</option>
+									<option value="ssr">SSR</option>
+									<option value="hysteria2">Hysteria2</option>
+									<option value="tuic">TUIC</option>
+									<option value="other">Other</option>
+								</select>
+							</div>
 						</div>
 						<div class="space-y-4">
-							<textarea
-								class={cn(
-									"w-full h-[104px] rounded-xl border bg-slate-950 px-4 py-3 text-xs font-mono text-white placeholder:text-slate-600 outline-none transition-all",
-									duplicateNode ? "border-red-500/50 focus:border-red-500/60" : "border-slate-800 focus:border-indigo-500/50"
-								)}
-								placeholder={$t("Raw node URI (vless://...)")}
-								bind:value={nodeRaw}
-							></textarea>
+							<div class="space-y-2">
+								<p class="field-label">{$t("Raw URI")}</p>
+								<textarea
+									class={cn(
+										"field-textarea field-textarea--mono h-[104px]",
+										duplicateNode && "border-red-500/50 focus:border-red-500/60"
+									)}
+									placeholder={$t("Raw node URI (vless://...)")}
+									bind:value={nodeRaw}
+								></textarea>
+							</div>
 							{#if duplicateNode}
-								<p class="text-[11px] leading-relaxed text-red-300">{$t("A node with the same raw URI already exists: {name}", { name: duplicateNode.name })}</p>
-								<p class="text-[10px] font-medium uppercase tracking-[0.14em] text-slate-500">{$t("The existing item has been expanded for quick review.")}</p>
+								<div class="inline-badge inline-badge--danger">
+									<AlertCircle class="h-3.5 w-3.5" />
+									{$t("A node with the same raw URI already exists: {name}", { name: duplicateNode.name })}
+								</div>
+								<p class="text-[11px] leading-relaxed text-[color:var(--app-text-faint)]">{$t("The existing item has been expanded for quick review.")}</p>
 							{/if}
 						</div>
-						<div class="sm:col-span-2">
-							<input
-								class="w-full rounded-xl border border-slate-800 bg-slate-950 px-4 py-3 text-sm text-white placeholder:text-slate-600 outline-none focus:border-indigo-500/50 transition-all"
-								placeholder={$t("Tags (comma separated)")}
-								bind:value={nodeTags}
-							/>
+						<div class="sm:col-span-2 space-y-2">
+							<p class="field-label">{$t("Tags (comma separated)")}</p>
+							<input class="field-input" placeholder={$t("Tags (comma separated)")} bind:value={nodeTags} />
 						</div>
 					{:else}
 						<div class="space-y-4">
-							<input
-								class="w-full rounded-xl border border-slate-800 bg-slate-950 px-4 py-3 text-sm text-white placeholder:text-slate-600 outline-none focus:border-indigo-500/50 transition-all"
-								placeholder={$t("Subscription name")}
-								bind:value={subName}
-							/>
-							<input
-								class={cn(
-									"w-full rounded-xl border bg-slate-950 px-4 py-3 text-sm text-white placeholder:text-slate-600 outline-none transition-all",
-									duplicateSubscription ? "border-red-500/50 focus:border-red-500/60" : "border-slate-800 focus:border-indigo-500/50"
-								)}
-								placeholder={$t("Subscription URL")}
-								bind:value={subUrl}
-							/>
+							<div class="space-y-2">
+								<p class="field-label">{$t("Name")}</p>
+								<input class="field-input" placeholder={$t("Subscription name")} bind:value={subName} />
+							</div>
+							<div class="space-y-2">
+								<p class="field-label">{$t("URL")}</p>
+								<input
+									class={cn("field-input", duplicateSubscription && "border-red-500/50 focus:border-red-500/60")}
+									placeholder={$t("Subscription URL")}
+									bind:value={subUrl}
+								/>
+							</div>
 							{#if duplicateSubscription}
-								<p class="text-[11px] leading-relaxed text-red-300">{$t("A subscription with the same URL already exists: {name}", { name: duplicateSubscription.name })}</p>
-								<p class="text-[10px] font-medium uppercase tracking-[0.14em] text-slate-500">{$t("The existing item has been expanded for quick review.")}</p>
+								<div class="inline-badge inline-badge--danger">
+									<AlertCircle class="h-3.5 w-3.5" />
+									{$t("A subscription with the same URL already exists: {name}", { name: duplicateSubscription.name })}
+								</div>
+								<p class="text-[11px] leading-relaxed text-[color:var(--app-text-faint)]">{$t("The existing item has been expanded for quick review.")}</p>
 							{/if}
 						</div>
-						<div class="sm:col-span-2">
-							<input
-								class="w-full rounded-xl border border-slate-800 bg-slate-950 px-4 py-3 text-sm text-white placeholder:text-slate-600 outline-none focus:border-indigo-500/50 transition-all"
-								placeholder={$t("Tags (comma separated)")}
-								bind:value={subTags}
-							/>
+						<div class="sm:col-span-2 space-y-2">
+							<p class="field-label">{$t("Tags (comma separated)")}</p>
+							<input class="field-input" placeholder={$t("Tags (comma separated)")} bind:value={subTags} />
 						</div>
 					{/if}
 				</div>
 			{:else}
 				<div class="space-y-4">
-					<textarea
-						class="w-full min-h-[180px] rounded-xl border border-slate-800 bg-slate-950 px-4 py-3 text-xs font-mono text-white placeholder:text-slate-600 outline-none focus:border-indigo-500/50 transition-all"
-						placeholder={activeTab === 'nodes' ? $t("Raw node URI (one per line)") : $t("Subscription URL or Name = URL (one per line)")}
-						bind:value={batchContent}
-					></textarea>
-					<input
-						class="w-full rounded-xl border border-slate-800 bg-slate-950 px-4 py-3 text-sm text-white placeholder:text-slate-600 outline-none focus:border-indigo-500/50 transition-all"
-						placeholder={$t("Tags applied to all imported items (comma separated)")}
-						bind:value={batchTags}
-					/>
+					<div class="space-y-2">
+						<p class="field-label">{activeTab === "nodes" ? $t("Raw URI") : $t("URL")}</p>
+						<textarea
+							class="field-textarea field-textarea--mono min-h-[180px]"
+							placeholder={activeTab === "nodes" ? $t("Raw node URI (one per line)") : $t("Subscription URL or Name = URL (one per line)")}
+							bind:value={batchContent}
+						></textarea>
+					</div>
+					<div class="space-y-2">
+						<p class="field-label">{$t("Tags (comma separated)")}</p>
+						<input
+							class="field-input"
+							placeholder={$t("Tags applied to all imported items (comma separated)")}
+							bind:value={batchTags}
+						/>
+					</div>
 				</div>
-				<div class="space-y-4 rounded-2xl border border-slate-800/60 bg-slate-950/40 p-5">
-					<p class="text-sm font-bold text-white">{activeTab === 'nodes' ? $t("Batch import nodes") : $t("Batch import subscriptions")}</p>
-					<p class="text-sm leading-relaxed text-slate-400">
-						{activeTab === 'nodes'
-							? $t("One node URI per line. Names and protocol types are inferred automatically.") + " " + $t("Pasted base64 subscription content is expanded into individual nodes automatically.")
-							: $t("One subscription per line. Use either a raw URL or Name = URL.")}
-					</p>
-					<div class="grid gap-3 sm:grid-cols-3">
-						<div class="rounded-xl border border-slate-800 bg-slate-950/70 px-4 py-3">
-							<p class="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">{$t("Lines detected: {count}", { count: batchLineCount })}</p>
-							<p class="mt-2 text-sm font-bold text-white">{batchImportPreview.totalLines}</p>
-						</div>
-						<div class="rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3">
-							<p class="text-[10px] font-bold uppercase tracking-[0.16em] text-emerald-300">{$t("Importable")}</p>
-							<p class="mt-2 text-sm font-bold text-white">{batchImportPreview.importableCount}</p>
-						</div>
-						<div class="rounded-xl border border-amber-500/20 bg-amber-500/10 px-4 py-3">
-							<p class="text-[10px] font-bold uppercase tracking-[0.16em] text-amber-300">{$t("Duplicates")}: {batchImportPreview.duplicateCount} · {$t("Invalid")}: {batchImportPreview.invalidCount}</p>
-							<p class="mt-2 text-sm font-bold text-white">{batchImportPreview.items.length}</p>
+
+				<div class="surface-card section-card section-card--compact">
+					<div class="section-card__header">
+						<div class="section-card__title-wrap">
+							<h3 class="section-card__title">{activeTab === "nodes" ? $t("Batch import nodes") : $t("Batch import subscriptions")}</h3>
+							<p class="section-card__text">
+								{activeTab === "nodes"
+									? $t("One node URI per line. Names and protocol types are inferred automatically.") + " " + $t("Pasted base64 subscription content is expanded into individual nodes automatically.")
+									: $t("One subscription per line. Use either a raw URL or Name = URL.")}
+							</p>
 						</div>
 					</div>
-					<p class="text-[11px] leading-relaxed text-slate-500">
-						{activeTab === 'nodes'
+
+					<div class="metric-grid">
+						<div class="metric-card">
+							<p class="metric-card__label">{$t("Lines detected: {count}", { count: batchLineCount })}</p>
+							<p class="metric-card__value">{batchImportPreview.totalLines}</p>
+						</div>
+						<div class="metric-card">
+							<p class="metric-card__label">{$t("Importable")}</p>
+							<p class="metric-card__value">{batchImportPreview.importableCount}</p>
+						</div>
+						<div class="metric-card">
+							<p class="metric-card__label">{$t("Duplicates")}</p>
+							<p class="metric-card__value">{batchImportPreview.duplicateCount}</p>
+							<p class="metric-card__meta">{$t("Invalid")}: {batchImportPreview.invalidCount}</p>
+						</div>
+					</div>
+
+					<p class="section-card__text">
+						{activeTab === "nodes"
 							? $t("Existing or repeated raw URIs are skipped automatically during import.")
 							: $t("Existing or repeated subscription URLs are skipped automatically during import.")}
 					</p>
-					<div class="rounded-2xl border border-slate-800/60 bg-slate-950/50 p-4 space-y-3">
-						<div class="flex items-center justify-between gap-3">
-							<p class="text-sm font-bold text-white">{$t("Import Preview")}</p>
-							<p class="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">{$t("Preview import results before saving.")}</p>
+
+					<div class="surface-card section-card section-card--compact">
+						<div class="section-card__header">
+							<div class="section-card__title-wrap">
+								<h4 class="section-card__title">{$t("Import Preview")}</h4>
+								<p class="section-card__text">{$t("Preview import results before saving.")}</p>
+							</div>
 						</div>
+
 						<div class="grid gap-3 sm:grid-cols-2">
-							<input
-								class="w-full rounded-xl border border-slate-800 bg-slate-950 px-4 py-2.5 text-sm text-white placeholder:text-slate-600 outline-none focus:border-indigo-500/50 transition-all"
-								placeholder={$t("Filter preview by name or detail") }
-								bind:value={batchPreviewSearch}
-							/>
-							<div class="flex flex-wrap gap-2">
+							<div class="input-with-icon">
+								<Search />
+								<input class="field-input" placeholder={$t("Filter preview by name or detail")} bind:value={batchPreviewSearch} />
+							</div>
+							<div class="filter-pills">
 								{#each ["all", "import", "duplicate", "invalid"] as filter}
 									<button
 										type="button"
 										on:click={() => (batchPreviewStatusFilter = filter as typeof batchPreviewStatusFilter)}
-										class={cn(
-											"rounded-full border px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.16em] transition-all",
-											batchPreviewStatusFilter === filter
-												? "border-indigo-500/30 bg-indigo-500/10 text-indigo-300"
-												: "border-slate-800 bg-slate-950/60 text-slate-500 hover:text-slate-300"
-										)}
+										class={cn("filter-pill", batchPreviewStatusFilter === filter && "filter-pill--active")}
 									>
 										{$t(filter === "all" ? "All" : filter === "import" ? "Importable" : filter === "duplicate" ? "Duplicate" : "Invalid")}
 									</button>
 								{/each}
 							</div>
 						</div>
-						{#if activeTab === 'nodes'}
-							<div class="flex flex-wrap gap-2">
+
+						{#if activeTab === "nodes"}
+							<div class="filter-pills">
 								{#each batchPreviewProtocolOptions as protocol}
 									<button
 										type="button"
 										on:click={() => (batchPreviewProtocolFilter = protocol)}
-										class={cn(
-											"rounded-full border px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.16em] transition-all",
-											batchPreviewProtocolFilter === protocol
-												? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
-												: "border-slate-800 bg-slate-950/60 text-slate-500 hover:text-slate-300"
-										)}
+										class={cn("filter-pill", batchPreviewProtocolFilter === protocol && "filter-pill--active")}
 									>
 										{$t(protocol === "all" ? "All protocols" : protocol)}
 									</button>
 								{/each}
 							</div>
 						{/if}
+
 						<div class="flex flex-wrap items-center justify-between gap-3">
-							<p class="text-[11px] leading-relaxed text-slate-500">{$t("Only visible selected importable items will be imported.")}</p>
-							<div class="flex flex-wrap gap-2">
-								<button type="button" on:click={selectAllVisibleBatchImportItems} class="inline-flex items-center gap-1.5 rounded-lg border border-slate-800 bg-slate-950/70 px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-300 transition-all hover:bg-slate-800 hover:text-white">{$t("Select visible")}</button>
-								<button type="button" on:click={clearVisibleBatchImportItemsSelection} class="inline-flex items-center gap-1.5 rounded-lg border border-slate-800 bg-slate-950/70 px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-300 transition-all hover:bg-slate-800 hover:text-white">{$t("Clear visible selection")}</button>
+							<p class="section-card__text">{$t("Only visible selected importable items will be imported.")}</p>
+							<div class="section-card__actions">
+								<button type="button" on:click={selectAllVisibleBatchImportItems} class="button-secondary">{$t("Select visible")}</button>
+								<button type="button" on:click={clearVisibleBatchImportItemsSelection} class="button-secondary">{$t("Clear visible selection")}</button>
 							</div>
 						</div>
-						<p class="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">{$t("Selected importable items: {count}", { count: visibleSelectedImportableCount })}</p>
+
+						<div class="inline-badge">
+							{$t("Selected importable items: {count}", { count: visibleSelectedImportableCount })}
+						</div>
+
 						{#if filteredBatchImportPreviewItems.length === 0}
-							<p class="text-sm text-slate-500">{$t("No preview items match the current filters.")}</p>
+							<div class="empty-state empty-state--compact">
+								<div class="empty-state__icon">
+									<Filter class="h-5 w-5" />
+								</div>
+								<p class="empty-state__text">{$t("No preview items match the current filters.")}</p>
+							</div>
 						{:else}
 							<div class="max-h-72 space-y-2 overflow-y-auto pr-1 custom-scrollbar">
 								{#each filteredBatchImportPreviewItems as item (item.id)}
-									<div class={cn(
-										"rounded-xl border px-4 py-3 space-y-1",
-										item.status === "import" && selectedBatchImportIds.includes(item.id) ? "ring-1 ring-emerald-400/40" : "",
-										item.status === "import"
-											? "border-emerald-500/20 bg-emerald-500/10"
-											: item.status === "duplicate"
-												? "border-amber-500/20 bg-amber-500/10"
-												: "border-red-500/20 bg-red-500/10"
-									)}>
+									<div
+										class={cn(
+											"metric-card space-y-2",
+											item.status === "import" && selectedBatchImportIds.includes(item.id) && "ring-1 ring-emerald-400/40"
+										)}
+									>
 										<div class="flex items-start justify-between gap-3">
-											{#if item.status === "import"}
-												<label class="mt-0.5 flex items-center gap-2 text-emerald-200">
-													<input type="checkbox" class="h-4 w-4 rounded border-emerald-500/40 bg-slate-950 text-emerald-500 focus:ring-emerald-500" checked={selectedBatchImportIds.includes(item.id)} on:change={() => toggleBatchImportSelection(item.id)} />
-												</label>
-											{/if}
-											<div class="min-w-0">
-												<p class="text-sm font-bold text-white">{item.label}</p>
-												<p class="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">{$t("Line {line}", { line: item.lineNumber })}</p>
+											<div class="flex min-w-0 items-start gap-3">
+												{#if item.status === "import"}
+													<label class="mt-0.5 flex items-center gap-2 text-emerald-500">
+														<input
+															type="checkbox"
+															class="h-4 w-4 rounded border-emerald-500/40 bg-transparent text-emerald-500 focus:ring-emerald-500"
+															checked={selectedBatchImportIds.includes(item.id)}
+															on:change={() => toggleBatchImportSelection(item.id)}
+														/>
+													</label>
+												{/if}
+												<div class="min-w-0">
+													<p class="truncate text-sm font-bold text-white">{item.label}</p>
+													<p class="metric-card__meta">{$t("Line {line}", { line: item.lineNumber })}</p>
+												</div>
 											</div>
-											<div class={cn(
-												"rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.16em]",
-												item.status === "import"
-													? "border-emerald-500/20 bg-emerald-500/10 text-emerald-300"
-													: item.status === "duplicate"
-														? "border-amber-500/20 bg-amber-500/10 text-amber-300"
-														: "border-red-500/20 bg-red-500/10 text-red-300"
-											)}>
+											<div
+												class={cn(
+													"inline-badge",
+													item.status === "import"
+														? "inline-badge--success"
+														: item.status === "duplicate"
+															? "inline-badge--warning"
+															: "inline-badge--danger"
+												)}
+											>
 												{$t(item.status === "import" ? "Importable" : item.status === "duplicate" ? "Duplicate" : "Invalid")}
 											</div>
 										</div>
-										<p class="text-xs text-slate-300 break-all">{item.detail}</p>
+										<p class="break-all text-sm text-[color:var(--app-text-soft)]">{item.detail}</p>
 									</div>
 								{/each}
 							</div>
@@ -961,166 +1015,176 @@
 				</div>
 			{/if}
 
-			<div class="mt-6 flex justify-end gap-3">
-				<button 
-					on:click={closeAddModal}
-					class="px-5 py-2.5 text-sm font-bold text-slate-400 hover:text-white transition-colors"
+			<div class="section-card__actions justify-end">
+				<button on:click={closeAddModal} class="button-secondary">{$t("Cancel")}</button>
+				<button
+					on:click={addMode === "single" ? handleAdd : handleBatchImport}
+					disabled={addMode === "single" ? !canSaveDraft : !canImportBatch}
+					class="button-primary disabled:cursor-not-allowed disabled:opacity-50"
 				>
-					{$t("Cancel")}
-				</button>
-				<button 
-					on:click={addMode === 'single' ? handleAdd : handleBatchImport}
-					disabled={addMode === 'single' ? !canSaveDraft : !canImportBatch}
-					class="rounded-xl bg-indigo-600 px-8 py-2.5 text-sm font-bold text-white shadow-lg shadow-indigo-600/20 transition-all hover:bg-indigo-500 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-indigo-600"
-				>
-					{addMode === 'single' ? $t("Save") : $t("Import")}
+					{addMode === "single" ? $t("Save") : $t("Import")}
 				</button>
 			</div>
 		</section>
 	{/if}
 
-	<!-- Tabs & Search -->
-	<div class="flex flex-col gap-4 md:flex-row md:items-center">
-		<div class="flex p-1 rounded-2xl bg-slate-900/50 border border-slate-800/60 w-fit">
-			<button 
-				on:click={() => activeTab = 'nodes'}
-				class={cn(
-					"px-6 py-2 rounded-xl text-sm font-bold transition-all",
-					activeTab === 'nodes' ? "bg-indigo-600 text-white shadow-lg" : "text-slate-500 hover:text-slate-300"
-				)}
-			>
-				{$t("Nodes")}
-			</button>
-			<button 
-				on:click={() => activeTab = 'subscriptions'}
-				class={cn(
-					"px-6 py-2 rounded-xl text-sm font-bold transition-all",
-					activeTab === 'subscriptions' ? "bg-indigo-600 text-white shadow-lg" : "text-slate-500 hover:text-slate-300"
-				)}
-			>
-				{$t("Subscriptions")}
-			</button>
-		</div>
-
-		<div class="relative flex-1 group">
-			<Search class="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500 group-focus-within:text-indigo-400 transition-colors" />
-			<input
-				class="w-full rounded-2xl border border-slate-800 bg-slate-900/40 pl-11 pr-4 py-2.5 text-sm text-white placeholder:text-slate-600 outline-none focus:border-indigo-500/50 transition-all"
-				placeholder={$t("Search {type}...", { type: activeTab })}
-				bind:value={searchQuery}
-			/>
-		</div>
-
-		<select
-			class="rounded-2xl border border-slate-800 bg-slate-900/40 px-4 py-2.5 text-sm text-white outline-none focus:border-indigo-500/50 transition-all"
-			bind:value={filterStatus}
-		>
-			<option value="all">{$t("All Status")}</option>
-			<option value="enabled">{$t("Enabled")}</option>
-			<option value="disabled">{$t("Disabled")}</option>
-		</select>
-	</div>
-
-	<!-- List Section -->
-	<div class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-		{#if activeTab === 'nodes'}
-			{#if filteredNodes.length === 0}
-				<div class="rounded-[2.5rem] border border-slate-800/40 border-dashed py-20 text-center md:col-span-2 xl:col-span-3">
-					<Cpu class="h-12 w-12 text-slate-700 mx-auto mb-4" />
-					<p class="text-slate-500 font-medium">{$t("No nodes found matching your criteria.")}</p>
+	<section class="surface-card section-card section-card--compact">
+		<div class="section-card__header">
+			<div class="section-card__header-main">
+				<div class="section-card__icon">
+					<Filter class="h-5 w-5" />
 				</div>
-			{:else}
-				{#each filteredNodes as node (node.id)}
-					<div 
-						transition:fade
-						class={cn(
-							"group relative flex h-full flex-col overflow-hidden rounded-3xl border transition-all duration-300",
-							node.enabled ? "border-slate-800/60 bg-slate-900/30" : "border-slate-900/40 bg-slate-950/20 grayscale opacity-60"
-						)}
-					>
-						<div class="flex items-start justify-between gap-4 p-5">
-							<div class="flex min-w-0 flex-1 items-start gap-4">
-								<button 
-									on:click={() => toggleEnabled(node.id, 'node')}
-									class={cn(
-										"h-11 w-11 shrink-0 flex items-center justify-center rounded-2xl transition-all",
-										node.enabled ? "bg-indigo-500/10 text-indigo-400" : "bg-slate-800 text-slate-600"
-									)}
-								>
-									{#if node.enabled}<Wifi class="h-5 w-5" />{:else}<Shield class="h-5 w-5" />{/if}
-								</button>
+				<div class="section-card__title-wrap">
+					<h2 class="section-card__title">{$t("Search")}</h2>
+					<p class="section-card__text">{$t("Filter saved nodes and subscriptions by type, status, or keyword.")}</p>
+				</div>
+			</div>
+		</div>
 
-								<div class="min-w-0 flex-1 space-y-3">
-									<div class="flex items-center gap-2 flex-wrap">
-										<h3 class="font-bold text-white truncate">{node.name}</h3>
-										<span class={cn("px-2 py-0.5 rounded-lg text-[10px] font-black uppercase border", typeColors[node.type])}>
-											{node.type}
-										</span>
-									</div>
-									<p class="line-clamp-2 break-all text-[11px] font-mono text-slate-500">{node.raw}</p>
-									<div class="flex flex-wrap gap-2">
-										{#each node.tags as tag}
-											<span class="inline-flex items-center gap-1 rounded-full border border-slate-800 bg-slate-950/60 px-2.5 py-1 text-[10px] font-medium text-slate-400">
-												<Tag class="h-3 w-3" />
-												{tag.label}
+		<div class="flex flex-col gap-4">
+			<div class="filter-pills">
+				<button
+					type="button"
+					on:click={() => (activeTab = "nodes")}
+					class={cn("filter-pill", activeTab === "nodes" && "filter-pill--active")}
+				>
+					{$t("Nodes")}
+				</button>
+				<button
+					type="button"
+					on:click={() => (activeTab = "subscriptions")}
+					class={cn("filter-pill", activeTab === "subscriptions" && "filter-pill--active")}
+				>
+					{$t("Subscriptions")}
+				</button>
+			</div>
+
+			<div class="grid gap-3 lg:grid-cols-[minmax(0,1fr)_14rem]">
+				<div class="input-with-icon">
+					<Search />
+					<input
+						class="field-input"
+						placeholder={$t("Search {type}...", { type: activeTab })}
+						bind:value={searchQuery}
+					/>
+				</div>
+
+				<select class="field-select" bind:value={filterStatus}>
+					<option value="all">{$t("All Status")}</option>
+					<option value="enabled">{$t("Enabled")}</option>
+					<option value="disabled">{$t("Disabled")}</option>
+				</select>
+			</div>
+		</div>
+	</section>
+
+	<section class="space-y-4">
+		<div class="section-card__header">
+			<div class="section-card__title-wrap">
+				<h2 class="section-card__title">{activeTab === "nodes" ? $t("Nodes") : $t("Subscriptions")}</h2>
+				<p class="section-card__text">
+					{activeTab === "nodes"
+						? $t("Manage saved node entries, raw URIs, and metadata.")
+						: $t("Manage saved subscription sources and inspect included nodes.")}
+				</p>
+			</div>
+			<div class="inline-badge inline-badge--accent">
+				{activeTab === "nodes" ? filteredNodes.length : filteredSubscriptions.length}
+			</div>
+		</div>
+
+		<div class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+			{#if activeTab === "nodes"}
+				{#if filteredNodes.length === 0}
+					<div class="empty-state md:col-span-2 xl:col-span-3">
+						<div class="empty-state__icon">
+							<Cpu class="h-6 w-6" />
+						</div>
+						<p class="empty-state__title">{$t("Nodes")}</p>
+						<p class="empty-state__text">{$t("No nodes found matching your criteria.")}</p>
+					</div>
+				{:else}
+					{#each filteredNodes as node (node.id)}
+						<div
+							transition:fade
+							class={cn(
+								"surface-card section-card section-card--compact h-full transition-all duration-300",
+								!node.enabled && "grayscale opacity-65"
+							)}
+						>
+							<div class="flex items-start justify-between gap-4">
+								<div class="flex min-w-0 flex-1 items-start gap-4">
+									<button
+										on:click={() => toggleEnabled(node.id, "node")}
+										class="section-card__icon"
+										aria-label={$t(node.enabled ? "Disable" : "Enabled")}
+									>
+										{#if node.enabled}<Wifi class="h-5 w-5" />{:else}<Shield class="h-5 w-5" />{/if}
+									</button>
+
+									<div class="min-w-0 flex-1 space-y-3">
+										<div class="flex flex-wrap items-center gap-2">
+											<h3 class="truncate text-base font-bold text-white">{node.name}</h3>
+											<span class={cn("inline-flex items-center rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.16em]", typeColors[node.type])}>
+												{node.type}
 											</span>
-										{/each}
+										</div>
+										<p class="soft-code line-clamp-2 break-all">{node.raw}</p>
+										{#if node.tags.length > 0}
+											<div class="flex flex-wrap gap-2">
+												{#each node.tags as tag}
+													<span class="inline-badge">
+														<Tag class="h-3.5 w-3.5" />
+														{tag.label}
+													</span>
+												{/each}
+											</div>
+										{/if}
 									</div>
 								</div>
-							</div>
 
-							<div class="flex items-center gap-1 self-start">
-								<button 
-									on:click={() => copy(node.raw, node.name)}
-									class="h-9 w-9 flex items-center justify-center rounded-lg text-slate-500 hover:bg-slate-800 hover:text-white transition-all"
-								>
-									<Copy class="h-4 w-4" />
-								</button>
-								<button 
-									on:click={() => expandedId = expandedId === node.id ? null : node.id}
-									class="h-9 w-9 flex items-center justify-center rounded-lg text-slate-500 hover:bg-slate-800 hover:text-white transition-all"
-								>
-									<Edit3 class="h-4 w-4" />
-								</button>
-								<button 
-									on:click={() => remove(node.id, 'node', node.name)}
-									class="h-9 w-9 flex items-center justify-center rounded-lg text-slate-500 hover:bg-red-500/10 hover:text-red-400 transition-all"
-								>
-									<Trash2 class="h-4 w-4" />
-								</button>
-							</div>
-						</div>
-
-						<div class="mt-auto border-t border-slate-800/60 bg-slate-950/30 px-5 py-4">
-							<div class="grid gap-3 sm:grid-cols-2">
-								<div>
-									<p class="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">{$t("Updated")}</p>
-									<p class="mt-1 text-sm font-medium text-slate-300">{formatTimestamp(node.updatedAt)}</p>
-								</div>
-								<div>
-									<p class="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">{$t("Details")}</p>
-									<p class="mt-1 text-sm font-medium text-slate-300">{node.source === "single" ? $t("Single Entry") : $t("Subscriptions")}</p>
+								<div class="flex items-center gap-2 self-start">
+									<button on:click={() => copy(node.raw, node.name)} class="button-icon" aria-label={$t("Copy")}>
+										<Copy class="h-4 w-4" />
+									</button>
+									<button on:click={() => (expandedId = expandedId === node.id ? null : node.id)} class="button-icon" aria-label={$t("Edit")}>
+										<Edit3 class="h-4 w-4" />
+									</button>
+									<button on:click={() => remove(node.id, "node", node.name)} class="button-icon button-icon--danger" aria-label={$t("Delete")}>
+										<Trash2 class="h-4 w-4" />
+									</button>
 								</div>
 							</div>
-						</div>
 
-						{#if expandedId === node.id}
-								<div transition:slide class="border-t border-slate-800/60 p-5 bg-slate-950/40 space-y-4">
+							<div class="metric-grid">
+								<div class="metric-card">
+									<p class="metric-card__label">{$t("Updated")}</p>
+									<p class="metric-card__meta">{formatTimestamp(node.updatedAt)}</p>
+								</div>
+								<div class="metric-card">
+									<p class="metric-card__label">{$t("Details")}</p>
+									<p class="metric-card__meta">{node.source === "single" ? $t("Single Entry") : $t("Subscriptions")}</p>
+								</div>
+							</div>
+
+							{#if expandedId === node.id}
+								<div transition:slide class="space-y-4">
+									<div class="section-divider"></div>
 									<div class="grid gap-4 sm:grid-cols-2">
-										<div class="space-y-1.5">
-											<p class="text-[10px] font-bold uppercase tracking-widest text-slate-500 ml-1">{$t("Name")}</p>
-											<input 
-												class="w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-indigo-500/40 transition-all"
+										<div class="space-y-2">
+											<p class="field-label">{$t("Name")}</p>
+											<input
+												class="field-input"
 												value={node.name}
-												on:input={(e) => upsertNode({...node, name: e.currentTarget.value, updatedAt: nowIso()})}
+												on:input={(e) => upsertNode({ ...node, name: e.currentTarget.value, updatedAt: nowIso() })}
 											/>
 										</div>
-										<div class="space-y-1.5">
-											<p class="text-[10px] font-bold uppercase tracking-widest text-slate-500 ml-1">{$t("Type")}</p>
-											<select 
-												class="w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-indigo-500/40 transition-all"
+										<div class="space-y-2">
+											<p class="field-label">{$t("Type")}</p>
+											<select
+												class="field-select"
 												value={node.type}
-												on:change={(e) => upsertNode({...node, type: e.currentTarget.value as ProxyType, updatedAt: nowIso()})}
+												on:change={(e) => upsertNode({ ...node, type: e.currentTarget.value as ProxyType, updatedAt: nowIso() })}
 											>
 												<option value="vless">VLESS</option>
 												<option value="vmess">VMess</option>
@@ -1133,195 +1197,188 @@
 											</select>
 										</div>
 									</div>
-									<div class="space-y-1.5">
-										<p class="text-[10px] font-bold uppercase tracking-widest text-slate-500 ml-1">{$t("Raw URI")}</p>
-										<textarea 
-											class="w-full h-24 rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-xs font-mono text-white outline-none focus:border-indigo-500/40 transition-all"
+									<div class="space-y-2">
+										<p class="field-label">{$t("Raw URI")}</p>
+										<textarea
+											class="field-textarea field-textarea--mono h-24"
 											value={node.raw}
-											on:input={(e) => upsertNode({...node, raw: e.currentTarget.value, updatedAt: nowIso()})}
+											on:input={(e) => upsertNode({ ...node, raw: e.currentTarget.value, updatedAt: nowIso() })}
 										></textarea>
 									</div>
-									<div class="space-y-1.5">
-										<p class="text-[10px] font-bold uppercase tracking-widest text-slate-500 ml-1">{$t("Tags (comma separated)")}</p>
-										<input 
-											class="w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-indigo-500/40 transition-all"
-											value={node.tags.map(t => t.label).join(", ")}
-											on:change={(e) => upsertNode({...node, tags: parseTags(e.currentTarget.value), updatedAt: nowIso()})}
+									<div class="space-y-2">
+										<p class="field-label">{$t("Tags (comma separated)")}</p>
+										<input
+											class="field-input"
+											value={node.tags.map((t) => t.label).join(", ")}
+											on:change={(e) => upsertNode({ ...node, tags: parseTags(e.currentTarget.value), updatedAt: nowIso() })}
 										/>
-								</div>
-							</div>
-						{/if}
-					</div>
-				{/each}
-			{/if}
-		{:else}
-			{#if filteredSubscriptions.length === 0}
-				<div class="rounded-[2.5rem] border border-slate-800/40 border-dashed py-20 text-center md:col-span-2 xl:col-span-3">
-					<LinkIcon class="h-12 w-12 text-slate-700 mx-auto mb-4" />
-					<p class="text-slate-500 font-medium">{$t("No subscriptions found.")}</p>
-				</div>
-			{:else}
-				{#each filteredSubscriptions as sub (sub.id)}
-					{@const preview = subscriptionPreviewCache[sub.id] ?? null}
-					{@const previewTypeSummary = preview ? getPreviewTypeSummary(preview.nodes) : []}
-					<div 
-						transition:fade
-						class={cn(
-							"group relative flex h-full flex-col overflow-hidden rounded-3xl border transition-all duration-300",
-							sub.enabled ? "border-slate-800/60 bg-slate-900/30" : "border-slate-900/40 bg-slate-950/20 grayscale opacity-60"
-						)}
-					>
-						<div class="flex items-start justify-between gap-4 p-5">
-							<div class="flex min-w-0 flex-1 items-start gap-4">
-								<button 
-									on:click={() => toggleEnabled(sub.id, 'sub')}
-									class={cn(
-										"h-11 w-11 shrink-0 flex items-center justify-center rounded-2xl transition-all",
-										sub.enabled ? "bg-emerald-500/10 text-emerald-400" : "bg-slate-800 text-slate-600"
-									)}
-								>
-									<LinkIcon class="h-5 w-5" />
-								</button>
-
-								<div class="min-w-0 flex-1 space-y-3">
-									<div class="flex items-center gap-2 flex-wrap">
-										<h3 class="font-bold text-white truncate">{sub.name}</h3>
-										<span class="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.16em] text-emerald-300">
-											{$t("Subscription")}
-										</span>
-									</div>
-									<p class="text-[11px] text-slate-500 font-mono truncate">{getHost(sub.url)}</p>
-									<p class="line-clamp-2 break-all text-[11px] text-slate-400">{sub.url}</p>
-									<div class="flex flex-wrap gap-2">
-										{#each sub.tags as tag}
-											<span class="inline-flex items-center gap-1 rounded-full border border-slate-800 bg-slate-950/60 px-2.5 py-1 text-[10px] font-medium text-slate-400">
-												<Tag class="h-3 w-3" />
-												{tag.label}
-											</span>
-										{/each}
 									</div>
 								</div>
-							</div>
-
-							<div class="flex items-center gap-1 self-start">
-								<button 
-									on:click={() => copy(sub.url, sub.name)}
-									class="h-9 w-9 flex items-center justify-center rounded-lg text-slate-500 hover:bg-slate-800 hover:text-white transition-all"
-								>
-									<Copy class="h-4 w-4" />
-								</button>
-								<button 
-									on:click={() => expandedId = expandedId === sub.id ? null : sub.id}
-									class="h-9 w-9 flex items-center justify-center rounded-lg text-slate-500 hover:bg-slate-800 hover:text-white transition-all"
-								>
-									<Edit3 class="h-4 w-4" />
-								</button>
-								<button 
-									on:click={() => remove(sub.id, 'sub', sub.name)}
-									class="h-9 w-9 flex items-center justify-center rounded-lg text-slate-500 hover:bg-red-500/10 hover:text-red-400 transition-all"
-								>
-									<Trash2 class="h-4 w-4" />
-								</button>
-							</div>
-						</div>
-
-						<div class="border-t border-slate-800/60 bg-slate-950/30 p-5 space-y-4">
-							<div class="flex items-center justify-between gap-3">
-								<div>
-									<p class="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">{$t("Detected nodes")}</p>
-									<p class="mt-1 text-sm font-bold text-white">
-										{#if preview?.status === "ready"}
-											{preview.nodes.length}
-										{:else}
-											--
-										{/if}
-									</p>
-								</div>
-								<button
-									type="button"
-									on:click={() => openSubscriptionPreview(sub)}
-									class="inline-flex items-center gap-2 rounded-xl border border-indigo-500/20 bg-indigo-500/10 px-4 py-2 text-xs font-bold uppercase tracking-[0.16em] text-indigo-200 transition-all hover:bg-indigo-500/20"
-								>
-									{#if preview?.status === "loading"}
-										<RefreshCw class="h-3.5 w-3.5 animate-spin" />
-									{:else}
-										<Eye class="h-3.5 w-3.5" />
-									{/if}
-									{$t("Preview")}
-								</button>
-							</div>
-
-							{#if preview?.status === "ready"}
-								{#if preview.nodes.length === 0}
-									<p class="rounded-2xl border border-slate-800 bg-slate-950/60 px-4 py-3 text-sm text-slate-400">
-										{$t("No detectable nodes found in this subscription.")}
-									</p>
-								{:else}
-									<div class="flex flex-wrap gap-2">
-										{#each previewTypeSummary.slice(0, 4) as item}
-											<span class={cn("inline-flex items-center rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.16em]", typeColors[item.type])}>
-												{item.type} · {item.count}
-											</span>
-										{/each}
-									</div>
-								{/if}
-								{#if preview.fetchedAt}
-									<p class="text-[10px] font-medium uppercase tracking-[0.16em] text-slate-500">
-										{$t("Last preview: {time}", { time: formatTimestamp(preview.fetchedAt) })}
-									</p>
-								{/if}
-							{:else if preview?.status === "loading"}
-								<p class="inline-flex items-center gap-2 rounded-2xl border border-slate-800 bg-slate-950/60 px-4 py-3 text-sm text-slate-300">
-									<RefreshCw class="h-4 w-4 animate-spin text-indigo-400" />
-									{$t("Loading subscription preview...")}
-								</p>
-							{:else if preview?.status === "error"}
-								<div class="rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-200">
-									<p class="font-bold">{$t("Subscription preview failed.")}</p>
-									<p class="mt-1 break-all text-red-100/80">{preview.error}</p>
-								</div>
-							{:else}
-								<p class="rounded-2xl border border-slate-800 bg-slate-950/60 px-4 py-3 text-sm text-slate-400">
-									{$t("Click preview to inspect included nodes.")}
-								</p>
 							{/if}
 						</div>
+					{/each}
+				{/if}
+			{:else}
+				{#if filteredSubscriptions.length === 0}
+					<div class="empty-state md:col-span-2 xl:col-span-3">
+						<div class="empty-state__icon">
+							<LinkIcon class="h-6 w-6" />
+						</div>
+						<p class="empty-state__title">{$t("Subscriptions")}</p>
+						<p class="empty-state__text">{$t("No subscriptions found.")}</p>
+					</div>
+				{:else}
+					{#each filteredSubscriptions as sub (sub.id)}
+						{@const preview = subscriptionPreviewCache[sub.id] ?? null}
+						{@const previewTypeSummary = preview ? getPreviewTypeSummary(preview.nodes) : []}
+						<div
+							transition:fade
+							class={cn(
+								"surface-card section-card section-card--compact h-full transition-all duration-300",
+								!sub.enabled && "grayscale opacity-65"
+							)}
+						>
+							<div class="flex items-start justify-between gap-4">
+								<div class="flex min-w-0 flex-1 items-start gap-4">
+									<button
+										on:click={() => toggleEnabled(sub.id, "sub")}
+										class="section-card__icon"
+										style={sub.enabled
+											? "background: var(--app-success-soft); color: var(--app-success);"
+											: "background: color-mix(in srgb, var(--app-bg-soft) 84%, transparent); color: var(--app-text-faint);"}
+										aria-label={$t(sub.enabled ? "Disable" : "Enabled")}
+									>
+										<LinkIcon class="h-5 w-5" />
+									</button>
 
-						{#if expandedId === sub.id}
-								<div transition:slide class="border-t border-slate-800/60 p-5 bg-slate-950/40 space-y-4">
+									<div class="min-w-0 flex-1 space-y-3">
+										<div class="flex flex-wrap items-center gap-2">
+											<h3 class="truncate text-base font-bold text-white">{sub.name}</h3>
+											<span class="inline-badge inline-badge--success">{$t("Subscription")}</span>
+										</div>
+										<p class="metric-card__meta truncate font-mono">{getHost(sub.url)}</p>
+										<p class="soft-code line-clamp-2 break-all">{sub.url}</p>
+										{#if sub.tags.length > 0}
+											<div class="flex flex-wrap gap-2">
+												{#each sub.tags as tag}
+													<span class="inline-badge">
+														<Tag class="h-3.5 w-3.5" />
+														{tag.label}
+													</span>
+												{/each}
+											</div>
+										{/if}
+									</div>
+								</div>
+
+								<div class="flex items-center gap-2 self-start">
+									<button on:click={() => copy(sub.url, sub.name)} class="button-icon" aria-label={$t("Copy")}>
+										<Copy class="h-4 w-4" />
+									</button>
+									<button on:click={() => (expandedId = expandedId === sub.id ? null : sub.id)} class="button-icon" aria-label={$t("Edit")}>
+										<Edit3 class="h-4 w-4" />
+									</button>
+									<button on:click={() => remove(sub.id, "sub", sub.name)} class="button-icon button-icon--danger" aria-label={$t("Delete")}>
+										<Trash2 class="h-4 w-4" />
+									</button>
+								</div>
+							</div>
+
+							<div class="surface-card section-card section-card--compact">
+								<div class="section-card__header">
+									<div class="section-card__title-wrap">
+										<h4 class="section-card__title">{$t("Preview")}</h4>
+										<p class="section-card__text">{$t("Click preview to inspect included nodes.")}</p>
+									</div>
+									<button type="button" on:click={() => openSubscriptionPreview(sub)} class="button-secondary">
+										{#if preview?.status === "loading"}
+											<RefreshCw class="h-4 w-4 animate-spin" />
+										{:else}
+											<Eye class="h-4 w-4" />
+										{/if}
+										{$t("Preview")}
+									</button>
+								</div>
+
+								<div class="metric-grid">
+									<div class="metric-card">
+										<p class="metric-card__label">{$t("Detected nodes")}</p>
+										<p class="metric-card__value">{preview?.status === "ready" ? preview.nodes.length : "--"}</p>
+									</div>
+									<div class="metric-card">
+										<p class="metric-card__label">{$t("Last preview")}</p>
+										<p class="metric-card__meta">{preview?.fetchedAt ? formatTimestamp(preview.fetchedAt) : "--"}</p>
+									</div>
+								</div>
+
+								{#if preview?.status === "ready"}
+									{#if preview.nodes.length === 0}
+										<div class="empty-state empty-state--compact">
+											<div class="empty-state__icon">
+												<LinkIcon class="h-5 w-5" />
+											</div>
+											<p class="empty-state__text">{$t("No detectable nodes found in this subscription.")}</p>
+										</div>
+									{:else}
+										<div class="flex flex-wrap gap-2">
+											{#each previewTypeSummary.slice(0, 4) as item}
+												<span class={cn("inline-flex items-center rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.16em]", typeColors[item.type])}>
+													{item.type} · {item.count}
+												</span>
+											{/each}
+										</div>
+									{/if}
+								{:else if preview?.status === "loading"}
+									<div class="inline-badge inline-badge--accent">
+										<RefreshCw class="h-3.5 w-3.5 animate-spin" />
+										{$t("Loading subscription preview...")}
+									</div>
+								{:else if preview?.status === "error"}
+									<div class="inline-badge inline-badge--danger">
+										<AlertCircle class="h-3.5 w-3.5" />
+										{$t("Subscription preview failed.")}
+									</div>
+									<p class="break-all text-sm text-[color:var(--app-danger)]">{preview.error}</p>
+								{/if}
+							</div>
+
+							{#if expandedId === sub.id}
+								<div transition:slide class="space-y-4">
+									<div class="section-divider"></div>
 									<div class="grid gap-4 sm:grid-cols-2">
-										<div class="space-y-1.5">
-											<p class="text-[10px] font-bold uppercase tracking-widest text-slate-500 ml-1">{$t("Name")}</p>
-											<input 
-												class="w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-indigo-500/40 transition-all"
+										<div class="space-y-2">
+											<p class="field-label">{$t("Name")}</p>
+											<input
+												class="field-input"
 												value={sub.name}
-												on:input={(e) => upsertSubscription({...sub, name: e.currentTarget.value, updatedAt: nowIso()})}
+												on:input={(e) => upsertSubscription({ ...sub, name: e.currentTarget.value, updatedAt: nowIso() })}
 											/>
 										</div>
-										<div class="space-y-1.5">
-											<p class="text-[10px] font-bold uppercase tracking-widest text-slate-500 ml-1">{$t("URL")}</p>
-											<input 
-												class="w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-indigo-500/40 transition-all"
+										<div class="space-y-2">
+											<p class="field-label">{$t("URL")}</p>
+											<input
+												class="field-input"
 												value={sub.url}
-												on:input={(e) => upsertSubscription({...sub, url: e.currentTarget.value, updatedAt: nowIso()})}
+												on:input={(e) => upsertSubscription({ ...sub, url: e.currentTarget.value, updatedAt: nowIso() })}
 											/>
 										</div>
 									</div>
-									<div class="space-y-1.5">
-										<p class="text-[10px] font-bold uppercase tracking-widest text-slate-500 ml-1">{$t("Tags (comma separated)")}</p>
-										<input 
-											class="w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-indigo-500/40 transition-all"
-											value={sub.tags.map(t => t.label).join(", ")}
-											on:change={(e) => upsertSubscription({...sub, tags: parseTags(e.currentTarget.value), updatedAt: nowIso()})}
-									/>
+									<div class="space-y-2">
+										<p class="field-label">{$t("Tags (comma separated)")}</p>
+										<input
+											class="field-input"
+											value={sub.tags.map((t) => t.label).join(", ")}
+											on:change={(e) => upsertSubscription({ ...sub, tags: parseTags(e.currentTarget.value), updatedAt: nowIso() })}
+										/>
+									</div>
 								</div>
-							</div>
-						{/if}
-					</div>
-				{/each}
+							{/if}
+						</div>
+					{/each}
+				{/if}
 			{/if}
-		{/if}
-	</div>
+		</div>
+	</section>
 </div>
 
 {#if previewSubscription}
@@ -1329,7 +1386,7 @@
 		<button
 			type="button"
 			aria-label={$t("Close preview")}
-			class="absolute inset-0 bg-slate-950/70 backdrop-blur-sm"
+			class="dialog-scrim"
 			on:click={closeSubscriptionPreview}
 		></button>
 		<div class="relative flex min-h-full items-center justify-center p-4">
@@ -1337,19 +1394,19 @@
 				role="dialog"
 				aria-modal="true"
 				aria-label={$t("Subscription Preview")}
-				class="w-full max-w-5xl rounded-3xl border border-slate-800 bg-slate-900/95 p-6 shadow-2xl shadow-indigo-500/10"
+				class="dialog-card dialog-card--xl"
 				in:fly={{ y: 12, duration: 220 }}
 				out:fade={{ duration: 140 }}
 			>
 				<div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
 					<div class="flex items-start gap-3">
-						<div class="flex h-11 w-11 items-center justify-center rounded-2xl bg-indigo-500/10 text-indigo-400">
+						<div class="dialog-card__icon dialog-card__icon--normal">
 							<LinkIcon class="h-5 w-5" />
 						</div>
 						<div class="space-y-1">
-							<h2 class="text-lg font-bold text-white tracking-tight">{$t("Subscription Preview")}</h2>
-							<p class="text-sm font-medium text-slate-300">{previewSubscription.name}</p>
-							<p class="text-sm text-slate-400">{getHost(previewSubscription.url)}</p>
+							<h2 class="dialog-card__title">{$t("Subscription Preview")}</h2>
+							<p class="text-sm font-semibold text-[var(--app-text)]">{previewSubscription.name}</p>
+							<p class="text-sm text-[var(--app-text-soft)]">{getHost(previewSubscription.url)}</p>
 						</div>
 					</div>
 
@@ -1357,7 +1414,7 @@
 						<button
 							type="button"
 							on:click={() => void loadSubscriptionPreview(previewSubscription, true)}
-							class="inline-flex items-center gap-2 rounded-2xl border border-slate-800 bg-slate-950/70 px-4 py-2 text-xs font-bold uppercase tracking-[0.16em] text-slate-300 transition-all hover:bg-slate-800 hover:text-white"
+							class="button-secondary"
 						>
 							<RefreshCw class={cn("h-3.5 w-3.5", activeSubscriptionPreview?.status === "loading" && "animate-spin")} />
 							{$t("Refresh preview")}
@@ -1365,7 +1422,7 @@
 						<button
 							type="button"
 							on:click={closeSubscriptionPreview}
-							class="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-slate-800 bg-slate-950/70 text-slate-400 transition-all hover:bg-slate-800 hover:text-white"
+							class="button-icon"
 							aria-label={$t("Close preview")}
 						>
 							<X class="h-4.5 w-4.5" />
@@ -1374,37 +1431,35 @@
 				</div>
 
 				<div class="mt-6 grid gap-3 sm:grid-cols-3">
-					<div class="rounded-2xl border border-slate-800/60 bg-slate-950/50 px-4 py-3">
-						<p class="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">{$t("Host")}</p>
-						<p class="mt-2 break-all text-sm font-medium text-white">{getHost(previewSubscription.url)}</p>
+					<div class="metric-card">
+						<p class="metric-card__label">{$t("Host")}</p>
+						<p class="metric-card__meta mt-2 break-all text-sm font-semibold text-[var(--app-text)]">{getHost(previewSubscription.url)}</p>
 					</div>
-					<div class="rounded-2xl border border-slate-800/60 bg-slate-950/50 px-4 py-3">
-						<p class="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">{$t("Detected nodes")}</p>
-						<p class="mt-2 text-sm font-medium text-white">{activeSubscriptionPreview?.status === "ready" ? activeSubscriptionPreview.nodes.length : "--"}</p>
+					<div class="metric-card">
+						<p class="metric-card__label">{$t("Detected nodes")}</p>
+						<p class="metric-card__meta mt-2 text-sm font-semibold text-[var(--app-text)]">{activeSubscriptionPreview?.status === "ready" ? activeSubscriptionPreview.nodes.length : "--"}</p>
 					</div>
-					<div class="rounded-2xl border border-slate-800/60 bg-slate-950/50 px-4 py-3">
-						<p class="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">{$t("Last preview")}</p>
-						<p class="mt-2 text-sm font-medium text-white">{formatTimestamp(activeSubscriptionPreview?.fetchedAt ?? null)}</p>
+					<div class="metric-card">
+						<p class="metric-card__label">{$t("Last preview")}</p>
+						<p class="metric-card__meta mt-2 text-sm font-semibold text-[var(--app-text)]">{formatTimestamp(activeSubscriptionPreview?.fetchedAt ?? null)}</p>
 					</div>
 				</div>
 
 				<div class="mt-5 flex flex-col gap-3">
 					<div class="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto]">
 						<input
-							class="w-full rounded-2xl border border-slate-800 bg-slate-950 px-4 py-3 text-sm text-white placeholder:text-slate-600 outline-none focus:border-indigo-500/50 transition-all"
+							class="field-input"
 							placeholder={$t("Filter preview by name or detail")}
 							bind:value={previewSearchQuery}
 						/>
-						<div class="flex flex-wrap gap-2">
+						<div class="filter-pills">
 							{#each subscriptionPreviewProtocolOptions as protocol}
 								<button
 									type="button"
 									on:click={() => (previewTypeFilter = protocol)}
 									class={cn(
-										"rounded-full border px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.16em] transition-all",
-										previewTypeFilter === protocol
-											? "border-indigo-500/30 bg-indigo-500/10 text-indigo-300"
-											: "border-slate-800 bg-slate-950/60 text-slate-500 hover:text-slate-300"
+										"filter-pill",
+										previewTypeFilter === protocol && "filter-pill--active"
 									)}
 								>
 									{$t(protocol === "all" ? "All protocols" : protocol)}
@@ -1426,31 +1481,48 @@
 
 				<div class="mt-5 max-h-[55vh] overflow-y-auto pr-1 custom-scrollbar">
 					{#if activeSubscriptionPreview?.status === "loading"}
-						<div class="rounded-3xl border border-slate-800/60 bg-slate-950/40 px-6 py-14 text-center">
-							<RefreshCw class="mx-auto h-8 w-8 animate-spin text-indigo-400" />
-							<p class="mt-4 text-sm font-medium text-slate-300">{$t("Loading subscription preview...")}</p>
+						<div class="empty-state">
+							<div class="empty-state__icon">
+								<RefreshCw class="h-7 w-7 animate-spin text-[var(--app-accent)]" />
+							</div>
+							<p class="empty-state__title">{$t("Loading subscription preview...")}</p>
 						</div>
 					{:else if activeSubscriptionPreview?.status === "error"}
-						<div class="rounded-3xl border border-red-500/20 bg-red-500/10 px-6 py-8 text-center">
-							<p class="text-sm font-bold text-red-200">{$t("Subscription preview failed.")}</p>
-							<p class="mt-2 break-all text-sm text-red-100/80">{activeSubscriptionPreview.error}</p>
+						<div class="surface-card section-card section-card--danger">
+							<div class="section-card__header">
+								<div class="section-card__header-main">
+									<div class="section-card__icon">
+										<AlertCircle class="h-4.5 w-4.5 text-[var(--app-danger)]" />
+									</div>
+									<div class="section-card__title-wrap">
+										<h3 class="section-card__title">{$t("Subscription preview failed.")}</h3>
+										<p class="section-card__text break-all">{activeSubscriptionPreview.error}</p>
+									</div>
+								</div>
+							</div>
 						</div>
 					{:else if activeSubscriptionPreview?.status === "ready" && activeSubscriptionPreview.nodes.length === 0}
-						<div class="rounded-3xl border border-slate-800/60 border-dashed bg-slate-950/40 px-6 py-12 text-center">
-							<p class="text-sm font-medium text-slate-400">{$t("No detectable nodes found in this subscription.")}</p>
+						<div class="empty-state">
+							<div class="empty-state__icon">
+								<LinkIcon class="h-6 w-6" />
+							</div>
+							<p class="empty-state__title">{$t("No detectable nodes found in this subscription.")}</p>
 						</div>
 					{:else if activeSubscriptionPreview?.status === "ready" && filteredSubscriptionPreviewNodes.length === 0}
-						<div class="rounded-3xl border border-slate-800/60 border-dashed bg-slate-950/40 px-6 py-12 text-center">
-							<p class="text-sm font-medium text-slate-400">{$t("No preview items match the current filters.")}</p>
+						<div class="empty-state">
+							<div class="empty-state__icon">
+								<Search class="h-6 w-6" />
+							</div>
+							<p class="empty-state__title">{$t("No preview items match the current filters.")}</p>
 						</div>
 					{:else if activeSubscriptionPreview?.status === "ready"}
 						<div class="grid gap-4 md:grid-cols-2">
 							{#each filteredSubscriptionPreviewNodes as node (node.id)}
-								<div class="rounded-3xl border border-slate-800/60 bg-slate-950/40 p-5 space-y-4">
+								<div class="surface-card section-card section-card--compact">
 									<div class="flex items-start justify-between gap-3">
 										<div class="min-w-0">
-											<p class="truncate text-sm font-bold text-white">{node.name}</p>
-											<p class="mt-1 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">
+											<p class="truncate text-sm font-bold text-[var(--app-text)]">{node.name}</p>
+											<p class="mt-1 text-[10px] font-bold uppercase tracking-[0.16em] text-[var(--app-text-faint)]">
 												{$t("Line {line}", { line: node.lineNumber })}
 											</p>
 										</div>
@@ -1459,7 +1531,7 @@
 										</span>
 									</div>
 
-									<p class="break-all rounded-2xl border border-slate-800 bg-slate-950/70 px-4 py-3 text-[11px] font-mono leading-relaxed text-slate-300">
+									<p class="soft-code break-all leading-relaxed">
 										{node.raw}
 									</p>
 
@@ -1467,7 +1539,7 @@
 										<button
 											type="button"
 											on:click={() => copy(node.raw, node.name)}
-											class="inline-flex items-center gap-2 rounded-xl border border-slate-800 bg-slate-950/70 px-3 py-2 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-300 transition-all hover:bg-slate-800 hover:text-white"
+											class="button-secondary"
 										>
 											<Copy class="h-3.5 w-3.5" />
 											{$t("Copy")}
@@ -1477,8 +1549,11 @@
 							{/each}
 						</div>
 					{:else}
-						<div class="rounded-3xl border border-slate-800/60 border-dashed bg-slate-950/40 px-6 py-12 text-center">
-							<p class="text-sm font-medium text-slate-400">{$t("Click preview to inspect included nodes.")}</p>
+						<div class="empty-state">
+							<div class="empty-state__icon">
+								<Eye class="h-6 w-6" />
+							</div>
+							<p class="empty-state__title">{$t("Click preview to inspect included nodes.")}</p>
 						</div>
 					{/if}
 				</div>
@@ -1492,15 +1567,15 @@
 	<div 
 		transition:fly={{ y: 50, duration: 400 }}
 		class={cn(
-			"fixed bottom-8 left-1/2 -translate-x-1/2 z-[100] flex items-center gap-2 rounded-2xl px-6 py-3 shadow-2xl border backdrop-blur-xl",
-			toast.type === 'success' ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400" :
-			toast.type === 'error' ? "bg-red-500/10 border-red-500/20 text-red-400" :
-			"bg-indigo-500/10 border-indigo-500/20 text-indigo-400"
+			"floating-notice floating-notice--bottom",
+			toast.type === 'success' ? "floating-notice--success" :
+			toast.type === 'error' ? "floating-notice--error" :
+			"floating-notice--info"
 		)}
 	>
 		{#if toast.type === 'success'}<Check class="h-4 w-4" />
 		{:else if toast.type === 'error'}<AlertCircle class="h-4 w-4" />
 		{:else}<Zap class="h-4 w-4" />{/if}
-		<span class="text-sm font-bold">{toast.message}</span>
+		<span class="text-sm font-bold text-[var(--app-text)]">{toast.message}</span>
 	</div>
 {/if}

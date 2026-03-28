@@ -138,13 +138,13 @@
 	function getTransitionEventBadgeClass(outcome: PublishTransitionOutcome): string {
 		switch (outcome) {
 			case 'auto_deleted':
-				return "border-emerald-500/20 bg-emerald-500/10 text-emerald-400";
+				return "inline-badge--success";
 			case 'kept_shared':
-				return "border-indigo-500/20 bg-indigo-500/10 text-indigo-400";
+				return "inline-badge--accent";
 			case 'kept_external':
-				return "border-amber-500/20 bg-amber-500/10 text-amber-400";
+				return "inline-badge--warning";
 			default:
-				return "border-slate-700 bg-slate-800/80 text-slate-300";
+				return "";
 		}
 	}
 
@@ -364,151 +364,138 @@
 	<title>{$t("Gist Workspace")} | {$t("SubMan")}</title>
 </svelte:head>
 
-<div class="space-y-8 pb-12">
-	<!-- Page Header -->
-	<header class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-		<div class="flex items-center gap-3">
-			<div class="flex h-12 w-12 items-center justify-center rounded-2xl bg-indigo-500/10 text-indigo-400">
+<div class="page-stack">
+	<header class="page-hero surface-card">
+		<div class="page-hero__intro">
+			<div class="page-hero__icon">
 				<Database class="h-6 w-6" />
 			</div>
-			<div>
-				<h1 class="text-3xl font-extrabold text-white tracking-tight">{$t("Gist Workspace")}</h1>
-				<p class="text-slate-400 text-sm">{$t("Manage raw files directly in your GitHub Gist")}</p>
+			<div class="page-hero__body">
+				<p class="page-hero__eyebrow">{$t("Workspace")}</p>
+				<h1 class="page-hero__title">{$t("Gist Workspace")}</h1>
+				<p class="page-hero__description">{$t("Manage raw files directly in your GitHub Gist")}</p>
 			</div>
 		</div>
-		
-		<div class="flex items-center gap-2">
-			<button 
-				on:click={refreshWorkspace}
-				disabled={loading}
-				class="flex items-center justify-center gap-2 rounded-xl border border-slate-800 bg-slate-800/50 px-5 py-2.5 text-sm font-bold text-white transition-all hover:bg-slate-700 active:scale-[0.98]"
-			>
+
+		<div class="page-hero__actions">
+			<button type="button" on:click={refreshWorkspace} disabled={loading} class="button-secondary">
 				<RefreshCw class={cn("h-4 w-4", loading && "animate-spin")} />
 				{loading ? $t("Refreshing...") : $t("Refresh")}
 			</button>
-			<a 
-				href="/auth" 
-				class="flex items-center justify-center gap-2 rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-bold text-white shadow-lg shadow-indigo-600/20 transition-all hover:bg-indigo-500 active:scale-[0.98]"
-			>
+			<a href="/auth" class="button-primary">
 				<Settings class="h-4 w-4" />
 				{$t("Workspace Settings")}
 			</a>
 		</div>
 	</header>
 
-	<!-- Status Toast -->
 	{#if status}
-		<div 
+		<div
 			transition:fly={{ y: -20, duration: 300 }}
 			class={cn(
-				"fixed top-20 right-8 z-[100] flex items-center gap-3 rounded-2xl px-6 py-3 border shadow-2xl backdrop-blur-xl",
-				status.type === 'success' ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400" :
-				status.type === 'error' ? "bg-red-500/10 border-red-500/20 text-red-400" :
-				"bg-indigo-500/10 border-indigo-500/20 text-indigo-400"
+				"floating-notice",
+				status.type === "success" ? "floating-notice--success" : status.type === "error" ? "floating-notice--error" : "floating-notice--info"
 			)}
 		>
-			{#if status.type === 'success'}<CheckCircle2 class="h-5 w-5" />
-			{:else if status.type === 'error'}<AlertCircle class="h-5 w-5" />
-			{:else}<RefreshCw class="h-5 w-5" />{/if}
-			<span class="text-sm font-bold tracking-tight">{status.message}</span>
+			{#if status.type === "success"}<CheckCircle2 class="h-5 w-5 shrink-0" />
+			{:else if status.type === "error"}<AlertCircle class="h-5 w-5 shrink-0" />
+			{:else}<RefreshCw class="h-5 w-5 shrink-0" />{/if}
+			<span class="text-sm font-bold text-[var(--app-text)]">{status.message}</span>
 		</div>
 	{/if}
 
 	{#if workspaceLoadError}
-		<section class="rounded-[2rem] border border-red-500/20 bg-red-500/10 p-5 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-			<div class="flex items-start gap-3">
-				<AlertCircle class="h-5 w-5 text-red-400 shrink-0 mt-0.5" />
-				<div class="space-y-1">
-					<p class="text-sm font-bold text-red-200">{$t("Workspace auto-refresh failed.")}</p>
-					<p class="text-sm leading-relaxed text-red-100/80">{workspaceLoadError}</p>
+		<section class="surface-card section-card section-card--danger">
+			<div class="section-card__header">
+				<div class="section-card__header-main">
+					<div class="section-card__icon">
+						<AlertCircle class="h-5 w-5 text-[var(--app-danger)]" />
+					</div>
+					<div class="section-card__title-wrap">
+						<h2 class="section-card__title">{$t("Workspace auto-refresh failed.")}</h2>
+						<p class="section-card__text">{workspaceLoadError}</p>
+					</div>
 				</div>
-			</div>
-			<div class="flex items-center gap-3">
-				<button
-					type="button"
-					on:click={refreshWorkspace}
-					class="inline-flex items-center gap-2 rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-2 text-xs font-bold uppercase tracking-[0.16em] text-red-100 transition-all hover:bg-red-500/20"
-				>
-					<RefreshCw class={cn("h-3.5 w-3.5", loading && "animate-spin")} />
-					{$t("Refresh")}
-				</button>
-				<a
-					href="/auth"
-					class="inline-flex items-center gap-2 rounded-xl border border-slate-800 bg-slate-950/70 px-4 py-2 text-xs font-bold uppercase tracking-[0.16em] text-slate-200 transition-all hover:bg-slate-800"
-				>
-					<Settings class="h-3.5 w-3.5" />
-					{$t("Workspace Settings")}
-				</a>
+				<div class="section-card__actions">
+					<button type="button" on:click={refreshWorkspace} class="button-secondary">
+						<RefreshCw class={cn("h-4 w-4", loading && "animate-spin")} />
+						{$t("Refresh")}
+					</button>
+					<a href="/auth" class="button-secondary">
+						<Settings class="h-4 w-4" />
+						{$t("Workspace Settings")}
+					</a>
+				</div>
 			</div>
 		</section>
 	{/if}
 
-	<!-- Stats & Clean Action -->
-	<section class="flex flex-col gap-6 md:flex-row md:items-center md:justify-between p-8 rounded-[2rem] border border-slate-800/60 bg-slate-900/30 overflow-hidden relative group">
-		<div class="relative z-10 flex items-center gap-6">
-			<div class="flex flex-col">
-				<span class="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500">{$t("Active Gist ID")}</span>
-				<span class="text-sm font-mono text-slate-300">{$appState.activeGistId || $t("None")}</span>
-				{#if workspaceGistUrl}
-					<div class="mt-3 flex items-center gap-2">
-						<button
-							type="button"
-							on:click={() => copyLink(workspaceGistUrl)}
-							class="inline-flex items-center gap-1.5 rounded-lg border border-slate-800 bg-slate-950/70 px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-300 transition-all hover:bg-slate-800 hover:text-white"
-						>
-							<Copy class="h-3.5 w-3.5" />
-							{$t("Copy workspace gist URL")}
-						</button>
-						<a
-							href={workspaceGistUrl}
-							target="_blank"
-							class="inline-flex items-center gap-1.5 rounded-lg border border-slate-800 bg-slate-950/70 px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-300 transition-all hover:bg-slate-800 hover:text-white"
-						>
-							<ExternalLink class="h-3.5 w-3.5" />
-							{$t("Open workspace gist")}
-						</a>
-					</div>
-				{/if}
+	<section class="surface-card section-card">
+		<div class="section-card__header">
+			<div class="section-card__header-main">
+				<div class="section-card__icon">
+					<HardDrive class="h-5 w-5" />
+				</div>
+				<div class="section-card__title-wrap">
+					<h2 class="section-card__title">{$t("Workspace overview")}</h2>
+					<p class="section-card__text">{$t("Review your bound gist, copy stable links, and keep published output files tidy.")}</p>
+				</div>
 			</div>
-			<div class="h-10 w-px bg-slate-800"></div>
-			<div class="flex flex-col">
-				<span class="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500">{$t("Files")}</span>
-				<span class="text-sm font-bold text-white">{workspace?.files.length || 0}</span>
+			<div class="section-card__actions">
+				<button type="button" on:click={cleanWorkspaceFiles} disabled={deleting || !workspace} class="button-danger">
+					<Trash2 class="h-4 w-4" />
+					{$t("Clean All Output Files")}
+				</button>
 			</div>
 		</div>
 
-		<button 
-			on:click={cleanWorkspaceFiles}
-			disabled={deleting || !workspace}
-			class="relative z-10 flex items-center justify-center gap-2 rounded-xl border border-red-500/20 bg-red-500/5 px-6 py-2.5 text-xs font-bold text-red-400 transition-all hover:bg-red-500/10 hover:border-red-500/40 active:scale-[0.98] disabled:opacity-30"
-		>
-			<Trash2 class="h-4 w-4" />
-			{$t("Clean All Output Files")}
-		</button>
-		
-		<!-- Background Glow -->
-		<div class="absolute -right-20 -top-20 h-64 w-64 bg-indigo-500/5 blur-[80px] group-hover:bg-indigo-500/10 transition-colors"></div>
+		<div class="metric-grid">
+			<div class="metric-card">
+				<p class="metric-card__label">{$t("Active Gist ID")}</p>
+				<p class="metric-card__meta font-mono break-all">{$appState.activeGistId || $t("None")}</p>
+			</div>
+			<div class="metric-card">
+				<p class="metric-card__label">{$t("Files")}</p>
+				<p class="metric-card__value">{workspace?.files.length || 0}</p>
+				<p class="metric-card__meta">{$t("Workspace file inventory")}</p>
+			</div>
+			<div class="metric-card">
+				<p class="metric-card__label">{$t("Workspace config")}</p>
+				<p class="metric-card__meta font-mono">{WORKSPACE_FILE}</p>
+			</div>
+		</div>
+
+		{#if workspaceGistUrl}
+			<div class="section-card__actions">
+				<button type="button" on:click={() => copyLink(workspaceGistUrl)} class="button-secondary">
+					<Copy class="h-4 w-4" />
+					{$t("Copy workspace gist URL")}
+				</button>
+				<a href={workspaceGistUrl} target="_blank" class="button-secondary">
+					<ExternalLink class="h-4 w-4" />
+					{$t("Open workspace gist")}
+				</a>
+			</div>
+		{/if}
 	</section>
 
-	<section class="rounded-[2rem] border border-slate-800/60 bg-slate-900/30 p-8 space-y-5">
-		<div class="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-			<div class="flex items-center gap-3">
-				<div class="flex h-11 w-11 items-center justify-center rounded-2xl bg-indigo-500/10 text-indigo-400">
+	<section class="surface-card section-card">
+		<div class="section-card__header">
+			<div class="section-card__header-main">
+				<div class="section-card__icon">
 					<FileJson class="h-5 w-5" />
 				</div>
-				<div>
-					<h2 class="text-lg font-bold text-white tracking-tight">{$t("Workspace config")}</h2>
-					<p class="text-sm text-slate-400">{WORKSPACE_FILE}</p>
+				<div class="section-card__title-wrap">
+					<h2 class="section-card__title">{$t("Workspace config")}</h2>
+					<p class="section-card__text">{WORKSPACE_FILE}</p>
 				</div>
 			</div>
 
 			{#if workspaceConfig}
 				<span
 					class={cn(
-						"inline-flex items-center rounded-full border px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.18em]",
-						workspaceConfigMatchesLocal
-							? "border-emerald-500/20 bg-emerald-500/10 text-emerald-300"
-							: "border-amber-500/20 bg-amber-500/10 text-amber-300"
+						"inline-badge",
+						workspaceConfigMatchesLocal ? "inline-badge--success" : "inline-badge--warning"
 					)}
 				>
 					{workspaceConfigMatchesLocal
@@ -519,75 +506,76 @@
 		</div>
 
 		{#if workspaceConfig}
-			<div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-				<div class="rounded-3xl border border-slate-800/60 bg-slate-950/40 p-5 space-y-2">
-					<p class="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-500">{$t("Nodes")}</p>
-					<p class="text-2xl font-bold text-white">{workspaceConfig.nodes.length}</p>
+			<div class="metric-grid">
+				<div class="metric-card">
+					<p class="metric-card__label">{$t("Nodes")}</p>
+					<p class="metric-card__value">{workspaceConfig.nodes.length}</p>
 				</div>
-				<div class="rounded-3xl border border-slate-800/60 bg-slate-950/40 p-5 space-y-2">
-					<p class="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-500">{$t("Subscriptions")}</p>
-					<p class="text-2xl font-bold text-white">{workspaceConfig.subscriptions.length}</p>
+				<div class="metric-card">
+					<p class="metric-card__label">{$t("Subscriptions")}</p>
+					<p class="metric-card__value">{workspaceConfig.subscriptions.length}</p>
 				</div>
-				<div class="rounded-3xl border border-slate-800/60 bg-slate-950/40 p-5 space-y-2">
-					<p class="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-500">{$t("Rules")}</p>
-					<p class="text-2xl font-bold text-white">{workspaceConfig.aggregates.length}</p>
+				<div class="metric-card">
+					<p class="metric-card__label">{$t("Rules")}</p>
+					<p class="metric-card__value">{workspaceConfig.aggregates.length}</p>
 				</div>
-				<div class="rounded-3xl border border-slate-800/60 bg-slate-950/40 p-5 space-y-2">
-					<p class="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-500">{$t("Publish Targets")}</p>
-					<p class="text-2xl font-bold text-white">{workspaceConfig.publishTargets.length}</p>
+				<div class="metric-card">
+					<p class="metric-card__label">{$t("Publish Targets")}</p>
+					<p class="metric-card__value">{workspaceConfig.publishTargets.length}</p>
 				</div>
 			</div>
 
-			<p class="text-[11px] font-medium uppercase tracking-[0.18em] text-slate-500">
-				{$t("Updated: {time}", { time: formatEventTime(workspaceConfig.lastUpdated) })}
-			</p>
+			<p class="section-card__text">{$t("Updated: {time}", { time: formatEventTime(workspaceConfig.lastUpdated) })}</p>
 		{:else if workspaceConfigError}
-			<div class="rounded-3xl border border-amber-500/20 bg-amber-500/10 px-5 py-4 text-sm text-amber-100">
-				<p class="font-bold text-amber-200">{$t("Workspace data unreadable.")}</p>
-				<p class="mt-1 text-amber-100/80">{workspaceConfigError}</p>
+			<div class="surface-card section-card section-card--warning">
+				<div class="section-card__header-main">
+					<div class="section-card__icon">
+						<AlertCircle class="h-4.5 w-4.5 text-[var(--app-warning)]" />
+					</div>
+					<div class="section-card__title-wrap">
+						<h3 class="section-card__title">{$t("Workspace data unreadable.")}</h3>
+						<p class="section-card__text">{workspaceConfigError}</p>
+					</div>
+				</div>
 			</div>
 		{:else}
-			<div class="rounded-3xl border border-slate-800/60 border-dashed bg-slate-950/30 px-6 py-8 text-center">
-				<p class="text-sm font-medium text-slate-400">{$t("Refresh to load files.")}</p>
+			<div class="empty-state empty-state--compact">
+				<div class="empty-state__icon">
+					<FileJson class="h-6 w-6" />
+				</div>
+				<p class="empty-state__title">{$t("Refresh to load files.")}</p>
 			</div>
 		{/if}
 	</section>
 
 	{#if allPublishLogs.length > 0}
-		<section class="rounded-[2rem] border border-slate-800/60 bg-slate-900/30 p-8 space-y-5">
-			<div class="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-				<div class="flex items-center gap-3">
-					<div class="flex h-11 w-11 items-center justify-center rounded-2xl bg-indigo-500/10 text-indigo-400">
+		<section class="surface-card section-card">
+			<div class="section-card__header">
+				<div class="section-card__header-main">
+					<div class="section-card__icon">
 						<Layers class="h-5 w-5" />
 					</div>
-					<div>
-						<h2 class="text-lg font-bold text-white tracking-tight">{$t("Recent Publish Events")}</h2>
-						<p class="text-sm text-slate-400">{$t("Latest file replacement activity for workspace outputs.")}</p>
+					<div class="section-card__title-wrap">
+						<h2 class="section-card__title">{$t("Recent Publish Events")}</h2>
+						<p class="section-card__text">{$t("Latest file replacement activity for workspace outputs.")}</p>
 					</div>
 				</div>
 
-				<button
-					type="button"
-					on:click={() => (publishEventsExpanded = !publishEventsExpanded)}
-					class="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-800 bg-slate-950/60 px-4 py-2 text-xs font-bold uppercase tracking-[0.18em] text-slate-300 transition-all hover:bg-slate-800 hover:text-white"
-				>
-					{publishEventsExpanded ? $t("Hide") : $t("Show")}
-					<ArrowRight class={cn("h-3.5 w-3.5 transition-transform", publishEventsExpanded && "rotate-90")} />
-				</button>
+				<div class="section-card__actions">
+					<button type="button" on:click={() => (publishEventsExpanded = !publishEventsExpanded)} class="button-secondary">
+						{publishEventsExpanded ? $t("Hide") : $t("Show")}
+						<ArrowRight class={cn("h-3.5 w-3.5 transition-transform", publishEventsExpanded && "rotate-90")} />
+					</button>
+				</div>
 			</div>
 
 			{#if publishEventsExpanded}
-				<div class="flex flex-wrap gap-2">
+				<div class="filter-pills">
 					{#each publishEventFilters as filter}
 						<button
 							type="button"
 							on:click={() => (publishEventFilter = filter)}
-							class={cn(
-								"inline-flex items-center rounded-full border px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.18em] transition-all",
-								publishEventFilter === filter
-									? "border-indigo-500/40 bg-indigo-500/15 text-indigo-300"
-									: "border-slate-800 bg-slate-950/60 text-slate-500 hover:border-slate-700 hover:text-slate-200"
-							)}
+							class={cn("filter-pill", publishEventFilter === filter && "filter-pill--active")}
 						>
 							{getPublishEventFilterLabel(filter)}
 						</button>
@@ -595,26 +583,27 @@
 				</div>
 
 				{#if recentPublishLogs.length === 0}
-					<div class="rounded-3xl border border-slate-800/60 border-dashed bg-slate-950/30 px-6 py-8 text-center">
-						<p class="text-sm font-medium text-slate-400">{$t("No publish events match this filter.")}</p>
+					<div class="empty-state empty-state--compact">
+						<div class="empty-state__icon">
+							<Layers class="h-6 w-6" />
+						</div>
+						<p class="empty-state__title">{$t("No publish events match this filter.")}</p>
 					</div>
 				{:else}
 					<div class="grid gap-4 lg:grid-cols-2">
 						{#each recentPublishLogs as log (log.id)}
-							<div class="rounded-3xl border border-slate-800/60 bg-slate-950/40 p-5 space-y-3">
+							<div class="surface-card section-card section-card--compact">
 								<div class="flex items-start justify-between gap-3">
 									<div class="min-w-0 space-y-1">
-										<p class="text-sm font-bold text-white truncate">{log.targetName}</p>
-										<p class="text-[10px] font-mono text-slate-500 truncate">{log.fromFileName} -&gt; {log.toFileName}</p>
+										<p class="truncate text-sm font-bold text-[var(--app-text)]">{log.targetName}</p>
+										<p class="text-[10px] font-mono text-[var(--app-text-faint)] truncate">{log.fromFileName} -&gt; {log.toFileName}</p>
 									</div>
-									<span class={cn("inline-flex items-center rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.18em]", getTransitionEventBadgeClass(log.outcome))}>
+									<span class={cn("inline-badge", getTransitionEventBadgeClass(log.outcome))}>
 										{getTransitionEventBadge(log.outcome)}
 									</span>
 								</div>
-								<p class="text-[11px] leading-relaxed text-slate-300">{getTransitionEventMessage(log)}</p>
-								<p class="text-[10px] font-medium uppercase tracking-[0.18em] text-slate-500">
-									{$t("Updated: {time}", { time: formatEventTime(log.at) })}
-								</p>
+								<p class="section-card__text">{getTransitionEventMessage(log)}</p>
+								<p class="metric-card__meta">{$t("Updated: {time}", { time: formatEventTime(log.at) })}</p>
 							</div>
 						{/each}
 					</div>
@@ -623,113 +612,115 @@
 		</section>
 	{/if}
 
-	<!-- File Grid -->
-	<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+	<section class="surface-card section-card">
+		<div class="section-card__header">
+			<div class="section-card__header-main">
+				<div class="section-card__icon">
+					<FileText class="h-5 w-5" />
+				</div>
+				<div class="section-card__title-wrap">
+					<h2 class="section-card__title">{$t("Workspace files")}</h2>
+					<p class="section-card__text">{$t("Inspect workspace config, managed outputs, and any extra files stored in this gist.")}</p>
+				</div>
+			</div>
+		</div>
+
 		{#if !workspace}
-			<div class="col-span-full py-20 text-center rounded-[2.5rem] border border-slate-800/40 border-dashed">
-				<HardDrive class="h-12 w-12 text-slate-700 mx-auto mb-4" />
-				<p class="text-slate-500 font-medium">{$t("Refresh to view your cloud files.")}</p>
-				<button on:click={refreshWorkspace} class="mt-6 text-indigo-400 hover:text-indigo-300 text-sm font-bold uppercase tracking-widest flex items-center gap-2 mx-auto">
-					{$t("Load Workspace")}
-					<ArrowRight class="h-3 w-3" />
-				</button>
+			<div class="empty-state">
+				<div class="empty-state__icon">
+					<HardDrive class="h-6 w-6" />
+				</div>
+				<p class="empty-state__title">{$t("Refresh to view your cloud files.")}</p>
+				<div class="section-card__actions">
+					<button type="button" on:click={refreshWorkspace} class="button-secondary">
+						{$t("Load Workspace")}
+						<ArrowRight class="h-3.5 w-3.5" />
+					</button>
+				</div>
 			</div>
 		{:else if workspace.files.length === 0}
-			<div class="col-span-full py-20 text-center">
-				<FileQuestion class="h-12 w-12 text-slate-700 mx-auto mb-4" />
-				<p class="text-slate-500 font-medium">{$t("The Gist is empty.")}</p>
+			<div class="empty-state">
+				<div class="empty-state__icon">
+					<FileQuestion class="h-6 w-6" />
+				</div>
+				<p class="empty-state__title">{$t("The Gist is empty.")}</p>
 			</div>
 		{:else}
-			{#each workspace.files as file (file.filename)}
-				<div 
-					transition:fade
-					class="group flex flex-col rounded-3xl border border-slate-800/60 bg-slate-900/40 p-6 transition-all hover:bg-slate-900/60 hover:border-slate-700/60"
-				>
-					<div class="flex items-start justify-between gap-4 mb-4">
-						<div class={cn(
-							"flex h-12 w-12 items-center justify-center rounded-2xl shadow-inner transition-colors",
-							isConfigFile(file.filename) ? "bg-indigo-500/10 text-indigo-400" :
-							isManagedOutput(file.filename) ? "bg-emerald-500/10 text-emerald-400" :
-							"bg-slate-800 text-slate-500"
-						)}>
-							{#if isConfigFile(file.filename)}<ShieldCheck class="h-6 w-6" />
-							{:else if isManagedOutput(file.filename)}<Layers class="h-6 w-6" />
-							{:else}<FileCode class="h-6 w-6" />{/if}
-						</div>
-						
-						<div class="flex items-center gap-1">
-							{#if file.rawUrl}
-								<a 
-									href={file.rawUrl} 
-									target="_blank" 
-									rel="noreferrer"
-									class="h-8 w-8 flex items-center justify-center rounded-lg text-slate-500 hover:bg-slate-800 hover:text-white transition-all"
-									title="Open Stable URL"
-								>
-									<ExternalLink class="h-4 w-4" />
-								</a>
-								<button 
-									on:click={() => copyLink(file.rawUrl)}
-									class="h-8 w-8 flex items-center justify-center rounded-lg text-slate-500 hover:bg-slate-800 hover:text-white transition-all"
-									title="Copy Stable URL"
-								>
-									<Copy class="h-4 w-4" />
-								</button>
-							{/if}
-							{#if canDelete(file.filename)}
-								<button 
-									on:click={() => deleteWorkspaceFile(file.filename)}
-									disabled={deleting}
-									class="h-8 w-8 flex items-center justify-center rounded-lg text-slate-500 hover:bg-red-500/10 hover:text-red-400 transition-all"
-									title="Delete File"
-								>
-									<Trash2 class="h-4 w-4" />
-								</button>
-							{/if}
-						</div>
-					</div>
-
-					<div class="space-y-1 min-w-0">
-						<div class="flex items-center gap-2 min-w-0">
-							<h3 class="font-bold text-white truncate" title={file.filename}>{file.filename}</h3>
-							{#if isManagedOutput(file.filename)}
-								<div class="group/tooltip relative inline-flex shrink-0">
-									<button
-										type="button"
-										class="inline-flex h-4 w-4 items-center justify-center rounded-full text-slate-500 transition-colors hover:text-white focus-visible:text-white focus-visible:outline-none"
-										aria-label={$t("Stable link help")}
-										title={$t("Stable link help")}
-									>
-										<CircleHelp class="h-3.5 w-3.5" />
-									</button>
-									<div class="pointer-events-none absolute left-0 top-full z-20 mt-2 hidden w-64 rounded-2xl border border-slate-800 bg-slate-950/95 px-3 py-2 text-[11px] leading-relaxed text-slate-300 shadow-2xl group-hover/tooltip:block group-focus-within/tooltip:block">
-										{$t("Keep the same file name to keep the stable link unchanged across republishes.")}
-									</div>
+			<div class="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+				{#each workspace.files as file (file.filename)}
+					<div transition:fade class="surface-card section-card section-card--compact">
+						<div class="section-card__header">
+							<div class="section-card__header-main">
+								<div class={cn(
+									"section-card__icon",
+									isManagedOutput(file.filename) && "text-[var(--app-success)]",
+									isConfigFile(file.filename) && "text-[var(--app-accent)]"
+								)}>
+									{#if isConfigFile(file.filename)}<ShieldCheck class="h-5 w-5" />
+									{:else if isManagedOutput(file.filename)}<Layers class="h-5 w-5" />
+									{:else}<FileCode class="h-5 w-5" />{/if}
 								</div>
-							{/if}
-						</div>
-						<p class="text-[10px] text-slate-500 font-bold uppercase tracking-wider">{file.size} Bytes</p>
-					</div>
+								<div class="section-card__title-wrap min-w-0">
+									<div class="flex items-center gap-2 min-w-0">
+										<h3 class="section-card__title truncate" title={file.filename}>{file.filename}</h3>
+										{#if isManagedOutput(file.filename)}
+											<div class="group/tooltip relative inline-flex shrink-0">
+												<button
+													type="button"
+													class="inline-flex h-4 w-4 items-center justify-center rounded-full text-[var(--app-text-faint)] transition-colors hover:text-[var(--app-text)] focus-visible:text-[var(--app-text)]"
+													aria-label={$t("Stable link help")}
+													title={$t("Stable link help")}
+												>
+													<CircleHelp class="h-3.5 w-3.5" />
+												</button>
+												<div class="pointer-events-none absolute left-0 top-full z-20 mt-2 hidden w-64 rounded-2xl border border-[var(--app-border)] bg-[var(--app-bg-panel-strong)] px-3 py-2 text-[11px] leading-relaxed text-[var(--app-text-soft)] shadow-[var(--app-shadow-soft)] group-hover/tooltip:block group-focus-within/tooltip:block">
+													{$t("Keep the same file name to keep the stable link unchanged across republishes.")}
+												</div>
+											</div>
+										{/if}
+									</div>
+									<p class="metric-card__meta">{file.size} Bytes</p>
+								</div>
+							</div>
 
-					<div class="mt-6 pt-4 border-t border-slate-800/60 flex items-center justify-between">
-						{#if isConfigFile(file.filename)}
-							<span class="text-[10px] font-bold text-indigo-500 uppercase tracking-widest">{$t("Protected Config")}</span>
-						{:else if isManagedOutput(file.filename)}
-							<span class="text-[10px] font-bold text-emerald-500 uppercase tracking-widest">{$t("Managed Output")}</span>
-						{:else}
-							<span class="text-[10px] font-bold text-slate-600 uppercase tracking-widest">{$t("Unmanaged File")}</span>
-						{/if}
-						
-						<div class="flex h-2 w-2 rounded-full shadow-[0_0_8px] transition-shadow" 
-							class:bg-indigo-500={isConfigFile(file.filename)}
-							class:shadow-indigo-500={isConfigFile(file.filename)}
-							class:bg-emerald-500={isManagedOutput(file.filename)}
-							class:shadow-emerald-500={isManagedOutput(file.filename)}
-							class:bg-slate-700={!isConfigFile(file.filename) && !isManagedOutput(file.filename)}
-						></div>
+							<div class="section-card__actions">
+								{#if file.rawUrl}
+									<a href={file.rawUrl} target="_blank" rel="noreferrer" class="button-icon" title="Open Stable URL">
+										<ExternalLink class="h-4 w-4" />
+									</a>
+									<button type="button" on:click={() => copyLink(file.rawUrl)} class="button-icon" title="Copy Stable URL">
+										<Copy class="h-4 w-4" />
+									</button>
+								{/if}
+								{#if canDelete(file.filename)}
+									<button type="button" on:click={() => deleteWorkspaceFile(file.filename)} disabled={deleting} class="button-icon button-icon--danger" title="Delete File">
+										<Trash2 class="h-4 w-4" />
+									</button>
+								{/if}
+							</div>
+						</div>
+
+						<div class="flex items-center justify-between gap-3">
+							{#if isConfigFile(file.filename)}
+								<span class="inline-badge inline-badge--accent">{$t("Protected Config")}</span>
+							{:else if isManagedOutput(file.filename)}
+								<span class="inline-badge inline-badge--success">{$t("Managed Output")}</span>
+							{:else}
+								<span class="inline-badge">{$t("Unmanaged File")}</span>
+							{/if}
+
+							<div
+								class="h-2.5 w-2.5 rounded-full shadow-[0_0_10px_currentColor]"
+								style={isConfigFile(file.filename)
+									? "color: var(--app-accent);"
+									: isManagedOutput(file.filename)
+										? "color: var(--app-success);"
+										: "color: var(--app-text-faint);"}
+							></div>
+						</div>
 					</div>
-				</div>
-			{/each}
+				{/each}
+			</div>
 		{/if}
-	</div>
+	</section>
 </div>

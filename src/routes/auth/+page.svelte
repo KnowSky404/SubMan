@@ -659,183 +659,177 @@
 	<title>{$t("Workspace Settings")} | {$t("SubMan")}</title>
 </svelte:head>
 
-<div class="max-w-4xl mx-auto space-y-8 pb-12">
-	<!-- Page Header -->
-	<header class="flex flex-col gap-2">
-		<div class="flex items-center gap-3">
-			<div class="flex h-12 w-12 items-center justify-center rounded-2xl bg-indigo-500/10 text-indigo-400">
+<div class="page-stack page-stack--narrow">
+	<header class="page-hero surface-card">
+		<div class="page-hero__intro">
+			<div class="page-hero__icon">
 				<ShieldCheck class="h-6 w-6" />
 			</div>
-			<div>
-				<h1 class="text-3xl font-extrabold text-white tracking-tight">{$t("Workspace Settings")}</h1>
-				<p class="text-slate-400 text-sm">{$t("Configure your cloud sync and data persistence")}</p>
+			<div class="page-hero__body">
+				<p class="page-hero__eyebrow">{$t("Workspace")}</p>
+				<h1 class="page-hero__title">{$t("Workspace Settings")}</h1>
+				<p class="page-hero__description">{$t("Configure your cloud sync and data persistence")}</p>
 			</div>
+		</div>
+
+		<div class="page-hero__actions">
+			<a href="/gists" class="button-secondary">
+				<Database class="h-4 w-4" />
+				{$t("Gists")}
+			</a>
+			<a href="/aggregate" class="button-primary">
+				<ArrowRightLeft class="h-4 w-4" />
+				{$t("Aggregate")}
+			</a>
 		</div>
 	</header>
 
-	<!-- Status Toast -->
 	{#if status}
-		<div 
+		<div
 			transition:fly={{ y: -20, duration: 300 }}
 			class={cn(
-				"flex items-center gap-3 rounded-2xl p-4 border shadow-lg",
-				status.type === 'success' ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400" :
-				status.type === 'error' ? "bg-red-500/10 border-red-500/20 text-red-400" :
-				"bg-indigo-500/10 border-indigo-500/20 text-indigo-400"
+				"floating-notice",
+				status.type === "success" ? "floating-notice--success" : status.type === "error" ? "floating-notice--error" : "floating-notice--info"
 			)}
 		>
-			{#if status.type === 'success'}<CheckCircle2 class="h-5 w-5 shrink-0" />
-			{:else if status.type === 'error'}<XCircle class="h-5 w-5 shrink-0" />
+			{#if status.type === "success"}<CheckCircle2 class="h-5 w-5 shrink-0" />
+			{:else if status.type === "error"}<XCircle class="h-5 w-5 shrink-0" />
 			{:else}<AlertTriangle class="h-5 w-5 shrink-0" />{/if}
-			<p class="text-sm font-medium">{status.message}</p>
-			<button class="ml-auto hover:opacity-70 transition-opacity" on:click={() => status = null}>
-				<Trash2 class="h-4 w-4" />
-			</button>
+			<span class="text-sm font-bold text-[var(--app-text)]">{status.message}</span>
 		</div>
 	{/if}
 
-	<!-- GitHub Token Section -->
-	<section class="glow-card group relative overflow-hidden rounded-[2rem] border border-slate-800/60 bg-slate-900/30 p-8 transition-all hover:border-slate-700/60">
-		<div class="flex flex-col gap-6">
-			<div class="flex items-center justify-between">
-				<div class="flex items-center gap-3">
-					<KeyRound class="h-5 w-5 text-indigo-400" />
-					<h2 class="text-xl font-bold text-white">{$t("GitHub Personal Access Token")}</h2>
+	<section class="surface-card section-card section-card--accent">
+		<div class="section-card__header">
+			<div class="section-card__header-main">
+				<div class="section-card__icon">
+					<KeyRound class="h-5 w-5" />
 				</div>
-				<div class={cn(
-					"px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest border",
-					$authState.token ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400" : "bg-slate-800 border-slate-700 text-slate-500"
-				)}>
-					{$authState.token ? $t("Sync Active") : $t("Offline Mode")}
-				</div>
-			</div>
-			
-			<p class="text-sm text-slate-400 leading-relaxed">
-				{$t("SubMan uses a dedicated Gist ({desc}) to store your configuration. Enter your token with 'gist' scope to enable auto-sync.", { desc: WORKSPACE_DESCRIPTION })}
-			</p>
-
-			<div class="space-y-4">
-				<div class="relative">
-					<input
-						type="password"
-						class="w-full rounded-2xl border border-slate-800 bg-slate-950/50 px-5 py-4 text-sm font-mono text-white placeholder:text-slate-600 outline-none ring-offset-0 focus:border-indigo-500/50 focus:ring-4 focus:ring-indigo-500/10 transition-all"
-						placeholder="ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-						bind:value={tokenInput}
-					/>
-				</div>
-				
-				<div class="flex flex-wrap items-center gap-3">
-					<button
-						class="flex items-center gap-2 rounded-xl bg-indigo-600 px-6 py-3 text-sm font-bold text-white shadow-lg shadow-indigo-600/20 transition-all hover:bg-indigo-500 active:scale-[0.98] disabled:opacity-50"
-						on:click={handleTokenSave}
-						disabled={workspaceBusy}
-					>
-						{#if workspaceBusy}
-							<RefreshCw class="h-4 w-4 animate-spin" />
-							{$t("Verifying...")}
-						{:else}
-							<Save class="h-4 w-4" />
-							{$t("Connect Workspace")}
-						{/if}
-					</button>
-					
-					{#if $authState.token}
-						<button
-							class="flex items-center gap-2 rounded-xl border border-slate-800 bg-slate-900/50 px-6 py-3 text-sm font-bold text-slate-300 transition-all hover:bg-slate-800 active:scale-[0.98] disabled:opacity-50"
-							on:click={handleManualSyncNow}
-							disabled={workspaceBusy}
-						>
-							<Upload class="h-4 w-4" />
-							{$t("Sync Local State Now")}
-						</button>
-						<button
-							class="flex items-center gap-2 rounded-xl border border-slate-800 bg-slate-900/50 px-6 py-3 text-sm font-bold text-slate-300 transition-all hover:bg-red-500/10 hover:border-red-500/30 hover:text-red-400 active:scale-[0.98]"
-							on:click={handleTokenClear}
-						>
-							<Trash2 class="h-4 w-4" />
-							{$t("Disconnect")}
-						</button>
-					{/if}
-
-					<a 
-						href="https://github.com/settings/tokens/new?description=SubMan&scopes=gist" 
-						target="_blank"
-						class="ml-auto flex items-center gap-1.5 text-xs font-medium text-slate-500 hover:text-indigo-400 transition-colors"
-					>
-						{$t("Get Token")}
-						<ExternalLink class="h-3 w-3" />
-					</a>
+				<div class="section-card__title-wrap">
+					<h2 class="section-card__title">{$t("GitHub Personal Access Token")}</h2>
+					<p class="section-card__text">
+						{$t("SubMan uses a dedicated Gist ({desc}) to store your configuration. Enter your token with 'gist' scope to enable auto-sync.", { desc: WORKSPACE_DESCRIPTION })}
+					</p>
 				</div>
 			</div>
 
-			{#if $appState.activeGistId}
-				<div class="flex items-center gap-2 rounded-xl bg-indigo-500/5 border border-indigo-500/10 p-4">
-					<Database class="h-4 w-4 text-indigo-400 shrink-0" />
-					<div class="min-w-0 flex-1">
-						<p class="text-[10px] uppercase font-bold text-indigo-400/60 tracking-wider">{$t("Active Gist ID")}</p>
-						<p class="text-xs font-mono text-slate-300 truncate">{$appState.activeGistId}</p>
-					</div>
-					<button
-						type="button"
-						on:click={copyWorkspaceGistUrl}
-						class="h-8 w-8 flex items-center justify-center rounded-lg border border-slate-800 text-slate-500 hover:text-white transition-colors"
-						title={$t("Copy workspace gist URL")}
-					>
-						<Copy class="h-4 w-4" />
-					</button>
-					<a 
-						href={workspaceGistUrl} 
-						target="_blank"
-						class="h-8 w-8 flex items-center justify-center rounded-lg border border-slate-800 text-slate-500 hover:text-white transition-colors"
-						title={$t("Open workspace gist")}
-					>
-						<ExternalLink class="h-4 w-4" />
-					</a>
-				</div>
-			{/if}
+			<span class={cn("inline-badge", $authState.token ? "inline-badge--success" : "")}>
+				{$authState.token ? $t("Sync Active") : $t("Offline Mode")}
+			</span>
 		</div>
+
+		<div class="grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
+			<div class="space-y-2">
+				<label class="field-label" for="workspace-token">{$t("GitHub Personal Access Token")}</label>
+				<input
+					id="workspace-token"
+					type="password"
+					class="field-input field-input--mono"
+					placeholder="ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+					bind:value={tokenInput}
+				/>
+			</div>
+
+			<div class="section-card__actions">
+				<button type="button" class="button-primary" on:click={handleTokenSave} disabled={workspaceBusy}>
+					{#if workspaceBusy}
+						<RefreshCw class="h-4 w-4 animate-spin" />
+						{$t("Verifying...")}
+					{:else}
+						<Save class="h-4 w-4" />
+						{$t("Connect Workspace")}
+					{/if}
+				</button>
+
+				{#if $authState.token}
+					<button type="button" class="button-secondary" on:click={handleManualSyncNow} disabled={workspaceBusy}>
+						<Upload class="h-4 w-4" />
+						{$t("Sync Local State Now")}
+					</button>
+					<button type="button" class="button-danger" on:click={handleTokenClear}>
+						<Trash2 class="h-4 w-4" />
+						{$t("Disconnect")}
+					</button>
+				{/if}
+			</div>
+		</div>
+
+		<div class="section-card__actions">
+			<a
+				href="https://github.com/settings/tokens/new?description=SubMan&scopes=gist"
+				target="_blank"
+				class="button-secondary"
+			>
+				<ExternalLink class="h-4 w-4" />
+				{$t("Get Token")}
+			</a>
+		</div>
+
+		<div class="metric-grid">
+			<div class="metric-card">
+				<p class="metric-card__label">{$t("Mode")}</p>
+				<p class="metric-card__value">{$authState.token ? $t("Connected") : $t("Local Mode")}</p>
+				<p class="metric-card__meta">{$t("Workspace Sync")}</p>
+			</div>
+			<div class="metric-card">
+				<p class="metric-card__label">{$t("Active Gist ID")}</p>
+				<p class="metric-card__meta font-mono break-all">{$appState.activeGistId || $t("None")}</p>
+			</div>
+			<div class="metric-card">
+				<p class="metric-card__label">{$t("Workspace config")}</p>
+				<p class="metric-card__meta font-mono">{WORKSPACE_FILE}</p>
+			</div>
+		</div>
+
+		{#if $appState.activeGistId}
+			<div class="soft-code">{$appState.activeGistId}</div>
+			<div class="section-card__actions">
+				<button type="button" on:click={copyWorkspaceGistUrl} class="button-secondary">
+					<Copy class="h-4 w-4" />
+					{$t("Copy workspace gist URL")}
+				</button>
+				<a href={workspaceGistUrl} target="_blank" class="button-secondary">
+					<ExternalLink class="h-4 w-4" />
+					{$t("Open workspace gist")}
+				</a>
+			</div>
+		{/if}
 	</section>
 
-	<section class="rounded-[2rem] border border-slate-800/60 bg-slate-900/10 p-8 space-y-6">
-		<div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-			<div class="flex items-start gap-3">
-				<ShieldCheck class="h-5 w-5 text-emerald-400" />
-				<div>
-					<h2 class="text-xl font-bold text-white">{$t("Workspace Health")}</h2>
-					<p class="text-sm leading-relaxed text-slate-400">{$t("Run a quick check for token access, gist binding, workspace config, and readable sync data.")}</p>
+	<section class="surface-card section-card">
+		<div class="section-card__header">
+			<div class="section-card__header-main">
+				<div class="section-card__icon">
+					<ShieldCheck class="h-5 w-5" />
+				</div>
+				<div class="section-card__title-wrap">
+					<h2 class="section-card__title">{$t("Workspace Health")}</h2>
+					<p class="section-card__text">{$t("Run a quick check for token access, gist binding, workspace config, and readable sync data.")}</p>
 				</div>
 			</div>
 
-			<div class="flex items-center gap-3">
+			<div class="section-card__actions">
 				{#if healthSummary}
-					<div class={cn(
-						"rounded-full border px-3 py-1 text-[10px] font-bold uppercase tracking-[0.16em]",
-						healthSummary === "healthy"
-							? "border-emerald-500/20 bg-emerald-500/10 text-emerald-300"
-							: healthSummary === "warning"
-								? "border-amber-500/20 bg-amber-500/10 text-amber-300"
-								: "border-red-500/20 bg-red-500/10 text-red-300"
-					)}>
+					<span
+						class={cn(
+							"inline-badge",
+							healthSummary === "healthy"
+								? "inline-badge--success"
+								: healthSummary === "warning"
+									? "inline-badge--warning"
+									: "inline-badge--danger"
+						)}
+					>
 						{$t(healthSummary === "healthy" ? "Healthy" : healthSummary === "warning" ? "Needs attention" : "Action needed")}
-					</div>
+					</span>
 				{/if}
 
-				<button
-					type="button"
-					on:click={runWorkspaceHealthCheck}
-					disabled={healthCheckBusy}
-					class="inline-flex items-center gap-2 rounded-xl border border-slate-800 bg-slate-900/50 px-5 py-3 text-sm font-bold text-white transition-all hover:bg-slate-800 active:scale-[0.98] disabled:opacity-50"
-				>
+				<button type="button" on:click={runWorkspaceHealthCheck} disabled={healthCheckBusy} class="button-secondary">
 					<RefreshCw class={cn("h-4 w-4", healthCheckBusy && "animate-spin")} />
 					{healthCheckBusy ? $t("Checking...") : $t("Run Health Check")}
 				</button>
 				{#if workspaceConfigRepairNeeded}
-					<button
-						type="button"
-						on:click={handleRepairWorkspaceConfig}
-						disabled={repairBusy}
-						class="inline-flex items-center gap-2 rounded-xl border border-amber-500/20 bg-amber-500/10 px-5 py-3 text-sm font-bold text-amber-200 transition-all hover:bg-amber-500/15 active:scale-[0.98] disabled:opacity-50"
-					>
+					<button type="button" on:click={handleRepairWorkspaceConfig} disabled={repairBusy} class="button-secondary">
 						<ShieldCheck class={cn("h-4 w-4", repairBusy && "animate-pulse")} />
 						{repairBusy ? $t("Repairing...") : $t("Repair Workspace Config")}
 					</button>
@@ -844,78 +838,82 @@
 		</div>
 
 		{#if healthReport}
-			<div class="space-y-4">
-				<p class="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-500">{$t("Last checked: {time}", { time: new Date(healthReport.checkedAt).toLocaleString() })}</p>
-				<div class="grid gap-4 md:grid-cols-2">
-					{#each healthReport.items as item (item.id)}
-						<div class="rounded-2xl border border-slate-800/60 bg-slate-950/40 p-5 space-y-2">
-							<div class="flex items-start justify-between gap-3">
-								<div>
-									<p class="text-sm font-bold text-white">{item.label}</p>
-								</div>
-								<div class={cn(
-									"rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.16em]",
+			<p class="metric-card__meta">{$t("Last checked: {time}", { time: new Date(healthReport.checkedAt).toLocaleString() })}</p>
+			<div class="grid gap-4 md:grid-cols-2">
+				{#each healthReport.items as item (item.id)}
+					<div class="surface-card section-card section-card--compact">
+						<div class="flex items-start justify-between gap-3">
+							<p class="text-sm font-bold text-[var(--app-text)]">{item.label}</p>
+							<span
+								class={cn(
+									"inline-badge",
 									item.status === "healthy"
-										? "border-emerald-500/20 bg-emerald-500/10 text-emerald-300"
+										? "inline-badge--success"
 										: item.status === "warning"
-											? "border-amber-500/20 bg-amber-500/10 text-amber-300"
-											: "border-red-500/20 bg-red-500/10 text-red-300"
-								)}>
-									{$t(item.status === "healthy" ? "Healthy" : item.status === "warning" ? "Warning" : "Error")}
-								</div>
-							</div>
-							<p class="text-sm leading-relaxed text-slate-400">{item.detail}</p>
+											? "inline-badge--warning"
+											: "inline-badge--danger"
+								)}
+							>
+								{$t(item.status === "healthy" ? "Healthy" : item.status === "warning" ? "Warning" : "Error")}
+							</span>
 						</div>
-					{/each}
-				</div>
+						<p class="section-card__text">{item.detail}</p>
+					</div>
+				{/each}
 			</div>
 		{/if}
 	</section>
 
-	<section class="rounded-[2rem] border border-slate-800/60 bg-slate-900/10 p-8 space-y-6">
-		<div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-			<div class="flex items-start gap-3">
-				<RefreshCw class={cn("h-5 w-5", autoSyncStatus.status === "syncing" ? "animate-spin text-indigo-400" : autoSyncStatus.status === "error" ? "text-red-400" : "text-emerald-400")} />
-				<div>
-					<h2 class="text-xl font-bold text-white">{$t("Last Auto Sync")}</h2>
-					<p class="text-sm leading-relaxed text-slate-400">{$t("See the latest background sync status from this browser session and the most recent saved result.")}</p>
+	<section class="surface-card section-card">
+		<div class="section-card__header">
+			<div class="section-card__header-main">
+				<div class="section-card__icon">
+					<RefreshCw class={cn("h-5 w-5", autoSyncStatus.status === "syncing" && "animate-spin")} />
+				</div>
+				<div class="section-card__title-wrap">
+					<h2 class="section-card__title">{$t("Last Auto Sync")}</h2>
+					<p class="section-card__text">{$t("See the latest background sync status from this browser session and the most recent saved result.")}</p>
 				</div>
 			</div>
 
 			{#if autoSyncSummary}
-				<div class={cn(
-					"rounded-full border px-3 py-1 text-[10px] font-bold uppercase tracking-[0.16em]",
-					autoSyncSummary === "success"
-						? "border-emerald-500/20 bg-emerald-500/10 text-emerald-300"
-						: autoSyncSummary === "error"
-							? "border-red-500/20 bg-red-500/10 text-red-300"
-							: "border-indigo-500/20 bg-indigo-500/10 text-indigo-300"
-				)}>
-					{$t(autoSyncStatus.status === "success" ? "Last sync succeeded" : autoSyncStatus.status === "error" ? "Last sync failed" : "Sync in progress") }
-				</div>
+				<span
+					class={cn(
+						"inline-badge",
+						autoSyncSummary === "success"
+							? "inline-badge--success"
+							: autoSyncSummary === "error"
+								? "inline-badge--danger"
+								: "inline-badge--accent"
+					)}
+				>
+					{$t(autoSyncStatus.status === "success" ? "Last sync succeeded" : autoSyncStatus.status === "error" ? "Last sync failed" : "Sync in progress")}
+				</span>
 			{/if}
 		</div>
 
-		<div class="grid gap-4 md:grid-cols-2">
-			<div class="rounded-2xl border border-slate-800/60 bg-slate-950/40 p-5 space-y-2">
-				<p class="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-500">{$t("Latest attempt")}</p>
-				<p class="text-sm font-semibold text-white">{autoSyncStatus.lastAttemptAt ? new Date(autoSyncStatus.lastAttemptAt).toLocaleString() : $t("No auto sync attempt yet.")}</p>
-				<p class="text-sm leading-relaxed text-slate-400">{$t("Sync target file: {file}", { file: autoSyncStatus.lastSyncedFile ?? WORKSPACE_FILE })}</p>
+		<div class="metric-grid">
+			<div class="metric-card">
+				<p class="metric-card__label">{$t("Latest attempt")}</p>
+				<p class="metric-card__meta">
+					{autoSyncStatus.lastAttemptAt ? new Date(autoSyncStatus.lastAttemptAt).toLocaleString() : $t("No auto sync attempt yet.")}
+				</p>
+				<p class="metric-card__meta">{$t("Sync target file: {file}", { file: autoSyncStatus.lastSyncedFile ?? WORKSPACE_FILE })}</p>
 			</div>
-			<div class="rounded-2xl border border-slate-800/60 bg-slate-950/40 p-5 space-y-2">
-				<p class="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-500">{$t("Latest result")}</p>
-				<p class="text-sm font-semibold text-white">
+			<div class="metric-card">
+				<p class="metric-card__label">{$t("Latest result")}</p>
+				<p class="metric-card__meta">
 					{#if autoSyncStatus.status === "success" && autoSyncStatus.lastSuccessAt}
 						{$t("Last sync succeeded at {time}", { time: new Date(autoSyncStatus.lastSuccessAt).toLocaleString() })}
 					{:else if autoSyncStatus.status === "error" && autoSyncStatus.lastErrorAt}
 						{$t("Last sync failed at {time}", { time: new Date(autoSyncStatus.lastErrorAt).toLocaleString() })}
 					{:else if autoSyncStatus.status === "syncing"}
-						{$t("Sync in progress") }
+						{$t("Sync in progress")}
 					{:else}
 						{$t("No sync result yet.")}
 					{/if}
 				</p>
-				<p class="text-sm leading-relaxed text-slate-400">
+				<p class="metric-card__meta">
 					{#if autoSyncStatus.lastErrorMessage}
 						{$t("Failure reason: {message}", { message: autoSyncStatus.lastErrorMessage })}
 					{:else}
@@ -926,38 +924,33 @@
 		</div>
 	</section>
 
-	<section class="rounded-[2rem] border border-slate-800/60 bg-slate-900/10 p-8 space-y-6">
-		<div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-			<div class="flex items-start gap-3">
-				<History class="h-5 w-5 text-indigo-400" />
-				<div>
-					<h2 class="text-xl font-bold text-white">{$t("Recent Workspace Activity")}</h2>
-					<p class="text-sm leading-relaxed text-slate-400">{$t("Track recent workspace setup, sync, and repair actions on this device.")}</p>
+	<section class="surface-card section-card">
+		<div class="section-card__header">
+			<div class="section-card__header-main">
+				<div class="section-card__icon">
+					<History class="h-5 w-5" />
+				</div>
+				<div class="section-card__title-wrap">
+					<h2 class="section-card__title">{$t("Recent Workspace Activity")}</h2>
+					<p class="section-card__text">{$t("Track recent workspace setup, sync, and repair actions on this device.")}</p>
 				</div>
 			</div>
 
 			{#if workspaceActivity.length > 0}
-				<div class="flex flex-wrap items-center justify-end gap-2">
-					{#each ["all", "errors", "sync", "repairs"] as filter}
-						<button
-							type="button"
-							on:click={() => (workspaceActivityFilter = filter as WorkspaceActivityFilter)}
-							class={cn(
-								"inline-flex items-center rounded-full border px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.16em] transition-all",
-								workspaceActivityFilter === filter
-									? "border-indigo-500/30 bg-indigo-500/10 text-indigo-300"
-									: "border-slate-800 bg-slate-900/50 text-slate-400 hover:bg-slate-800 hover:text-white"
-							)}
-						>
-							{getWorkspaceActivityFilterLabel(filter as WorkspaceActivityFilter)}
-						</button>
-					{/each}
-					<button
-						type="button"
-						on:click={clearWorkspaceActivityLog}
-						class="inline-flex items-center gap-2 rounded-xl border border-slate-800 bg-slate-900/50 px-4 py-2 text-xs font-bold uppercase tracking-[0.16em] text-slate-300 transition-all hover:bg-slate-800 hover:text-white"
-					>
-						<Trash2 class="h-3.5 w-3.5" />
+				<div class="section-card__actions">
+					<div class="filter-pills">
+						{#each ["all", "errors", "sync", "repairs"] as filter}
+							<button
+								type="button"
+								on:click={() => (workspaceActivityFilter = filter as WorkspaceActivityFilter)}
+								class={cn("filter-pill", workspaceActivityFilter === filter && "filter-pill--active")}
+							>
+								{getWorkspaceActivityFilterLabel(filter as WorkspaceActivityFilter)}
+							</button>
+						{/each}
+					</div>
+					<button type="button" on:click={clearWorkspaceActivityLog} class="button-secondary">
+						<Trash2 class="h-4 w-4" />
 						{$t("Clear history")}
 					</button>
 				</div>
@@ -965,195 +958,163 @@
 		</div>
 
 		{#if filteredWorkspaceActivity.length === 0}
-			<div class="rounded-3xl border border-slate-800/60 border-dashed bg-slate-950/40 px-6 py-10 text-center">
-				<p class="text-sm font-medium text-slate-400">{$t("No recent workspace activity yet.")}</p>
+			<div class="empty-state">
+				<div class="empty-state__icon">
+					<History class="h-6 w-6" />
+				</div>
+				<p class="empty-state__title">{$t("No recent workspace activity yet.")}</p>
 			</div>
 		{:else}
-			<div class="space-y-4">
+			<div class="grid gap-4">
 				{#each filteredWorkspaceActivity as activity (activity.id)}
-					<div class="rounded-2xl border border-slate-800/60 bg-slate-950/40 p-5 space-y-2">
+					<div class="surface-card section-card section-card--compact">
 						<div class="flex items-start justify-between gap-3">
-							<div class="min-w-0">
-								<p class="text-sm font-bold text-white">{activity.title}</p>
-								<p class="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-500">{$t("Updated: {time}", { time: new Date(activity.at).toLocaleString() })}</p>
+							<div class="min-w-0 space-y-1">
+								<p class="text-sm font-bold text-[var(--app-text)]">{activity.title}</p>
+								<p class="metric-card__meta">{$t("Updated: {time}", { time: new Date(activity.at).toLocaleString() })}</p>
 							</div>
-							<div class={cn(
-								"rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.16em]",
-								activity.type === "success"
-									? "border-emerald-500/20 bg-emerald-500/10 text-emerald-300"
-									: activity.type === "warning"
-										? "border-amber-500/20 bg-amber-500/10 text-amber-300"
-										: activity.type === "error"
-											? "border-red-500/20 bg-red-500/10 text-red-300"
-											: "border-indigo-500/20 bg-indigo-500/10 text-indigo-300"
-							)}>{$t(activity.type === "success" ? "Healthy" : activity.type === "warning" ? "Warning" : activity.type === "error" ? "Error" : "Info")}</div>
+							<span
+								class={cn(
+									"inline-badge",
+									activity.type === "success"
+										? "inline-badge--success"
+										: activity.type === "warning"
+											? "inline-badge--warning"
+											: activity.type === "error"
+												? "inline-badge--danger"
+												: "inline-badge--accent"
+								)}
+							>
+								{$t(activity.type === "success" ? "Healthy" : activity.type === "warning" ? "Warning" : activity.type === "error" ? "Error" : "Info")}
+							</span>
 						</div>
-						<p class="text-sm leading-relaxed text-slate-400">{activity.detail}</p>
+						<p class="section-card__text">{activity.detail}</p>
 					</div>
 				{/each}
 			</div>
 		{/if}
 	</section>
 
-	<!-- Conflict Resolution -->
 	{#if conflict}
-		<section 
-			class="rounded-[2rem] border border-amber-500/30 bg-amber-500/5 p-8 space-y-6"
-			in:slide
-		>
-			<div class="flex items-center gap-3">
-				<AlertTriangle class="h-6 w-6 text-amber-500" />
-				<div>
-					<h2 class="text-xl font-bold text-white">{$t("Sync Conflict Detected")}</h2>
-					<p class="text-sm text-amber-200/60">{$t("Your local data and the cloud workspace don't match. Please choose how to resolve this.")}</p>
-				</div>
-			</div>
-
-			<div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-				<!-- Local Stats -->
-				<div class="rounded-2xl border border-amber-500/20 bg-amber-500/5 p-6 space-y-4 transition-all hover:bg-amber-500/10">
-					<div class="flex items-center justify-between">
-						<span class="text-xs font-bold uppercase tracking-widest text-amber-500">{$t("Local State")}</span>
-						<History class="h-4 w-4 text-amber-500/40" />
+		<section class="surface-card section-card section-card--warning" in:slide>
+			<div class="section-card__header">
+				<div class="section-card__header-main">
+					<div class="section-card__icon">
+						<AlertTriangle class="h-5 w-5 text-[var(--app-warning)]" />
 					</div>
-					<div class="space-y-2">
-						{#each [
-							{ label: "Nodes", val: conflict.localStats.nodes },
-							{ label: "Subscriptions", val: conflict.localStats.subscriptions },
-							{ label: "Aggregates", val: conflict.localStats.aggregates }
-						] as item}
-							<div class="flex justify-between text-sm">
-								<span class="text-slate-400">{$t(item.label)}</span>
-								<span class="font-bold text-white">{item.val}</span>
-							</div>
-						{/each}
-					</div>
-					<div class="pt-2 border-t border-amber-500/10">
-						<p class="text-[10px] uppercase text-slate-500 font-bold tracking-widest">{$t("Last Updated")}</p>
-						<p class="text-xs text-amber-200/60 font-medium">
-							{new Date(conflict.localStats.updatedAt).toLocaleString()}
-						</p>
-					</div>
-				</div>
-
-				<!-- Remote Stats -->
-				<div class="rounded-2xl border border-indigo-500/20 bg-indigo-500/5 p-6 space-y-4 transition-all hover:bg-indigo-500/10">
-					<div class="flex items-center justify-between">
-						<span class="text-xs font-bold uppercase tracking-widest text-indigo-400">{$t("Remote Workspace")}</span>
-						<RefreshCw class="h-4 w-4 text-indigo-400/40" />
-					</div>
-					<div class="space-y-2">
-						{#each [
-							{ label: "Nodes", val: conflict.remoteStats.nodes },
-							{ label: "Subscriptions", val: conflict.remoteStats.subscriptions },
-							{ label: "Aggregates", val: conflict.remoteStats.aggregates }
-						] as item}
-							<div class="flex justify-between text-sm">
-								<span class="text-slate-400">{$t(item.label)}</span>
-								<span class="font-bold text-white">{item.val}</span>
-							</div>
-						{/each}
-					</div>
-					<div class="pt-2 border-t border-indigo-500/10">
-						<p class="text-[10px] uppercase text-slate-500 font-bold tracking-widest">{$t("Last Updated")}</p>
-						<p class="text-xs text-indigo-200/60 font-medium">
-							{new Date(conflict.remoteStats.updatedAt).toLocaleString()}
-						</p>
+					<div class="section-card__title-wrap">
+						<h2 class="section-card__title">{$t("Sync Conflict Detected")}</h2>
+						<p class="section-card__text">{$t("Your local data and the cloud workspace don't match. Please choose how to resolve this.")}</p>
 					</div>
 				</div>
 			</div>
 
-			<div class="flex flex-wrap gap-3 pt-4">
-				<button
-					class="flex-1 flex items-center justify-center gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 px-6 py-4 text-sm font-bold text-amber-200 transition-all hover:bg-amber-500/20 active:scale-[0.98]"
-					on:click={() => handleResolveConflict("local")}
-					disabled={workspaceBusy}
-				>
+			<div class="grid gap-4 md:grid-cols-2">
+				<div class="surface-card section-card section-card--compact">
+					<div class="flex items-center justify-between gap-3">
+						<h3 class="section-card__title">{$t("Local State")}</h3>
+						<span class="inline-badge inline-badge--warning">{$t("Local")}</span>
+					</div>
+					<div class="metric-grid">
+						<div class="metric-card">
+							<p class="metric-card__label">{$t("Nodes")}</p>
+							<p class="metric-card__value">{conflict.localStats.nodes}</p>
+						</div>
+						<div class="metric-card">
+							<p class="metric-card__label">{$t("Subscriptions")}</p>
+							<p class="metric-card__value">{conflict.localStats.subscriptions}</p>
+						</div>
+						<div class="metric-card">
+							<p class="metric-card__label">{$t("Aggregates")}</p>
+							<p class="metric-card__value">{conflict.localStats.aggregates}</p>
+						</div>
+						<div class="metric-card">
+							<p class="metric-card__label">{$t("Publish Targets")}</p>
+							<p class="metric-card__value">{conflict.localStats.publishTargets}</p>
+						</div>
+					</div>
+					<p class="metric-card__meta">{$t("Updated: {time}", { time: new Date(conflict.localStats.updatedAt).toLocaleString() })}</p>
+				</div>
+
+				<div class="surface-card section-card section-card--compact">
+					<div class="flex items-center justify-between gap-3">
+						<h3 class="section-card__title">{$t("Remote Workspace")}</h3>
+						<span class="inline-badge inline-badge--accent">{$t("Remote")}</span>
+					</div>
+					<div class="metric-grid">
+						<div class="metric-card">
+							<p class="metric-card__label">{$t("Nodes")}</p>
+							<p class="metric-card__value">{conflict.remoteStats.nodes}</p>
+						</div>
+						<div class="metric-card">
+							<p class="metric-card__label">{$t("Subscriptions")}</p>
+							<p class="metric-card__value">{conflict.remoteStats.subscriptions}</p>
+						</div>
+						<div class="metric-card">
+							<p class="metric-card__label">{$t("Aggregates")}</p>
+							<p class="metric-card__value">{conflict.remoteStats.aggregates}</p>
+						</div>
+						<div class="metric-card">
+							<p class="metric-card__label">{$t("Publish Targets")}</p>
+							<p class="metric-card__value">{conflict.remoteStats.publishTargets}</p>
+						</div>
+					</div>
+					<p class="metric-card__meta">{$t("Updated: {time}", { time: new Date(conflict.remoteStats.updatedAt).toLocaleString() })}</p>
+				</div>
+			</div>
+
+			<div class="section-card__actions">
+				<button type="button" class="button-secondary" on:click={() => handleResolveConflict("local")} disabled={workspaceBusy}>
 					<Upload class="h-4 w-4" />
 					{$t("Use Local")}
 				</button>
-				<button
-					class="flex-1 flex items-center justify-center gap-2 rounded-xl border border-indigo-500/30 bg-indigo-500/10 px-6 py-4 text-sm font-bold text-indigo-200 transition-all hover:bg-indigo-500/20 active:scale-[0.98]"
-					on:click={() => handleResolveConflict("remote")}
-					disabled={workspaceBusy}
-				>
+				<button type="button" class="button-secondary" on:click={() => handleResolveConflict("remote")} disabled={workspaceBusy}>
 					<Download class="h-4 w-4" />
 					{$t("Use Remote")}
 				</button>
-				<button
-					class="w-full flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 px-6 py-4 text-sm font-extrabold text-white shadow-xl shadow-indigo-600/20 transition-all hover:opacity-90 active:scale-[0.98]"
-					on:click={() => handleResolveConflict("merge")}
-					disabled={workspaceBusy}
-				>
+				<button type="button" class="button-primary" on:click={() => handleResolveConflict("merge")} disabled={workspaceBusy}>
 					<ArrowRightLeft class="h-4 w-4" />
 					{$t("Merge Both States")}
 				</button>
-			</div>
-			
-			<div class="text-center pt-2">
-				<button 
-					class="text-xs font-bold uppercase tracking-widest text-slate-500 hover:text-slate-300 transition-colors"
-					on:click={linkWorkspaceOnly}
-				>
+				<button type="button" class="button-secondary" on:click={linkWorkspaceOnly}>
 					{$t("Keep Local & Skip Sync")}
 				</button>
 			</div>
 		</section>
 	{/if}
 
-	<!-- Manual Backup Section -->
-	<section class="rounded-[2rem] border border-slate-800/60 bg-slate-900/10 p-8 space-y-6">
-		<div class="flex items-center gap-3">
-			<Database class="h-5 w-5 text-slate-500" />
-			<h2 class="text-xl font-bold text-white">{$t("Backup & Migration")}</h2>
+	<section class="surface-card section-card">
+		<div class="section-card__header">
+			<div class="section-card__header-main">
+				<div class="section-card__icon">
+					<Database class="h-5 w-5" />
+				</div>
+				<div class="section-card__title-wrap">
+					<h2 class="section-card__title">{$t("Backup & Migration")}</h2>
+					<p class="section-card__text">{$t("Use this for backups or moving data without GitHub.")}</p>
+				</div>
+			</div>
+			<div class="section-card__actions">
+				<button type="button" class="button-secondary" on:click={handleExport}>
+					<Upload class="h-4 w-4" />
+					{$t("Export Config")}
+				</button>
+				<button type="button" class="button-secondary" on:click={handleImport}>
+					<Download class="h-4 w-4" />
+					{$t("Import Config")}
+				</button>
+				<button type="button" class="button-secondary" on:click={handleCopy} disabled={!payload}>
+					<Copy class="h-4 w-4" />
+					{$t("Copy JSON")}
+				</button>
+			</div>
 		</div>
 
-		<div class="flex flex-wrap gap-3">
-			<button
-				class="flex items-center gap-2 rounded-xl border border-slate-800 bg-slate-800/50 px-5 py-3 text-sm font-bold text-white transition-all hover:bg-slate-700 active:scale-[0.98]"
-				on:click={handleExport}
-			>
-				<Upload class="h-4 w-4" />
-				{$t("Export Config")}
-			</button>
-			<button
-				class="flex items-center gap-2 rounded-xl border border-slate-800 bg-slate-800/50 px-5 py-3 text-sm font-bold text-white transition-all hover:bg-slate-700 active:scale-[0.98]"
-				on:click={handleImport}
-			>
-				<Download class="h-4 w-4" />
-				{$t("Import Config")}
-			</button>
-			<button
-				class="flex items-center gap-2 rounded-xl border border-slate-800 bg-slate-800/50 px-5 py-3 text-sm font-bold text-white transition-all hover:bg-slate-700 active:scale-[0.98] disabled:opacity-50"
-				on:click={handleCopy}
-				disabled={!payload}
-			>
-				<Copy class="h-4 w-4" />
-				{$t("Copy JSON")}
-			</button>
-		</div>
-
-		<div class="relative group">
-			<textarea
-				class="min-h-[200px] w-full rounded-2xl border border-slate-800 bg-slate-950/80 px-5 py-4 text-xs font-mono text-slate-400 placeholder:text-slate-700 outline-none focus:border-slate-600 transition-all"
-				placeholder={$t("Exported JSON will appear here. Paste JSON to import.")}
-				bind:value={payload}
-			></textarea>
-			<div class="absolute inset-0 rounded-2xl pointer-events-none border border-white/5 opacity-0 group-hover:opacity-100 transition-opacity"></div>
-		</div>
+		<textarea
+			class="field-textarea field-textarea--mono"
+			style="min-height: 15rem;"
+			placeholder={$t("Exported JSON will appear here. Paste JSON to import.")}
+			bind:value={payload}
+		></textarea>
 	</section>
 </div>
-
-<style>
-	/* Subtle shine effect for the token card */
-	.glow-card::before {
-		content: '';
-		position: absolute;
-		top: -50%;
-		left: -50%;
-		width: 200%;
-		height: 200%;
-		background: radial-gradient(circle, rgba(99, 102, 241, 0.03) 0%, transparent 70%);
-		pointer-events: none;
-	}
-</style>

@@ -882,313 +882,392 @@ function buildReplacedRegionFlagRuleMapValue(currentValue: string, rule: { code:
 	<title>{$t("Aggregation Builder")} | {$t("SubMan")}</title>
 </svelte:head>
 
-<div class="space-y-8 pb-12">
-	<!-- Page Header -->
-	<header class="flex flex-col gap-2">
-		<div class="flex items-center gap-3">
-			<div class="flex h-12 w-12 items-center justify-center rounded-2xl bg-indigo-500/10 text-indigo-400">
+<div class="page-stack">
+	<header class="page-hero surface-card">
+		<div class="page-hero__intro">
+			<div class="page-hero__icon">
 				<Zap class="h-6 w-6" />
 			</div>
-			<div>
-				<h1 class="text-3xl font-extrabold text-white tracking-tight">{$t("Aggregation Builder")}</h1>
-				<p class="text-slate-400 text-sm">{$t("Create and publish stable subscription links")}</p>
+			<div class="page-hero__body">
+				<p class="page-hero__eyebrow">{$t("Aggregate")}</p>
+				<h1 class="page-hero__title">{$t("Aggregation Builder")}</h1>
+				<p class="page-hero__description">
+					{$t("Bind rules to stable output files. Reuse one rule across multiple publish targets.")}
+				</p>
 			</div>
+		</div>
+
+		<div class="page-hero__actions">
+			<a href="/nodes" class="button-secondary">
+				<Cpu class="h-4 w-4" />
+				{$t("Nodes")}
+			</a>
+			<a href="/auth" class="button-primary">
+				<Settings class="h-4 w-4" />
+				{$t("Workspace Settings")}
+			</a>
 		</div>
 	</header>
 
-	<!-- Status Bar -->
 	{#if status}
-		<div 
+		<div
 			transition:fly={{ y: -20, duration: 300 }}
 			class={cn(
-				"fixed top-20 right-8 z-[100] flex items-center gap-3 rounded-2xl px-6 py-3 border shadow-2xl backdrop-blur-xl",
-				status.type === 'success' ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400" :
-				status.type === 'error' ? "bg-red-500/10 border-red-500/20 text-red-400" :
-				"bg-indigo-500/10 border-indigo-500/20 text-indigo-400"
+				"floating-notice",
+				status.type === "success" ? "floating-notice--success" : status.type === "error" ? "floating-notice--error" : "floating-notice--info"
 			)}
 		>
-			{#if status.type === 'success'}<CheckCircle2 class="h-5 w-5" />
-			{:else if status.type === 'error'}<AlertCircle class="h-5 w-5" />
-			{:else}<Zap class="h-5 w-5" />{/if}
-			<span class="text-sm font-bold tracking-tight">{status.message}</span>
+			{#if status.type === "success"}<CheckCircle2 class="h-5 w-5 shrink-0" />
+			{:else if status.type === "error"}<AlertCircle class="h-5 w-5 shrink-0" />
+			{:else}<Zap class="h-5 w-5 shrink-0" />{/if}
+			<span class="text-sm font-bold text-[var(--app-text)]">{status.message}</span>
 		</div>
 	{/if}
 
-	<div class="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-		<!-- Left Side: Config (8 cols) -->
-		<div class="lg:col-span-8 space-y-8">
-			<!-- Rule Definition -->
-			<section class="rounded-[2rem] border border-slate-800/60 bg-slate-900/30 p-8 space-y-6">
-				<div class="flex items-center justify-between">
-					<div class="flex items-center gap-3">
-						<Settings2 class="h-5 w-5 text-indigo-400" />
-						<h2 class="text-xl font-bold text-white">{$t("Define Aggregate Rule")}</h2>
+	<div class="dashboard-grid dashboard-grid--sidebar">
+		<div class="page-stack">
+			<section class="surface-card section-card">
+				<div class="section-card__header">
+					<div class="section-card__header-main">
+						<div class="section-card__icon">
+							<Settings2 class="h-5 w-5" />
+						</div>
+						<div class="section-card__title-wrap">
+							<h2 class="section-card__title">{$t("Define Aggregate Rule")}</h2>
+							<p class="section-card__text">{$t("Edit names, remove tags, and prepare rename mappings.")}</p>
+						</div>
 					</div>
-					<select 
-						class="rounded-xl border border-slate-800 bg-slate-950 px-3 py-1.5 text-xs text-slate-300 outline-none focus:border-indigo-500/40"
-						value={editingRuleId}
-						on:change={(e) => {
-							const id = e.currentTarget.value;
-							if (!id) resetRuleForm();
-							else { const r = $appState.aggregates.find(a => a.id === id); if (r) loadRule(r); }
-						}}
-					>
-						<option value="">+ {$t("New Rule")}</option>
-						{#each $appState.aggregates as rule}
-							<option value={rule.id}>{rule.name}</option>
-						{/each}
-					</select>
+
+					<div class="w-full sm:w-56">
+						<label class="field-label" for="aggregate-rule-select">{$t("Rules")}</label>
+						<select
+							id="aggregate-rule-select"
+							class="field-select"
+							value={editingRuleId}
+							on:change={(e) => {
+								const id = e.currentTarget.value;
+								if (!id) resetRuleForm();
+								else {
+									const rule = $appState.aggregates.find((item) => item.id === id);
+									if (rule) loadRule(rule);
+								}
+							}}
+						>
+							<option value="">+ {$t("New rule")}</option>
+							{#each $appState.aggregates as rule}
+								<option value={rule.id}>{rule.name}</option>
+							{/each}
+						</select>
+					</div>
 				</div>
 
-					<div class="grid gap-6">
-						<div class="space-y-2">
-							<p class="text-[10px] font-bold uppercase tracking-widest text-slate-500 ml-1">{$t("Rule Name")}</p>
-							<input 
-								class="w-full rounded-2xl border border-slate-800 bg-slate-950 px-5 py-3 text-sm text-white outline-none focus:border-indigo-500/50 transition-all"
-								placeholder={$t("Global Proxy Rule...")}
-								bind:value={ruleName}
-							/>
+				<div class="metric-grid">
+					<div class="metric-card">
+						<p class="metric-card__label">{$t("Rules")}</p>
+						<p class="metric-card__value">{$appState.aggregates.length}</p>
+					</div>
+					<div class="metric-card">
+						<p class="metric-card__label">{$t("Nodes")}</p>
+						<p class="metric-card__value">{selectedNodeIds.length}</p>
+						<p class="metric-card__meta">{$t("Selected")}</p>
+					</div>
+					<div class="metric-card">
+						<p class="metric-card__label">{$t("Subscriptions")}</p>
+						<p class="metric-card__value">{selectedSubscriptionIds.length}</p>
+						<p class="metric-card__meta">{$t("Selected")}</p>
+					</div>
+					<div class="metric-card">
+						<p class="metric-card__label">{$t("Protocols")}</p>
+						<p class="metric-card__value">{allowedTypes.length || protocolOptions.length}</p>
+						<p class="metric-card__meta">{allowedTypes.length ? $t("Filtered") : $t("All")}</p>
+					</div>
+				</div>
+
+				<div class="grid gap-4 lg:grid-cols-2">
+					<div class="space-y-2">
+						<label class="field-label" for="aggregate-rule-name">{$t("Rule name")}</label>
+						<input
+							id="aggregate-rule-name"
+							class="field-input"
+							placeholder={$t("Global Proxy Rule...")}
+							bind:value={ruleName}
+						/>
+					</div>
+					<div class="space-y-2">
+						<label class="field-label" for="aggregate-exclude-tags">{$t("Exclude tags (comma separated)")}</label>
+						<input
+							id="aggregate-exclude-tags"
+							class="field-input"
+							placeholder={$t("domestic, gaming...")}
+							bind:value={excludeTags}
+						/>
+					</div>
+				</div>
+
+				<div class="grid gap-4 lg:grid-cols-2">
+					<div class="surface-card section-card section-card--compact">
+						<div class="flex items-center justify-between gap-3">
+							<h3 class="section-card__title">{$t("Nodes")}</h3>
+							<span class="inline-badge inline-badge--accent">{selectedNodeIds.length}</span>
+						</div>
+						<div class="surface-card section-card section-card--compact custom-scrollbar max-h-56 overflow-y-auto">
+							{#if $appState.nodes.length === 0}
+								<div class="empty-state empty-state--compact">
+									<p class="empty-state__title">{$t("No nodes available.")}</p>
+								</div>
+							{:else}
+								<div class="space-y-2">
+									{#each $appState.nodes as node}
+										<label class="flex cursor-pointer items-center gap-3 rounded-2xl px-3 py-2 transition-colors hover:bg-[var(--app-bg-soft)]">
+											<input
+												type="checkbox"
+												class="h-4 w-4 rounded border-[var(--app-border)] accent-[var(--app-accent-strong)]"
+												checked={selectedNodeIds.includes(node.id)}
+												on:change={() => (selectedNodeIds = toggleSelection(selectedNodeIds, node.id))}
+											/>
+											<div class="min-w-0 flex-1">
+												<p class="truncate text-sm font-semibold text-[var(--app-text)]">{node.name}</p>
+												<p class="metric-card__meta truncate">{node.type}</p>
+											</div>
+										</label>
+									{/each}
+								</div>
+							{/if}
+						</div>
 					</div>
 
-						<!-- Source Picker -->
-						<div class="grid gap-6 sm:grid-cols-2">
-							<div class="space-y-3">
-								<div class="flex items-center justify-between">
-									<p class="text-[10px] font-bold uppercase tracking-widest text-slate-500 ml-1">{$t("Nodes")}</p>
-									<span class="text-[10px] text-slate-600 font-bold">{selectedNodeIds.length}</span>
+					<div class="surface-card section-card section-card--compact">
+						<div class="flex items-center justify-between gap-3">
+							<h3 class="section-card__title">{$t("Subscriptions")}</h3>
+							<span class="inline-badge inline-badge--accent">{selectedSubscriptionIds.length}</span>
+						</div>
+						<div class="surface-card section-card section-card--compact custom-scrollbar max-h-56 overflow-y-auto">
+							{#if $appState.subscriptions.length === 0}
+								<div class="empty-state empty-state--compact">
+									<p class="empty-state__title">{$t("No subscriptions available.")}</p>
 								</div>
-							<div class="max-h-48 overflow-y-auto rounded-2xl border border-slate-800 bg-slate-950/50 p-3 space-y-1 custom-scrollbar">
-								{#each $appState.nodes as node}
-									<label class="flex items-center gap-3 p-2 rounded-xl hover:bg-slate-800/40 transition-colors cursor-pointer group">
-										<input 
-											type="checkbox" 
-											class="h-4 w-4 rounded-md border-slate-700 bg-slate-900 text-indigo-600 focus:ring-indigo-500"
-											checked={selectedNodeIds.includes(node.id)}
-											on:change={() => selectedNodeIds = toggleSelection(selectedNodeIds, node.id)}
-										/>
-										<span class="text-xs text-slate-400 group-hover:text-slate-200 transition-colors">{node.name}</span>
-									</label>
-								{/each}
-								{#if !$appState.nodes.length}
-									<p class="text-[10px] text-slate-600 italic p-2 text-center">{$t("No nodes available")}</p>
-								{/if}
-							</div>
-							</div>
-							<div class="space-y-3">
-								<div class="flex items-center justify-between">
-									<p class="text-[10px] font-bold uppercase tracking-widest text-slate-500 ml-1">{$t("Subscriptions")}</p>
-									<span class="text-[10px] text-slate-600 font-bold">{selectedSubscriptionIds.length}</span>
+							{:else}
+								<div class="space-y-2">
+									{#each $appState.subscriptions as sub}
+										<label class="flex cursor-pointer items-center gap-3 rounded-2xl px-3 py-2 transition-colors hover:bg-[var(--app-bg-soft)]">
+											<input
+												type="checkbox"
+												class="h-4 w-4 rounded border-[var(--app-border)] accent-[var(--app-accent-strong)]"
+												checked={selectedSubscriptionIds.includes(sub.id)}
+												on:change={() => (selectedSubscriptionIds = toggleSelection(selectedSubscriptionIds, sub.id))}
+											/>
+											<div class="min-w-0 flex-1">
+												<p class="truncate text-sm font-semibold text-[var(--app-text)]">{sub.name}</p>
+												<p class="metric-card__meta truncate">{sub.url}</p>
+											</div>
+										</label>
+									{/each}
 								</div>
-							<div class="max-h-48 overflow-y-auto rounded-2xl border border-slate-800 bg-slate-950/50 p-3 space-y-1 custom-scrollbar">
-								{#each $appState.subscriptions as sub}
-									<label class="flex items-center gap-3 p-2 rounded-xl hover:bg-slate-800/40 transition-colors cursor-pointer group">
-										<input 
-											type="checkbox" 
-											class="h-4 w-4 rounded-md border-slate-700 bg-slate-900 text-indigo-600 focus:ring-indigo-500"
-											checked={selectedSubscriptionIds.includes(sub.id)}
-											on:change={() => selectedSubscriptionIds = toggleSelection(selectedSubscriptionIds, sub.id)}
-										/>
-										<span class="text-xs text-slate-400 group-hover:text-slate-200 transition-colors">{sub.name}</span>
-									</label>
-								{/each}
-								{#if !$appState.subscriptions.length}
-									<p class="text-[10px] text-slate-600 italic p-2 text-center">{$t("No subscriptions available")}</p>
-								{/if}
-							</div>
+							{/if}
 						</div>
 					</div>
+				</div>
 
-						<div class="grid gap-6 sm:grid-cols-2">
-							<div class="space-y-2">
-								<p class="text-[10px] font-bold uppercase tracking-widest text-slate-500 ml-1">{$t("Exclude Tags")}</p>
-								<input 
-									class="w-full rounded-2xl border border-slate-800 bg-slate-950 px-5 py-3 text-sm text-white outline-none focus:border-indigo-500/50"
-									placeholder={$t("domestic, gaming...")}
-									bind:value={excludeTags}
-								/>
-							</div>
-							<div class="space-y-2">
-								<p class="text-[10px] font-bold uppercase tracking-widest text-slate-500 ml-1">{$t("Allowed Protocols")}</p>
-								<div class="flex flex-wrap gap-2">
-								{#each protocolOptions as opt}
-									<button 
-										on:click={() => toggleType(opt.id)}
-										class={cn(
-											"px-3 py-1 rounded-lg text-[10px] font-bold uppercase border transition-all",
-											allowedTypes.includes(opt.id) ? "bg-indigo-500/20 border-indigo-500/50 text-indigo-400" : "bg-slate-950 border-slate-800 text-slate-500 hover:border-slate-700"
-										)}
-									>
-										{opt.label}
-									</button>
-								{/each}
-							</div>
-						</div>
-						</div>
+				<div class="space-y-2">
+					<p class="field-label">{$t("Protocols")}</p>
+					<div class="filter-pills">
+						{#each protocolOptions as opt}
+							<button
+								type="button"
+								on:click={() => toggleType(opt.id)}
+								class={cn("filter-pill", allowedTypes.includes(opt.id) && "filter-pill--active")}
+							>
+								{opt.label}
+							</button>
+						{/each}
+					</div>
+					<p class="metric-card__meta">{$t("Leave empty to include all protocols.")}</p>
+				</div>
 
-						<div class="space-y-2">
-							<p class="text-[10px] font-bold uppercase tracking-widest text-slate-500 ml-1">{$t("Node Rename Mapping")}</p>
-							<textarea 
-								class="w-full h-24 rounded-2xl border border-slate-800 bg-slate-950 px-5 py-3 text-xs font-mono text-white outline-none focus:border-indigo-500/50 custom-scrollbar"
-								placeholder="Original Name = New Name&#10;HK-01 = Hong Kong Premium"
-								bind:value={renameMap}
-							></textarea>
-						</div>
+				<div class="grid gap-4 lg:grid-cols-2">
+					<div class="space-y-2">
+						<label class="field-label" for="aggregate-rename-map">{$t("Rename map: old=new per line")}</label>
+						<textarea
+							id="aggregate-rename-map"
+							class="field-textarea field-textarea--mono custom-scrollbar"
+							style="min-height: 9rem;"
+							placeholder="Original Name = New Name&#10;HK-01 = Hong Kong Premium"
+							bind:value={renameMap}
+						></textarea>
+					</div>
 
-						<div class="space-y-2">
-							<p class="text-[10px] font-bold uppercase tracking-widest text-slate-500 ml-1">{$t("Custom region flag map")}</p>
-							<textarea 
-								class={cn(
-								"w-full h-28 rounded-2xl border bg-slate-950 px-5 py-3 text-xs font-mono text-white outline-none custom-scrollbar",
-								customRegionFlagIssues.length > 0
-									? "border-red-500/50 focus:border-red-500/60"
-									: "border-slate-800 focus:border-indigo-500/50"
+					<div class="space-y-2">
+						<label class="field-label" for="aggregate-region-map">{$t("Custom region flag map")}</label>
+						<textarea
+							id="aggregate-region-map"
+							class={cn(
+								"field-textarea field-textarea--mono custom-scrollbar",
+								customRegionFlagIssues.length > 0 && "border-[var(--app-danger)]"
 							)}
-								placeholder={`HK = HK, HKG, HONG KONG
+							style="min-height: 11rem;"
+							placeholder={`HK = HK, HKG, HONG KONG
 US = US, USA, NEW YORK
 JP = JP, JAPAN, TOKYO`}
-								bind:value={customRegionFlagMap}
+							bind:value={customRegionFlagMap}
 							bind:this={customRegionFlagMapTextarea}
 							on:click={syncCustomRegionFlagMapSelection}
 							on:focus={syncCustomRegionFlagMapSelection}
 							on:input={syncCustomRegionFlagMapSelection}
 							on:keyup={syncCustomRegionFlagMapSelection}
 							on:select={syncCustomRegionFlagMapSelection}
-							></textarea>
-							<p class="text-[11px] leading-relaxed text-slate-500">{$t("Use one rule per line: FLAG_CODE = keyword1, keyword2. Custom rules are matched before the built-in region table.")}</p>
-						<div class="flex flex-wrap gap-2">
-							<button
-								type="button"
-								on:click={importBuiltInRegionFlagTemplate}
-								class="inline-flex items-center gap-2 rounded-xl border border-slate-800 bg-slate-950/60 px-4 py-2 text-[11px] font-bold uppercase tracking-[0.16em] text-slate-300 transition-all hover:bg-slate-800 hover:text-white"
-							>
-								<Plus class="h-3.5 w-3.5" />
-								{$t("Import built-in template")}
-							</button>
-							<button
-								type="button"
-								on:click={normalizeAndSortCustomRegionFlagMap}
-								class="inline-flex items-center gap-2 rounded-xl border border-slate-800 bg-slate-950/60 px-4 py-2 text-[11px] font-bold uppercase tracking-[0.16em] text-slate-300 transition-all hover:bg-slate-800 hover:text-white"
-							>
-								<RefreshCw class="h-3.5 w-3.5" />
-								{$t("Normalize and sort map")}
-							</button>
-							<button
-								type="button"
-								on:click={appendMissingBuiltInRegionFlagTemplate}
-								class="inline-flex items-center gap-2 rounded-xl border border-slate-800 bg-slate-950/60 px-4 py-2 text-[11px] font-bold uppercase tracking-[0.16em] text-slate-300 transition-all hover:bg-slate-800 hover:text-white"
-							>
-								<Plus class="h-3.5 w-3.5" />
-								{$t("Append missing built-in rules")}
-							</button>
-							<button
-								type="button"
-								on:click={() => { showBuiltInRegionMap = true; selectedBuiltInRegionRuleKey = ""; }}
-								class="inline-flex items-center gap-2 rounded-xl border border-slate-800 bg-slate-950/60 px-4 py-2 text-[11px] font-bold uppercase tracking-[0.16em] text-slate-300 transition-all hover:bg-slate-800 hover:text-white"
-							>
-								<Globe class="h-3.5 w-3.5" />
-								{$t("Browse built-in region map")}
-							</button>
-						</div>
-						{#if customRegionFlagIssues.length > 0}
-							<div class="rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-3 space-y-2">
-								<p class="text-[11px] font-bold uppercase tracking-[0.16em] text-red-300">{$t("Custom region flag map issues")}</p>
-								<div class="space-y-1">
-									{#each customRegionFlagIssues as issue, index (`${issue.line}-${issue.reason}-${issue.code ?? index}`)}
-										<p class="text-[11px] leading-relaxed text-red-100/90">
-											{#if issue.reason === 'keywords'}
-												{$t("Line {line}: add at least one keyword after {code} =", { line: issue.line, code: issue.code ?? "CODE" })}
-											{:else}
-												{$t("Line {line}: use FLAG_CODE = keyword1, keyword2", { line: issue.line })}
-											{/if}
-										</p>
-									{/each}
-								</div>
-							</div>
-						{/if}
-						</div>
+						></textarea>
+						<p class="metric-card__meta">{$t("Use one rule per line: FLAG_CODE = keyword1, keyword2. Custom rules are matched before the built-in region table.")}</p>
+					</div>
+				</div>
 
-						<div class="rounded-2xl border border-slate-800 bg-slate-950/50 px-5 py-4 space-y-3">
-							<label class="flex items-start gap-3 cursor-pointer group">
-								<input
-									type="checkbox"
-									class="mt-0.5 h-4 w-4 rounded-md border-slate-700 bg-slate-900 text-indigo-600 focus:ring-indigo-500"
-									bind:checked={prependRegionFlags}
-								/>
-								<div class="space-y-1">
-									<p class="text-sm font-bold text-white group-hover:text-indigo-200 transition-colors">{$t("Auto prepend region flags")}</p>
-									<p class="text-[11px] leading-relaxed text-slate-400">{$t("Detect country or region keywords like US, HK, JP, and SG in final node names and prepend the matching flag automatically.")}</p>
-								</div>
-							</label>
+				<div class="section-card__actions">
+					<button type="button" on:click={importBuiltInRegionFlagTemplate} class="button-secondary">
+						<Plus class="h-4 w-4" />
+						{$t("Import built-in template")}
+					</button>
+					<button type="button" on:click={normalizeAndSortCustomRegionFlagMap} class="button-secondary">
+						<RefreshCw class="h-4 w-4" />
+						{$t("Normalize and sort map")}
+					</button>
+					<button type="button" on:click={appendMissingBuiltInRegionFlagTemplate} class="button-secondary">
+						<Plus class="h-4 w-4" />
+						{$t("Append missing built-in rules")}
+					</button>
+					<button
+						type="button"
+						on:click={() => {
+							showBuiltInRegionMap = true;
+							selectedBuiltInRegionRuleKey = "";
+						}}
+						class="button-secondary"
+					>
+						<Globe class="h-4 w-4" />
+						{$t("Browse built-in region map")}
+					</button>
+				</div>
+
+				{#if customRegionFlagIssues.length > 0}
+					<div class="surface-card section-card section-card--danger section-card--compact">
+						<h3 class="section-card__title">{$t("Custom region flag map issues")}</h3>
+						<div class="space-y-1">
+							{#each customRegionFlagIssues as issue, index (`${issue.line}-${issue.reason}-${issue.code ?? index}`)}
+								<p class="section-card__text">
+									{#if issue.reason === "keywords"}
+										{$t("Line {line}: add at least one keyword after {code} =", { line: issue.line, code: issue.code ?? "CODE" })}
+									{:else}
+										{$t("Line {line}: use FLAG_CODE = keyword1, keyword2", { line: issue.line })}
+									{/if}
+								</p>
+							{/each}
 						</div>
 					</div>
+				{/if}
 
-				<div class="flex items-center gap-3 pt-4">
-					<button 
-						on:click={saveRule}
-						class="flex-1 flex items-center justify-center gap-2 rounded-xl bg-indigo-600 px-6 py-3 text-sm font-bold text-white transition-all hover:bg-indigo-500 active:scale-[0.98]"
-					>
+				<div class="surface-card section-card section-card--compact">
+					<label class="flex cursor-pointer items-start gap-3">
+						<input
+							type="checkbox"
+							class="mt-1 h-4 w-4 rounded border-[var(--app-border)] accent-[var(--app-accent-strong)]"
+							bind:checked={prependRegionFlags}
+						/>
+						<div class="space-y-1">
+							<p class="text-sm font-bold text-[var(--app-text)]">{$t("Auto prepend region flags")}</p>
+							<p class="section-card__text">{$t("Detect country or region keywords like US, HK, JP, and SG in final node names and prepend the matching flag automatically.")}</p>
+						</div>
+					</label>
+				</div>
+
+				<div class="section-card__actions">
+					<button type="button" on:click={saveRule} class="button-primary">
 						<Save class="h-4 w-4" />
 						{editingRuleId ? $t("Update Rule") : $t("Save Rule")}
 					</button>
-					<button 
-						on:click={buildPreview}
-						class="flex items-center gap-2 rounded-xl border border-slate-800 bg-slate-800/50 px-6 py-3 text-sm font-bold text-white transition-all hover:bg-slate-700"
-					>
+					<button type="button" on:click={buildPreview} class="button-secondary">
 						<Eye class="h-4 w-4" />
 						{$t("Preview Output")}
 					</button>
 					{#if editingRuleId}
-						<button 
-							on:click={deleteRule}
-							class="h-12 w-12 flex items-center justify-center rounded-xl border border-slate-800 text-slate-500 hover:bg-red-500/10 hover:text-red-400 transition-all"
-						>
-							<Trash2 class="h-5 w-5" />
+						<button type="button" on:click={deleteRule} class="button-danger">
+							<Trash2 class="h-4 w-4" />
+							{$t("Delete Rule")}
 						</button>
 					{/if}
 				</div>
 			</section>
 
-			<!-- Preview Section -->
-			{#if previewEntries.length > 0 || previewLoading}
-				<section class="rounded-[2rem] border border-slate-800/60 bg-slate-900/10 p-8 space-y-6" in:slide>
-					<div class="flex items-center justify-between">
-						<div class="flex items-center gap-3">
-							<FileText class="h-5 w-5 text-indigo-400" />
-							<h2 class="text-xl font-bold text-white">{$t("Preview Output")}</h2>
+			{#if previewEntries.length > 0 || previewLoading || previewWarnings.length > 0 || previewErrors.length > 0 || previewSummary}
+				<section class="surface-card section-card" in:slide>
+					<div class="section-card__header">
+						<div class="section-card__header-main">
+							<div class="section-card__icon">
+								<FileText class="h-5 w-5" />
+							</div>
+							<div class="section-card__title-wrap">
+								<h2 class="section-card__title">{$t("Preview Output")}</h2>
+								<p class="section-card__text">{$t("Processed output for the current selections.")}</p>
+							</div>
 						</div>
-						<div class="text-[10px] font-bold uppercase tracking-widest text-slate-500">
-							{previewLines} {$t("Lines generated")}
-						</div>
+
+						<span class="inline-badge inline-badge--accent">{$t("Lines: {count}", { count: previewLines })}</span>
 					</div>
 
-					{#if previewLoading}
-						<div class="py-20 flex flex-col items-center justify-center gap-4">
-							<RefreshCw class="h-8 w-8 text-indigo-500 animate-spin" />
-							<p class="text-sm font-medium text-slate-500">{$t("Building subscription output...")}</p>
+					{#if previewSummary}
+						<div class="soft-code">{previewSummary}</div>
+					{/if}
+
+					{#if previewWarnings.length > 0}
+						<div class="surface-card section-card section-card--warning section-card--compact">
+							<h3 class="section-card__title">{$t("Warning")}</h3>
+							<div class="space-y-1">
+								{#each previewWarnings as warning}
+									<p class="section-card__text">{warning}</p>
+								{/each}
+							</div>
 						</div>
-					{:else}
-						<div class="grid gap-3 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
+					{/if}
+
+					{#if previewErrors.length > 0}
+						<div class="surface-card section-card section-card--danger section-card--compact">
+							<h3 class="section-card__title">{$t("Error")}</h3>
+							<div class="space-y-1">
+								{#each previewErrors as error}
+									<p class="section-card__text">{error}</p>
+								{/each}
+							</div>
+						</div>
+					{/if}
+
+					{#if previewLoading}
+						<div class="empty-state">
+							<div class="empty-state__icon">
+								<RefreshCw class="h-6 w-6 animate-spin" />
+							</div>
+							<p class="empty-state__title">{$t("Building subscription output...")}</p>
+						</div>
+					{:else if previewEntries.length > 0}
+						<div class="grid gap-3 custom-scrollbar max-h-[32rem] overflow-y-auto pr-1">
 							{#each previewEntries as entry}
-								<div class="group flex flex-col rounded-2xl border border-slate-800 bg-slate-950/60 transition-all hover:border-slate-700/60">
-									<div class="flex items-center gap-4 p-4">
-										<span class="text-[10px] font-black uppercase text-indigo-500/60 w-12">{entry.protocol}</span>
-										<span class="flex-1 text-sm font-bold text-slate-200 truncate">{entry.name}</span>
-										<button 
-											on:click={() => previewExpandedLine = previewExpandedLine === entry.line ? null : entry.line}
-											class="text-slate-500 hover:text-white transition-colors"
+								<div class="surface-card section-card section-card--compact">
+									<div class="flex items-center gap-3">
+										<span class="inline-badge">{entry.protocol}</span>
+										<div class="min-w-0 flex-1">
+											<p class="truncate text-sm font-bold text-[var(--app-text)]">{entry.name}</p>
+										</div>
+										<button
+											type="button"
+											on:click={() => (previewExpandedLine = previewExpandedLine === entry.line ? null : entry.line)}
+											class="button-icon"
 										>
 											<ChevronRight class={cn("h-4 w-4 transition-transform", previewExpandedLine === entry.line && "rotate-90")} />
 										</button>
 									</div>
 									{#if previewExpandedLine === entry.line}
-										<div transition:slide class="p-4 pt-0">
-											<div class="rounded-xl bg-slate-900 p-3 relative group/line">
-												<p class="text-[10px] font-mono text-slate-400 break-all">{entry.line}</p>
-												<button 
-													on:click={() => copyLine(entry.line)} 
-													class="absolute right-2 bottom-2 p-1.5 rounded-lg bg-slate-800 text-slate-400 opacity-0 group-hover/line:opacity-100 transition-opacity hover:text-white"
-												>
-													<Copy class="h-3 w-3" />
+										<div transition:slide class="space-y-3">
+											<div class="soft-code break-all">{entry.line}</div>
+											<div class="section-card__actions">
+												<button type="button" on:click={() => copyLine(entry.line)} class="button-secondary">
+													<Copy class="h-4 w-4" />
+													{$t("Copy Line")}
 												</button>
 											</div>
 										</div>
@@ -1196,187 +1275,213 @@ JP = JP, JAPAN, TOKYO`}
 								</div>
 							{/each}
 						</div>
+					{:else}
+						<div class="empty-state empty-state--compact">
+							<p class="empty-state__title">{$t("Summary will appear here.")}</p>
+						</div>
 					{/if}
 				</section>
 			{/if}
 		</div>
 
-		<!-- Right Side: Publishing (4 cols) -->
-		<div class="lg:col-span-4 space-y-8 sticky top-24">
-			<section class="rounded-[2rem] border border-indigo-500/20 bg-indigo-500/5 p-8 space-y-6 shadow-2xl shadow-indigo-500/5">
-				<div class="flex items-center gap-3">
-					<CloudUpload class="h-5 w-5 text-indigo-400" />
-					<h2 class="text-xl font-bold text-white">{$t("Publish to Gist")}</h2>
+		<div class="page-stack sticky-sidebar">
+			<section class="surface-card section-card section-card--accent">
+				<div class="section-card__header">
+					<div class="section-card__header-main">
+						<div class="section-card__icon">
+							<CloudUpload class="h-5 w-5" />
+						</div>
+						<div class="section-card__title-wrap">
+							<h2 class="section-card__title">{$t("Publish to Gist")}</h2>
+							<p class="section-card__text">
+								{$t("Bind rules to stable output files. Reuse one rule across multiple publish targets.")}
+							</p>
+						</div>
+					</div>
+
+					<span class={cn("inline-badge", $authState.token ? "inline-badge--success" : "inline-badge--warning")}>
+						{$authState.token ? $t("Connected") : $t("Offline Mode")}
+					</span>
 				</div>
 
-				<div class="space-y-4">
-					<div class="space-y-2">
-						<p class="text-[10px] font-bold uppercase tracking-widest text-slate-500">{$t("Publish Target")}</p>
-						<select 
-							class="w-full rounded-xl border border-slate-800 bg-slate-950 px-4 py-2.5 text-sm text-white outline-none focus:border-indigo-500/50"
-							value={selectedTargetId}
-							on:change={(e) => {
-								const id = e.currentTarget.value;
-								if (!id) resetTargetForm();
-								else { const t = $appState.publishTargets.find(x => x.id === id); if (t) loadPublishTarget(t); }
-							}}
-						>
-							<option value="">+ {$t("New Target")}</option>
-							{#each $appState.publishTargets as target}
-								<option value={target.id}>{target.name}</option>
+				<div class="space-y-2">
+					<label class="field-label" for="publish-target-select">{$t("Publish Targets")}</label>
+					<select
+						id="publish-target-select"
+						class="field-select"
+						value={selectedTargetId}
+						on:change={(e) => {
+							const id = e.currentTarget.value;
+							if (!id) resetTargetForm();
+							else {
+								const target = $appState.publishTargets.find((item) => item.id === id);
+								if (target) loadPublishTarget(target);
+							}
+						}}
+					>
+						<option value="">+ {$t("New Target")}</option>
+						{#each $appState.publishTargets as target}
+							<option value={target.id}>{target.name}</option>
+						{/each}
+					</select>
+				</div>
+
+				<div class="space-y-2">
+					<label class="field-label" for="publish-target-name">{$t("Target name")}</label>
+					<input
+						id="publish-target-name"
+						class="field-input"
+						placeholder={$t("Clash Config...")}
+						bind:value={publishTargetName}
+					/>
+				</div>
+
+				<div class="space-y-2">
+					<label class="field-label" for="publish-target-rule">{$t("Select rule")}</label>
+					<select
+						id="publish-target-rule"
+						class="field-select"
+						bind:value={publishTargetRuleId}
+						disabled={!$appState.aggregates.length}
+					>
+						{#if !$appState.aggregates.length}
+							<option value="">{$t("Select a rule first.")}</option>
+						{:else}
+							{#each $appState.aggregates as rule}
+								<option value={rule.id}>{rule.name}</option>
 							{/each}
-						</select>
-					</div>
+						{/if}
+					</select>
+				</div>
 
-					<div class="space-y-2">
-						<p class="text-[10px] font-bold uppercase tracking-widest text-slate-500">{$t("Target Name")}</p>
-						<input 
-							class="w-full rounded-xl border border-slate-800 bg-slate-950 px-4 py-2.5 text-sm text-white outline-none focus:border-indigo-500/50"
-							placeholder={$t("Clash Config...")}
-							bind:value={publishTargetName}
-						/>
-					</div>
-
-					<div class="space-y-2">
-						<p class="text-[10px] font-bold uppercase tracking-widest text-slate-500">{$t("Select rule")}</p>
-						<select
-							class="w-full rounded-xl border border-slate-800 bg-slate-950 px-4 py-2.5 text-sm text-white outline-none focus:border-indigo-500/50 disabled:opacity-50"
-							bind:value={publishTargetRuleId}
-							disabled={!$appState.aggregates.length}
-						>
-							{#if !$appState.aggregates.length}
-								<option value="">{$t("Select a rule first.")}</option>
-							{:else}
-								{#each $appState.aggregates as rule}
-									<option value={rule.id}>{rule.name}</option>
-								{/each}
-							{/if}
-						</select>
-					</div>
-
-					<div class="space-y-2">
-						<div class="flex items-center gap-2">
-							<p class="text-[10px] font-bold uppercase tracking-widest text-slate-500">{$t("File Name")}</p>
-							<div class="group/tooltip relative inline-flex">
-								<button
-									type="button"
-									class="inline-flex h-4 w-4 items-center justify-center rounded-full text-slate-500 transition-colors hover:text-white focus-visible:text-white focus-visible:outline-none"
-									aria-label={$t("Stable link help")}
-									title={$t("Stable link help")}
-								>
-									<CircleHelp class="h-3.5 w-3.5" />
-								</button>
-								<div class="pointer-events-none absolute left-0 top-full z-20 mt-2 hidden w-64 rounded-2xl border border-slate-800 bg-slate-950/95 px-3 py-2 text-[11px] leading-relaxed text-slate-300 shadow-2xl group-hover/tooltip:block group-focus-within/tooltip:block">
-									{$t("Keep the same file name to keep the stable link unchanged across republishes.")}
-								</div>
+				<div class="space-y-2">
+					<div class="flex items-center gap-2">
+						<label class="field-label" for="publish-target-file">{$t("File Name")}</label>
+						<div class="group/tooltip relative inline-flex">
+							<button
+								type="button"
+								class="button-icon"
+								aria-label={$t("Stable link help")}
+								title={$t("Stable link help")}
+							>
+								<CircleHelp class="h-4 w-4" />
+							</button>
+							<div class="pointer-events-none absolute left-0 top-full z-20 mt-2 hidden w-64 rounded-2xl border border-[var(--app-border)] bg-[var(--app-bg-panel-strong)] px-3 py-2 text-[11px] leading-relaxed text-[var(--app-text-soft)] shadow-[var(--app-shadow-soft)] group-hover/tooltip:block group-focus-within/tooltip:block">
+								{$t("Keep the same file name to keep the stable link unchanged across republishes.")}
 							</div>
 						</div>
-						<input 
-							class="w-full rounded-xl border border-slate-800 bg-slate-950 px-4 py-2.5 text-sm font-mono text-white outline-none focus:border-indigo-500/50"
-							placeholder="config.txt"
-							bind:value={publishTargetFile}
-						/>
-						{#if willChangePublishedFileName}
-							<div class="rounded-xl border border-amber-500/20 bg-amber-500/10 p-3 flex items-start gap-3">
-								<AlertCircle class="h-4 w-4 text-amber-400 shrink-0 mt-0.5" />
-								<div class="space-y-1">
-									<p class="text-[11px] text-amber-100/90 leading-relaxed">
-										{renameWarningMessage}
-									</p>
-									<p class="text-[10px] font-mono text-amber-200/80">
-										{$t("Current published file: {file}", { file: publishedFileName ?? "-" })}
-									</p>
-								</div>
-							</div>
-						{/if}
 					</div>
+					<input
+						id="publish-target-file"
+						class="field-input field-input--mono"
+						placeholder="config.txt"
+						bind:value={publishTargetFile}
+					/>
 
-					<div class="space-y-2">
-						<label class="flex items-center gap-2 cursor-pointer group">
-							<input 
-								type="checkbox" 
-								class="h-4 w-4 rounded-md border-slate-700 bg-slate-900 text-indigo-600 focus:ring-indigo-500"
-								bind:checked={publishTargetPublic}
-							/>
-							<span class="text-xs text-slate-400 group-hover:text-slate-300 transition-colors">{$t("Public Gist")}</span>
-						</label>
-					</div>
+					{#if willChangePublishedFileName}
+						<div class="surface-card section-card section-card--warning section-card--compact">
+							<p class="section-card__text">{renameWarningMessage}</p>
+							<p class="metric-card__meta">{$t("Current published file: {file}", { file: publishedFileName ?? "-" })}</p>
+						</div>
+					{/if}
 				</div>
 
-				<div class="pt-4 space-y-3">
-					<button 
-						on:click={saveTarget}
-						class="w-full flex items-center justify-center gap-2 rounded-xl border border-slate-800 bg-slate-800/50 px-6 py-3 text-sm font-bold text-white hover:bg-slate-800 transition-all"
-					>
+				<div class="space-y-2">
+					<label class="field-label" for="publish-target-description">{$t("Gist description")}</label>
+					<input
+						id="publish-target-description"
+						class="field-input"
+						placeholder={$t("SubMan aggregate")}
+						bind:value={publishTargetDescription}
+					/>
+				</div>
+
+				<label class="flex cursor-pointer items-center gap-3 rounded-2xl border border-[var(--app-border)] px-4 py-3">
+					<input
+						type="checkbox"
+						class="h-4 w-4 rounded border-[var(--app-border)] accent-[var(--app-accent-strong)]"
+						bind:checked={publishTargetPublic}
+					/>
+					<div class="space-y-1">
+						<p class="text-sm font-semibold text-[var(--app-text)]">{$t("Public gist")}</p>
+						<p class="metric-card__meta">{$t("Stable Link")}</p>
+					</div>
+				</label>
+
+				<div class="section-card__actions">
+					<button type="button" on:click={saveTarget} class="button-secondary">
 						<Save class="h-4 w-4" />
 						{$t("Save Target")}
 					</button>
-
 					{#if selectedTargetId}
-						<button
-							on:click={deleteTarget}
-							class="w-full flex items-center justify-center gap-2 rounded-xl border border-red-500/30 bg-red-500/10 px-6 py-3 text-sm font-bold text-red-300 transition-all hover:bg-red-500/20"
-						>
+						<button type="button" on:click={deleteTarget} class="button-danger">
 							<Trash2 class="h-4 w-4" />
 							{$t("Delete Target")}
 						</button>
 					{/if}
-
-					<button 
-						on:click={publish}
-						disabled={publishing || !$authState.token}
-						class="w-full flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 px-6 py-4 text-sm font-extrabold text-white shadow-xl shadow-indigo-600/20 transition-all hover:opacity-90 active:scale-[0.98] disabled:opacity-50"
-					>
-						{#if publishing}
-							<RefreshCw class="h-5 w-5 animate-spin" />
-							{$t("Publishing...")}
-						{:else}
-							<CloudUpload class="h-5 w-5" />
-							{$t("Publish Now")}
-						{/if}
-					</button>
 				</div>
 
+				<button type="button" on:click={publish} disabled={publishing || !$authState.token} class="button-primary">
+					{#if publishing}
+						<RefreshCw class="h-5 w-5 animate-spin" />
+						{$t("Publishing...")}
+					{:else}
+						<CloudUpload class="h-5 w-5" />
+						{$t("Publish Now")}
+					{/if}
+				</button>
+
 				{#if publishUrl}
-					<div class="pt-6 border-t border-indigo-500/10 space-y-3" in:fade>
-						<p class="text-[10px] font-bold uppercase tracking-widest text-emerald-500 flex items-center gap-1">
-							<ShieldCheck class="h-3 w-3" />
-							{$t("Stable Link")}
-						</p>
-						<div class="flex items-center gap-2">
-							<div class="flex-1 min-w-0 rounded-lg bg-slate-950 border border-slate-800 px-3 py-2 text-[10px] font-mono text-slate-400 truncate">
-								{publishUrl}
-							</div>
-							<button 
-								on:click={copyLink}
-								class="h-8 w-8 flex items-center justify-center rounded-lg bg-slate-800 text-slate-400 hover:text-white transition-colors"
-							>
-								<Copy class="h-3.5 w-3.5" />
+					<div class="surface-card section-card section-card--compact" in:fade>
+						<div class="flex items-center justify-between gap-3">
+							<h3 class="section-card__title">{$t("Stable Link")}</h3>
+							<span class="inline-badge inline-badge--success">{$t("Published")}</span>
+						</div>
+						<div class="soft-code break-all">{publishUrl}</div>
+						<div class="section-card__actions">
+							<button type="button" on:click={copyLink} class="button-secondary">
+								<Copy class="h-4 w-4" />
+								{$t("Copy")}
 							</button>
+							<a href={publishUrl} target="_blank" rel="noreferrer" class="button-secondary">
+								<ExternalLink class="h-4 w-4" />
+								{$t("Open")}
+							</a>
 						</div>
 					</div>
 				{/if}
 
 				{#if !$authState.token}
-					<div class="rounded-xl bg-amber-500/10 border border-amber-500/20 p-4 flex items-start gap-3">
-						<AlertCircle class="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
-						<p class="text-[11px] text-amber-200/80 leading-relaxed">
-							{$t("Connect your GitHub token in Workspace settings to publish this aggregation.")}
-						</p>
+					<div class="surface-card section-card section-card--warning section-card--compact">
+						<p class="section-card__text">{$t("Connect your GitHub token in Workspace settings to publish this aggregation.")}</p>
+						<div class="section-card__actions">
+							<a href="/auth" class="button-secondary">
+								<Settings class="h-4 w-4" />
+								{$t("Workspace Settings")}
+							</a>
+						</div>
 					</div>
 				{/if}
 			</section>
 
-			<!-- Quick Info -->
-			<div class="px-6 space-y-4">
-				<div class="flex items-center gap-2 text-slate-500">
-					<Database class="h-4 w-4" />
-					<span class="text-[10px] font-bold uppercase tracking-widest">{$t("Workspace Status")}</span>
+			<section class="surface-card section-card section-card--compact">
+				<div class="section-card__header-main">
+					<div class="section-card__icon">
+						<Database class="h-5 w-5" />
+					</div>
+					<div class="section-card__title-wrap">
+						<h2 class="section-card__title">{$t("Workspace Status")}</h2>
+						<p class="section-card__text">
+							{#if $appState.activeGistId}
+								{$t("Using workspace gist: {id} (config file: {file})", { id: $appState.activeGistId, file: WORKSPACE_FILE })}
+							{:else}
+								{$t("No workspace gist selected. Publishing will create a new gist containing config and output files.")}
+							{/if}
+						</p>
+					</div>
 				</div>
-				<p class="text-[11px] text-slate-400 leading-relaxed">
-					{$t("Changes to rules and targets are automatically synced to your workspace gist when active.")}
-				</p>
-			</div>
+				<p class="metric-card__meta">{$t("Changes to rules and targets are automatically synced to your workspace gist when active.")}</p>
+			</section>
 		</div>
 	</div>
 </div>
@@ -1386,108 +1491,110 @@ JP = JP, JAPAN, TOKYO`}
 		<button
 			type="button"
 			aria-label={$t("Close built-in region map")}
-			class="absolute inset-0 bg-slate-950/70 backdrop-blur-sm"
-			on:click={() => { showBuiltInRegionMap = false; selectedBuiltInRegionRuleKey = ""; }}
+			class="dialog-scrim"
+			on:click={() => {
+				showBuiltInRegionMap = false;
+				selectedBuiltInRegionRuleKey = "";
+			}}
 		></button>
 		<div class="relative flex min-h-full items-center justify-center p-4">
 			<div
 				role="dialog"
 				aria-modal="true"
 				aria-label={$t("Built-in region flag map")}
-				class="w-full max-w-4xl rounded-3xl border border-slate-800 bg-slate-900/95 p-6 shadow-2xl shadow-indigo-500/10"
+				class="dialog-card dialog-card--xl"
 				in:fly={{ y: 12, duration: 220 }}
 				out:fade={{ duration: 140 }}
 			>
-				<div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-					<div class="flex items-start gap-3">
-						<div class="flex h-11 w-11 items-center justify-center rounded-2xl bg-indigo-500/10 text-indigo-400">
+				<div class="section-card__header">
+					<div class="section-card__header-main">
+						<div class="dialog-card__icon dialog-card__icon--normal">
 							<Globe class="h-5 w-5" />
 						</div>
-						<div class="space-y-1">
-							<h2 class="text-lg font-bold text-white tracking-tight">{$t("Built-in region flag map")}</h2>
-							<p class="text-sm text-slate-400">{$t("Search built-in region rules by country code, city, or keyword.")}</p>
+						<div class="section-card__title-wrap">
+							<h2 class="dialog-card__title">{$t("Built-in region flag map")}</h2>
+							<p class="dialog-card__message">{$t("Search built-in region rules by country code, city, or keyword.")}</p>
 						</div>
 					</div>
 
 					<button
 						type="button"
-						on:click={() => { showBuiltInRegionMap = false; selectedBuiltInRegionRuleKey = ""; }}
-						class="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-slate-800 bg-slate-950/70 text-slate-400 transition-all hover:bg-slate-800 hover:text-white"
+						on:click={() => {
+							showBuiltInRegionMap = false;
+							selectedBuiltInRegionRuleKey = "";
+						}}
+						class="button-icon"
 						aria-label={$t("Close built-in region map")}
 					>
 						<X class="h-4.5 w-4.5" />
 					</button>
 				</div>
 
-				<div class="mt-5 flex flex-col gap-4">
-					<div class="relative">
-						<Search class="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
+				<div class="page-stack">
+					<div class="input-with-icon">
+						<Search />
 						<input
 							type="text"
-							class="w-full rounded-2xl border border-slate-800 bg-slate-950 px-12 py-3 text-sm text-white outline-none focus:border-indigo-500/50"
-							placeholder={$t("Search code or keyword") }
+							class="field-input"
+							placeholder={$t("Search code or keyword")}
 							bind:value={builtInRegionMapSearch}
 						/>
 					</div>
 
-					<div class="flex items-center justify-between text-[11px] font-bold uppercase tracking-[0.18em] text-slate-500">
-						<span>{$t("Built-in rules: {count}", { count: filteredBuiltInRegionRules.length })}</span>
-						<div class="flex flex-col items-end gap-1 text-right">
-							<span>{$t("Custom rules are matched before the built-in region table.")}</span>
-							<span class="text-[10px] font-medium uppercase tracking-[0.16em] text-indigo-400">{$t("Click to preview highlight. Ctrl/Cmd + click inserts or replaces without closing.")}</span>
-						</div>
+					<div class="section-card__header">
+						<span class="inline-badge inline-badge--accent">{$t("Built-in rules: {count}", { count: filteredBuiltInRegionRules.length })}</span>
+						<p class="metric-card__meta text-right">
+							{$t("Click to preview highlight. Ctrl/Cmd + click inserts or replaces without closing.")}
+						</p>
 					</div>
 
 					{#if filteredBuiltInRegionRules.length === 0}
-						<div class="rounded-3xl border border-slate-800/60 border-dashed bg-slate-950/40 px-6 py-12 text-center">
-							<p class="text-sm font-medium text-slate-400">{$t("No built-in region rules match this search.")}</p>
+						<div class="empty-state">
+							<div class="empty-state__icon">
+								<Globe class="h-6 w-6" />
+							</div>
+							<p class="empty-state__title">{$t("No built-in region rules match this search.")}</p>
 						</div>
 					{:else}
-						<div class="max-h-[60vh] overflow-y-auto pr-1 custom-scrollbar">
-							<div class="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-								{#each filteredBuiltInRegionRules as rule (rule.code + rule.keywords.join(','))}
-									{@const ruleKey = rule.code + rule.keywords.join(',')}
-									{@const ruleAlreadyPresent = existingCustomRegionFlagCodes.has(rule.code)}
-									<button
+						<div class="grid gap-4 custom-scrollbar max-h-[60vh] overflow-y-auto pr-1 md:grid-cols-2 xl:grid-cols-3">
+							{#each filteredBuiltInRegionRules as rule (rule.code + rule.keywords.join(","))}
+								{@const ruleKey = rule.code + rule.keywords.join(",")}
+								{@const ruleAlreadyPresent = existingCustomRegionFlagCodes.has(rule.code)}
+								<button
 									type="button"
 									on:click={(event) => handleBuiltInRegionRuleCardClick(event, rule, ruleKey)}
 									on:dblclick={() => handleBuiltInRegionRuleCardDoubleClick(rule, ruleKey)}
 									class={cn(
-										"w-full rounded-3xl border bg-slate-950/40 p-5 space-y-3 text-left transition-all hover:bg-slate-900/70",
-										selectedBuiltInRegionRuleKey === ruleKey
-											? "border-indigo-500/50 ring-1 ring-indigo-500/30"
-											: ruleAlreadyPresent
-											? "border-emerald-500/25 hover:border-emerald-400/40"
-											: "border-slate-800/60 hover:border-indigo-500/30"
+										"surface-card section-card section-card--compact text-left",
+										selectedBuiltInRegionRuleKey === ruleKey && "border-[var(--app-accent)]",
+										ruleAlreadyPresent && selectedBuiltInRegionRuleKey !== ruleKey && "border-[var(--app-success)]"
 									)}
 								>
-										<div class="flex items-center gap-3">
-											<div class="flex h-11 w-11 items-center justify-center rounded-2xl bg-indigo-500/10 text-xl">{regionCodeToFlagEmoji(rule.code) || "🏳️"}</div>
-											<div class="min-w-0">
-												<div class="flex items-center gap-2">
-													<p class="text-sm font-bold text-white">{rule.code}</p>
-													{#if ruleAlreadyPresent}
-														<span class="inline-flex items-center rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.16em] text-emerald-300">{$t("Already present")}</span>
-													{/if}
-												</div>
-												<p class="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-500">{$t("Keywords")}: {rule.keywords.length}</p>
+									<div class="flex items-center gap-3">
+										<div class="flex h-11 w-11 items-center justify-center rounded-2xl bg-[var(--app-accent-soft)] text-xl">
+											{regionCodeToFlagEmoji(rule.code) || "??"}
+										</div>
+										<div class="min-w-0">
+											<div class="flex items-center gap-2">
+												<p class="text-sm font-bold text-[var(--app-text)]">{rule.code}</p>
+												{#if ruleAlreadyPresent}
+													<span class="inline-badge inline-badge--success">{$t("Already present")}</span>
+												{/if}
 											</div>
+											<p class="metric-card__meta">{$t("Keywords")}: {rule.keywords.length}</p>
 										</div>
-										<p class="text-[11px] leading-relaxed text-slate-300 break-words">{rule.keywords.join(", ")}</p>
-										<div class="flex items-center justify-between gap-3 pt-1">
-											{#if ruleAlreadyPresent}
-											<span class="text-[10px] font-bold uppercase tracking-[0.18em] text-emerald-300">{$t("This code already exists and will be replaced")}</span>
-										{:else}
-											<span class="text-[10px] font-bold uppercase tracking-[0.18em] text-indigo-400">{$t("Click to preview highlight")}</span>
-										{/if}
-											<span class="inline-flex items-center gap-1 text-[11px] font-semibold text-slate-300">
-												<Plus class="h-3.5 w-3.5" />
-												{#if ruleAlreadyPresent}{$t("Double-click to replace")}{:else}{$t("Double-click to insert")}{/if}
-											</span>
-										</div>
-									</button>
-								{/each}
-							</div>
+									</div>
+									<p class="section-card__text break-words">{rule.keywords.join(", ")}</p>
+									<div class="flex items-center justify-between gap-3">
+										<span class={cn("inline-badge", ruleAlreadyPresent ? "inline-badge--success" : "inline-badge--accent")}>
+											{ruleAlreadyPresent ? $t("This code already exists and will be replaced") : $t("Click to preview highlight")}
+										</span>
+										<span class="metric-card__meta">
+											{#if ruleAlreadyPresent}{$t("Double-click to replace")}{:else}{$t("Double-click to insert")}{/if}
+										</span>
+									</div>
+								</button>
+							{/each}
 						</div>
 					{/if}
 				</div>
@@ -1495,19 +1602,3 @@ JP = JP, JAPAN, TOKYO`}
 		</div>
 	</div>
 {/if}
-
-<style>
-	.custom-scrollbar::-webkit-scrollbar {
-		width: 4px;
-	}
-	.custom-scrollbar::-webkit-scrollbar-track {
-		background: transparent;
-	}
-	.custom-scrollbar::-webkit-scrollbar-thumb {
-		background: #1e293b;
-		border-radius: 10px;
-	}
-	.custom-scrollbar::-webkit-scrollbar-thumb:hover {
-		background: #334155;
-	}
-</style>
