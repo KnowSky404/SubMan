@@ -5,8 +5,6 @@
 	import { fade, fly } from "svelte/transition";
 	import { locale, t } from "$lib/i18n";
 	import { startAutoSync } from "$lib/sync";
-	import { authState } from "$lib/stores/auth";
-	import { appState } from "$lib/stores/app";
 	import { confirmDialog, resolveConfirm } from "$lib/stores/confirm";
 	import { startThemeSync, themeMode, type ThemeMode } from "$lib/stores/theme";
 	import { cn } from "$lib/utils/cn";
@@ -19,12 +17,12 @@
 		Github, 
 		Menu,
 		X,
-		Cloud,
-		CloudOff,
 		AlertTriangle,
 		MonitorCog,
 		SunMedium,
-		MoonStar
+		MoonStar,
+		ChevronDown,
+		Languages
 	} from "lucide-svelte";
 
 	const PROJECT_GITHUB_URL = "https://github.com/KnowSky404/SubMan";
@@ -52,7 +50,8 @@
 
 	$: pathname = $page.url.pathname;
 	$: isActive = (href: string) => (href === "/" ? pathname === "/" : pathname.startsWith(href));
-	$: isConnected = !!($authState.token && $appState.activeGistId);
+	$: activeThemeOption = themeOptions.find((option) => option.value === $themeMode) ?? themeOptions[0];
+	$: activeLocaleOption = localeOptions.find((option) => option.value === $locale) ?? localeOptions[0];
 
 	function handleLocaleChange(nextLocale: string) {
 		if (nextLocale === "en" || nextLocale === "zh-CN") {
@@ -108,16 +107,6 @@
 						<span class="brand__subtitle">{$t("Manager")}</span>
 					</span>
 				</a>
-
-				<span class={cn("status-chip", isConnected ? "status-chip--online" : "status-chip--local")}>
-					{#if isConnected}
-						<Cloud class="h-3.5 w-3.5" />
-						<span>{$t("Connected")}</span>
-					{:else}
-						<CloudOff class="h-3.5 w-3.5" />
-						<span>{$t("Local Mode")}</span>
-					{/if}
-				</span>
 			</div>
 
 			<nav class="app-nav hidden xl:flex">
@@ -130,35 +119,35 @@
 			</nav>
 
 			<div class="header-controls hidden md:flex">
-				<div class="segmented-control" role="group" aria-label={$t("Appearance")}>
-					{#each themeOptions as option}
-						<button
-							type="button"
-							class:segmented-button--active={$themeMode === option.value}
-							class="segmented-button"
-							title={$t(option.label)}
-							aria-label={$t(option.label)}
-							aria-pressed={$themeMode === option.value}
-							on:click={() => handleThemeChange(option.value)}
-						>
-							<svelte:component this={option.icon} class="h-4 w-4" />
-						</button>
-					{/each}
-				</div>
+				<label class="toolbar-select" title={$t("Appearance")} aria-label={$t("Appearance")}>
+					<svelte:component this={activeThemeOption.icon} class="h-4.5 w-4.5" />
+					<ChevronDown class="toolbar-select__chevron h-3 w-3" />
+					<select
+						class="toolbar-select__native"
+						aria-label={$t("Appearance")}
+						value={$themeMode}
+						on:change={(event) => handleThemeChange(event.currentTarget.value as ThemeMode)}
+					>
+						{#each themeOptions as option}
+							<option value={option.value}>{$t(option.label)}</option>
+						{/each}
+					</select>
+				</label>
 
-				<div class="segmented-control segmented-control--locale" role="group" aria-label={$t("Language")}>
-					{#each localeOptions as option}
-						<button
-							type="button"
-							class:segmented-button--active={$locale === option.value}
-							class="segmented-button"
-							aria-pressed={$locale === option.value}
-							on:click={() => handleLocaleChange(option.value)}
-						>
-							{option.value === "en" ? "EN" : "ZH"}
-						</button>
-					{/each}
-				</div>
+				<label class="toolbar-select" title={$t("Language")} aria-label={$t("Language")}>
+					<Languages class="h-4.5 w-4.5" />
+					<ChevronDown class="toolbar-select__chevron h-3 w-3" />
+					<select
+						class="toolbar-select__native"
+						aria-label={$t("Language")}
+						value={$locale}
+						on:change={(event) => handleLocaleChange(event.currentTarget.value)}
+					>
+						{#each localeOptions as option}
+							<option value={option.value}>{option.label}</option>
+						{/each}
+					</select>
+				</label>
 
 				<a
 					href={PROJECT_GITHUB_URL}
@@ -230,34 +219,44 @@
 				
 				<div class="mobile-panel__section">
 					<span class="mobile-panel__label">{$t("Appearance")}</span>
-					<div class="grid grid-cols-3 gap-2">
-						{#each themeOptions as option}
-							<button
-								type="button"
-								class:segmented-button--active={$themeMode === option.value}
-								class="segmented-button h-11 w-full justify-center rounded-2xl border border-slate-800 bg-slate-900/40"
-								on:click={() => handleThemeChange(option.value)}
-							>
-								<svelte:component this={option.icon} class="h-4 w-4" />
-							</button>
-						{/each}
-					</div>
+					<label class="panel-select">
+						<span class="panel-select__icon">
+							<svelte:component this={activeThemeOption.icon} class="h-4.5 w-4.5" />
+						</span>
+						<span class="panel-select__value">{$t(activeThemeOption.label)}</span>
+						<ChevronDown class="panel-select__chevron h-4 w-4" />
+						<select
+							class="panel-select__native"
+							aria-label={$t("Appearance")}
+							value={$themeMode}
+							on:change={(event) => handleThemeChange(event.currentTarget.value as ThemeMode)}
+						>
+							{#each themeOptions as option}
+								<option value={option.value}>{$t(option.label)}</option>
+							{/each}
+						</select>
+					</label>
 				</div>
 
 				<div class="mobile-panel__section">
 					<span class="mobile-panel__label">{$t("Language")}</span>
-					<div class="segmented-control w-full justify-between">
-						{#each localeOptions as option}
-							<button
-								type="button"
-								class:segmented-button--active={$locale === option.value}
-								class="segmented-button flex-1"
-								on:click={() => handleLocaleChange(option.value)}
-							>
-								{option.label}
-							</button>
-						{/each}
-					</div>
+					<label class="panel-select">
+						<span class="panel-select__icon">
+							<Languages class="h-4.5 w-4.5" />
+						</span>
+						<span class="panel-select__value">{activeLocaleOption.label}</span>
+						<ChevronDown class="panel-select__chevron h-4 w-4" />
+						<select
+							class="panel-select__native"
+							aria-label={$t("Language")}
+							value={$locale}
+							on:change={(event) => handleLocaleChange(event.currentTarget.value)}
+						>
+							{#each localeOptions as option}
+								<option value={option.value}>{option.label}</option>
+							{/each}
+						</select>
+					</label>
 				</div>
 
 				<a href={PROJECT_GITHUB_URL} target="_blank" rel="noreferrer" class="button-secondary w-full">
