@@ -14,6 +14,15 @@
 	import { requestConfirm } from "$lib/stores/confirm";
 	import { cn } from "$lib/utils/cn";
 	import {
+		decodeBase64Utf8,
+		extractSubscriptionNodeLines,
+		inferNodeNameFromRaw,
+		inferNodeTypeFromRaw,
+		loadSubscriptionContent,
+		looksLikeBase64,
+		splitNodeSourceLine
+	} from "$lib/subscription";
+	import {
 		Plus,
 		Search,
 		Filter,
@@ -32,7 +41,10 @@
 		Zap,
 		Shield,
 		Wifi,
-		Cpu
+		Cpu,
+		Eye,
+		RefreshCw,
+		X
 	} from "lucide-svelte";
 	import { fade, slide, fly } from "svelte/transition";
 
@@ -74,11 +86,31 @@
 		};
 	};
 
-const batchPreviewProtocolOptions: ("all" | ProxyType)[] = ["all", "vless", "vmess", "trojan", "ss", "ssr", "hysteria2", "tuic", "other"];
+	type SubscriptionPreviewNode = {
+		id: string;
+		lineNumber: number;
+		name: string;
+		raw: string;
+		type: ProxyType;
+	};
+
+	type SubscriptionPreviewState = {
+		status: "loading" | "ready" | "error";
+		nodes: SubscriptionPreviewNode[];
+		error: string | null;
+		fetchedAt: string | null;
+	};
+
+	const batchPreviewProtocolOptions: ("all" | ProxyType)[] = ["all", "vless", "vmess", "trojan", "ss", "ssr", "hysteria2", "tuic", "other"];
+	const subscriptionPreviewProtocolOptions = batchPreviewProtocolOptions;
 
 	let searchQuery = "";
 	let filterStatus: "all" | "enabled" | "disabled" = "all";
 	let expandedId: string | null = null;
+	let previewSubscriptionId: string | null = null;
+	let previewSearchQuery = "";
+	let previewTypeFilter: "all" | ProxyType = "all";
+	let subscriptionPreviewCache: Record<string, SubscriptionPreviewState> = {};
 
 	let toast: { message: string; type: "success" | "info" | "error" } | null = null;
 	let toastTimer: ReturnType<typeof setTimeout> | null = null;
@@ -101,68 +133,6 @@ const batchPreviewProtocolOptions: ("all" | ProxyType)[] = ["all", "vless", "vme
 			.map((label) => ({ id: createId("tag"), label }));
 	}
 
-	function normalizeBase64(value: string): string | null {
-		const compact = value.trim().replace(/\s+/g, "");
-		if (!compact) {
-			return null;
-		}
-		if (!/^[A-Za-z0-9+/=_-]+$/.test(compact)) {
-			return null;
-		}
-		let normalized = compact.replace(/-/g, "+").replace(/_/g, "/");
-		const padding = normalized.length % 4;
-		if (padding === 1) {
-			return null;
-		}
-		if (padding === 2) {
-			normalized += "==";
-		} else if (padding === 3) {
-			normalized += "=";
-		}
-		return normalized;
-	}
-
-	function decodeBase64Utf8(value: string): string | null {
-		try {
-			const normalized = normalizeBase64(value);
-			if (!normalized) {
-				return null;
-			}
-			const binary = atob(normalized);
-			const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
-			return new TextDecoder().decode(bytes);
-		} catch {
-			return null;
-		}
-	}
-
-	function looksLikeBase64(value: string): boolean {
-		return Boolean(normalizeBase64(value));
-	}
-
-	const multiNodeSchemePattern = /(vless|vmess|trojan|ssr?|hysteria2|hy2|tuic):\/\//gi;
-
-	function splitMultiNodeLine(line: string): string[] {
-		const value = normalizeSourceValue(line);
-		if (!value) {
-			return [];
-		}
-		const matches = Array.from(value.matchAll(multiNodeSchemePattern));
-		if (matches.length === 0) {
-			return value.includes("://") ? [value] : [];
-		}
-		const parts: string[] = [];
-		for (let index = 0; index < matches.length; index += 1) {
-			const start = matches[index].index ?? 0;
-			const end = index + 1 < matches.length ? (matches[index + 1].index ?? value.length) : value.length;
-			const slice = value.slice(start, end).trim();
-			if (slice) {
-				parts.push(slice);
-			}
-		}
-		return parts;
-	}
-
 	function expandBatchNodeInputLine(line: string): { raw: string; source: "direct" | "base64" }[] {
 		const trimmed = normalizeSourceValue(line);
 		if (!trimmed) {
@@ -170,7 +140,7 @@ const batchPreviewProtocolOptions: ("all" | ProxyType)[] = ["all", "vless", "vme
 		}
 
 		if (trimmed.includes("://")) {
-			return splitMultiNodeLine(trimmed).map((raw) => ({ raw, source: "direct" }));
+			return splitNodeSourceLine(trimmed).map((raw) => ({ raw, source: "direct" }));
 		}
 
 		if (!looksLikeBase64(trimmed)) {
@@ -184,50 +154,9 @@ const batchPreviewProtocolOptions: ("all" | ProxyType)[] = ["all", "vless", "vme
 
 		const expanded = decoded
 			.split(/\r?\n/)
-			.flatMap((item) => splitMultiNodeLine(item));
+			.flatMap((item) => splitNodeSourceLine(item));
 
 		return expanded.map((raw) => ({ raw, source: "base64" as const }));
-	}
-
-	function inferNodeTypeFromRaw(raw: string): ProxyType {
-		const index = raw.indexOf("://");
-		if (index <= 0) return "other";
-		const scheme = raw.slice(0, index).toLowerCase();
-		if (scheme === "hy2") return "hysteria2";
-		if (["vless", "vmess", "trojan", "ss", "ssr", "hysteria2", "tuic"].includes(scheme)) {
-			return scheme as ProxyType;
-		}
-		return "other";
-	}
-
-	function inferNodeNameFromRaw(raw: string, index: number): string {
-		const hashIndex = raw.lastIndexOf("#");
-		if (hashIndex > -1) {
-			const encoded = raw.slice(hashIndex + 1);
-			if (encoded) {
-				try {
-					const decoded = decodeURIComponent(encoded);
-					if (decoded) return decoded;
-				} catch {
-					if (encoded) return encoded;
-				}
-			}
-		}
-
-		if (raw.startsWith("vmess://")) {
-			const payload = raw.slice("vmess://".length);
-			const decoded = decodeBase64Utf8(payload);
-			if (decoded) {
-				try {
-					const parsed = JSON.parse(decoded) as { ps?: string };
-					if (parsed.ps) return parsed.ps;
-				} catch {
-					// ignore invalid vmess payloads
-				}
-			}
-		}
-
-		return $t("Imported Node {index}", { index });
 	}
 
 	function parseBatchSubscriptionLine(line: string, index: number): { name: string; url: string } | null {
@@ -348,7 +277,7 @@ const batchPreviewProtocolOptions: ("all" | ProxyType)[] = ["all", "vless", "vme
 							kind: "node",
 							status: "duplicate",
 							lineNumber: index + 1,
-							label: inferNodeNameFromRaw(raw, index + 1),
+							label: inferNodeNameFromRaw(raw, $t("Imported Node {index}", { index: index + 1 })),
 							detail: existingNode
 								? $t("Duplicate of existing node: {name}", { name: existingNode.name })
 								: $t("Duplicate line in this batch."),
@@ -358,7 +287,7 @@ const batchPreviewProtocolOptions: ("all" | ProxyType)[] = ["all", "vless", "vme
 					}
 
 					seen.add(raw);
-					const name = inferNodeNameFromRaw(raw, index + 1);
+					const name = inferNodeNameFromRaw(raw, $t("Imported Node {index}", { index: index + 1 }));
 					const type = inferNodeTypeFromRaw(raw);
 					importableCount += 1;
 					items.push({
@@ -503,6 +432,92 @@ const batchPreviewProtocolOptions: ("all" | ProxyType)[] = ["all", "vless", "vme
 		})
 		.sort((left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt));
 
+	$: previewSubscription = previewSubscriptionId
+		? $appState.subscriptions.find((item) => item.id === previewSubscriptionId) ?? null
+		: null;
+	$: activeSubscriptionPreview = previewSubscriptionId ? subscriptionPreviewCache[previewSubscriptionId] ?? null : null;
+	$: filteredSubscriptionPreviewNodes = (activeSubscriptionPreview?.nodes ?? []).filter((node) => {
+		if (previewTypeFilter !== "all" && node.type !== previewTypeFilter) {
+			return false;
+		}
+		const query = previewSearchQuery.trim().toLowerCase();
+		if (!query) {
+			return true;
+		}
+		return node.name.toLowerCase().includes(query) || node.raw.toLowerCase().includes(query);
+	});
+
+	function setSubscriptionPreviewState(id: string, nextState: SubscriptionPreviewState): void {
+		subscriptionPreviewCache = {
+			...subscriptionPreviewCache,
+			[id]: nextState
+		};
+	}
+
+	function buildSubscriptionPreviewNodes(content: string): SubscriptionPreviewNode[] {
+		return extractSubscriptionNodeLines(content).map((raw, index) => ({
+			id: `preview-node-${index}-${raw.slice(0, 24)}`,
+			lineNumber: index + 1,
+			name: inferNodeNameFromRaw(raw, $t("Imported Node {index}", { index: index + 1 })),
+			raw,
+			type: inferNodeTypeFromRaw(raw)
+		}));
+	}
+
+	function openSubscriptionPreview(subscription: SubscriptionItem): void {
+		previewSubscriptionId = subscription.id;
+		previewSearchQuery = "";
+		previewTypeFilter = "all";
+		void loadSubscriptionPreview(subscription);
+	}
+
+	function closeSubscriptionPreview(): void {
+		previewSubscriptionId = null;
+		previewSearchQuery = "";
+		previewTypeFilter = "all";
+	}
+
+	function handlePreviewDialogKeydown(event: KeyboardEvent): void {
+		if (event.key === "Escape" && previewSubscriptionId) {
+			closeSubscriptionPreview();
+		}
+	}
+
+	async function loadSubscriptionPreview(subscription: SubscriptionItem, force = false): Promise<void> {
+		const existing = subscriptionPreviewCache[subscription.id];
+		if (!force && (existing?.status === "loading" || existing?.status === "ready")) {
+			return;
+		}
+
+		setSubscriptionPreviewState(subscription.id, {
+			status: "loading",
+			nodes: existing?.nodes ?? [],
+			error: null,
+			fetchedAt: existing?.fetchedAt ?? null
+		});
+
+		try {
+			const { content, warning } = await loadSubscriptionContent(subscription.url);
+			if (warning) {
+				throw new Error(warning);
+			}
+
+			setSubscriptionPreviewState(subscription.id, {
+				status: "ready",
+				nodes: buildSubscriptionPreviewNodes(content),
+				error: null,
+				fetchedAt: nowIso()
+			});
+		} catch (err) {
+			setSubscriptionPreviewState(subscription.id, {
+				status: "error",
+				nodes: existing?.nodes ?? [],
+				error: err instanceof Error ? err.message : $t("Subscription preview failed."),
+				fetchedAt: existing?.fetchedAt ?? null
+			});
+		}
+	}
+
 	function handleAdd() {
 		if (activeTab === "nodes") {
 			if (!nodeName.trim() || !normalizedNodeRaw) return;
@@ -640,6 +655,24 @@ const batchPreviewProtocolOptions: ("all" | ProxyType)[] = ["all", "vless", "vme
 		}
 	}
 
+	function formatTimestamp(value: string | null): string {
+		if (!value) {
+			return $t("Unavailable");
+		}
+		const parsed = Date.parse(value);
+		return Number.isNaN(parsed) ? value : new Date(parsed).toLocaleString();
+	}
+
+	function getPreviewTypeSummary(nodes: SubscriptionPreviewNode[]): Array<{ type: ProxyType; count: number }> {
+		const counts = new Map<ProxyType, number>();
+		for (const node of nodes) {
+			counts.set(node.type, (counts.get(node.type) ?? 0) + 1);
+		}
+		return Array.from(counts.entries())
+			.sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
+			.map(([type, count]) => ({ type, count }));
+	}
+
 	const typeColors: Record<ProxyType, string> = {
 		vless: "bg-indigo-500/10 text-indigo-400 border-indigo-500/20",
 		vmess: "bg-purple-500/10 text-purple-400 border-purple-500/20",
@@ -655,6 +688,8 @@ const batchPreviewProtocolOptions: ("all" | ProxyType)[] = ["all", "vless", "vme
 		if (toastTimer) clearTimeout(toastTimer);
 	});
 </script>
+
+<svelte:window on:keydown={handlePreviewDialogKeydown} />
 
 <svelte:head>
 	<title>{$t("Nodes & Subscriptions")} | {$t("SubMan")}</title>
@@ -987,10 +1022,10 @@ const batchPreviewProtocolOptions: ("all" | ProxyType)[] = ["all", "vless", "vme
 	</div>
 
 	<!-- List Section -->
-	<div class="grid grid-cols-1 gap-4">
+	<div class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
 		{#if activeTab === 'nodes'}
 			{#if filteredNodes.length === 0}
-				<div class="py-20 text-center rounded-[2.5rem] border border-slate-800/40 border-dashed">
+				<div class="rounded-[2.5rem] border border-slate-800/40 border-dashed py-20 text-center md:col-span-2 xl:col-span-3">
 					<Cpu class="h-12 w-12 text-slate-700 mx-auto mb-4" />
 					<p class="text-slate-500 font-medium">{$t("No nodes found matching your criteria.")}</p>
 				</div>
@@ -999,40 +1034,42 @@ const batchPreviewProtocolOptions: ("all" | ProxyType)[] = ["all", "vless", "vme
 					<div 
 						transition:fade
 						class={cn(
-							"group relative overflow-hidden rounded-3xl border transition-all duration-300",
+							"group relative flex h-full flex-col overflow-hidden rounded-3xl border transition-all duration-300",
 							node.enabled ? "border-slate-800/60 bg-slate-900/30" : "border-slate-900/40 bg-slate-950/20 grayscale opacity-60"
 						)}
 					>
-						<div class="flex items-center gap-4 p-5">
-							<!-- Toggle -->
-							<button 
-								on:click={() => toggleEnabled(node.id, 'node')}
-								class={cn(
-									"h-10 w-10 flex items-center justify-center rounded-xl transition-all",
-									node.enabled ? "bg-indigo-500/10 text-indigo-400" : "bg-slate-800 text-slate-600"
-								)}
-							>
-								{#if node.enabled}<Wifi class="h-5 w-5" />{:else}<Shield class="h-5 w-5" />{/if}
-							</button>
+						<div class="flex items-start justify-between gap-4 p-5">
+							<div class="flex min-w-0 flex-1 items-start gap-4">
+								<button 
+									on:click={() => toggleEnabled(node.id, 'node')}
+									class={cn(
+										"h-11 w-11 shrink-0 flex items-center justify-center rounded-2xl transition-all",
+										node.enabled ? "bg-indigo-500/10 text-indigo-400" : "bg-slate-800 text-slate-600"
+									)}
+								>
+									{#if node.enabled}<Wifi class="h-5 w-5" />{:else}<Shield class="h-5 w-5" />{/if}
+								</button>
 
-							<div class="min-w-0 flex-1">
-								<div class="flex items-center gap-2 flex-wrap">
-									<h3 class="font-bold text-white truncate">{node.name}</h3>
-									<span class={cn("px-2 py-0.5 rounded-lg text-[10px] font-black uppercase border", typeColors[node.type])}>
-										{node.type}
-									</span>
-								</div>
-								<div class="flex items-center gap-2 mt-1">
-									{#each node.tags as tag}
-										<span class="flex items-center gap-1 text-[10px] font-medium text-slate-500">
-											<Tag class="h-2.5 w-2.5" />
-											{tag.label}
+								<div class="min-w-0 flex-1 space-y-3">
+									<div class="flex items-center gap-2 flex-wrap">
+										<h3 class="font-bold text-white truncate">{node.name}</h3>
+										<span class={cn("px-2 py-0.5 rounded-lg text-[10px] font-black uppercase border", typeColors[node.type])}>
+											{node.type}
 										</span>
-									{/each}
+									</div>
+									<p class="line-clamp-2 break-all text-[11px] font-mono text-slate-500">{node.raw}</p>
+									<div class="flex flex-wrap gap-2">
+										{#each node.tags as tag}
+											<span class="inline-flex items-center gap-1 rounded-full border border-slate-800 bg-slate-950/60 px-2.5 py-1 text-[10px] font-medium text-slate-400">
+												<Tag class="h-3 w-3" />
+												{tag.label}
+											</span>
+										{/each}
+									</div>
 								</div>
 							</div>
 
-							<div class="flex items-center gap-1">
+							<div class="flex items-center gap-1 self-start">
 								<button 
 									on:click={() => copy(node.raw, node.name)}
 									class="h-9 w-9 flex items-center justify-center rounded-lg text-slate-500 hover:bg-slate-800 hover:text-white transition-all"
@@ -1051,6 +1088,19 @@ const batchPreviewProtocolOptions: ("all" | ProxyType)[] = ["all", "vless", "vme
 								>
 									<Trash2 class="h-4 w-4" />
 								</button>
+							</div>
+						</div>
+
+						<div class="mt-auto border-t border-slate-800/60 bg-slate-950/30 px-5 py-4">
+							<div class="grid gap-3 sm:grid-cols-2">
+								<div>
+									<p class="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">{$t("Updated")}</p>
+									<p class="mt-1 text-sm font-medium text-slate-300">{formatTimestamp(node.updatedAt)}</p>
+								</div>
+								<div>
+									<p class="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">{$t("Details")}</p>
+									<p class="mt-1 text-sm font-medium text-slate-300">{node.source === "single" ? $t("Single Entry") : $t("Subscriptions")}</p>
+								</div>
 							</div>
 						</div>
 
@@ -1106,44 +1156,54 @@ const batchPreviewProtocolOptions: ("all" | ProxyType)[] = ["all", "vless", "vme
 			{/if}
 		{:else}
 			{#if filteredSubscriptions.length === 0}
-				<div class="py-20 text-center rounded-[2.5rem] border border-slate-800/40 border-dashed">
+				<div class="rounded-[2.5rem] border border-slate-800/40 border-dashed py-20 text-center md:col-span-2 xl:col-span-3">
 					<LinkIcon class="h-12 w-12 text-slate-700 mx-auto mb-4" />
 					<p class="text-slate-500 font-medium">{$t("No subscriptions found.")}</p>
 				</div>
 			{:else}
 				{#each filteredSubscriptions as sub (sub.id)}
+					{@const preview = subscriptionPreviewCache[sub.id] ?? null}
+					{@const previewTypeSummary = preview ? getPreviewTypeSummary(preview.nodes) : []}
 					<div 
 						transition:fade
 						class={cn(
-							"group relative overflow-hidden rounded-3xl border transition-all duration-300",
+							"group relative flex h-full flex-col overflow-hidden rounded-3xl border transition-all duration-300",
 							sub.enabled ? "border-slate-800/60 bg-slate-900/30" : "border-slate-900/40 bg-slate-950/20 grayscale opacity-60"
 						)}
 					>
-						<div class="flex items-center gap-4 p-5">
-							<button 
-								on:click={() => toggleEnabled(sub.id, 'sub')}
-								class={cn(
-									"h-10 w-10 flex items-center justify-center rounded-xl transition-all",
-									sub.enabled ? "bg-emerald-500/10 text-emerald-400" : "bg-slate-800 text-slate-600"
-								)}
-							>
-								<LinkIcon class="h-5 w-5" />
-							</button>
+						<div class="flex items-start justify-between gap-4 p-5">
+							<div class="flex min-w-0 flex-1 items-start gap-4">
+								<button 
+									on:click={() => toggleEnabled(sub.id, 'sub')}
+									class={cn(
+										"h-11 w-11 shrink-0 flex items-center justify-center rounded-2xl transition-all",
+										sub.enabled ? "bg-emerald-500/10 text-emerald-400" : "bg-slate-800 text-slate-600"
+									)}
+								>
+									<LinkIcon class="h-5 w-5" />
+								</button>
 
-							<div class="min-w-0 flex-1">
-								<h3 class="font-bold text-white truncate">{sub.name}</h3>
-								<p class="text-[10px] text-slate-500 font-mono truncate">{getHost(sub.url)}</p>
-								<div class="flex items-center gap-2 mt-1">
-									{#each sub.tags as tag}
-										<span class="flex items-center gap-1 text-[10px] font-medium text-slate-500">
-											<Tag class="h-2.5 w-2.5" />
-											{tag.label}
+								<div class="min-w-0 flex-1 space-y-3">
+									<div class="flex items-center gap-2 flex-wrap">
+										<h3 class="font-bold text-white truncate">{sub.name}</h3>
+										<span class="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.16em] text-emerald-300">
+											{$t("Subscription")}
 										</span>
-									{/each}
+									</div>
+									<p class="text-[11px] text-slate-500 font-mono truncate">{getHost(sub.url)}</p>
+									<p class="line-clamp-2 break-all text-[11px] text-slate-400">{sub.url}</p>
+									<div class="flex flex-wrap gap-2">
+										{#each sub.tags as tag}
+											<span class="inline-flex items-center gap-1 rounded-full border border-slate-800 bg-slate-950/60 px-2.5 py-1 text-[10px] font-medium text-slate-400">
+												<Tag class="h-3 w-3" />
+												{tag.label}
+											</span>
+										{/each}
+									</div>
 								</div>
 							</div>
 
-							<div class="flex items-center gap-1">
+							<div class="flex items-center gap-1 self-start">
 								<button 
 									on:click={() => copy(sub.url, sub.name)}
 									class="h-9 w-9 flex items-center justify-center rounded-lg text-slate-500 hover:bg-slate-800 hover:text-white transition-all"
@@ -1163,6 +1223,68 @@ const batchPreviewProtocolOptions: ("all" | ProxyType)[] = ["all", "vless", "vme
 									<Trash2 class="h-4 w-4" />
 								</button>
 							</div>
+						</div>
+
+						<div class="border-t border-slate-800/60 bg-slate-950/30 p-5 space-y-4">
+							<div class="flex items-center justify-between gap-3">
+								<div>
+									<p class="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">{$t("Detected nodes")}</p>
+									<p class="mt-1 text-sm font-bold text-white">
+										{#if preview?.status === "ready"}
+											{preview.nodes.length}
+										{:else}
+											--
+										{/if}
+									</p>
+								</div>
+								<button
+									type="button"
+									on:click={() => openSubscriptionPreview(sub)}
+									class="inline-flex items-center gap-2 rounded-xl border border-indigo-500/20 bg-indigo-500/10 px-4 py-2 text-xs font-bold uppercase tracking-[0.16em] text-indigo-200 transition-all hover:bg-indigo-500/20"
+								>
+									{#if preview?.status === "loading"}
+										<RefreshCw class="h-3.5 w-3.5 animate-spin" />
+									{:else}
+										<Eye class="h-3.5 w-3.5" />
+									{/if}
+									{$t("Preview")}
+								</button>
+							</div>
+
+							{#if preview?.status === "ready"}
+								{#if preview.nodes.length === 0}
+									<p class="rounded-2xl border border-slate-800 bg-slate-950/60 px-4 py-3 text-sm text-slate-400">
+										{$t("No detectable nodes found in this subscription.")}
+									</p>
+								{:else}
+									<div class="flex flex-wrap gap-2">
+										{#each previewTypeSummary.slice(0, 4) as item}
+											<span class={cn("inline-flex items-center rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.16em]", typeColors[item.type])}>
+												{item.type} · {item.count}
+											</span>
+										{/each}
+									</div>
+								{/if}
+								{#if preview.fetchedAt}
+									<p class="text-[10px] font-medium uppercase tracking-[0.16em] text-slate-500">
+										{$t("Last preview: {time}", { time: formatTimestamp(preview.fetchedAt) })}
+									</p>
+								{/if}
+							{:else if preview?.status === "loading"}
+								<p class="inline-flex items-center gap-2 rounded-2xl border border-slate-800 bg-slate-950/60 px-4 py-3 text-sm text-slate-300">
+									<RefreshCw class="h-4 w-4 animate-spin text-indigo-400" />
+									{$t("Loading subscription preview...")}
+								</p>
+							{:else if preview?.status === "error"}
+								<div class="rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+									<p class="font-bold">{$t("Subscription preview failed.")}</p>
+									<p class="mt-1 break-all text-red-100/80">{preview.error}</p>
+								</div>
+							{:else}
+								<p class="rounded-2xl border border-slate-800 bg-slate-950/60 px-4 py-3 text-sm text-slate-400">
+									{$t("Click preview to inspect included nodes.")}
+								</p>
+							{/if}
 						</div>
 
 						{#if expandedId === sub.id}
@@ -1201,6 +1323,169 @@ const batchPreviewProtocolOptions: ("all" | ProxyType)[] = ["all", "vless", "vme
 		{/if}
 	</div>
 </div>
+
+{#if previewSubscription}
+	<div class="fixed inset-0 z-[120]">
+		<button
+			type="button"
+			aria-label={$t("Close preview")}
+			class="absolute inset-0 bg-slate-950/70 backdrop-blur-sm"
+			on:click={closeSubscriptionPreview}
+		></button>
+		<div class="relative flex min-h-full items-center justify-center p-4">
+			<div
+				role="dialog"
+				aria-modal="true"
+				aria-label={$t("Subscription Preview")}
+				class="w-full max-w-5xl rounded-3xl border border-slate-800 bg-slate-900/95 p-6 shadow-2xl shadow-indigo-500/10"
+				in:fly={{ y: 12, duration: 220 }}
+				out:fade={{ duration: 140 }}
+			>
+				<div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+					<div class="flex items-start gap-3">
+						<div class="flex h-11 w-11 items-center justify-center rounded-2xl bg-indigo-500/10 text-indigo-400">
+							<LinkIcon class="h-5 w-5" />
+						</div>
+						<div class="space-y-1">
+							<h2 class="text-lg font-bold text-white tracking-tight">{$t("Subscription Preview")}</h2>
+							<p class="text-sm font-medium text-slate-300">{previewSubscription.name}</p>
+							<p class="text-sm text-slate-400">{getHost(previewSubscription.url)}</p>
+						</div>
+					</div>
+
+					<div class="flex items-center gap-2">
+						<button
+							type="button"
+							on:click={() => void loadSubscriptionPreview(previewSubscription, true)}
+							class="inline-flex items-center gap-2 rounded-2xl border border-slate-800 bg-slate-950/70 px-4 py-2 text-xs font-bold uppercase tracking-[0.16em] text-slate-300 transition-all hover:bg-slate-800 hover:text-white"
+						>
+							<RefreshCw class={cn("h-3.5 w-3.5", activeSubscriptionPreview?.status === "loading" && "animate-spin")} />
+							{$t("Refresh preview")}
+						</button>
+						<button
+							type="button"
+							on:click={closeSubscriptionPreview}
+							class="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-slate-800 bg-slate-950/70 text-slate-400 transition-all hover:bg-slate-800 hover:text-white"
+							aria-label={$t("Close preview")}
+						>
+							<X class="h-4.5 w-4.5" />
+						</button>
+					</div>
+				</div>
+
+				<div class="mt-6 grid gap-3 sm:grid-cols-3">
+					<div class="rounded-2xl border border-slate-800/60 bg-slate-950/50 px-4 py-3">
+						<p class="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">{$t("Host")}</p>
+						<p class="mt-2 break-all text-sm font-medium text-white">{getHost(previewSubscription.url)}</p>
+					</div>
+					<div class="rounded-2xl border border-slate-800/60 bg-slate-950/50 px-4 py-3">
+						<p class="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">{$t("Detected nodes")}</p>
+						<p class="mt-2 text-sm font-medium text-white">{activeSubscriptionPreview?.status === "ready" ? activeSubscriptionPreview.nodes.length : "--"}</p>
+					</div>
+					<div class="rounded-2xl border border-slate-800/60 bg-slate-950/50 px-4 py-3">
+						<p class="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">{$t("Last preview")}</p>
+						<p class="mt-2 text-sm font-medium text-white">{formatTimestamp(activeSubscriptionPreview?.fetchedAt ?? null)}</p>
+					</div>
+				</div>
+
+				<div class="mt-5 flex flex-col gap-3">
+					<div class="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto]">
+						<input
+							class="w-full rounded-2xl border border-slate-800 bg-slate-950 px-4 py-3 text-sm text-white placeholder:text-slate-600 outline-none focus:border-indigo-500/50 transition-all"
+							placeholder={$t("Filter preview by name or detail")}
+							bind:value={previewSearchQuery}
+						/>
+						<div class="flex flex-wrap gap-2">
+							{#each subscriptionPreviewProtocolOptions as protocol}
+								<button
+									type="button"
+									on:click={() => (previewTypeFilter = protocol)}
+									class={cn(
+										"rounded-full border px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.16em] transition-all",
+										previewTypeFilter === protocol
+											? "border-indigo-500/30 bg-indigo-500/10 text-indigo-300"
+											: "border-slate-800 bg-slate-950/60 text-slate-500 hover:text-slate-300"
+									)}
+								>
+									{$t(protocol === "all" ? "All protocols" : protocol)}
+								</button>
+							{/each}
+						</div>
+					</div>
+
+					{#if activeSubscriptionPreview?.status === "ready" && activeSubscriptionPreview.nodes.length > 0}
+						<div class="flex flex-wrap gap-2">
+							{#each getPreviewTypeSummary(activeSubscriptionPreview.nodes) as item}
+								<span class={cn("inline-flex items-center rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.16em]", typeColors[item.type])}>
+									{item.type} · {item.count}
+								</span>
+							{/each}
+						</div>
+					{/if}
+				</div>
+
+				<div class="mt-5 max-h-[55vh] overflow-y-auto pr-1 custom-scrollbar">
+					{#if activeSubscriptionPreview?.status === "loading"}
+						<div class="rounded-3xl border border-slate-800/60 bg-slate-950/40 px-6 py-14 text-center">
+							<RefreshCw class="mx-auto h-8 w-8 animate-spin text-indigo-400" />
+							<p class="mt-4 text-sm font-medium text-slate-300">{$t("Loading subscription preview...")}</p>
+						</div>
+					{:else if activeSubscriptionPreview?.status === "error"}
+						<div class="rounded-3xl border border-red-500/20 bg-red-500/10 px-6 py-8 text-center">
+							<p class="text-sm font-bold text-red-200">{$t("Subscription preview failed.")}</p>
+							<p class="mt-2 break-all text-sm text-red-100/80">{activeSubscriptionPreview.error}</p>
+						</div>
+					{:else if activeSubscriptionPreview?.status === "ready" && activeSubscriptionPreview.nodes.length === 0}
+						<div class="rounded-3xl border border-slate-800/60 border-dashed bg-slate-950/40 px-6 py-12 text-center">
+							<p class="text-sm font-medium text-slate-400">{$t("No detectable nodes found in this subscription.")}</p>
+						</div>
+					{:else if activeSubscriptionPreview?.status === "ready" && filteredSubscriptionPreviewNodes.length === 0}
+						<div class="rounded-3xl border border-slate-800/60 border-dashed bg-slate-950/40 px-6 py-12 text-center">
+							<p class="text-sm font-medium text-slate-400">{$t("No preview items match the current filters.")}</p>
+						</div>
+					{:else if activeSubscriptionPreview?.status === "ready"}
+						<div class="grid gap-4 md:grid-cols-2">
+							{#each filteredSubscriptionPreviewNodes as node (node.id)}
+								<div class="rounded-3xl border border-slate-800/60 bg-slate-950/40 p-5 space-y-4">
+									<div class="flex items-start justify-between gap-3">
+										<div class="min-w-0">
+											<p class="truncate text-sm font-bold text-white">{node.name}</p>
+											<p class="mt-1 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">
+												{$t("Line {line}", { line: node.lineNumber })}
+											</p>
+										</div>
+										<span class={cn("inline-flex items-center rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.16em]", typeColors[node.type])}>
+											{node.type}
+										</span>
+									</div>
+
+									<p class="break-all rounded-2xl border border-slate-800 bg-slate-950/70 px-4 py-3 text-[11px] font-mono leading-relaxed text-slate-300">
+										{node.raw}
+									</p>
+
+									<div class="flex justify-end">
+										<button
+											type="button"
+											on:click={() => copy(node.raw, node.name)}
+											class="inline-flex items-center gap-2 rounded-xl border border-slate-800 bg-slate-950/70 px-3 py-2 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-300 transition-all hover:bg-slate-800 hover:text-white"
+										>
+											<Copy class="h-3.5 w-3.5" />
+											{$t("Copy")}
+										</button>
+									</div>
+								</div>
+							{/each}
+						</div>
+					{:else}
+						<div class="rounded-3xl border border-slate-800/60 border-dashed bg-slate-950/40 px-6 py-12 text-center">
+							<p class="text-sm font-medium text-slate-400">{$t("Click preview to inspect included nodes.")}</p>
+						</div>
+					{/if}
+				</div>
+			</div>
+		</div>
+	</div>
+{/if}
 
 <!-- Simple Toast -->
 {#if toast}

@@ -1,4 +1,5 @@
 import type { AggregateRule, NodeItem, SubscriptionItem } from '$lib/models';
+import { loadSubscriptionContent, normalizeSubscriptionContent } from '$lib/subscription';
 
 export type AggregateBuildResult = {
 	content: string;
@@ -419,53 +420,6 @@ function looksLikeBase64(value: string): boolean {
 	return Boolean(normalizeBase64(value));
 }
 
-const MULTI_NODE_SCHEME_REGEX = /(vless|vmess|trojan|ssr?|hysteria2|hy2|tuic):\/\//gi;
-
-function splitMultiNodeLine(line: string): string[] {
-	const value = line.trim();
-	if (!value) {
-		return [];
-	}
-	const matches = Array.from(value.matchAll(MULTI_NODE_SCHEME_REGEX));
-	if (matches.length === 0) {
-		return [value];
-	}
-	const parts: string[] = [];
-	for (let index = 0; index < matches.length; index += 1) {
-		const start = matches[index].index ?? 0;
-		const end = index + 1 < matches.length ? (matches[index + 1].index ?? value.length) : value.length;
-		const slice = value.slice(start, end).trim();
-		if (slice) {
-			parts.push(slice);
-		}
-	}
-	return parts;
-}
-
-function normalizeContent(text: string): string {
-	return text
-		.split(/\r?\n/)
-		.flatMap((line) => splitMultiNodeLine(line))
-		.map((line) => line.trim())
-		.filter((line) => line.length > 0)
-		.join('\n');
-}
-
-async function loadSubscriptionContent(url: string): Promise<{ content: string; warning?: string }> {
-	const res = await fetch(url);
-	if (!res.ok) {
-		return { content: '', warning: `Failed to fetch ${url}` };
-	}
-	const text = await res.text();
-	if (looksLikeBase64(text)) {
-		const decoded = decodeBase64(text);
-		if (decoded && decoded.includes('://')) {
-			return { content: decoded };
-		}
-	}
-	return { content: text };
-}
-
 export async function buildAggregateOutput(
 	rule: AggregateRule,
 	nodes: NodeItem[],
@@ -509,7 +463,7 @@ export async function buildAggregateOutput(
 			if (!content) {
 				continue;
 			}
-			subscriptionLines.push(...normalizeContent(content).split('\n'));
+			subscriptionLines.push(...normalizeSubscriptionContent(content).split('\n'));
 		} catch (err) {
 			errors.push(err instanceof Error ? err.message : `Failed to load ${sub.url}`);
 		}
@@ -520,7 +474,7 @@ export async function buildAggregateOutput(
 		return shouldPrependRegionFlags ? applyRegionFlagByName(renamed, activeRegionFlagRules) : renamed;
 	});
 	const filteredSubscriptionLines = filterByAllowedTypes(renamedSubscriptionLines, allowedTypes);
-	const content = normalizeContent([...nodeLines, ...filteredSubscriptionLines].join('\n'));
+	const content = normalizeSubscriptionContent([...nodeLines, ...filteredSubscriptionLines].join('\n'));
 	return {
 		content,
 		lines: content ? content.split('\n').length : 0,
