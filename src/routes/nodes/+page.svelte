@@ -673,15 +673,15 @@
 			.map(([type, count]) => ({ type, count }));
 	}
 
-	const typeColors: Record<ProxyType, string> = {
-		vless: "bg-indigo-500/10 text-indigo-400 border-indigo-500/20",
-		vmess: "bg-purple-500/10 text-purple-400 border-purple-500/20",
-		trojan: "bg-rose-500/10 text-rose-400 border-rose-500/20",
-		ss: "bg-amber-500/10 text-amber-400 border-amber-500/20",
-		ssr: "bg-fuchsia-500/10 text-fuchsia-400 border-fuchsia-500/20",
-		hysteria2: "bg-cyan-500/10 text-cyan-400 border-cyan-500/20",
-		tuic: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
-		other: "bg-slate-500/10 text-slate-400 border-slate-500/20"
+	const typePillClasses: Record<ProxyType, string> = {
+		vless: "protocol-pill protocol-pill--vless",
+		vmess: "protocol-pill protocol-pill--vmess",
+		trojan: "protocol-pill protocol-pill--trojan",
+		ss: "protocol-pill protocol-pill--ss",
+		ssr: "protocol-pill protocol-pill--ssr",
+		hysteria2: "protocol-pill protocol-pill--hysteria2",
+		tuic: "protocol-pill protocol-pill--tuic",
+		other: "protocol-pill protocol-pill--other"
 	};
 
 	onDestroy(() => {
@@ -1108,25 +1108,38 @@
 						<div
 							transition:fade
 							class={cn(
-								"surface-card section-card section-card--compact h-full transition-all duration-300",
+								"surface-card resource-card h-full transition-all duration-300",
 								!node.enabled && "grayscale opacity-65"
 							)}
 						>
-							<div class="flex items-start justify-between gap-4">
-								<div class="flex min-w-0 flex-1 items-start gap-4">
+							<div class="resource-card__header">
+								<div class="resource-card__lead">
 									<button
 										on:click={() => toggleEnabled(node.id, "node")}
-										class="section-card__icon"
-										aria-label={$t(node.enabled ? "Disable" : "Enabled")}
+										class={cn("resource-card__toggle", node.enabled && "resource-card__toggle--active")}
+										aria-label={$t(node.enabled ? "Enabled" : "Disabled")}
 									>
 										{#if node.enabled}<Wifi class="h-5 w-5" />{:else}<Shield class="h-5 w-5" />{/if}
 									</button>
 
-									<div class="min-w-0 flex-1 space-y-3">
-										<div class="flex flex-wrap items-center gap-2">
-											<h3 class="truncate text-base font-bold text-white">{node.name}</h3>
-											<span class={cn("inline-flex items-center rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.16em]", typeColors[node.type])}>
+									<div class="resource-card__body">
+										<p class="resource-card__eyebrow">{$t(node.source === "single" ? "Single Entry" : "Subscriptions")}</p>
+										<div class="resource-card__title-row">
+											<h3 class="resource-card__title truncate">{node.name}</h3>
+											<span class={typePillClasses[node.type]}>
 												{node.type}
+											</span>
+										</div>
+										<div class="resource-meta">
+											<span class="resource-meta__item">
+												<span class="resource-meta__label">{$t("Updated")}</span>
+												<span class="resource-meta__value">{formatTimestamp(node.updatedAt)}</span>
+											</span>
+											<span class="resource-meta__item">
+												<span class="resource-meta__label">{$t("Details")}</span>
+												<span class="resource-meta__value">
+													{node.source === "single" ? $t("Single Entry") : $t("Subscriptions")}
+												</span>
 											</span>
 										</div>
 										<p class="soft-code line-clamp-2 break-all">{node.raw}</p>
@@ -1143,27 +1156,25 @@
 									</div>
 								</div>
 
-								<div class="flex items-center gap-2 self-start">
-									<button on:click={() => copy(node.raw, node.name)} class="button-icon" aria-label={$t("Copy")}>
+								<div class="resource-card__actions">
+									<button
+										on:click={() => (expandedId = expandedId === node.id ? null : node.id)}
+										class="button-secondary button-secondary--compact"
+										aria-label={$t("Edit")}
+									>
+										<Edit3 class="h-3.5 w-3.5" />
+										{$t(expandedId === node.id ? "Hide" : "Edit")}
+									</button>
+									<button on:click={() => copy(node.raw, node.name)} class="button-icon button-icon--compact" aria-label={$t("Copy")}>
 										<Copy class="h-4 w-4" />
 									</button>
-									<button on:click={() => (expandedId = expandedId === node.id ? null : node.id)} class="button-icon" aria-label={$t("Edit")}>
-										<Edit3 class="h-4 w-4" />
-									</button>
-									<button on:click={() => remove(node.id, "node", node.name)} class="button-icon button-icon--danger" aria-label={$t("Delete")}>
+									<button
+										on:click={() => remove(node.id, "node", node.name)}
+										class="button-icon button-icon--compact button-icon--danger"
+										aria-label={$t("Delete")}
+									>
 										<Trash2 class="h-4 w-4" />
 									</button>
-								</div>
-							</div>
-
-							<div class="metric-grid">
-								<div class="metric-card">
-									<p class="metric-card__label">{$t("Updated")}</p>
-									<p class="metric-card__meta">{formatTimestamp(node.updatedAt)}</p>
-								</div>
-								<div class="metric-card">
-									<p class="metric-card__label">{$t("Details")}</p>
-									<p class="metric-card__meta">{node.source === "single" ? $t("Single Entry") : $t("Subscriptions")}</p>
 								</div>
 							</div>
 
@@ -1234,29 +1245,42 @@
 						<div
 							transition:fade
 							class={cn(
-								"surface-card section-card section-card--compact h-full transition-all duration-300",
+								"surface-card resource-card h-full transition-all duration-300",
 								!sub.enabled && "grayscale opacity-65"
 							)}
 						>
-							<div class="flex items-start justify-between gap-4">
-								<div class="flex min-w-0 flex-1 items-start gap-4">
+							<div class="resource-card__header">
+								<div class="resource-card__lead">
 									<button
 										on:click={() => toggleEnabled(sub.id, "sub")}
-										class="section-card__icon"
-										style={sub.enabled
-											? "background: var(--app-success-soft); color: var(--app-success);"
-											: "background: color-mix(in srgb, var(--app-bg-soft) 84%, transparent); color: var(--app-text-faint);"}
-										aria-label={$t(sub.enabled ? "Disable" : "Enabled")}
+										class={cn(
+											"resource-card__toggle",
+											sub.enabled && "resource-card__toggle--success"
+										)}
+										aria-label={$t(sub.enabled ? "Enabled" : "Disabled")}
 									>
 										<LinkIcon class="h-5 w-5" />
 									</button>
 
-									<div class="min-w-0 flex-1 space-y-3">
-										<div class="flex flex-wrap items-center gap-2">
-											<h3 class="truncate text-base font-bold text-white">{sub.name}</h3>
+									<div class="resource-card__body">
+										<p class="resource-card__eyebrow">{$t("Subscription")}</p>
+										<div class="resource-card__title-row">
+											<h3 class="resource-card__title truncate">{sub.name}</h3>
 											<span class="inline-badge inline-badge--success">{$t("Subscription")}</span>
 										</div>
-										<p class="metric-card__meta truncate font-mono">{getHost(sub.url)}</p>
+										<p class="resource-card__subtitle truncate">{getHost(sub.url)}</p>
+										<div class="resource-meta">
+											<span class="resource-meta__item">
+												<span class="resource-meta__label">{$t("Updated")}</span>
+												<span class="resource-meta__value">{formatTimestamp(sub.updatedAt)}</span>
+											</span>
+											<span class="resource-meta__item">
+												<span class="resource-meta__label">{$t("Detected nodes")}</span>
+												<span class="resource-meta__value">
+													{preview?.status === "ready" ? preview.nodes.length : "--"}
+												</span>
+											</span>
+										</div>
 										<p class="soft-code line-clamp-2 break-all">{sub.url}</p>
 										{#if sub.tags.length > 0}
 											<div class="flex flex-wrap gap-2">
@@ -1271,26 +1295,40 @@
 									</div>
 								</div>
 
-								<div class="flex items-center gap-2 self-start">
-									<button on:click={() => copy(sub.url, sub.name)} class="button-icon" aria-label={$t("Copy")}>
+								<div class="resource-card__actions">
+									<button
+										on:click={() => (expandedId = expandedId === sub.id ? null : sub.id)}
+										class="button-secondary button-secondary--compact"
+										aria-label={$t("Edit")}
+									>
+										<Edit3 class="h-3.5 w-3.5" />
+										{$t(expandedId === sub.id ? "Hide" : "Edit")}
+									</button>
+									<button on:click={() => copy(sub.url, sub.name)} class="button-icon button-icon--compact" aria-label={$t("Copy")}>
 										<Copy class="h-4 w-4" />
 									</button>
-									<button on:click={() => (expandedId = expandedId === sub.id ? null : sub.id)} class="button-icon" aria-label={$t("Edit")}>
-										<Edit3 class="h-4 w-4" />
-									</button>
-									<button on:click={() => remove(sub.id, "sub", sub.name)} class="button-icon button-icon--danger" aria-label={$t("Delete")}>
+									<button
+										on:click={() => remove(sub.id, "sub", sub.name)}
+										class="button-icon button-icon--compact button-icon--danger"
+										aria-label={$t("Delete")}
+									>
 										<Trash2 class="h-4 w-4" />
 									</button>
 								</div>
 							</div>
 
-							<div class="surface-card section-card section-card--compact">
-								<div class="section-card__header">
-									<div class="section-card__title-wrap">
-										<h4 class="section-card__title">{$t("Preview")}</h4>
-										<p class="section-card__text">{$t("Click preview to inspect included nodes.")}</p>
+							<div class="resource-panel">
+								<div class="resource-panel__header">
+									<div class="space-y-1">
+										<p class="resource-card__eyebrow">{$t("Subscription Preview")}</p>
+										<h4 class="resource-panel__title">{$t("Preview")}</h4>
+										<p class="resource-panel__text">{$t("Click preview to inspect included nodes.")}</p>
 									</div>
-									<button type="button" on:click={() => openSubscriptionPreview(sub)} class="button-secondary">
+									<button
+										type="button"
+										on:click={() => openSubscriptionPreview(sub)}
+										class="button-primary button-primary--compact"
+									>
 										{#if preview?.status === "loading"}
 											<RefreshCw class="h-4 w-4 animate-spin" />
 										{:else}
@@ -1300,15 +1338,15 @@
 									</button>
 								</div>
 
-								<div class="metric-grid">
-									<div class="metric-card">
-										<p class="metric-card__label">{$t("Detected nodes")}</p>
-										<p class="metric-card__value">{preview?.status === "ready" ? preview.nodes.length : "--"}</p>
-									</div>
-									<div class="metric-card">
-										<p class="metric-card__label">{$t("Last preview")}</p>
-										<p class="metric-card__meta">{preview?.fetchedAt ? formatTimestamp(preview.fetchedAt) : "--"}</p>
-									</div>
+								<div class="resource-meta">
+									<span class="resource-meta__item">
+										<span class="resource-meta__label">{$t("Detected nodes")}</span>
+										<span class="resource-meta__value">{preview?.status === "ready" ? preview.nodes.length : "--"}</span>
+									</span>
+									<span class="resource-meta__item">
+										<span class="resource-meta__label">{$t("Last preview")}</span>
+										<span class="resource-meta__value">{preview?.fetchedAt ? formatTimestamp(preview.fetchedAt) : "--"}</span>
+									</span>
 								</div>
 
 								{#if preview?.status === "ready"}
@@ -1322,7 +1360,7 @@
 									{:else}
 										<div class="flex flex-wrap gap-2">
 											{#each previewTypeSummary.slice(0, 4) as item}
-												<span class={cn("inline-flex items-center rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.16em]", typeColors[item.type])}>
+												<span class={typePillClasses[item.type]}>
 													{item.type} · {item.count}
 												</span>
 											{/each}
@@ -1414,7 +1452,7 @@
 						<button
 							type="button"
 							on:click={() => void loadSubscriptionPreview(previewSubscription, true)}
-							class="button-secondary"
+							class="button-secondary button-secondary--compact"
 						>
 							<RefreshCw class={cn("h-3.5 w-3.5", activeSubscriptionPreview?.status === "loading" && "animate-spin")} />
 							{$t("Refresh preview")}
@@ -1422,7 +1460,7 @@
 						<button
 							type="button"
 							on:click={closeSubscriptionPreview}
-							class="button-icon"
+							class="button-icon button-icon--compact"
 							aria-label={$t("Close preview")}
 						>
 							<X class="h-4.5 w-4.5" />
@@ -1471,7 +1509,7 @@
 					{#if activeSubscriptionPreview?.status === "ready" && activeSubscriptionPreview.nodes.length > 0}
 						<div class="flex flex-wrap gap-2">
 							{#each getPreviewTypeSummary(activeSubscriptionPreview.nodes) as item}
-								<span class={cn("inline-flex items-center rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.16em]", typeColors[item.type])}>
+								<span class={typePillClasses[item.type]}>
 									{item.type} · {item.count}
 								</span>
 							{/each}
@@ -1518,15 +1556,15 @@
 					{:else if activeSubscriptionPreview?.status === "ready"}
 						<div class="grid gap-4 md:grid-cols-2">
 							{#each filteredSubscriptionPreviewNodes as node (node.id)}
-								<div class="surface-card section-card section-card--compact">
-									<div class="flex items-start justify-between gap-3">
-										<div class="min-w-0">
-											<p class="truncate text-sm font-bold text-[var(--app-text)]">{node.name}</p>
-											<p class="mt-1 text-[10px] font-bold uppercase tracking-[0.16em] text-[var(--app-text-faint)]">
+								<div class="surface-card resource-card resource-card--compact">
+									<div class="resource-card__header">
+										<div class="resource-card__body min-w-0">
+											<p class="resource-card__title truncate text-sm">{node.name}</p>
+											<p class="resource-card__eyebrow">
 												{$t("Line {line}", { line: node.lineNumber })}
 											</p>
 										</div>
-										<span class={cn("inline-flex items-center rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.16em]", typeColors[node.type])}>
+										<span class={typePillClasses[node.type]}>
 											{node.type}
 										</span>
 									</div>
@@ -1539,7 +1577,7 @@
 										<button
 											type="button"
 											on:click={() => copy(node.raw, node.name)}
-											class="button-secondary"
+											class="button-secondary button-secondary--compact"
 										>
 											<Copy class="h-3.5 w-3.5" />
 											{$t("Copy")}
