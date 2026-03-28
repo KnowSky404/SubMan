@@ -52,9 +52,9 @@
 	<title>{$t("Overview")} | {$t("SubMan")}</title>
 </svelte:head>
 
-<div class="space-y-8 pb-8 lg:space-y-12">
+<div class="page-stack page-stack--home">
 	<section class="hero-layout">
-		<div class="hero-copy" in:fly={{ y: 14, duration: 520 }}>
+		<div class="surface-card hero-copy" in:fly={{ y: 14, duration: 520 }}>
 			<div class="hero-eyebrow">
 				<Zap class="h-3.5 w-3.5 fill-current" />
 				<span>{$t("SubMan v0.1")}</span>

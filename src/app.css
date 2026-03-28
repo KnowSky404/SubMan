@@ -902,17 +902,37 @@ select:focus-visible {
 
 .hero-layout {
 	display: grid;
-	gap: 1.5rem;
+	gap: 1.25rem;
 	align-items: stretch;
-	grid-template-columns: minmax(0, 1.45fr) minmax(0, 1fr);
+	grid-template-columns: minmax(0, 1.5fr) minmax(22rem, 0.96fr);
 }
 
 .hero-copy {
+	position: relative;
+	overflow: hidden;
 	display: flex;
 	flex-direction: column;
 	justify-content: center;
-	gap: 1.35rem;
-	padding: 0.25rem 0.2rem;
+	gap: 1.4rem;
+	min-height: 100%;
+	padding: 1.8rem;
+	background:
+		radial-gradient(circle at top right, color-mix(in srgb, var(--app-accent) 18%, transparent), transparent 30%),
+		radial-gradient(circle at 18% 16%, color-mix(in srgb, var(--app-accent-soft) 88%, transparent), transparent 24%),
+		linear-gradient(180deg, color-mix(in srgb, var(--app-bg-panel) 96%, transparent), color-mix(in srgb, var(--app-bg-elevated) 86%, transparent));
+}
+
+.hero-copy::after {
+	content: "";
+	position: absolute;
+	inset: auto auto 0 0;
+	width: 11rem;
+	height: 11rem;
+	border-radius: 999px;
+	background: color-mix(in srgb, var(--app-accent) 12%, transparent);
+	filter: blur(42px);
+	opacity: 0.65;
+	transform: translate(-22%, 28%);
 }
 
 .hero-eyebrow {
@@ -929,12 +949,13 @@ select:focus-visible {
 	letter-spacing: 0.16em;
 	text-transform: uppercase;
 	color: var(--app-accent);
+	box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
 }
 
 .hero-title {
 	max-width: 12ch;
-	font-size: clamp(3rem, 6vw, 5.8rem);
-	line-height: 0.95;
+	font-size: clamp(3rem, 6vw, 5.5rem);
+	line-height: 0.92;
 	font-weight: 900;
 	letter-spacing: -0.06em;
 	color: var(--app-text);
@@ -947,8 +968,8 @@ select:focus-visible {
 
 .hero-description {
 	max-width: 44rem;
-	font-size: 1.02rem;
-	line-height: 1.8;
+	font-size: 1rem;
+	line-height: 1.78;
 	color: var(--app-text-soft);
 }
 
@@ -963,6 +984,7 @@ select:focus-visible {
 	flex-wrap: wrap;
 	align-items: center;
 	gap: 0.85rem;
+	padding-top: 0.15rem;
 }
 
 .hero-meta__text {
@@ -971,7 +993,14 @@ select:focus-visible {
 }
 
 .hero-summary {
-	padding: 1.55rem;
+	display: flex;
+	flex-direction: column;
+	justify-content: space-between;
+	min-height: 100%;
+	padding: 1.7rem;
+	background:
+		radial-gradient(circle at top right, color-mix(in srgb, var(--app-accent) 13%, transparent), transparent 28%),
+		linear-gradient(180deg, color-mix(in srgb, var(--app-bg-panel) 96%, transparent), color-mix(in srgb, var(--app-bg-elevated) 88%, transparent));
 }
 
 .hero-summary__header {
@@ -983,8 +1012,8 @@ select:focus-visible {
 
 .hero-summary__title {
 	margin-top: 0.4rem;
-	font-size: 1.25rem;
-	font-weight: 800;
+	font-size: 1.35rem;
+	font-weight: 820;
 	letter-spacing: -0.03em;
 	color: var(--app-text);
 }
@@ -1000,14 +1029,16 @@ select:focus-visible {
 	display: grid;
 	grid-template-columns: repeat(2, minmax(0, 1fr));
 	gap: 0.9rem;
-	margin-top: 1.5rem;
+	margin-top: 1.35rem;
 }
 
 .summary-card {
 	border-radius: 1.35rem;
-	border: 1px solid var(--app-border);
-	background: color-mix(in srgb, var(--app-bg-elevated) 72%, transparent);
+	border: 1px solid color-mix(in srgb, var(--app-border-strong) 88%, transparent);
+	background:
+		linear-gradient(180deg, color-mix(in srgb, var(--app-bg-elevated) 88%, transparent), color-mix(in srgb, var(--app-bg-soft) 74%, transparent));
 	padding: 1rem;
+	box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
 }
 
 .summary-card__icon {
@@ -1044,7 +1075,8 @@ select:focus-visible {
 	align-items: flex-end;
 	justify-content: space-between;
 	gap: 1.5rem;
-	margin-top: 1.4rem;
+	margin-top: 0.35rem;
+	padding-inline: 0.2rem;
 }
 
 .section-heading__title {
@@ -1121,7 +1153,6 @@ select:focus-visible {
 	justify-content: space-between;
 	gap: 1.5rem;
 	padding: 1.55rem;
-	margin-top: 1.4rem;
 }
 
 .cta-card__title {
@@ -1211,6 +1242,11 @@ select:focus-visible {
 	padding-bottom: 3.25rem;
 }
 
+.page-stack--home {
+	gap: 2rem;
+	padding-bottom: 3.5rem;
+}
+
 .page-stack--narrow {
 	max-width: 72rem;
 	margin: 0 auto;
@@ -1223,13 +1259,14 @@ select:focus-visible {
 	flex-wrap: wrap;
 	align-items: flex-start;
 	justify-content: space-between;
-	gap: 1.25rem;
+	gap: 1.35rem;
 	border-radius: 2rem;
 	border: 1px solid var(--app-border);
 	background:
-		radial-gradient(circle at top right, color-mix(in srgb, var(--app-accent) 12%, transparent), transparent 30%),
-		linear-gradient(180deg, color-mix(in srgb, var(--app-bg-panel) 96%, transparent), color-mix(in srgb, var(--app-bg-elevated) 82%, transparent));
-	padding: 1.65rem;
+		radial-gradient(circle at top right, color-mix(in srgb, var(--app-accent) 15%, transparent), transparent 28%),
+		radial-gradient(circle at 18% 22%, color-mix(in srgb, var(--app-accent-soft) 86%, transparent), transparent 18%),
+		linear-gradient(180deg, color-mix(in srgb, var(--app-bg-panel) 96%, transparent), color-mix(in srgb, var(--app-bg-elevated) 84%, transparent));
+	padding: 1.75rem;
 	box-shadow: var(--app-shadow-soft);
 }
 
@@ -1240,6 +1277,17 @@ select:focus-visible {
 	pointer-events: none;
 	background: linear-gradient(145deg, rgba(255, 255, 255, 0.08), transparent 38%);
 	opacity: 0.6;
+}
+
+.page-hero::after {
+	content: "";
+	position: absolute;
+	left: 1.75rem;
+	right: 1.75rem;
+	bottom: 0;
+	height: 1px;
+	background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--app-accent) 42%, transparent), transparent);
+	opacity: 0.7;
 }
 
 .page-hero__intro {
@@ -1254,35 +1302,39 @@ select:focus-visible {
 
 .page-hero__icon {
 	display: inline-flex;
-	height: 3.2rem;
-	width: 3.2rem;
+	height: 3.35rem;
+	width: 3.35rem;
 	flex-shrink: 0;
 	align-items: center;
 	justify-content: center;
 	border-radius: 1.15rem;
-	background: color-mix(in srgb, var(--app-accent) 12%, transparent);
+	border: 1px solid color-mix(in srgb, var(--app-accent) 18%, transparent);
+	background:
+		linear-gradient(180deg, color-mix(in srgb, var(--app-accent-soft) 92%, transparent), color-mix(in srgb, var(--app-bg-elevated) 88%, transparent));
 	color: var(--app-accent);
-	box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+	box-shadow:
+		inset 0 1px 0 rgba(255, 255, 255, 0.08),
+		0 12px 28px color-mix(in srgb, var(--app-accent) 12%, transparent);
 }
 
 .page-hero__body {
 	display: flex;
 	min-width: 0;
 	flex-direction: column;
-	gap: 0.55rem;
+	gap: 0.6rem;
 }
 
 .page-hero__eyebrow {
-	font-size: 0.68rem;
+	font-size: 0.7rem;
 	font-weight: 800;
-	letter-spacing: 0.18em;
+	letter-spacing: 0.16em;
 	text-transform: uppercase;
 	color: var(--app-text-faint);
 }
 
 .page-hero__title {
-	font-size: clamp(2rem, 4vw, 3rem);
-	line-height: 1;
+	font-size: clamp(2.15rem, 4vw, 3.05rem);
+	line-height: 0.98;
 	font-weight: 880;
 	letter-spacing: -0.05em;
 	color: var(--app-text);
@@ -1304,6 +1356,17 @@ select:focus-visible {
 	justify-content: flex-end;
 	gap: 0.75rem;
 	flex: 0 1 auto;
+	padding: 0.35rem;
+	border-radius: 1.35rem;
+	border: 1px solid var(--app-border);
+	background: color-mix(in srgb, var(--app-bg-elevated) 74%, transparent);
+	box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+.page-hero__actions > .button-primary,
+.page-hero__actions > .button-secondary,
+.page-hero__actions > .button-danger {
+	min-height: 2.8rem;
 }
 
 .section-card {
@@ -2009,6 +2072,8 @@ select:focus-visible {
 		padding: 1.3rem;
 	}
 
+	.hero-copy,
+	.hero-summary,
 	.page-hero,
 	.section-card {
 		padding: 1.2rem;
