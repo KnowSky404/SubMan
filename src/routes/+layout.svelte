@@ -98,7 +98,7 @@
 	<header class="app-header">
 		<div class="app-header__inner">
 			<div class="flex min-w-0 items-center gap-3">
-				<a href="/" class="brand transition-opacity hover:opacity-90">
+				<a href="/" class="brand brand--header transition-opacity hover:opacity-90">
 					<span class="brand__mark">
 						<Zap class="h-5 w-5 fill-white/20 text-white" />
 					</span>
@@ -111,7 +111,12 @@
 
 			<nav class="app-nav hidden xl:flex">
 				{#each navItems as item}
-					<a href={item.href} class:nav-link--active={isActive(item.href)} class="nav-link">
+					<a
+						href={item.href}
+						aria-current={isActive(item.href) ? "page" : undefined}
+						class:nav-link--active={isActive(item.href)}
+						class="nav-link"
+					>
 						<svelte:component this={item.icon} class="nav-link__icon h-4 w-4" />
 						<span>{$t(item.label)}</span>
 					</a>
@@ -183,7 +188,7 @@
 			class="mobile-panel md:hidden"
 			transition:fly={{ x: 300, duration: 300 }}
 		>
-			<div class="flex flex-col gap-6">
+			<div class="mobile-panel__body">
 				<div class="mobile-panel__header">
 					<div class="flex items-center gap-3">
 						<span class="brand__mark h-10 w-10 rounded-2xl">
@@ -199,13 +204,14 @@
 					</button>
 				</div>
 
-				<div class="mobile-panel__section">
+				<div class="mobile-panel__group mobile-panel__group--nav">
 					{#each navItems as item}
 						<a
 							href={item.href}
+							aria-current={isActive(item.href) ? "page" : undefined}
 							on:click={closeMobileMenu}
 							class={cn(
-								"nav-link w-full justify-start",
+								"nav-link mobile-nav-link",
 								isActive(item.href) && "nav-link--active"
 							)}
 						>
@@ -215,51 +221,58 @@
 					{/each}
 				</div>
 				
-				<div class="h-px bg-slate-800"></div>
+				<div class="mobile-panel__divider"></div>
 				
-				<div class="mobile-panel__section">
-					<span class="mobile-panel__label">{$t("Appearance")}</span>
-					<label class="panel-select">
-						<span class="panel-select__icon">
-							<svelte:component this={activeThemeOption.icon} class="h-4.5 w-4.5" />
-						</span>
-						<span class="panel-select__value">{$t(activeThemeOption.label)}</span>
-						<ChevronDown class="panel-select__chevron h-4 w-4" />
-						<select
-							class="panel-select__native"
-							aria-label={$t("Appearance")}
-							value={$themeMode}
-							on:change={(event) => handleThemeChange(event.currentTarget.value as ThemeMode)}
-						>
-							{#each themeOptions as option}
-								<option value={option.value}>{$t(option.label)}</option>
-							{/each}
-						</select>
-					</label>
+				<div class="mobile-panel__group">
+					<div class="mobile-panel__section">
+						<span class="mobile-panel__label">{$t("Appearance")}</span>
+						<label class="panel-select">
+							<span class="panel-select__icon">
+								<svelte:component this={activeThemeOption.icon} class="h-4.5 w-4.5" />
+							</span>
+							<span class="panel-select__value">{$t(activeThemeOption.label)}</span>
+							<ChevronDown class="panel-select__chevron h-4 w-4" />
+							<select
+								class="panel-select__native"
+								aria-label={$t("Appearance")}
+								value={$themeMode}
+								on:change={(event) => handleThemeChange(event.currentTarget.value as ThemeMode)}
+							>
+								{#each themeOptions as option}
+									<option value={option.value}>{$t(option.label)}</option>
+								{/each}
+							</select>
+						</label>
+					</div>
+
+					<div class="mobile-panel__section">
+						<span class="mobile-panel__label">{$t("Language")}</span>
+						<label class="panel-select">
+							<span class="panel-select__icon">
+								<Languages class="h-4.5 w-4.5" />
+							</span>
+							<span class="panel-select__value">{activeLocaleOption.label}</span>
+							<ChevronDown class="panel-select__chevron h-4 w-4" />
+							<select
+								class="panel-select__native"
+								aria-label={$t("Language")}
+								value={$locale}
+								on:change={(event) => handleLocaleChange(event.currentTarget.value)}
+							>
+								{#each localeOptions as option}
+									<option value={option.value}>{option.label}</option>
+								{/each}
+							</select>
+						</label>
+					</div>
 				</div>
 
-				<div class="mobile-panel__section">
-					<span class="mobile-panel__label">{$t("Language")}</span>
-					<label class="panel-select">
-						<span class="panel-select__icon">
-							<Languages class="h-4.5 w-4.5" />
-						</span>
-						<span class="panel-select__value">{activeLocaleOption.label}</span>
-						<ChevronDown class="panel-select__chevron h-4 w-4" />
-						<select
-							class="panel-select__native"
-							aria-label={$t("Language")}
-							value={$locale}
-							on:change={(event) => handleLocaleChange(event.currentTarget.value)}
-						>
-							{#each localeOptions as option}
-								<option value={option.value}>{option.label}</option>
-							{/each}
-						</select>
-					</label>
-				</div>
-
-				<a href={PROJECT_GITHUB_URL} target="_blank" rel="noreferrer" class="button-secondary w-full">
+				<a
+					href={PROJECT_GITHUB_URL}
+					target="_blank"
+					rel="noreferrer"
+					class="button-secondary mobile-panel__footer-link w-full"
+				>
 					<Github class="h-4 w-4" />
 					GitHub
 				</a>
