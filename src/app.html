@@ -3,6 +3,32 @@
 	<head>
 		<meta charset="utf-8" />
 		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<script>
+			(() => {
+				const storageKey = "subman:theme-mode:v1";
+				const mediaQuery = "(prefers-color-scheme: dark)";
+
+				try {
+					const stored = localStorage.getItem(storageKey);
+					const mode = stored === "light" || stored === "dark" ? stored : "system";
+					const resolved =
+						mode === "system" && window.matchMedia(mediaQuery).matches ? "dark" : mode === "system" ? "light" : mode;
+					const root = document.documentElement;
+
+					root.dataset.themeMode = mode;
+					root.style.colorScheme = resolved;
+
+					if (mode === "system") {
+						delete root.dataset.theme;
+						return;
+					}
+
+					root.dataset.theme = mode;
+				} catch {
+					document.documentElement.style.colorScheme = window.matchMedia(mediaQuery).matches ? "dark" : "light";
+				}
+			})();
+		</script>
 		%sveltekit.head%
 	</head>
 	<body data-sveltekit-preload-data="hover">
