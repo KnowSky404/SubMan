@@ -5,175 +5,125 @@
 	import { cn } from "$lib/utils/cn";
 	import { 
 		Zap, 
-		ShieldCheck, 
 		Globe, 
 		RefreshCw, 
 		Layers, 
 		Network,
 		ArrowRight,
 		ExternalLink,
-		Cloud,
-		CloudOff
+		Package,
+		Star,
+		GitFork,
+		Info,
+		CheckCircle2,
+		ShieldCheck,
+		Database
 	} from "lucide-svelte";
-	import { fade, fly } from "svelte/transition";
+	import { fade } from "svelte/transition";
 
 	$: stats = [
-		{ label: "Nodes", count: $appState.nodes.length, icon: Globe },
-		{ label: "Subscriptions", count: $appState.subscriptions.length, icon: RefreshCw },
-		{ label: "Rules", count: $appState.aggregates.length, icon: Layers },
-		{ label: "Publish Targets", count: $appState.publishTargets.length, icon: Zap }
+		{ label: "Nodes", count: $appState.nodes.length, icon: Globe, color: "text-blue-500" },
+		{ label: "Subscriptions", count: $appState.subscriptions.length, icon: RefreshCw, color: "text-green-500" },
+		{ label: "Rules", count: $appState.aggregates.length, icon: Layers, color: "text-purple-500" },
+		{ label: "Publish Targets", count: $appState.publishTargets.length, icon: Zap, color: "text-orange-500" }
 	];
 
 	$: isConnected = Boolean($authState.token && $appState.activeGistId);
-
-	const features = [
-		{
-			title: "Workspace Sync",
-			desc: "Bind to your fixed Workspace Gist, resolve local and remote conflicts, and keep data in sync.",
-			href: "/auth",
-			icon: ShieldCheck
-		},
-		{
-			title: "Node Management",
-			desc: "Add or edit single nodes and subscription sources with tags, filters, and quick status toggles.",
-			href: "/nodes",
-			icon: Network
-		},
-		{
-			title: "Publish Targets",
-			desc: "Reuse one rule across multiple output files and keep client links stable with overwrite publishing.",
-			href: "/aggregate",
-			icon: Zap
-		}
-	];
 </script>
 
-<svelte:head>
-	<title>{$t("Overview")} | {$t("SubMan")}</title>
-</svelte:head>
-
-<div class="page-stack page-stack--home">
-	<section class="hero-layout">
-		<div class="surface-card hero-copy" in:fly={{ y: 14, duration: 520 }}>
-			<div class="hero-eyebrow">
-				<Zap class="h-3.5 w-3.5 fill-current" />
-				<span>{$t("SubMan v0.1")}</span>
+<div class="flex flex-col gap-8 pb-10">
+	<!-- Repository Header Style -->
+	<div class="flex flex-col gap-4">
+		<div class="flex flex-wrap items-center justify-between gap-4">
+			<div class="flex items-center gap-2 text-xl">
+				<Package class="h-5 w-5 text-fg-muted" />
+				<span class="text-accent-fg hover:underline cursor-pointer">KnowSky404</span>
+				<span class="text-fg-muted">/</span>
+				<span class="font-bold">SubMan</span>
+				<span class="badge ml-2">Public</span>
 			</div>
-
-			<h1 class="hero-title">
-				{$t("Modern Workspace")}
-				<span>{$t("Subscription Hub")}</span>
-			</h1>
-
-			<p class="hero-description">
-				{$t("Manage nodes, build reusable aggregation rules, and publish stable links directly to your private GitHub Gist.")}
-			</p>
-
-			<div class="hero-actions">
-				<a href="/auth" class="button-primary group">
-					{$t("Connect Workspace")}
-					<ArrowRight class="h-4 w-4 transition-transform group-hover:translate-x-1" />
-				</a>
-				<a href="/nodes" class="button-secondary">
-					{$t("Explore Nodes")}
-				</a>
-			</div>
-
-			<div class="hero-meta">
-				<span class={cn("status-chip", isConnected ? "status-chip--online" : "status-chip--local")}>
-					{#if isConnected}
-						<Cloud class="h-3.5 w-3.5" />
-						<span>{$t("Connected")}</span>
-					{:else}
-						<CloudOff class="h-3.5 w-3.5" />
-						<span>{$t("Local Mode")}</span>
-					{/if}
-				</span>
-				<p class="hero-meta__text">
-					{$t("Everything you need for seamless proxy subscription management")}
-				</p>
+			<div class="flex items-center gap-2">
+				<button class="gh-btn gh-btn-sm"><Star class="h-3.5 w-3.5 mr-1" />Star<span class="ml-2 px-1.5 py-0.5 rounded-full bg-canvas-subtle border border-border-default text-[10px]">12</span></button>
+				<button class="gh-btn gh-btn-sm"><GitFork class="h-3.5 w-3.5 mr-1" />Fork</button>
 			</div>
 		</div>
+		
+		<p class="text-base text-fg-default">
+			{$t("Gist-first proxy subscription manager. Manage nodes, build aggregation rules, and publish stable links.")}
+		</p>
 
-		<div class="surface-card hero-summary" in:fly={{ y: 14, delay: 120, duration: 520 }}>
-			<div class="hero-summary__header">
+		<div class="flex flex-wrap gap-4 text-xs text-fg-muted">
+			<div class="flex items-center gap-1"><div class="h-3 w-3 rounded-full bg-orange-500"></div> Svelte</div>
+			<div class="flex items-center gap-1"><Star class="h-3.5 w-3.5" /> AGPL v3 License</div>
+			<div class="flex items-center gap-1"><Info class="h-3.5 w-3.5" /> Last updated: {new Date($appState.lastUpdated || Date.now()).toLocaleDateString()}</div>
+		</div>
+	</div>
+
+	<!-- Connection Status Box -->
+	<div class={cn("gh-box p-4 flex flex-col sm:flex-row items-center justify-between gap-4", isConnected ? "bg-green-50/30 border-green-200 dark:bg-green-900/10" : "bg-canvas-subtle")}>
+		<div class="flex items-center gap-3 text-sm">
+			{#if isConnected}
+				<div class="h-8 w-8 flex items-center justify-center rounded-full bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"><ShieldCheck class="h-5 w-5" /></div>
 				<div>
-					<p class="section-label">{$t("Overview")}</p>
-					<h2 class="hero-summary__title">{$t("Workspace Sync")}</h2>
+					<p class="font-bold">{$t("Workspace Connected")}</p>
+					<p class="text-xs text-fg-muted">{$appState.activeGistId}</p>
 				</div>
-				<span class={cn("status-chip", isConnected ? "status-chip--online" : "status-chip--local")}>
-					{#if isConnected}
-						<Cloud class="h-3.5 w-3.5" />
-						<span>{$t("Connected")}</span>
-					{:else}
-						<CloudOff class="h-3.5 w-3.5" />
-						<span>{$t("Local Mode")}</span>
-					{/if}
-				</span>
-			</div>
-
-			<div class="summary-grid">
-				{#each stats as stat}
-					<div class="summary-card">
-						<div class="summary-card__icon">
-							<svelte:component this={stat.icon} class="h-5 w-5" />
-						</div>
-						<p class="summary-card__label">{$t(stat.label)}</p>
-						<p class="summary-card__value">{stat.count}</p>
-					</div>
-				{/each}
-			</div>
-
-			<p class="hero-summary__foot">
-				{$t("Use a GitHub token to sync with the workspace gist, or keep data locally.")}
-			</p>
-		</div>
-	</section>
-
-	<section class="space-y-5">
-		<div class="section-heading">
-			<div>
-				<p class="section-label">{$t("Overview")}</p>
-				<h2 class="section-heading__title">{$t("Powerful Core Features")}</h2>
-			</div>
-			<p class="section-heading__text">
-				{$t("Everything you need for seamless proxy subscription management")}
-			</p>
-		</div>
-
-		<div class="feature-grid">
-			{#each features as feature, i}
-				<div class="surface-card feature-card" in:fly={{ y: 16, delay: 180 + i * 100, duration: 520 }}>
-					<div class="feature-icon">
-						<svelte:component this={feature.icon} class="h-5 w-5" />
-					</div>
-					<h3 class="feature-title">{$t(feature.title)}</h3>
-					<p class="feature-text">{$t(feature.desc)}</p>
-					<a href={feature.href} class="feature-link">
-						{$t("Open Module")}
-						<ArrowRight class="h-3.5 w-3.5" />
-					</a>
+			{:else}
+				<div class="h-8 w-8 flex items-center justify-center rounded-full bg-gray-200 text-fg-muted dark:bg-gray-800"><Database class="h-5 w-5" /></div>
+				<div>
+					<p class="font-bold">{$t("Local-only Mode")}</p>
+					<p class="text-xs text-fg-muted">{$t("Connect GitHub to enable cloud sync and stable links.")}</p>
 				</div>
-			{/each}
+			{/if}
 		</div>
-	</section>
-
-	<section class="surface-card cta-card" in:fade={{ delay: 520 }}>
-		<div>
-			<p class="section-label">{$t("Documentation")}</p>
-			<h2 class="cta-card__title">{$t("Ready to simplify your workflow?")}</h2>
-			<p class="cta-card__text">
-				{$t("Connect your GitHub account and start managing your workspace in seconds.")}
-			</p>
-		</div>
-		<a 
-			href="https://github.com/KnowSky404/SubMan/blob/main/README.md" 
-			target="_blank"
-			rel="noreferrer"
-			class="button-secondary"
-		>
-			<ExternalLink class="h-4 w-4" />
-			{$t("Documentation")}
+		<a href="/auth" class={cn("gh-btn", !isConnected && "gh-btn-primary")}>
+			{isConnected ? $t("Manage Workspace") : $t("Setup GitHub")}
 		</a>
-	</section>
+	</div>
+
+	<!-- Stats Grid -->
+	<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+		{#each stats as stat}
+			<div class="gh-box p-4 flex flex-col gap-1 hover:border-accent-emphasis transition-colors cursor-default">
+				<div class="flex items-center justify-between">
+					<span class="text-xs font-bold text-fg-muted uppercase tracking-wider">{$t(stat.label)}</span>
+					<svelte:component this={stat.icon} class={cn("h-4 w-4", stat.color)} />
+				</div>
+				<span class="text-2xl font-bold">{stat.count}</span>
+			</div>
+		{/each}
+	</div>
+
+	<!-- Getting Started -->
+	<div class="flex flex-col gap-4">
+		<h2 class="text-lg font-bold">{$t("Quick Start Guide")}</h2>
+		<div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+			<div class="gh-box p-4 flex flex-col gap-3">
+				<div class="flex items-center gap-2 font-bold text-sm"><Network class="h-4 w-4" /> 1. {$t("Add Nodes")}</div>
+				<p class="text-xs text-fg-muted leading-relaxed">{$t("Import single nodes or subscription links in the Nodes module.")}</p>
+				<a href="/nodes" class="text-xs text-accent-fg font-semibold hover:underline flex items-center gap-1">{$t("Go to Nodes")} <ArrowRight class="h-3 w-3" /></a>
+			</div>
+			<div class="gh-box p-4 flex flex-col gap-3">
+				<div class="flex items-center gap-2 font-bold text-sm"><Layers class="h-4 w-4" /> 2. {$t("Create Rules")}</div>
+				<p class="text-xs text-fg-muted leading-relaxed">{$t("Compose rules to filter and rename nodes from multiple sources.")}</p>
+				<a href="/aggregate" class="text-xs text-accent-fg font-semibold hover:underline flex items-center gap-1">{$t("Go to Aggregate")} <ArrowRight class="h-3 w-3" /></a>
+			</div>
+			<div class="gh-box p-4 flex flex-col gap-3">
+				<div class="flex items-center gap-2 font-bold text-sm"><Zap class="h-4 w-4" /> 3. {$t("Publish Link")}</div>
+				<p class="text-xs text-fg-muted leading-relaxed">{$t("Bind rules to a Gist file to generate a permanent subscription URL.")}</p>
+				<a href="/aggregate" class="text-xs text-accent-fg font-semibold hover:underline flex items-center gap-1">{$t("View Targets")} <ArrowRight class="h-3 w-3" /></a>
+			</div>
+		</div>
+	</div>
+
+	<!-- Community & Docs -->
+	<div class="gh-box bg-canvas-subtle p-6 flex flex-col md:flex-row items-center justify-between gap-6 border-dashed">
+		<div>
+			<h3 class="font-bold text-lg">{$t("Documentation & Support")}</h3>
+			<p class="text-sm text-fg-muted">{$t("Learn more about SubMan's features and how to host it yourself.")}</p>
+		</div>
+		<div class="flex gap-3">
+			<a href="https://github.com/KnowSky404/SubMan" target="_blank" class="gh-btn"><ExternalLink class="h-4 w-4 mr-2" /> {$t("View on GitHub")}</a>
+		</div>
+	</div>
 </div>

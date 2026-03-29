@@ -7,6 +7,7 @@
 	import { startAutoSync } from "$lib/sync";
 	import { confirmDialog, resolveConfirm } from "$lib/stores/confirm";
 	import { startThemeSync, themeMode, type ThemeMode } from "$lib/stores/theme";
+	import { toastStore, dismissToast } from "$lib/stores/toast";
 	import { cn } from "$lib/utils/cn";
 	import { 
 		LayoutDashboard, 
@@ -21,27 +22,27 @@
 		MonitorCog,
 		SunMedium,
 		MoonStar,
+		Languages,
+		Package,
+		History,
 		ChevronDown,
-		Languages
+		Check,
+		RefreshCw,
+		AlertCircle
 	} from "lucide-svelte";
 
 	const PROJECT_GITHUB_URL = "https://github.com/KnowSky404/SubMan";
 	
 	const navItems = [
 		{ href: "/", label: "Overview", icon: LayoutDashboard },
-		{ href: "/gists", label: "Gists", icon: Layers },
 		{ href: "/nodes", label: "Nodes", icon: Network },
 		{ href: "/aggregate", label: "Aggregate", icon: Zap },
-		{ href: "/auth", label: "Workspace", icon: Settings }
+		{ href: "/gists", label: "Gists", icon: Layers },
+		{ href: "/auth", label: "Settings", icon: Settings }
 	];
 
-	const localeOptions = [
-		{ value: "en", label: "English" },
-		{ value: "zh-CN", label: "简体中文" }
-	] as const;
-
 	const themeOptions: { value: ThemeMode; label: string; icon: typeof MonitorCog }[] = [
-		{ value: "system", label: "System", icon: MonitorCog },
+		{ value: "system", label: "Auto", icon: MonitorCog },
 		{ value: "light", label: "Light", icon: SunMedium },
 		{ value: "dark", label: "Dark", icon: MoonStar }
 	];
@@ -51,296 +52,148 @@
 	$: pathname = $page.url.pathname;
 	$: isActive = (href: string) => (href === "/" ? pathname === "/" : pathname.startsWith(href));
 	$: activeThemeOption = themeOptions.find((option) => option.value === $themeMode) ?? themeOptions[0];
-	$: activeLocaleOption = localeOptions.find((option) => option.value === $locale) ?? localeOptions[0];
-
-	function handleLocaleChange(nextLocale: string) {
-		if (nextLocale === "en" || nextLocale === "zh-CN") {
-			locale.set(nextLocale);
-		}
-	}
 
 	function handleThemeChange(nextTheme: ThemeMode) {
 		themeMode.set(nextTheme);
 	}
 
-	function closeMobileMenu() {
-		isMobileMenuOpen = false;
-	}
-
-	function toggleMobileMenu() {
-		isMobileMenuOpen = !isMobileMenuOpen;
-	}
-
-	function handleDialogKeydown(event: KeyboardEvent) {
-		if (!$confirmDialog.open) {
-			return;
-		}
-		if (event.key === "Escape") {
-			event.preventDefault();
-			resolveConfirm(false);
-		}
-	}
-
 	onMount(() => {
 		const stopAutoSync = startAutoSync();
 		const stopThemeSync = startThemeSync();
-
-		return () => {
-			stopAutoSync();
-			stopThemeSync();
-		};
+		return () => { stopAutoSync(); stopThemeSync(); };
 	});
 </script>
 
-<svelte:window on:keydown={handleDialogKeydown} />
-
-<div class="app-shell">
-	<header class="app-header">
-		<div class="app-header__inner">
-			<div class="flex min-w-0 items-center gap-3">
-				<a href="/" class="brand brand--header transition-opacity hover:opacity-90">
-					<span class="brand__mark">
-						<Zap class="h-5 w-5 fill-white/20 text-white" />
-					</span>
-					<span class="brand__content">
-						<span class="brand__title">SubMan</span>
-						<span class="brand__subtitle">{$t("Manager")}</span>
-					</span>
-				</a>
-			</div>
-
-			<nav class="app-nav hidden xl:flex">
-				{#each navItems as item}
-					<a
-						href={item.href}
-						aria-current={isActive(item.href) ? "page" : undefined}
-						class:nav-link--active={isActive(item.href)}
-						class="nav-link"
-					>
-						<svelte:component this={item.icon} class="nav-link__icon h-4 w-4" />
-						<span>{$t(item.label)}</span>
-					</a>
-				{/each}
-			</nav>
-
-			<div class="header-controls hidden md:flex">
-				<label class="toolbar-select" title={$t("Appearance")} aria-label={$t("Appearance")}>
-					<svelte:component this={activeThemeOption.icon} class="h-4.5 w-4.5" />
-					<ChevronDown class="toolbar-select__chevron h-3 w-3" />
-					<select
-						class="toolbar-select__native"
-						aria-label={$t("Appearance")}
-						value={$themeMode}
-						on:change={(event) => handleThemeChange(event.currentTarget.value as ThemeMode)}
-					>
-						{#each themeOptions as option}
-							<option value={option.value}>{$t(option.label)}</option>
-						{/each}
-					</select>
-				</label>
-
-				<label class="toolbar-select" title={$t("Language")} aria-label={$t("Language")}>
-					<Languages class="h-4.5 w-4.5" />
-					<ChevronDown class="toolbar-select__chevron h-3 w-3" />
-					<select
-						class="toolbar-select__native"
-						aria-label={$t("Language")}
-						value={$locale}
-						on:change={(event) => handleLocaleChange(event.currentTarget.value)}
-					>
-						{#each localeOptions as option}
-							<option value={option.value}>{option.label}</option>
-						{/each}
-					</select>
-				</label>
-
-				<a
-					href={PROJECT_GITHUB_URL}
-					target="_blank"
-					rel="noreferrer"
-					class="icon-action"
-					title="GitHub"
-				>
-					<Github class="h-4.5 w-4.5" />
-				</a>
-			</div>
-
-			<button class="menu-toggle md:hidden" type="button" on:click={toggleMobileMenu}>
-				{#if isMobileMenuOpen}
-					<X class="h-5 w-5" />
-				{:else}
-					<Menu class="h-5 w-5" />
-				{/if}
-			</button>
-		</div>
-	</header>
-
-	<!-- Mobile Nav -->
-	{#if isMobileMenuOpen}
-		<button
-			type="button"
-			aria-label="Close menu"
-			class="mobile-overlay md:hidden"
-			on:click={closeMobileMenu}
-			transition:fade={{ duration: 200 }}
-		></button>
-		<nav 
-			class="mobile-panel md:hidden"
-			transition:fly={{ x: 300, duration: 300 }}
-		>
-			<div class="mobile-panel__body">
-				<div class="mobile-panel__header">
-					<div class="flex items-center gap-3">
-						<span class="brand__mark h-10 w-10 rounded-2xl">
-							<Zap class="h-4.5 w-4.5 fill-white/20 text-white" />
-						</span>
-						<div class="flex flex-col">
-							<span class="brand__title">SubMan</span>
-							<span class="brand__subtitle">{$t("Menu")}</span>
-						</div>
+<div class="flex min-h-screen flex-col relative">
+	<header class="app-header sticky top-0 z-[100]">
+		<div class="mx-auto flex max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
+			<div class="flex items-center gap-6">
+				<a href="/" class="flex items-center gap-2 hover:opacity-80 transition-opacity">
+					<div class="flex h-8 w-8 items-center justify-center rounded-md bg-gray-700">
+						<Package class="h-5 w-5 text-white" />
 					</div>
-					<button type="button" on:click={closeMobileMenu} class="icon-action h-10 w-10">
-						<X class="h-4.5 w-4.5" />
-					</button>
-				</div>
+					<span class="text-base font-bold tracking-tight">SubMan</span>
+				</a>
 
-				<div class="mobile-panel__group mobile-panel__group--nav">
+				<nav class="hidden md:flex items-center gap-1">
 					{#each navItems as item}
 						<a
 							href={item.href}
-							aria-current={isActive(item.href) ? "page" : undefined}
-							on:click={closeMobileMenu}
 							class={cn(
-								"nav-link mobile-nav-link",
-								isActive(item.href) && "nav-link--active"
+								"app-nav-link",
+								isActive(item.href) && "app-nav-link-active"
 							)}
 						>
-							<svelte:component this={item.icon} class="h-5 w-5" />
-							{$t(item.label)}
+							<svelte:component this={item.icon} class="h-4 w-4" />
+							<span>{$t(item.label)}</span>
 						</a>
 					{/each}
-				</div>
-				
-				<div class="mobile-panel__divider"></div>
-				
-				<div class="mobile-panel__group">
-					<div class="mobile-panel__section">
-						<span class="mobile-panel__label">{$t("Appearance")}</span>
-						<label class="panel-select">
-							<span class="panel-select__icon">
-								<svelte:component this={activeThemeOption.icon} class="h-4.5 w-4.5" />
-							</span>
-							<span class="panel-select__value">{$t(activeThemeOption.label)}</span>
-							<ChevronDown class="panel-select__chevron h-4 w-4" />
-							<select
-								class="panel-select__native"
-								aria-label={$t("Appearance")}
-								value={$themeMode}
-								on:change={(event) => handleThemeChange(event.currentTarget.value as ThemeMode)}
-							>
-								{#each themeOptions as option}
-									<option value={option.value}>{$t(option.label)}</option>
-								{/each}
-							</select>
-						</label>
-					</div>
-
-					<div class="mobile-panel__section">
-						<span class="mobile-panel__label">{$t("Language")}</span>
-						<label class="panel-select">
-							<span class="panel-select__icon">
-								<Languages class="h-4.5 w-4.5" />
-							</span>
-							<span class="panel-select__value">{activeLocaleOption.label}</span>
-							<ChevronDown class="panel-select__chevron h-4 w-4" />
-							<select
-								class="panel-select__native"
-								aria-label={$t("Language")}
-								value={$locale}
-								on:change={(event) => handleLocaleChange(event.currentTarget.value)}
-							>
-								{#each localeOptions as option}
-									<option value={option.value}>{option.label}</option>
-								{/each}
-							</select>
-						</label>
-					</div>
-				</div>
-
-				<a
-					href={PROJECT_GITHUB_URL}
-					target="_blank"
-					rel="noreferrer"
-					class="button-secondary mobile-panel__footer-link w-full"
-				>
-					<Github class="h-4 w-4" />
-					GitHub
-				</a>
+				</nav>
 			</div>
-		</nav>
+
+			<div class="flex items-center gap-3">
+				<!-- Desktop Nav Tools -->
+				<div class="hidden items-center gap-2 sm:flex">
+					<div class="relative flex items-center">
+						<svelte:component this={activeThemeOption.icon} class="absolute left-2.5 h-3 w-3 text-gray-400 pointer-events-none" />
+						<select
+							class="gh-select-header w-28"
+							value={$themeMode}
+							on:change={(event) => handleThemeChange(event.currentTarget.value as ThemeMode)}
+						>
+							{#each themeOptions as option}
+								<option value={option.value}>{$t(option.label)}</option>
+							{/each}
+						</select>
+					</div>
+
+					<a
+						href={PROJECT_GITHUB_URL}
+						target="_blank"
+						rel="noreferrer"
+						class="flex h-8 w-8 items-center justify-center rounded-md hover:bg-gray-800 text-gray-400"
+					>
+						<Github class="h-4 w-4" />
+					</a>
+				</div>
+
+				<!-- Mobile Menu Toggle -->
+				<button class="md:hidden flex h-8 w-8 items-center justify-center rounded-md hover:bg-gray-800" on:click={() => (isMobileMenuOpen = !isMobileMenuOpen)}>
+					{#if isMobileMenuOpen}<X class="h-5 w-5" />{:else}<Menu class="h-5 w-5" />{/if}
+				</button>
+			</div>
+		</div>
+	</header>
+
+	{#if isMobileMenuOpen}
+		<div class="fixed inset-0 top-[57px] z-[90] bg-canvas-default md:hidden p-4" transition:fade={{ duration: 150 }}>
+			<nav class="flex flex-col gap-2">
+				{#each navItems as item}
+					<a
+						href={item.href}
+						on:click={() => (isMobileMenuOpen = false)}
+						class={cn(
+							"flex items-center gap-3 px-3 py-3 rounded-md text-base font-medium",
+							isActive(item.href) ? "bg-canvas-subtle text-accent-fg" : "text-fg-default border border-transparent"
+						)}
+					>
+						<svelte:component this={item.icon} class="h-5 w-5" />
+						{$t(item.label)}
+					</a>
+				{/each}
+			</nav>
+		</div>
 	{/if}
 
-	{#if $confirmDialog.open}
-		<div class="fixed inset-0 z-[120]">
-			<button
-				type="button"
-				aria-label={$t("Cancel")}
-				class="dialog-scrim"
-				on:click={() => resolveConfirm(false)}
-			></button>
-			<div class="relative flex min-h-full items-center justify-center p-4">
-				<div
-					role="dialog"
-					aria-modal="true"
-					aria-label={$confirmDialog.title || $t("Confirm Action")}
-					tabindex="-1"
-					class="dialog-card"
-					in:fly={{ y: 12, duration: 220 }}
-					out:fade={{ duration: 140 }}
+	<main class="app-main-container flex-1">
+		<slot />
+	</main>
+
+	<!-- Global Toasts Container -->
+	<div class="fixed top-20 left-1/2 -translate-x-1/2 z-[200] flex flex-col gap-2 pointer-events-none w-full max-w-sm px-4">
+		{#each $toastStore as toast (toast.id)}
+			<div 
+				in:fly={{ y: -20, duration: 300 }}
+				out:fade={{ duration: 200 }}
+				class="gh-box bg-canvas-default text-fg-default px-4 py-3 shadow-2xl flex items-center gap-3 pointer-events-auto border-border-default"
+			>
+				<div class="flex-1 flex items-center gap-3 min-w-0">
+					{#if toast.type === 'success'}<Check class="h-4 w-4 text-green-500 shrink-0" />
+					{:else if toast.type === 'error'}<AlertCircle class="h-4 w-4 text-red-500 shrink-0" />
+					{:else}<RefreshCw class="h-4 w-4 text-blue-500 shrink-0" />{/if}
+					<span class="text-sm font-bold truncate">{toast.message}</span>
+				</div>
+				<button 
+					class="p-1 hover:bg-canvas-subtle rounded-md transition-colors text-fg-muted hover:text-fg-default shrink-0"
+					on:click={() => dismissToast(toast.id)}
 				>
-					<div class="flex items-start gap-3">
-						<div class={cn(
-							"dialog-card__icon mt-0.5 shrink-0",
-							$confirmDialog.danger ? "dialog-card__icon--danger" : "dialog-card__icon--normal"
-						)}>
-							<AlertTriangle class="h-4.5 w-4.5" />
-						</div>
-						<div class="min-w-0 space-y-2">
-							<h2 class="dialog-card__title">
-								{$confirmDialog.title || $t("Confirm Action")}
-							</h2>
-							<p class="dialog-card__message whitespace-pre-line">
-								{$confirmDialog.message}
-							</p>
-						</div>
-					</div>
-					<div class="dialog-card__actions">
-						<button
-							type="button"
-							class="button-secondary"
-							on:click={() => resolveConfirm(false)}
-						>
-							{$confirmDialog.cancelText || $t("Cancel")}
-						</button>
-						<button
-							type="button"
-							class={$confirmDialog.danger ? "button-danger" : "button-primary"}
-							on:click={() => resolveConfirm(true)}
-						>
-							{$confirmDialog.confirmText || $t("Confirm")}
-						</button>
-					</div>
+					<X class="h-3.5 w-3.5" />
+				</button>
+			</div>
+		{/each}
+	</div>
+
+	{#if $confirmDialog.open}
+		<div class="fixed inset-0 z-[150] flex items-center justify-center p-4">
+			<div class="fixed inset-0 bg-black/60 backdrop-blur-sm" on:click={() => resolveConfirm(false)}></div>
+			<div class="relative w-full max-w-md gh-box shadow-2xl bg-canvas-default border-border-default" in:fly={{ y: 10, duration: 300 }}>
+				<div class="gh-box-header bg-canvas-subtle border-border-default text-fg-default">
+					<span class="flex items-center gap-2">
+						{#if $confirmDialog.danger}<AlertTriangle class="h-4 w-4 text-danger-fg" />{/if}
+						{$confirmDialog.title || $t("Confirm Action")}
+					</span>
+					<button class="text-fg-muted hover:text-accent-fg transition-colors" on:click={() => resolveConfirm(false)}><X class="h-4 w-4" /></button>
+				</div>
+				<div class="p-4 bg-canvas-default">
+					<p class="text-sm text-fg-default leading-relaxed">{$confirmDialog.message}</p>
+				</div>
+				<div class="p-4 bg-canvas-subtle border-t border-border-default flex justify-end gap-2">
+					<button class="gh-btn" on:click={() => resolveConfirm(false)}>{$confirmDialog.cancelText || $t("Cancel")}</button>
+					<button class={cn("gh-btn", $confirmDialog.danger ? "gh-btn-danger" : "gh-btn-primary")} on:click={() => resolveConfirm(true)}>
+						{$confirmDialog.confirmText || $t("Confirm")}
+					</button>
 				</div>
 			</div>
 		</div>
 	{/if}
-
-	<!-- Main Content -->
-	<main class="app-main">
-		{#key pathname}
-			<div in:fly={{ y: 10, duration: 400, delay: 100 }} out:fade={{ duration: 150 }}>
-				<slot />
-			</div>
-		{/key}
-	</main>
 </div>

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onDestroy, tick } from "svelte";
+	import { onDestroy } from "svelte";
 	import { t } from "$lib/i18n";
 	import {
 		appState,
@@ -9,40 +9,42 @@
 		upsertPublishTarget
 	} from "$lib/stores/app";
 	import { authState } from "$lib/stores/auth";
-	import type { AggregatePublishTarget, AggregateRule, ProxyType } from "$lib/models";
-	import { BUILT_IN_REGION_FLAG_RULES, buildAggregateOutput, normalizeCustomRegionFlagMap, parseCustomRegionFlagRules, regionCodeToFlagEmoji } from "$lib/aggregate";
+	import { buildAggregateOutput } from "$lib/aggregate";
 	import { createGist, toStableGistRawUrl, updateGist } from "$lib/gist";
 	import { exportSyncState } from "$lib/serialization";
 	import { WORKSPACE_FILE } from "$lib/workspace";
 	import { createId } from "$lib/utils/id";
 	import { nowIso } from "$lib/utils/time";
 	import { requestConfirm } from "$lib/stores/confirm";
+	import { showToast } from "$lib/stores/toast";
 	import { cn } from "$lib/utils/cn";
 	import { 
 		Zap, 
 		Plus, 
 		Save, 
 		Trash2, 
-		Play, 
 		CloudUpload, 
 		Copy, 
 		Eye, 
 		Settings2, 
 		FileText, 
-		ShieldCheck, 
+		CheckCircle2, 
 		AlertCircle,
-		CheckCircle2,
-		ChevronRight,
-		CircleHelp,
-		ExternalLink,
 		RefreshCw,
-		Filter,
+		Globe,
+		ExternalLink,
 		Settings,
 		Search,
 		Cpu,
-		Globe,
 		Database,
-		X
+		X,
+		Info,
+		ChevronDown,
+		Filter,
+		SquareCheck,
+		Square,
+		ChevronUp,
+		ListFilter
 	} from "lucide-svelte";
 	import { fade, slide, fly } from "svelte/transition";
 
@@ -52,1553 +54,412 @@
 	let excludeTags = "";
 	let renameMap = "";
 	let customRegionFlagMap = "";
-	let customRegionFlagMapTextarea: HTMLTextAreaElement | null = null;
-	let customRegionFlagMapSelectionStart = 0;
-	let customRegionFlagMapSelectionEnd = 0;
-	let allowedTypes: ProxyType[] = [];
+	let allowedTypes: string[] = [];
 	let prependRegionFlags = true;
-	let showBuiltInRegionMap = false;
-	let builtInRegionMapSearch = "";
-	let selectedBuiltInRegionRuleKey = "";
 	
-	let previewSummary = "";
-	let previewContent = "";
-	let previewLines = 0;
-	let previewWarnings: string[] = [];
-	let previewErrors: string[] = [];
+	// Menu State
+	let showNodesMenu = false;
+	let showSubsMenu = false;
+	let nodeSearchQuery = "";
+	let subSearchQuery = "";
+	
+	let previewEntries: { id: string; protocol: string; name: string }[] = [];
 	let previewLoading = false;
-	let previewExpandedLine: string | null = null;
-	let previewEntries: { id: string; line: string; protocol: string; name: string }[] = [];
 	
-	let status: { message: string, type: 'success' | 'info' | 'error' } | null = null;
-	let statusTimer: ReturnType<typeof setTimeout> | null = null;
-
-	function setStatus(message: string, type: 'success' | 'info' | 'error' = 'success') {
-		status = { message, type };
-		if (statusTimer) clearTimeout(statusTimer);
-		statusTimer = setTimeout(() => status = null, 4000);
-	}
-
 	let selectedTargetId = "";
 	let publishTargetName = "";
 	let publishTargetRuleId = "";
 	let publishTargetFile = "subman-aggregate.txt";
 	let publishTargetDescription = "SubMan aggregate";
 	let publishTargetPublic = false;
-	
-	let publishing = false;
-	let outputContent = "";
 	let publishUrl: string | null = null;
+	let publishing = false;
 	let editingRuleId = "";
-	let initialized = false;
-
-	const protocolOptions: { id: ProxyType; label: string }[] = [
-		{ id: "vless", label: "VLESS" },
-		{ id: "vmess", label: "VMess" },
-		{ id: "trojan", label: "Trojan" },
-		{ id: "ss", label: "Shadowsocks" },
-		{ id: "ssr", label: "SSR" },
-		{ id: "hysteria2", label: "Hysteria2" },
-		{ id: "tuic", label: "TUIC" },
-		{ id: "other", label: $t("Other") }
-	];
-
-	function decodeBase64Utf8(value: string): string | null {
-		try {
-			const compact = value.trim().replace(/\s+/g, "");
-			const binary = atob(compact);
-			const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
-			return new TextDecoder().decode(bytes);
-		} catch {
-			return null;
-		}
-	}
-
-	function parseLineSummary(line: string): { protocol: string; name: string } {
-		const trimmed = line.trim();
-		const schemeIndex = trimmed.indexOf("://");
-		if (schemeIndex <= 0) return { protocol: "unknown", name: "unnamed" };
-		const protocol = trimmed.slice(0, schemeIndex).toLowerCase();
-		const hashIndex = trimmed.lastIndexOf("#");
-		if (hashIndex > schemeIndex) {
-			const rawName = trimmed.slice(hashIndex + 1);
-			try { return { protocol, name: decodeURIComponent(rawName) || "unnamed" }; }
-			catch { return { protocol, name: rawName || "unnamed" }; }
-		}
-		if (protocol === "vmess") {
-			const payload = trimmed.slice(schemeIndex + 3);
-			const decoded = decodeBase64Utf8(payload);
-			if (decoded) {
-				try {
-					const parsed = JSON.parse(decoded) as { ps?: string };
-					if (parsed.ps) return { protocol, name: parsed.ps };
-				} catch { /* ignore */ }
-			}
-		}
-		return { protocol, name: "unnamed" };
-	}
-
-	function buildPreviewEntries(content: string) {
-		const lines = content.split("\n").map(l => l.trim()).filter(Boolean);
-		previewEntries = lines.map((line, index) => {
-			const { protocol, name } = parseLineSummary(line);
-			return { id: `${protocol}-${name}-${index}`, line, protocol, name };
-		});
-	}
-
-	$: if (!initialized) {
-		const firstTarget = $appState.publishTargets[0];
-		if (firstTarget) loadPublishTarget(firstTarget);
-		else publishTargetRuleId = $appState.aggregates[0]?.id ?? "";
-		initialized = true;
-	}
 
 	function toggleSelection(list: string[], id: string) {
 		return list.includes(id) ? list.filter(item => item !== id) : [...list, id];
 	}
 
-	function toggleType(type: ProxyType) {
-		allowedTypes = allowedTypes.includes(type) ? allowedTypes.filter(t => t !== type) : [...allowedTypes, type];
-	}
-
-	function parseRenameMap(value: string): Record<string, string> {
-		const entries = value.split("\n").map(l => l.trim()).filter(Boolean).map(l => l.split("=").map(p => p.trim()));
-		return Object.fromEntries(entries.filter(e => e.length === 2));
-	}
-
-	function getPublishedFileName(rawUrl?: string | null): string | null {
-		const stableUrl = toStableGistRawUrl(rawUrl);
-		if (!stableUrl) {
-			return null;
-		}
-
-		try {
-			const segments = new URL(stableUrl).pathname.split("/").filter(Boolean);
-			const filename = segments.at(-1);
-			return filename ? decodeURIComponent(filename) : null;
-		} catch {
-			return null;
+	function selectAllNodes() {
+		const visibleIds = filteredNodesInRule.map(n => n.id);
+		const allSelected = visibleIds.every(id => selectedNodeIds.includes(id));
+		if (allSelected) {
+			selectedNodeIds = selectedNodeIds.filter(id => !visibleIds.includes(id));
+		} else {
+			selectedNodeIds = Array.from(new Set([...selectedNodeIds, ...visibleIds]));
 		}
 	}
 
-	function getPublishedGistId(rawUrl?: string | null): string | null {
-		const stableUrl = toStableGistRawUrl(rawUrl);
-		if (!stableUrl) {
-			return null;
-		}
-
-		try {
-			const segments = new URL(stableUrl).pathname.split("/").filter(Boolean);
-			return segments.length >= 4 ? (segments[1] ?? null) : null;
-		} catch {
-			return null;
+	function selectAllSubs() {
+		const visibleIds = filteredSubsInRule.map(s => s.id);
+		const allSelected = visibleIds.every(id => selectedSubscriptionIds.includes(id));
+		if (allSelected) {
+			selectedSubscriptionIds = selectedSubscriptionIds.filter(id => !visibleIds.includes(id));
+		} else {
+			selectedSubscriptionIds = Array.from(new Set([...selectedSubscriptionIds, ...visibleIds]));
 		}
 	}
 
-	function isTargetFormDirty(target: AggregatePublishTarget | null): boolean {
-		if (!target) {
-			return false;
-		}
+	$: filteredNodesInRule = $appState.nodes.filter(n => n.name.toLowerCase().includes(nodeSearchQuery.toLowerCase()));
+	$: filteredSubsInRule = $appState.subscriptions.filter(s => s.name.toLowerCase().includes(subSearchQuery.toLowerCase()));
 
-		return (
-			publishTargetName.trim() !== target.name ||
-			publishTargetRuleId !== target.ruleId ||
-			publishTargetFile.trim() !== target.fileName ||
-			publishTargetDescription.trim() !== target.description ||
-			publishTargetPublic !== target.isPublic
-		);
-	}
-
-	function getPublishRenameTransition(target: AggregatePublishTarget | null, nextFileName: string) {
-		const currentPublishedFileName = getPublishedFileName(target?.lastPublishedUrl);
-		const currentPublishedGistId = getPublishedGistId(target?.lastPublishedUrl);
-		const previousFileShared = Boolean(
-			target &&
-			currentPublishedFileName &&
-			$appState.publishTargets.some(
-				(item) => item.id !== target.id && item.fileName.trim() === currentPublishedFileName
-			)
-		);
-		const willChange = Boolean(
-			currentPublishedFileName && nextFileName && nextFileName !== currentPublishedFileName
-		);
-		const canAutoDeletePrevious = Boolean(
-			willChange &&
-			currentPublishedFileName &&
-			currentPublishedFileName !== WORKSPACE_FILE &&
-			currentPublishedGistId &&
-			$appState.activeGistId &&
-			currentPublishedGistId === $appState.activeGistId &&
-			!previousFileShared
-		);
-
-		return {
-			currentPublishedFileName,
-			currentPublishedGistId,
-			nextFileName,
-			previousFileShared,
-			willChange,
-			canAutoDeletePrevious
-		};
-	}
-
-	function loadRule(rule: AggregateRule) {
+	function loadRule(rule: any) {
 		editingRuleId = rule.id;
-		publishTargetRuleId = rule.id;
 		ruleName = rule.name;
 		selectedNodeIds = [...rule.nodeIds];
 		selectedSubscriptionIds = [...rule.subscriptionIds];
 		excludeTags = rule.excludeTagIds.join(", ");
-		renameMap = Object.entries(rule.renameMap).map(([k, v]) => `${k}=${v}`).join("\n");
-		customRegionFlagMap = rule.customRegionFlagMap ?? "";
-		allowedTypes = rule.allowedTypes ?? [];
+		renameMap = Object.entries(rule.renameMap || {}).map(([k, v]) => `${k}=${v}`).join("\n");
+		customRegionFlagMap = rule.customRegionFlagMap || "";
+		allowedTypes = rule.allowedTypes || [];
 		prependRegionFlags = rule.prependRegionFlags ?? true;
-		clearPreview();
-	}
-
-	function clearPreview() {
-		previewSummary = ""; previewContent = ""; previewLines = 0;
-		previewWarnings = []; previewErrors = []; previewEntries = [];
 	}
 
 	function resetRuleForm() {
 		editingRuleId = ""; ruleName = ""; selectedNodeIds = [];
-		selectedSubscriptionIds = []; excludeTags = ""; renameMap = ""; customRegionFlagMap = "";
-		allowedTypes = []; prependRegionFlags = true; clearPreview();
+		selectedSubscriptionIds = []; excludeTags = ""; renameMap = ""; 
+		customRegionFlagMap = ""; allowedTypes = []; prependRegionFlags = true;
+		previewEntries = [];
 	}
 
-	function loadPublishTarget(target: AggregatePublishTarget) {
+	function loadPublishTarget(target: any) {
 		selectedTargetId = target.id;
 		publishTargetName = target.name;
 		publishTargetRuleId = target.ruleId;
 		publishTargetFile = target.fileName;
 		publishTargetDescription = target.description;
 		publishTargetPublic = target.isPublic;
-		publishUrl = toStableGistRawUrl(target.lastPublishedUrl) ?? null;
-		outputContent = "";
+		publishUrl = target.lastPublishedUrl;
 	}
 
 	function resetTargetForm() {
-		const firstRule = $appState.aggregates[0];
 		selectedTargetId = ""; publishTargetName = "";
-		publishTargetRuleId = firstRule?.id ?? "";
-		publishTargetFile = firstRule ? `${firstRule.name.toLowerCase().replace(/\\s+/g, '-')}.txt` : "subman-aggregate.txt";
+		publishTargetRuleId = $appState.aggregates[0]?.id || "";
+		publishTargetFile = "aggregate.txt";
 		publishTargetDescription = "SubMan aggregate";
 		publishTargetPublic = false;
-		outputContent = ""; publishUrl = null;
-	}
-
-	$: if (publishTargetRuleId && !$appState.aggregates.some((rule) => rule.id === publishTargetRuleId)) {
-		publishTargetRuleId = $appState.aggregates[0]?.id ?? "";
-	}
-
-	$: selectedPublishTarget = selectedTargetId
-		? $appState.publishTargets.find((target) => target.id === selectedTargetId) ?? null
-		: null;
-	$: hasUnsavedTargetChanges = isTargetFormDirty(selectedPublishTarget);
-	$: selectedPublishTransition = getPublishRenameTransition(selectedPublishTarget, publishTargetFile.trim());
-	$: publishedFileName = selectedPublishTransition.currentPublishedFileName;
-	$: willChangePublishedFileName = selectedPublishTransition.willChange;
-	$: renameWarningMessage = !willChangePublishedFileName
-		? ""
-		: selectedPublishTransition.canAutoDeletePrevious
-			? $t("On next publish, SubMan will create a new stable link and delete the previous workspace file automatically. Clients using the old link still need to be updated manually.")
-			: selectedPublishTransition.previousFileShared
-				? $t("On next publish, SubMan will create a new stable link. The previous workspace file is still used by another publish target, so it will be kept.")
-				: selectedPublishTransition.currentPublishedGistId &&
-				  $appState.activeGistId &&
-				  selectedPublishTransition.currentPublishedGistId !== $appState.activeGistId
-					? $t("On next publish, SubMan will create a new stable link. The previous file belongs to a different workspace gist, so it cannot be deleted automatically.")
-					: $t("On next publish, SubMan will create a new stable link. The previous workspace file cannot be deleted automatically, so you may need to clean it up manually.");
-
-	function normalizeBuiltInRegionMapSearch(value: string): string {
-		return value.trim().toUpperCase();
-	}
-
-	$: normalizedBuiltInRegionMapSearch = normalizeBuiltInRegionMapSearch(builtInRegionMapSearch);
-	$: filteredBuiltInRegionRules = BUILT_IN_REGION_FLAG_RULES.filter((rule) =>
-		!normalizedBuiltInRegionMapSearch ||
-		rule.code.includes(normalizedBuiltInRegionMapSearch) ||
-		rule.keywords.some((keyword) => keyword.toUpperCase().includes(normalizedBuiltInRegionMapSearch))
-	);
-
-	$: customRegionFlagValidation = parseCustomRegionFlagRules(customRegionFlagMap);
-	$: customRegionFlagIssues = customRegionFlagValidation.issues;
-	$: normalizedCustomRegionFlagMap = normalizeCustomRegionFlagMap(customRegionFlagMap);
-	$: existingCustomRegionFlagCodes = getExistingCustomRegionFlagCodes(customRegionFlagMap);
-
-	const builtInRegionFlagTemplateLines = BUILT_IN_REGION_FLAG_RULES.map((rule) => `${rule.code} = ${rule.keywords.join(", ")}`);
-	const builtInRegionFlagTemplate = builtInRegionFlagTemplateLines.join("\n");
-
-	function getExistingCustomRegionFlagCodes(rawMap: string): Set<string> {
-		const codes = new Set<string>();
-		for (const rawLine of rawMap.split(/\r?\n/)) {
-			const match = rawLine.trim().match(/^([A-Za-z]{2})\s*=/);
-			if (match?.[1]) {
-				codes.add(match[1].toUpperCase());
-			}
-		}
-		return codes;
-	}
-
-function getCustomRegionFlagCodeFromLine(line: string): string | null {
-		const match = line.trim().match(/^([A-Za-z]{2})\s*=/);
-		return match?.[1]?.toUpperCase() ?? null;
-	}
-
-	function buildAppendMissingBuiltInRegionFlagTemplate(rawMap: string): string | null {
-		const existingCodes = getExistingCustomRegionFlagCodes(rawMap);
-		const missingLines = builtInRegionFlagTemplateLines.filter((line) => {
-			const code = line.slice(0, 2).toUpperCase();
-			return !existingCodes.has(code);
-		});
-
-		if (missingLines.length === 0) {
-			return null;
-		}
-
-		const current = rawMap.trim();
-		return current ? `${current}\n${missingLines.join("\n")}` : missingLines.join("\n");
-	}
-
-	function syncCustomRegionFlagMapSelection() {
-		if (!customRegionFlagMapTextarea) {
-			return;
-		}
-
-		customRegionFlagMapSelectionStart = customRegionFlagMapTextarea.selectionStart ?? customRegionFlagMap.length;
-		customRegionFlagMapSelectionEnd = customRegionFlagMapTextarea.selectionEnd ?? customRegionFlagMapSelectionStart;
-	}
-
-	function buildInsertedRegionFlagRuleMapValue(currentValue: string, insertedLine: string): { value: string; cursor: number } {
-		const start = Math.min(customRegionFlagMapSelectionStart, customRegionFlagMapSelectionEnd, currentValue.length);
-		const end = Math.min(Math.max(customRegionFlagMapSelectionStart, customRegionFlagMapSelectionEnd), currentValue.length);
-		const before = currentValue.slice(0, start);
-		const after = currentValue.slice(end);
-		let insertion = insertedLine.trim();
-
-		if (before && !before.endsWith("\n")) {
-			insertion = `\n${insertion}`;
-		}
-		if (after && !after.startsWith("\n")) {
-			insertion = `${insertion}\n`;
-		}
-
-		const value = `${before}${insertion}${after}`;
-		return { value, cursor: before.length + insertion.length };
-	}
-
-function buildReplacedRegionFlagRuleMapValue(currentValue: string, rule: { code: string; keywords: string[] }): { value: string; cursor: number } {
-		const nextLine = `${rule.code} = ${rule.keywords.join(", ")}`;
-		const nextLines: string[] = [];
-		let replaced = false;
-		let cursorLineIndex = -1;
-
-		for (const rawLine of currentValue.split(/\r?\n/)) {
-			const code = getCustomRegionFlagCodeFromLine(rawLine);
-			if (code !== rule.code) {
-				nextLines.push(rawLine);
-				continue;
-			}
-
-			if (!replaced) {
-				nextLines.push(nextLine);
-				replaced = true;
-				cursorLineIndex = nextLines.length - 1;
-			}
-		}
-
-		if (!replaced) {
-			return buildInsertedRegionFlagRuleMapValue(currentValue, nextLine);
-		}
-
-		const value = nextLines.join("\n");
-		const linesBeforeCursor = nextLines.slice(0, cursorLineIndex + 1).join("\n");
-		return { value, cursor: linesBeforeCursor.length };
-	}
-
-	async function insertBuiltInRegionRuleAtCursor(
-		rule: { code: string; keywords: string[] },
-		options?: { keepBrowserOpen?: boolean }
-	) {
-		syncCustomRegionFlagMapSelection();
-		const ruleAlreadyPresent = existingCustomRegionFlagCodes.has(rule.code);
-		const { value, cursor } = ruleAlreadyPresent
-			? buildReplacedRegionFlagRuleMapValue(customRegionFlagMap, rule)
-			: buildInsertedRegionFlagRuleMapValue(customRegionFlagMap, `${rule.code} = ${rule.keywords.join(", ")}`);
-		customRegionFlagMap = value;
-		customRegionFlagMapSelectionStart = cursor;
-		customRegionFlagMapSelectionEnd = cursor;
-		const keepBrowserOpen = options?.keepBrowserOpen ?? false;
-		showBuiltInRegionMap = keepBrowserOpen;
-		setStatus(
-			$t(
-				keepBrowserOpen
-					? ruleAlreadyPresent
-						? "Built-in rule replaced. Browser kept open."
-						: "Built-in rule inserted. Browser kept open."
-					: ruleAlreadyPresent
-						? "Built-in rule replaced in custom map."
-						: "Built-in rule inserted at cursor."
-			),
-			"success"
-		);
-		if (keepBrowserOpen) {
-			return;
-		}
-		await tick();
-		if (!customRegionFlagMapTextarea) {
-			return;
-		}
-		customRegionFlagMapTextarea.focus();
-		customRegionFlagMapTextarea.setSelectionRange(cursor, cursor);
-		syncCustomRegionFlagMapSelection();
-	}
-
-	function handleBuiltInRegionRuleCardClick(
-		event: MouseEvent,
-		rule: { code: string; keywords: string[] },
-		ruleKey: string
-	) {
-		if (event.metaKey || event.ctrlKey) {
-			void insertBuiltInRegionRuleAtCursor(rule, { keepBrowserOpen: true });
-			return;
-		}
-
-		selectedBuiltInRegionRuleKey = ruleKey;
-	}
-
-	function handleBuiltInRegionRuleCardDoubleClick(rule: { code: string; keywords: string[] }, ruleKey: string) {
-		selectedBuiltInRegionRuleKey = ruleKey;
-		void insertBuiltInRegionRuleAtCursor(rule);
-	}
-
-	function normalizeAndSortCustomRegionFlagMap() {
-		if (customRegionFlagIssues.length > 0) {
-			setStatus($t("Fix custom region flag map errors before normalizing."), "error");
-			return;
-		}
-
-		const currentValue = customRegionFlagMap.trim();
-		if (!currentValue) {
-			setStatus($t("No custom region flag rules to normalize."), "info");
-			return;
-		}
-
-		const nextValue = normalizedCustomRegionFlagMap.value;
-		if (currentValue === nextValue) {
-			setStatus($t("Custom region flag map is already normalized."), "info");
-			return;
-		}
-
-		customRegionFlagMap = nextValue;
-		setStatus($t("Custom region flag map normalized."), "success");
-	}
-
-	async function importBuiltInRegionFlagTemplate() {
-		const currentValue = customRegionFlagMap.trim();
-		const nextValue = builtInRegionFlagTemplate.trim();
-
-		if (currentValue === nextValue) {
-			setStatus($t("Built-in template is already loaded."), "info");
-			return;
-		}
-
-		if (currentValue) {
-			const confirmed = await requestConfirm({
-				title: $t("Confirm Action"),
-				message: $t("Replace the current custom region flag map with the built-in template?"),
-				confirmText: $t("Replace"),
-				cancelText: $t("Cancel")
-			});
-			if (!confirmed) {
-				return;
-			}
-		}
-
-		customRegionFlagMap = nextValue;
-		setStatus($t("Built-in template imported."), "success");
-	}
-
-	async function appendMissingBuiltInRegionFlagTemplate() {
-		const nextValue = buildAppendMissingBuiltInRegionFlagTemplate(customRegionFlagMap);
-		if (!nextValue) {
-			setStatus($t("All built-in rules are already present."), "info");
-			return;
-		}
-
-		customRegionFlagMap = nextValue;
-		setStatus($t("Missing built-in rules appended."), "success");
-	}
-
-	async function buildPreview() {
-		if (customRegionFlagIssues.length > 0) { setStatus($t("Fix custom region flag map errors before previewing or saving."), "error"); return; }
-		if (!selectedNodeIds.length && !selectedSubscriptionIds.length) {
-			setStatus($t("Select at least one node or subscription."), 'error');
-			return;
-		}
-		previewLoading = true;
-		try {
-			const normalizedRegionFlagMap = normalizedCustomRegionFlagMap.value;
-			const rule: AggregateRule = {
-				id: "preview", name: ruleName || "Preview",
-				nodeIds: selectedNodeIds, subscriptionIds: selectedSubscriptionIds,
-				excludeTagIds: excludeTags.split(",").map(t => t.trim()).filter(Boolean),
-				renameMap: parseRenameMap(renameMap), customRegionFlagMap: normalizedRegionFlagMap, allowedTypes, prependRegionFlags, updatedAt: nowIso()
-			};
-			const result = await buildAggregateOutput(rule, $appState.nodes, $appState.subscriptions);
-			previewContent = result.content; previewLines = result.lines;
-			previewWarnings = result.warnings; previewErrors = result.errors;
-			buildPreviewEntries(result.content);
-			previewSummary = `${$t("Nodes")}: ${selectedNodeIds.length}, ${$t("Subscriptions")}: ${selectedSubscriptionIds.length}\n${$t("Output Lines")}: ${result.lines}`;
-		} finally { previewLoading = false; }
+		publishUrl = null;
 	}
 
 	async function saveRule() {
-		if (!ruleName.trim()) { setStatus($t("Rule name is required."), 'error'); return; }
-		if (customRegionFlagIssues.length > 0) { setStatus($t("Fix custom region flag map errors before previewing or saving."), 'error'); return; }
-		const normalizedRegionFlagMap = normalizedCustomRegionFlagMap.value;
-		customRegionFlagMap = normalizedRegionFlagMap;
+		if (!ruleName.trim()) return;
 		const id = editingRuleId || createId("agg");
 		upsertAggregate({
 			id, name: ruleName.trim(), nodeIds: selectedNodeIds, subscriptionIds: selectedSubscriptionIds,
 			excludeTagIds: excludeTags.split(",").map(t => t.trim()).filter(Boolean),
-			renameMap: parseRenameMap(renameMap), customRegionFlagMap: normalizedRegionFlagMap, allowedTypes, prependRegionFlags, updatedAt: nowIso()
+			renameMap: Object.fromEntries(renameMap.split("\n").map(l => l.split("=").map(p => p.trim())).filter(e => e.length === 2)),
+			customRegionFlagMap, allowedTypes: allowedTypes as any[], prependRegionFlags, updatedAt: nowIso()
 		});
 		editingRuleId = id;
-		setStatus($t("Rule saved."));
-	}
-
-	async function deleteRule() {
-		if (!editingRuleId) return;
-
-		const rule = $appState.aggregates.find((item) => item.id === editingRuleId);
-		if (!rule) {
-			setStatus($t("Rule not found."), 'error');
-			return;
-		}
-
-		const boundTargets = $appState.publishTargets.filter((target) => target.ruleId === editingRuleId);
-		const shouldResetTarget = boundTargets.some((target) => target.id === selectedTargetId);
-		const confirmed = await requestConfirm({
-			title: $t("Confirm Action"),
-			message: $t('Delete rule "{name}"?\nThis will remove {count} publish target(s) bound to this rule.', {
-				name: rule.name,
-				count: boundTargets.length
-			}),
-			confirmText: $t("Delete"),
-			cancelText: $t("Cancel"),
-			danger: true
-		});
-		if (!confirmed) return;
-
-		const allTargetFiles = Array.from(
-			new Set(
-				boundTargets
-					.map((target) => target.fileName.trim())
-					.filter((name) => name.length > 0 && name !== WORKSPACE_FILE)
-			)
-		);
-		const sharedFiles = Array.from(
-			new Set(
-				$appState.publishTargets
-					.filter((target) => target.ruleId !== editingRuleId)
-					.map((target) => target.fileName.trim())
-					.filter((name) => allTargetFiles.includes(name))
-			)
-		);
-		const removableFiles = allTargetFiles.filter((name) => !sharedFiles.includes(name));
-		const keptFiles: string[] = [...sharedFiles];
-		const deletedFiles: string[] = [];
-		let cleanupWarning: string | null = null;
-
-		if (removableFiles.length > 0) {
-			const shouldDeleteFiles = await requestConfirm({
-				title: $t("Confirm Action"),
-				message: $t("Also delete {count} workspace output file(s)?\n{files}", {
-					count: removableFiles.length,
-					files: removableFiles.join(", ")
-				}),
-				confirmText: $t("Delete"),
-				cancelText: $t("Cancel"),
-				danger: true
-			});
-			if (shouldDeleteFiles) {
-				if ($authState.token && $appState.activeGistId) {
-					try {
-						await updateGist($authState.token, {
-							gistId: $appState.activeGistId,
-							files: Object.fromEntries(removableFiles.map((name) => [name, null]))
-						});
-						deletedFiles.push(...removableFiles);
-					} catch (err) {
-						cleanupWarning = $t("Workspace file cleanup failed: {message} Clean remaining files in /gists.", {
-							message: err instanceof Error ? err.message : $t("Failed to delete workspace files.")
-						});
-						keptFiles.push(...removableFiles);
-					}
-				} else {
-					cleanupWarning = $t("Workspace files were not deleted (missing token or workspace gist): {files}.", {
-						files: removableFiles.join(", ")
-					});
-					keptFiles.push(...removableFiles);
-				}
-			} else {
-				keptFiles.push(...removableFiles);
-			}
-		}
-
-		removeAggregate(editingRuleId);
-		resetRuleForm();
-		if (shouldResetTarget) {
-			resetTargetForm();
-		}
-
-		const summaryParts = [
-			$t("Rule deleted. Removed {count} publish target(s).", { count: boundTargets.length })
-		];
-		if (sharedFiles.length > 0) {
-			summaryParts.push($t("{count} shared file(s) kept: {files}.", {
-				count: sharedFiles.length,
-				files: sharedFiles.join(", ")
-			}));
-		}
-		if (deletedFiles.length > 0) {
-			summaryParts.push($t("Deleted {count} workspace file(s): {files}.", {
-				count: deletedFiles.length,
-				files: deletedFiles.join(", ")
-			}));
-		}
-		if (cleanupWarning) {
-			summaryParts.push(cleanupWarning);
-		} else if (keptFiles.length > sharedFiles.length) {
-			const manuallyKept = keptFiles.filter((name) => !sharedFiles.includes(name));
-			if (manuallyKept.length > 0) {
-				summaryParts.push($t("Workspace files kept: {files}.", { files: manuallyKept.join(", ") }));
-			}
-		}
-
-		setStatus(summaryParts.join(" "), cleanupWarning ? 'error' : 'info');
-	}
-
-	async function deleteTarget() {
-		if (!selectedTargetId) return;
-		const target = $appState.publishTargets.find((item) => item.id === selectedTargetId);
-		if (!target) {
-			setStatus($t("Publish target not found."), 'error');
-			return;
-		}
-		const confirmed = await requestConfirm({
-			title: $t("Confirm Action"),
-			message: $t("Delete this publish target? This does not delete gist files."),
-			confirmText: $t("Delete"),
-			cancelText: $t("Cancel"),
-			danger: true
-		});
-		if (!confirmed) return;
-		removePublishTarget(target.id);
-		resetTargetForm();
-		setStatus($t("Publish target deleted."), 'info');
+		showToast($t("Rule saved successfully"), 'success');
 	}
 
 	async function saveTarget() {
-		if (!publishTargetRuleId) { setStatus($t("Select a rule first."), 'error'); return; }
-		if (!$appState.aggregates.some((rule) => rule.id === publishTargetRuleId)) {
-			setStatus($t("Selected target rule no longer exists."), 'error');
-			return;
-		}
-		if (!publishTargetFile.trim()) { setStatus($t("File name is required."), 'error'); return; }
+		if (!publishTargetFile.trim() || !publishTargetRuleId) return;
 		const id = selectedTargetId || createId("pub");
-		const existing = $appState.publishTargets.find((target) => target.id === id);
 		upsertPublishTarget({
 			id, name: publishTargetName.trim() || publishTargetFile,
 			ruleId: publishTargetRuleId, fileName: publishTargetFile.trim(),
 			description: publishTargetDescription.trim(), isPublic: publishTargetPublic,
-			lastPublishedAt: existing?.lastPublishedAt ?? null,
-			lastPublishedUrl: toStableGistRawUrl(existing?.lastPublishedUrl ?? publishUrl) ?? null,
-			lastPublishTransitionAt: existing?.lastPublishTransitionAt ?? null,
-			lastPublishTransitionFromFileName: existing?.lastPublishTransitionFromFileName ?? null,
-			lastPublishTransitionToFileName: existing?.lastPublishTransitionToFileName ?? null,
-			lastPublishTransitionOutcome: existing?.lastPublishTransitionOutcome ?? null,
 			updatedAt: nowIso()
-		});
+		} as any);
 		selectedTargetId = id;
-		setStatus($t("Publish target saved."));
+		showToast($t("Publish target saved"), 'success');
 	}
 
 	async function publish() {
-		if (!$authState.token) { setStatus($t("Connect GitHub first."), 'error'); return; }
-		if (!selectedTargetId) { setStatus($t("Save and select a target first."), 'error'); return; }
+		if (!$authState.token || !selectedTargetId) return;
 		const target = $appState.publishTargets.find(t => t.id === selectedTargetId);
-		if (!target) return;
-		if (hasUnsavedTargetChanges) { setStatus($t("Save target changes before publishing."), 'error'); return; }
+		const rule = $appState.aggregates.find(r => r.id === target?.ruleId);
+		if (!target || !rule) return;
 
-		const renameTransition = getPublishRenameTransition(target, target.fileName.trim());
-		if (renameTransition.willChange) {
-			const confirmMessage = renameTransition.canAutoDeletePrevious
-				? $t(
-					'Publishing to "{next}" will create a new stable link and delete the previous workspace file "{current}" automatically. Existing clients using the old link must be updated manually.',
-					{
-						next: renameTransition.nextFileName,
-						current: renameTransition.currentPublishedFileName ?? "-"
-					}
-				)
-				: renameTransition.previousFileShared
-					? $t(
-						'Publishing to "{next}" will create a new stable link. The previous workspace file "{current}" is still used by another publish target, so it will be kept.',
-						{
-							next: renameTransition.nextFileName,
-							current: renameTransition.currentPublishedFileName ?? "-"
-						}
-					)
-					: renameTransition.currentPublishedGistId &&
-					  $appState.activeGistId &&
-					  renameTransition.currentPublishedGistId !== $appState.activeGistId
-						? $t(
-							'Publishing to "{next}" will create a new stable link. The previous file "{current}" belongs to a different workspace gist, so it cannot be deleted automatically.',
-							{
-								next: renameTransition.nextFileName,
-								current: renameTransition.currentPublishedFileName ?? "-"
-							}
-						)
-						: $t(
-							'Publishing to "{next}" will create a new stable link. The previous workspace file "{current}" cannot be deleted automatically, so you may need to clean it up manually.',
-							{
-								next: renameTransition.nextFileName,
-								current: renameTransition.currentPublishedFileName ?? "-"
-							}
-						);
-			const confirmed = await requestConfirm({
-				title: $t("Confirm Action"),
-				message: confirmMessage,
-				confirmText: $t("Publish Now"),
-				cancelText: $t("Cancel")
-			});
-			if (!confirmed) {
-				return;
-			}
-		}
-		
 		publishing = true;
 		try {
-			const rule = $appState.aggregates.find(r => r.id === target.ruleId);
-			if (!rule) throw new Error("Rule not found");
+			const result = await buildAggregateOutput(rule, $appState.nodes, $appState.subscriptions);
+			const config = exportSyncState($appState);
+			const files = { [target.fileName]: { content: result.content }, [WORKSPACE_FILE]: { content: config } };
+			const response = $appState.activeGistId 
+				? await updateGist($authState.token, { gistId: $appState.activeGistId, files })
+				: await createGist($authState.token, { description: target.description, isPublic: target.isPublic, files });
 			
-			const buildResult = await buildAggregateOutput(rule, $appState.nodes, $appState.subscriptions);
-			outputContent = buildResult.content;
-			
-			const configContent = exportSyncState($appState);
-			let workspaceId = $appState.activeGistId || "";
-			let response;
-			const nextFiles = {
-				[target.fileName]: { content: outputContent },
-				[WORKSPACE_FILE]: { content: configContent }
-			};
-
-			if (workspaceId) {
-				const files: Record<string, { content: string } | null> = { ...nextFiles };
-				if (renameTransition.canAutoDeletePrevious && renameTransition.currentPublishedFileName) {
-					files[renameTransition.currentPublishedFileName] = null;
-				}
-				response = await updateGist($authState.token, {
-					gistId: workspaceId, description: target.description,
-					files
-				});
-			} else {
-				response = await createGist($authState.token, {
-					description: target.description || "SubMan workspace", isPublic: target.isPublic,
-					files: nextFiles
-				});
-				workspaceId = response.id;
-			}
-
 			const fileMeta = response.files.find(f => f.filename === target.fileName);
-			publishUrl = toStableGistRawUrl(fileMeta?.rawUrl) ?? null;
-			const publishedAt = nowIso();
-			const transitionOutcome = !renameTransition.willChange
-				? target.lastPublishTransitionOutcome ?? null
-				: renameTransition.canAutoDeletePrevious
-					? 'auto_deleted'
-					: renameTransition.previousFileShared
-						? 'kept_shared'
-						: renameTransition.currentPublishedGistId &&
-						  $appState.activeGistId &&
-						  renameTransition.currentPublishedGistId !== $appState.activeGistId
-							? 'kept_external'
-							: 'kept_manual';
-			
-			appState.update(s => ({ ...s, activeGistId: workspaceId, lastUpdated: publishedAt }));
-			upsertPublishTarget({
-				...target,
-				lastPublishedAt: publishedAt,
-				lastPublishedUrl: publishUrl,
-				lastPublishTransitionAt: renameTransition.willChange
-					? publishedAt
-					: target.lastPublishTransitionAt ?? null,
-				lastPublishTransitionFromFileName: renameTransition.willChange
-					? renameTransition.currentPublishedFileName ?? null
-					: target.lastPublishTransitionFromFileName ?? null,
-				lastPublishTransitionToFileName: renameTransition.willChange
-					? renameTransition.nextFileName
-					: target.lastPublishTransitionToFileName ?? null,
-				lastPublishTransitionOutcome: transitionOutcome,
-				updatedAt: publishedAt
-			});
-			
-			setStatus(
-				renameTransition.canAutoDeletePrevious && renameTransition.currentPublishedFileName
-					? $t('Published to Gist successfully! Previous workspace file "{file}" was removed automatically.', {
-						file: renameTransition.currentPublishedFileName
-					})
-					: $t("Published to Gist successfully!"),
-				'success'
-			);
-		} catch (err) {
-			setStatus(err instanceof Error ? err.message : $t("Publish failed."), 'error');
-		} finally { publishing = false; }
+			publishUrl = toStableGistRawUrl(fileMeta?.rawUrl) || null;
+			appState.update(s => ({ ...s, activeGistId: response.id }));
+			upsertPublishTarget({ ...target, lastPublishedAt: nowIso(), lastPublishedUrl: publishUrl } as any);
+			showToast($t("Published successfully to GitHub Gist"), 'success');
+		} catch (err) { 
+			showToast($t("Publish failed: {error}", { error: err instanceof Error ? err.message : String(err) }), 'error'); 
+		} finally { 
+			publishing = false; 
+		}
 	}
 
-	async function copyLink() {
-		if (!publishUrl) return;
+	async function buildPreview() {
+		if (!selectedNodeIds.length && !selectedSubscriptionIds.length) {
+			showToast($t("Select nodes or subs."), 'error');
+			return;
+		}
+		previewLoading = true;
 		try {
-			await navigator.clipboard.writeText(publishUrl);
-			setStatus($t("Link copied."));
-		} catch { setStatus($t("Copy failed."), 'error'); }
+			const rule: any = {
+				id: "preview", name: ruleName || "Preview",
+				nodeIds: selectedNodeIds, subscriptionIds: selectedSubscriptionIds,
+				excludeTagIds: excludeTags.split(",").map(t => t.trim()).filter(Boolean),
+				renameMap: Object.fromEntries(renameMap.split("\n").map(l => l.split("=").map(p => p.trim())).filter(e => e.length === 2)),
+				customRegionFlagMap, allowedTypes, prependRegionFlags, updatedAt: nowIso()
+			};
+			const result = await buildAggregateOutput(rule, $appState.nodes, $appState.subscriptions);
+			const lines = result.content.split("\n").map(l => l.trim()).filter(Boolean);
+			previewEntries = lines.map((line, idx) => {
+				const schemeIdx = line.indexOf("://");
+				const protocol = schemeIdx > 0 ? line.slice(0, schemeIdx) : "unknown";
+				let name = "unnamed";
+				const hashIdx = line.lastIndexOf("#");
+				if (hashIdx > schemeIdx) {
+					try { name = decodeURIComponent(line.slice(hashIdx + 1)); } catch { name = line.slice(hashIdx + 1); }
+				}
+				return { id: `p-${idx}`, line, protocol, name };
+			});
+			if (previewEntries.length === 0) showToast($t("No nodes matched criteria"), 'info');
+			else showToast($t("Preview generated"), 'success');
+		} catch (err) {
+			showToast($t("Preview failed"), 'error');
+		} finally { previewLoading = false; }
 	}
 
 	async function copyLine(line: string) {
 		try {
 			await navigator.clipboard.writeText(line);
-			setStatus($t("Line copied."));
+			showToast($t("Copied to clipboard"), 'success');
 		} catch {
-			setStatus($t("Copy failed."), 'error');
+			showToast($t("Copy failed"), 'error');
 		}
 	}
-
-	onDestroy(() => { if (statusTimer) clearTimeout(statusTimer); });
 </script>
 
-<svelte:head>
-	<title>{$t("Aggregation Builder")} | {$t("SubMan")}</title>
-</svelte:head>
+<div class="flex flex-col gap-6">
+	<div class="flex items-center gap-3 border-b border-border-default pb-4">
+		<Zap class="h-6 w-6 text-fg-muted" />
+		<h1 class="text-2xl font-bold">{$t("Aggregation Builder")}</h1>
+	</div>
 
-<div class="page-stack">
-	<header class="page-hero surface-card">
-		<div class="page-hero__intro">
-			<div class="page-hero__icon">
-				<Zap class="h-6 w-6" />
-			</div>
-			<div class="page-hero__body">
-				<p class="page-hero__eyebrow">{$t("Aggregate")}</p>
-				<h1 class="page-hero__title">{$t("Aggregation Builder")}</h1>
-				<p class="page-hero__description">
-					{$t("Bind rules to stable output files. Reuse one rule across multiple publish targets.")}
-				</p>
-			</div>
-		</div>
-
-		<div class="page-hero__actions">
-			<a href="/nodes" class="button-secondary">
-				<Cpu class="h-4 w-4" />
-				{$t("Nodes")}
-			</a>
-			<a href="/auth" class="button-primary">
-				<Settings class="h-4 w-4" />
-				{$t("Workspace Settings")}
-			</a>
-		</div>
-	</header>
-
-	{#if status}
-		<div
-			transition:fly={{ y: -20, duration: 300 }}
-			class={cn(
-				"floating-notice",
-				status.type === "success" ? "floating-notice--success" : status.type === "error" ? "floating-notice--error" : "floating-notice--info"
-			)}
-		>
-			{#if status.type === "success"}<CheckCircle2 class="h-5 w-5 shrink-0" />
-			{:else if status.type === "error"}<AlertCircle class="h-5 w-5 shrink-0" />
-			{:else}<Zap class="h-5 w-5 shrink-0" />{/if}
-			<span class="text-sm font-bold text-[var(--app-text)]">{status.message}</span>
-		</div>
-	{/if}
-
-	<div class="dashboard-grid dashboard-grid--sidebar">
-		<div class="page-stack">
-			<section class="surface-card section-card">
-				<div class="section-card__header">
-					<div class="section-card__header-main">
-						<div class="section-card__icon">
-							<Settings2 class="h-5 w-5" />
-						</div>
-						<div class="section-card__title-wrap">
-							<h2 class="section-card__title">{$t("Define Aggregate Rule")}</h2>
-							<p class="section-card__text">{$t("Edit names, remove tags, and prepare rename mappings.")}</p>
-						</div>
+	<div class="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
+		<!-- Main Rule Editor -->
+		<div class="lg:col-span-2 flex flex-col gap-6">
+			<div class="gh-box shadow-sm !overflow-visible">
+				<div class="gh-box-header">
+					<div class="flex items-center gap-2">
+						<Settings2 class="h-4 w-4" />
+						<span>{$t("Rule Definition")}</span>
 					</div>
-
-					<div class="w-full sm:w-56">
-						<label class="field-label" for="aggregate-rule-select">{$t("Rules")}</label>
-						<select
-							id="aggregate-rule-select"
-							class="field-select"
-							value={editingRuleId}
-							on:change={(e) => {
-								const id = e.currentTarget.value;
-								if (!id) resetRuleForm();
-								else {
-									const rule = $appState.aggregates.find((item) => item.id === id);
-									if (rule) loadRule(rule);
-								}
-							}}
-						>
-							<option value="">+ {$t("New rule")}</option>
-							{#each $appState.aggregates as rule}
-								<option value={rule.id}>{rule.name}</option>
-							{/each}
-						</select>
-					</div>
+					<select class="gh-select gh-select-sm w-48" value={editingRuleId} on:change={(e) => { const id = e.currentTarget.value; id ? loadRule($appState.aggregates.find(r => r.id === id)) : resetRuleForm(); }}>
+						<option value="">+ {$t("New Rule")}</option>
+						{#each $appState.aggregates as rule}<option value={rule.id}>{rule.name}</option>{/each}
+					</select>
 				</div>
-
-				<div class="metric-grid">
-					<div class="metric-card">
-						<p class="metric-card__label">{$t("Rules")}</p>
-						<p class="metric-card__value">{$appState.aggregates.length}</p>
-					</div>
-					<div class="metric-card">
-						<p class="metric-card__label">{$t("Nodes")}</p>
-						<p class="metric-card__value">{selectedNodeIds.length}</p>
-						<p class="metric-card__meta">{$t("Selected")}</p>
-					</div>
-					<div class="metric-card">
-						<p class="metric-card__label">{$t("Subscriptions")}</p>
-						<p class="metric-card__value">{selectedSubscriptionIds.length}</p>
-						<p class="metric-card__meta">{$t("Selected")}</p>
-					</div>
-					<div class="metric-card">
-						<p class="metric-card__label">{$t("Protocols")}</p>
-						<p class="metric-card__value">{allowedTypes.length || protocolOptions.length}</p>
-						<p class="metric-card__meta">{allowedTypes.length ? $t("Filtered") : $t("All")}</p>
-					</div>
-				</div>
-
-				<div class="grid gap-4 lg:grid-cols-2">
-					<div class="space-y-2">
-						<label class="field-label" for="aggregate-rule-name">{$t("Rule name")}</label>
-						<input
-							id="aggregate-rule-name"
-							class="field-input"
-							placeholder={$t("Global Proxy Rule...")}
-							bind:value={ruleName}
-						/>
-					</div>
-					<div class="space-y-2">
-						<label class="field-label" for="aggregate-exclude-tags">{$t("Exclude tags (comma separated)")}</label>
-						<input
-							id="aggregate-exclude-tags"
-							class="field-input"
-							placeholder={$t("domestic, gaming...")}
-							bind:value={excludeTags}
-						/>
-					</div>
-				</div>
-
-				<div class="grid gap-4 lg:grid-cols-2">
-					<div class="surface-card section-card section-card--compact">
-						<div class="flex items-center justify-between gap-3">
-							<h3 class="section-card__title">{$t("Nodes")}</h3>
-							<span class="inline-badge inline-badge--accent">{selectedNodeIds.length}</span>
+				<div class="p-4 bg-canvas-default flex flex-col gap-6">
+					<!-- Basics -->
+					<div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+						<div class="flex flex-col gap-1.5">
+							<label class="text-sm font-semibold">{$t("Rule Name")}</label>
+							<input class="gh-input" placeholder="e.g. My Proxy Rule" bind:value={ruleName} />
 						</div>
-						<div class="surface-card section-card section-card--compact custom-scrollbar max-h-56 overflow-y-auto">
-							{#if $appState.nodes.length === 0}
-								<div class="empty-state empty-state--compact">
-									<p class="empty-state__title">{$t("No nodes available.")}</p>
-								</div>
-							{:else}
-								<div class="space-y-2">
-									{#each $appState.nodes as node}
-										<label class="flex cursor-pointer items-center gap-3 rounded-2xl px-3 py-2 transition-colors hover:bg-[var(--app-bg-soft)]">
-											<input
-												type="checkbox"
-												class="h-4 w-4 rounded border-[var(--app-border)] accent-[var(--app-accent-strong)]"
-												checked={selectedNodeIds.includes(node.id)}
-												on:change={() => (selectedNodeIds = toggleSelection(selectedNodeIds, node.id))}
-											/>
-											<div class="min-w-0 flex-1">
-												<p class="truncate text-sm font-semibold text-[var(--app-text)]">{node.name}</p>
-												<p class="metric-card__meta truncate">{node.type}</p>
-											</div>
-										</label>
-									{/each}
-								</div>
-							{/if}
+						<div class="flex flex-col gap-1.5">
+							<label class="text-sm font-semibold">{$t("Exclude Tags")}</label>
+							<input class="gh-input" placeholder="domestic, bypass..." bind:value={excludeTags} />
 						</div>
 					</div>
 
-					<div class="surface-card section-card section-card--compact">
-						<div class="flex items-center justify-between gap-3">
-							<h3 class="section-card__title">{$t("Subscriptions")}</h3>
-							<span class="inline-badge inline-badge--accent">{selectedSubscriptionIds.length}</span>
-						</div>
-						<div class="surface-card section-card section-card--compact custom-scrollbar max-h-56 overflow-y-auto">
-							{#if $appState.subscriptions.length === 0}
-								<div class="empty-state empty-state--compact">
-									<p class="empty-state__title">{$t("No subscriptions available.")}</p>
-								</div>
-							{:else}
-								<div class="space-y-2">
-									{#each $appState.subscriptions as sub}
-										<label class="flex cursor-pointer items-center gap-3 rounded-2xl px-3 py-2 transition-colors hover:bg-[var(--app-bg-soft)]">
-											<input
-												type="checkbox"
-												class="h-4 w-4 rounded border-[var(--app-border)] accent-[var(--app-accent-strong)]"
-												checked={selectedSubscriptionIds.includes(sub.id)}
-												on:change={() => (selectedSubscriptionIds = toggleSelection(selectedSubscriptionIds, sub.id))}
-											/>
-											<div class="min-w-0 flex-1">
-												<p class="truncate text-sm font-semibold text-[var(--app-text)]">{sub.name}</p>
-												<p class="metric-card__meta truncate">{sub.url}</p>
-											</div>
-										</label>
-									{/each}
-								</div>
-							{/if}
-						</div>
-					</div>
-				</div>
-
-				<div class="space-y-2">
-					<p class="field-label">{$t("Protocols")}</p>
-					<div class="filter-pills">
-						{#each protocolOptions as opt}
-							<button
-								type="button"
-								on:click={() => toggleType(opt.id)}
-								class={cn("filter-pill", allowedTypes.includes(opt.id) && "filter-pill--active")}
+					<!-- Selection Dropdowns -->
+					<div class="grid grid-cols-1 sm:grid-cols-2 gap-6">
+						<!-- Nodes Dropdown -->
+						<div class="flex flex-col gap-1.5 relative">
+							<label class="text-sm font-semibold">{$t("Source Nodes")}</label>
+							<button 
+								class="gh-select w-full text-left flex items-center justify-between" 
+								on:click={() => { showNodesMenu = !showNodesMenu; showSubsMenu = false; }}
 							>
-								{opt.label}
+								<span class="truncate">
+									{selectedNodeIds.length > 0 ? $t("{count} nodes selected", { count: selectedNodeIds.length }) : $t("Select nodes...")}
+								</span>
 							</button>
-						{/each}
-					</div>
-					<p class="metric-card__meta">{$t("Leave empty to include all protocols.")}</p>
-				</div>
+							
+							{#if showNodesMenu}
+								<div class="fixed inset-0 z-[110]" on:click={() => (showNodesMenu = false)}></div>
+								<div class="absolute top-full left-0 mt-1 w-full min-w-[280px] gh-box shadow-xl z-[120] bg-canvas-default" transition:slide={{ duration: 150 }}>
+									<div class="p-2 border-b border-border-default bg-canvas-subtle">
+										<div class="relative">
+											<Search class="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-fg-subtle" />
+											<input class="gh-input pl-8 h-7 text-xs w-full" placeholder={$t("Filter nodes...")} bind:value={nodeSearchQuery} on:click|stopPropagation />
+										</div>
+									</div>
+									<div class="max-h-[400px] overflow-y-auto p-1 flex flex-col gap-0.5">
+										<button class="flex items-center gap-2 p-1.5 rounded hover:bg-canvas-subtle text-xs text-accent-fg font-semibold w-full text-left" on:click|stopPropagation={selectAllNodes}>
+											<ListFilter class="h-3.5 w-3.5" /> {$t("Toggle All Visible")}
+										</button>
+										<div class="border-t border-border-default my-1"></div>
+										{#each filteredNodesInRule as node}
+											<label class="flex items-center gap-2 p-1.5 rounded hover:bg-canvas-subtle cursor-pointer text-xs transition-colors" on:click|stopPropagation>
+												<input type="checkbox" class="rounded border-border-default" checked={selectedNodeIds.includes(node.id)} on:change={() => (selectedNodeIds = toggleSelection(selectedNodeIds, node.id))} />
+												<span class="truncate flex-1">{node.name}</span>
+												<span class="text-[9px] uppercase font-black text-fg-subtle">{node.type}</span>
+											</label>
+										{/each}
+										{#if !filteredNodesInRule.length}<p class="text-[10px] text-fg-muted p-4 text-center italic">{$t("No nodes found")}</p>{/if}
+									</div>
+								</div>
+							{/if}
+						</div>
 
-				<div class="grid gap-4 lg:grid-cols-2">
-					<div class="space-y-2">
-						<label class="field-label" for="aggregate-rename-map">{$t("Rename map: old=new per line")}</label>
-						<textarea
-							id="aggregate-rename-map"
-							class="field-textarea field-textarea--mono custom-scrollbar"
-							style="min-height: 9rem;"
-							placeholder="Original Name = New Name&#10;HK-01 = Hong Kong Premium"
-							bind:value={renameMap}
-						></textarea>
-					</div>
+						<!-- Subscriptions Dropdown -->
+						<div class="flex flex-col gap-1.5 relative">
+							<label class="text-sm font-semibold">{$t("Source Subscriptions")}</label>
+							<button 
+								class="gh-select w-full text-left flex items-center justify-between" 
+								on:click={() => { showSubsMenu = !showSubsMenu; showNodesMenu = false; }}
+							>
+								<span class="truncate">
+									{selectedSubscriptionIds.length > 0 ? $t("{count} subs selected", { count: selectedSubscriptionIds.length }) : $t("Select subscriptions...")}
+								</span>
+							</button>
 
-					<div class="space-y-2">
-						<label class="field-label" for="aggregate-region-map">{$t("Custom region flag map")}</label>
-						<textarea
-							id="aggregate-region-map"
-							class={cn(
-								"field-textarea field-textarea--mono custom-scrollbar",
-								customRegionFlagIssues.length > 0 && "border-[var(--app-danger)]"
-							)}
-							style="min-height: 11rem;"
-							placeholder={`HK = HK, HKG, HONG KONG
-US = US, USA, NEW YORK
-JP = JP, JAPAN, TOKYO`}
-							bind:value={customRegionFlagMap}
-							bind:this={customRegionFlagMapTextarea}
-							on:click={syncCustomRegionFlagMapSelection}
-							on:focus={syncCustomRegionFlagMapSelection}
-							on:input={syncCustomRegionFlagMapSelection}
-							on:keyup={syncCustomRegionFlagMapSelection}
-							on:select={syncCustomRegionFlagMapSelection}
-						></textarea>
-						<p class="metric-card__meta">{$t("Use one rule per line: FLAG_CODE = keyword1, keyword2. Custom rules are matched before the built-in region table.")}</p>
-					</div>
-				</div>
-
-				<div class="section-card__actions">
-					<button type="button" on:click={importBuiltInRegionFlagTemplate} class="button-secondary">
-						<Plus class="h-4 w-4" />
-						{$t("Import built-in template")}
-					</button>
-					<button type="button" on:click={normalizeAndSortCustomRegionFlagMap} class="button-secondary">
-						<RefreshCw class="h-4 w-4" />
-						{$t("Normalize and sort map")}
-					</button>
-					<button type="button" on:click={appendMissingBuiltInRegionFlagTemplate} class="button-secondary">
-						<Plus class="h-4 w-4" />
-						{$t("Append missing built-in rules")}
-					</button>
-					<button
-						type="button"
-						on:click={() => {
-							showBuiltInRegionMap = true;
-							selectedBuiltInRegionRuleKey = "";
-						}}
-						class="button-secondary"
-					>
-						<Globe class="h-4 w-4" />
-						{$t("Browse built-in region map")}
-					</button>
-				</div>
-
-				{#if customRegionFlagIssues.length > 0}
-					<div class="surface-card section-card section-card--danger section-card--compact">
-						<h3 class="section-card__title">{$t("Custom region flag map issues")}</h3>
-						<div class="space-y-1">
-							{#each customRegionFlagIssues as issue, index (`${issue.line}-${issue.reason}-${issue.code ?? index}`)}
-								<p class="section-card__text">
-									{#if issue.reason === "keywords"}
-										{$t("Line {line}: add at least one keyword after {code} =", { line: issue.line, code: issue.code ?? "CODE" })}
-									{:else}
-										{$t("Line {line}: use FLAG_CODE = keyword1, keyword2", { line: issue.line })}
-									{/if}
-								</p>
-							{/each}
+							{#if showSubsMenu}
+								<div class="fixed inset-0 z-[110]" on:click={() => (showSubsMenu = false)}></div>
+								<div class="absolute top-full left-0 mt-1 w-full min-w-[280px] gh-box shadow-xl z-[120] bg-canvas-default" transition:slide={{ duration: 150 }}>
+									<div class="p-2 border-b border-border-default bg-canvas-subtle">
+										<div class="relative">
+											<Search class="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-fg-subtle" />
+											<input class="gh-input pl-8 h-7 text-xs w-full" placeholder={$t("Filter subs...")} bind:value={subSearchQuery} on:click|stopPropagation />
+										</div>
+									</div>
+									<div class="max-h-[400px] overflow-y-auto p-1 flex flex-col gap-0.5">
+										<button class="flex items-center gap-2 p-1.5 rounded hover:bg-canvas-subtle text-xs text-accent-fg font-semibold w-full text-left" on:click|stopPropagation={selectAllSubs}>
+											<ListFilter class="h-3.5 w-3.5" /> {$t("Toggle All Visible")}
+										</button>
+										<div class="border-t border-border-default my-1"></div>
+										{#each filteredSubsInRule as sub}
+											<label class="flex items-center gap-2 p-1.5 rounded hover:bg-canvas-subtle cursor-pointer text-xs transition-colors" on:click|stopPropagation>
+												<input type="checkbox" class="rounded border-border-default" checked={selectedSubscriptionIds.includes(sub.id)} on:change={() => (selectedSubscriptionIds = toggleSelection(selectedSubscriptionIds, sub.id))} />
+												<span class="truncate flex-1">{sub.name}</span>
+											</label>
+										{/each}
+										{#if !filteredSubsInRule.length}<p class="text-[10px] text-fg-muted p-4 text-center italic">{$t("No subs found")}</p>{/if}
+									</div>
+								</div>
+							{/if}
 						</div>
 					</div>
-				{/if}
 
-				<div class="surface-card section-card section-card--compact">
-					<label class="flex cursor-pointer items-start gap-3">
-						<input
-							type="checkbox"
-							class="mt-1 h-4 w-4 rounded border-[var(--app-border)] accent-[var(--app-accent-strong)]"
-							bind:checked={prependRegionFlags}
-						/>
-						<div class="space-y-1">
-							<p class="text-sm font-bold text-[var(--app-text)]">{$t("Auto prepend region flags")}</p>
-							<p class="section-card__text">{$t("Detect country or region keywords like US, HK, JP, and SG in final node names and prepend the matching flag automatically.")}</p>
-						</div>
-					</label>
+					<!-- Advanced -->
+					<div class="flex flex-col gap-1.5">
+						<label class="text-sm font-semibold">{$t("Rename Rules (old=new per line)")}</label>
+						<textarea class="gh-input gh-textarea font-mono text-xs" placeholder="Original Name = New Name" bind:value={renameMap}></textarea>
+					</div>
 				</div>
-
-				<div class="section-card__actions">
-					<button type="button" on:click={saveRule} class="button-primary">
-						<Save class="h-4 w-4" />
-						{editingRuleId ? $t("Update Rule") : $t("Save Rule")}
-					</button>
-					<button type="button" on:click={buildPreview} class="button-secondary">
-						<Eye class="h-4 w-4" />
+				<div class="p-4 bg-canvas-subtle border-t border-border-default flex justify-end gap-2">
+					{#if editingRuleId}
+						<button class="gh-btn gh-btn-danger" on:click={() => { removeAggregate(editingRuleId); resetRuleForm(); }}><Trash2 class="h-4 w-4" /></button>
+					{/if}
+					<button class="gh-btn" on:click={buildPreview} disabled={previewLoading}>
+						{#if previewLoading}<RefreshCw class="h-4 w-4 animate-spin mr-1" />{:else}<Eye class="h-4 w-4 mr-1" />{/if}
 						{$t("Preview Output")}
 					</button>
-					{#if editingRuleId}
-						<button type="button" on:click={deleteRule} class="button-danger">
-							<Trash2 class="h-4 w-4" />
-							{$t("Delete Rule")}
-						</button>
-					{/if}
+					<button class="gh-btn gh-btn-primary px-8" on:click={saveRule}><Save class="h-4 w-4 mr-1" />{$t("Save Rule")}</button>
 				</div>
-			</section>
+			</div>
 
-			{#if previewEntries.length > 0 || previewLoading || previewWarnings.length > 0 || previewErrors.length > 0 || previewSummary}
-				<section class="surface-card section-card" in:slide>
-					<div class="section-card__header">
-						<div class="section-card__header-main">
-							<div class="section-card__icon">
-								<FileText class="h-5 w-5" />
-							</div>
-							<div class="section-card__title-wrap">
-								<h2 class="section-card__title">{$t("Preview Output")}</h2>
-								<p class="section-card__text">{$t("Processed output for the current selections.")}</p>
-							</div>
+			{#if previewEntries.length > 0}
+				<div class="gh-box shadow-sm" transition:slide>
+					<div class="gh-box-header">
+						<div class="flex items-center gap-2">
+							<FileText class="h-4 w-4" />
+							<span>{$t("Preview Results")}</span>
+							<span class="badge ml-2">{previewEntries.length} {$t("Nodes")}</span>
 						</div>
-
-						<span class="inline-badge inline-badge--accent">{$t("Lines: {count}", { count: previewLines })}</span>
+						<button class="text-fg-muted hover:text-fg-default" on:click={() => (previewEntries = [])}><X class="h-4 w-4" /></button>
 					</div>
-
-					{#if previewSummary}
-						<div class="soft-code">{previewSummary}</div>
-					{/if}
-
-					{#if previewWarnings.length > 0}
-						<div class="surface-card section-card section-card--warning section-card--compact">
-							<h3 class="section-card__title">{$t("Warning")}</h3>
-							<div class="space-y-1">
-								{#each previewWarnings as warning}
-									<p class="section-card__text">{warning}</p>
-								{/each}
-							</div>
-						</div>
-					{/if}
-
-					{#if previewErrors.length > 0}
-						<div class="surface-card section-card section-card--danger section-card--compact">
-							<h3 class="section-card__title">{$t("Error")}</h3>
-							<div class="space-y-1">
-								{#each previewErrors as error}
-									<p class="section-card__text">{error}</p>
-								{/each}
-							</div>
-						</div>
-					{/if}
-
-					{#if previewLoading}
-						<div class="empty-state">
-							<div class="empty-state__icon">
-								<RefreshCw class="h-6 w-6 animate-spin" />
-							</div>
-							<p class="empty-state__title">{$t("Building subscription output...")}</p>
-						</div>
-					{:else if previewEntries.length > 0}
-						<div class="grid gap-3 custom-scrollbar max-h-[32rem] overflow-y-auto pr-1">
-							{#each previewEntries as entry}
-								<div class="surface-card section-card section-card--compact">
-									<div class="flex items-center gap-3">
-										<span class="inline-badge">{entry.protocol}</span>
-										<div class="min-w-0 flex-1">
-											<p class="truncate text-sm font-bold text-[var(--app-text)]">{entry.name}</p>
-										</div>
-										<button
-											type="button"
-											on:click={() => (previewExpandedLine = previewExpandedLine === entry.line ? null : entry.line)}
-											class="button-icon"
-										>
-											<ChevronRight class={cn("h-4 w-4 transition-transform", previewExpandedLine === entry.line && "rotate-90")} />
-										</button>
-									</div>
-									{#if previewExpandedLine === entry.line}
-										<div transition:slide class="space-y-3">
-											<div class="soft-code break-all">{entry.line}</div>
-											<div class="section-card__actions">
-												<button type="button" on:click={() => copyLine(entry.line)} class="button-secondary">
-													<Copy class="h-4 w-4" />
-													{$t("Copy Line")}
-												</button>
-											</div>
-										</div>
-									{/if}
+					<div class="p-2 bg-canvas-default max-h-96 overflow-y-auto flex flex-col gap-1">
+						{#each previewEntries as entry}
+							<div class="flex items-center justify-between p-2 rounded hover:bg-canvas-subtle transition-colors group">
+								<div class="flex items-center gap-3 min-w-0">
+									<span class="px-1.5 py-0.5 rounded bg-canvas-subtle border border-border-default text-[9px] font-black uppercase text-fg-muted shrink-0">{entry.protocol}</span>
+									<span class="text-xs font-bold truncate">{entry.name}</span>
 								</div>
-							{/each}
-						</div>
-					{:else}
-						<div class="empty-state empty-state--compact">
-							<p class="empty-state__title">{$t("Summary will appear here.")}</p>
-						</div>
-					{/if}
-				</section>
+								<button class="gh-btn gh-btn-sm opacity-0 group-hover:opacity-100 transition-opacity" on:click={() => copyLine(entry.line)}><Copy class="h-3.5 w-3.5" /></button>
+							</div>
+						{/each}
+					</div>
+				</div>
 			{/if}
 		</div>
 
-		<div class="page-stack sticky-sidebar">
-			<section class="surface-card section-card section-card--accent">
-				<div class="section-card__header">
-					<div class="section-card__header-main">
-						<div class="section-card__icon">
-							<CloudUpload class="h-5 w-5" />
-						</div>
-						<div class="section-card__title-wrap">
-							<h2 class="section-card__title">{$t("Publish to Gist")}</h2>
-							<p class="section-card__text">
-								{$t("Bind rules to stable output files. Reuse one rule across multiple publish targets.")}
-							</p>
-						</div>
+		<!-- Sidebar: Publish Settings -->
+		<div class="flex flex-col gap-6">
+			<div class="gh-box shadow-sm !overflow-visible">
+				<div class="gh-box-header text-sm">
+					<div class="flex items-center gap-2"><CloudUpload class="h-4 w-4" />{$t("Publish to Gist")}</div>
+				</div>
+				<div class="p-4 bg-canvas-default flex flex-col gap-4">
+					<div class="flex flex-col gap-1.5">
+						<label class="text-xs font-bold text-fg-muted uppercase">{$t("Select Target")}</label>
+						<select class="gh-select w-full" value={selectedTargetId} on:change={(e) => { const id = e.currentTarget.value; id ? loadPublishTarget($appState.publishTargets.find(t => t.id === id)) : resetTargetForm(); }}>
+							<option value="">+ {$t("New Target")}</option>
+							{#each $appState.publishTargets as target}<option value={target.id}>{target.name}</option>{/each}
+						</select>
 					</div>
 
-					<span class={cn("inline-badge", $authState.token ? "inline-badge--success" : "inline-badge--warning")}>
-						{$authState.token ? $t("Connected") : $t("Offline Mode")}
-					</span>
-				</div>
-
-				<div class="space-y-2">
-					<label class="field-label" for="publish-target-select">{$t("Publish Targets")}</label>
-					<select
-						id="publish-target-select"
-						class="field-select"
-						value={selectedTargetId}
-						on:change={(e) => {
-							const id = e.currentTarget.value;
-							if (!id) resetTargetForm();
-							else {
-								const target = $appState.publishTargets.find((item) => item.id === id);
-								if (target) loadPublishTarget(target);
-							}
-						}}
-					>
-						<option value="">+ {$t("New Target")}</option>
-						{#each $appState.publishTargets as target}
-							<option value={target.id}>{target.name}</option>
-						{/each}
-					</select>
-				</div>
-
-				<div class="space-y-2">
-					<label class="field-label" for="publish-target-name">{$t("Target name")}</label>
-					<input
-						id="publish-target-name"
-						class="field-input"
-						placeholder={$t("Clash Config...")}
-						bind:value={publishTargetName}
-					/>
-				</div>
-
-				<div class="space-y-2">
-					<label class="field-label" for="publish-target-rule">{$t("Select rule")}</label>
-					<select
-						id="publish-target-rule"
-						class="field-select"
-						bind:value={publishTargetRuleId}
-						disabled={!$appState.aggregates.length}
-					>
-						{#if !$appState.aggregates.length}
-							<option value="">{$t("Select a rule first.")}</option>
-						{:else}
-							{#each $appState.aggregates as rule}
-								<option value={rule.id}>{rule.name}</option>
-							{/each}
-						{/if}
-					</select>
-				</div>
-
-				<div class="space-y-2">
-					<div class="flex items-center gap-2">
-						<label class="field-label" for="publish-target-file">{$t("File Name")}</label>
-						<div class="group/tooltip relative inline-flex">
-							<button
-								type="button"
-								class="button-icon"
-								aria-label={$t("Stable link help")}
-								title={$t("Stable link help")}
-							>
-								<CircleHelp class="h-4 w-4" />
-							</button>
-							<div class="pointer-events-none absolute left-0 top-full z-20 mt-2 hidden w-64 rounded-2xl border border-[var(--app-border)] bg-[var(--app-bg-panel-strong)] px-3 py-2 text-[11px] leading-relaxed text-[var(--app-text-soft)] shadow-[var(--app-shadow-soft)] group-hover/tooltip:block group-focus-within/tooltip:block">
-								{$t("Keep the same file name to keep the stable link unchanged across republishes.")}
-							</div>
-						</div>
+					<div class="flex flex-col gap-1.5">
+						<label class="text-xs font-bold text-fg-muted uppercase">{$t("Binding Rule")}</label>
+						<select class="gh-select w-full" bind:value={publishTargetRuleId}>
+							{#each $appState.aggregates as rule}<option value={rule.id}>{rule.name}</option>{/each}
+						</select>
 					</div>
-					<input
-						id="publish-target-file"
-						class="field-input field-input--mono"
-						placeholder="config.txt"
-						bind:value={publishTargetFile}
-					/>
 
-					{#if willChangePublishedFileName}
-						<div class="surface-card section-card section-card--warning section-card--compact">
-							<p class="section-card__text">{renameWarningMessage}</p>
-							<p class="metric-card__meta">{$t("Current published file: {file}", { file: publishedFileName ?? "-" })}</p>
-						</div>
-					{/if}
-				</div>
-
-				<div class="space-y-2">
-					<label class="field-label" for="publish-target-description">{$t("Gist description")}</label>
-					<input
-						id="publish-target-description"
-						class="field-input"
-						placeholder={$t("SubMan aggregate")}
-						bind:value={publishTargetDescription}
-					/>
-				</div>
-
-				<label class="flex cursor-pointer items-center gap-3 rounded-2xl border border-[var(--app-border)] px-4 py-3">
-					<input
-						type="checkbox"
-						class="h-4 w-4 rounded border-[var(--app-border)] accent-[var(--app-accent-strong)]"
-						bind:checked={publishTargetPublic}
-					/>
-					<div class="space-y-1">
-						<p class="text-sm font-semibold text-[var(--app-text)]">{$t("Public gist")}</p>
-						<p class="metric-card__meta">{$t("Stable Link")}</p>
+					<div class="flex flex-col gap-1.5">
+						<label class="text-xs font-bold text-fg-muted uppercase">{$t("Output File Name")}</label>
+						<input class="gh-input font-mono" placeholder="nodes.txt" bind:value={publishTargetFile} />
 					</div>
-				</label>
 
-				<div class="section-card__actions">
-					<button type="button" on:click={saveTarget} class="button-secondary">
-						<Save class="h-4 w-4" />
-						{$t("Save Target")}
-					</button>
-					{#if selectedTargetId}
-						<button type="button" on:click={deleteTarget} class="button-danger">
-							<Trash2 class="h-4 w-4" />
-							{$t("Delete Target")}
+					<div class="flex items-center gap-2 p-2.5 rounded bg-canvas-subtle border border-border-default">
+						<input type="checkbox" class="rounded border-border-default" bind:checked={publishTargetPublic} />
+						<span class="text-xs font-bold">{$t("Public Gist")}</span>
+					</div>
+
+					<div class="flex flex-col gap-2 pt-2 border-t border-border-default">
+						<button class="gh-btn w-full" on:click={saveTarget}>{$t("Save Target Info")}</button>
+						<button class="gh-btn gh-btn-primary w-full py-3 h-auto" on:click={publish} disabled={publishing || !$authState.token}>
+							{#if publishing}<RefreshCw class="h-4 w-4 animate-spin" />{:else}<CloudUpload class="h-4 w-4" />{/if}
+							{$t("Publish Now")}
 						</button>
-					{/if}
-				</div>
-
-				<button type="button" on:click={publish} disabled={publishing || !$authState.token} class="button-primary">
-					{#if publishing}
-						<RefreshCw class="h-5 w-5 animate-spin" />
-						{$t("Publishing...")}
-					{:else}
-						<CloudUpload class="h-5 w-5" />
-						{$t("Publish Now")}
-					{/if}
-				</button>
-
-				{#if publishUrl}
-					<div class="surface-card section-card section-card--compact" in:fade>
-						<div class="flex items-center justify-between gap-3">
-							<h3 class="section-card__title">{$t("Stable Link")}</h3>
-							<span class="inline-badge inline-badge--success">{$t("Published")}</span>
-						</div>
-						<div class="soft-code break-all">{publishUrl}</div>
-						<div class="section-card__actions">
-							<button type="button" on:click={copyLink} class="button-secondary">
-								<Copy class="h-4 w-4" />
-								{$t("Copy")}
-							</button>
-							<a href={publishUrl} target="_blank" rel="noreferrer" class="button-secondary">
-								<ExternalLink class="h-4 w-4" />
-								{$t("Open")}
-							</a>
-						</div>
-					</div>
-				{/if}
-
-				{#if !$authState.token}
-					<div class="surface-card section-card section-card--warning section-card--compact">
-						<p class="section-card__text">{$t("Connect your GitHub token in Workspace settings to publish this aggregation.")}</p>
-						<div class="section-card__actions">
-							<a href="/auth" class="button-secondary">
-								<Settings class="h-4 w-4" />
-								{$t("Workspace Settings")}
-							</a>
-						</div>
-					</div>
-				{/if}
-			</section>
-
-			<section class="surface-card section-card section-card--compact">
-				<div class="section-card__header-main">
-					<div class="section-card__icon">
-						<Database class="h-5 w-5" />
-					</div>
-					<div class="section-card__title-wrap">
-						<h2 class="section-card__title">{$t("Workspace Status")}</h2>
-						<p class="section-card__text">
-							{#if $appState.activeGistId}
-								{$t("Using workspace gist: {id} (config file: {file})", { id: $appState.activeGistId, file: WORKSPACE_FILE })}
-							{:else}
-								{$t("No workspace gist selected. Publishing will create a new gist containing config and output files.")}
-							{/if}
-						</p>
-					</div>
-				</div>
-				<p class="metric-card__meta">{$t("Changes to rules and targets are automatically synced to your workspace gist when active.")}</p>
-			</section>
-		</div>
-	</div>
-</div>
-
-{#if showBuiltInRegionMap}
-	<div class="fixed inset-0 z-[120]">
-		<button
-			type="button"
-			aria-label={$t("Close built-in region map")}
-			class="dialog-scrim"
-			on:click={() => {
-				showBuiltInRegionMap = false;
-				selectedBuiltInRegionRuleKey = "";
-			}}
-		></button>
-		<div class="relative flex min-h-full items-center justify-center p-4">
-			<div
-				role="dialog"
-				aria-modal="true"
-				aria-label={$t("Built-in region flag map")}
-				class="dialog-card dialog-card--xl"
-				in:fly={{ y: 12, duration: 220 }}
-				out:fade={{ duration: 140 }}
-			>
-				<div class="section-card__header">
-					<div class="section-card__header-main">
-						<div class="dialog-card__icon dialog-card__icon--normal">
-							<Globe class="h-5 w-5" />
-						</div>
-						<div class="section-card__title-wrap">
-							<h2 class="dialog-card__title">{$t("Built-in region flag map")}</h2>
-							<p class="dialog-card__message">{$t("Search built-in region rules by country code, city, or keyword.")}</p>
-						</div>
 					</div>
 
-					<button
-						type="button"
-						on:click={() => {
-							showBuiltInRegionMap = false;
-							selectedBuiltInRegionRuleKey = "";
-						}}
-						class="button-icon"
-						aria-label={$t("Close built-in region map")}
-					>
-						<X class="h-4.5 w-4.5" />
-					</button>
-				</div>
-
-				<div class="page-stack">
-					<div class="input-with-icon">
-						<Search />
-						<input
-							type="text"
-							class="field-input"
-							placeholder={$t("Search code or keyword")}
-							bind:value={builtInRegionMapSearch}
-						/>
-					</div>
-
-					<div class="section-card__header">
-						<span class="inline-badge inline-badge--accent">{$t("Built-in rules: {count}", { count: filteredBuiltInRegionRules.length })}</span>
-						<p class="metric-card__meta text-right">
-							{$t("Click to preview highlight. Ctrl/Cmd + click inserts or replaces without closing.")}
-						</p>
-					</div>
-
-					{#if filteredBuiltInRegionRules.length === 0}
-						<div class="empty-state">
-							<div class="empty-state__icon">
-								<Globe class="h-6 w-6" />
+					{#if publishUrl}
+						<div class="mt-2 p-3 rounded bg-green-50 dark:bg-green-950/20 border border-green-200 dark:border-green-900 flex flex-col gap-2" in:fade>
+							<div class="flex items-center justify-between text-green-800 dark:text-green-400 text-[10px] font-bold uppercase">
+								<span>{$t("Live Link")}</span>
+								<CheckCircle2 class="h-3 w-3" />
 							</div>
-							<p class="empty-state__title">{$t("No built-in region rules match this search.")}</p>
-						</div>
-					{:else}
-						<div class="grid gap-4 custom-scrollbar max-h-[60vh] overflow-y-auto pr-1 md:grid-cols-2 xl:grid-cols-3">
-							{#each filteredBuiltInRegionRules as rule (rule.code + rule.keywords.join(","))}
-								{@const ruleKey = rule.code + rule.keywords.join(",")}
-								{@const ruleAlreadyPresent = existingCustomRegionFlagCodes.has(rule.code)}
-								<button
-									type="button"
-									on:click={(event) => handleBuiltInRegionRuleCardClick(event, rule, ruleKey)}
-									on:dblclick={() => handleBuiltInRegionRuleCardDoubleClick(rule, ruleKey)}
-									class={cn(
-										"surface-card section-card section-card--compact text-left",
-										selectedBuiltInRegionRuleKey === ruleKey && "border-[var(--app-accent)]",
-										ruleAlreadyPresent && selectedBuiltInRegionRuleKey !== ruleKey && "border-[var(--app-success)]"
-									)}
-								>
-									<div class="flex items-center gap-3">
-										<div class="flex h-11 w-11 items-center justify-center rounded-2xl bg-[var(--app-accent-soft)] text-xl">
-											{regionCodeToFlagEmoji(rule.code) || "??"}
-										</div>
-										<div class="min-w-0">
-											<div class="flex items-center gap-2">
-												<p class="text-sm font-bold text-[var(--app-text)]">{rule.code}</p>
-												{#if ruleAlreadyPresent}
-													<span class="inline-badge inline-badge--success">{$t("Already present")}</span>
-												{/if}
-											</div>
-											<p class="metric-card__meta">{$t("Keywords")}: {rule.keywords.length}</p>
-										</div>
-									</div>
-									<p class="section-card__text break-words">{rule.keywords.join(", ")}</p>
-									<div class="flex items-center justify-between gap-3">
-										<span class={cn("inline-badge", ruleAlreadyPresent ? "inline-badge--success" : "inline-badge--accent")}>
-											{ruleAlreadyPresent ? $t("This code already exists and will be replaced") : $t("Click to preview highlight")}
-										</span>
-										<span class="metric-card__meta">
-											{#if ruleAlreadyPresent}{$t("Double-click to replace")}{:else}{$t("Double-click to insert")}{/if}
-										</span>
-									</div>
-								</button>
-							{/each}
+							<code class="text-[10px] break-all font-mono text-green-900 dark:text-green-300 opacity-80">{publishUrl}</code>
+							<button class="gh-btn gh-btn-sm" on:click={async () => { 
+								try {
+									await navigator.clipboard.writeText(publishUrl); 
+									showToast($t("Link copied to clipboard"), 'success'); 
+								} catch {
+									showToast($t("Copy failed"), 'error');
+								}
+							}}><Copy class="h-3 w-3" />{$t("Copy")}</button>
 						</div>
 					{/if}
 				</div>
 			</div>
+
+			{#if !$authState.token}
+				<div class="blankslate p-4 py-6">
+					<Database class="h-8 w-8 text-fg-subtle mb-2" />
+					<p class="text-xs text-fg-muted mb-3 leading-relaxed">{$t("Connect GitHub to enable cloud sync and auto-publishing.")}</p>
+					<a href="/auth" class="gh-btn gh-btn-sm">{$t("Go to Settings")}</a>
+				</div>
+			{/if}
 		</div>
 	</div>
-{/if}
+</div>
