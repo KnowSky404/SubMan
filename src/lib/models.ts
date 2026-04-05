@@ -15,6 +15,8 @@ export type NodeTag = {
 	label: string;
 };
 
+export type SortMode = 'none' | 'name' | 'type' | 'region';
+
 export type NodeItem = {
 	id: string;
 	name: string;
@@ -45,6 +47,8 @@ export type AggregateRule = {
 	allowedTypes: ProxyType[];
 	prependRegionFlags?: boolean;
 	customRegionFlagMap?: string;
+	sortMode?: SortMode;
+	sortPriority?: string;
 	updatedAt: string;
 };
 
