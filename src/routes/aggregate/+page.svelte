@@ -136,7 +136,7 @@
 		selectedNodeIds = (rule.nodeIds || []).filter(id => $appState.nodes.some(n => n.id === id));
 		selectedSubscriptionIds = (rule.subscriptionIds || []).filter(id => $appState.subscriptions.some(s => s.id === id));
 		excludeTags = (rule.excludeTagIds || []).join(", ");
-		renameMap = Object.entries(rule.renameMap || {}).map(([k, v]) => `${k}=${v}`).join("\n");
+		renameMap = rule.renameRules ? rule.renameRules.join("\n") : Object.entries(rule.renameMap || {}).map(([k, v]) => `${k}=${v}`).join("\n");
 		customRegionFlagMap = rule.customRegionFlagMap || "";
 		allowedTypes = rule.allowedTypes || [];
 		prependRegionFlags = rule.prependRegionFlags ?? true;
@@ -178,13 +178,15 @@
 		// Ensure we only save IDs that actually exist in the global state
 		const finalNodeIds = selectedNodeIds.filter(id => $appState.nodes.some(n => n.id === id));
 		const finalSubIds = selectedSubscriptionIds.filter(id => $appState.subscriptions.some(s => s.id === id));
+		const renameRules = renameMap.split("\n").map(l => l.trim()).filter(Boolean);
 
 		upsertAggregate({
 			id, name: ruleName.trim(), 
 			nodeIds: finalNodeIds, 
 			subscriptionIds: finalSubIds,
 			excludeTagIds: excludeTags.split(",").map(t => t.trim()).filter(Boolean),
-			renameMap: Object.fromEntries(renameMap.split("\n").map(l => l.split("=").map(p => p.trim())).filter(e => e.length === 2)),
+			renameMap: {}, // Migrate to renameRules
+			renameRules,
 			customRegionFlagMap, allowedTypes: allowedTypes as any[], prependRegionFlags,
 			sortMode: sortMode as any, sortPriority, updatedAt: nowIso()
 		});
@@ -444,6 +446,9 @@
 					<div class="flex flex-col gap-1.5">
 						<label class="text-sm font-semibold">{$t("Rename Rules (old=new per line)")}</label>
 						<textarea class="gh-input gh-textarea font-mono text-xs" placeholder="Original Name = New Name" bind:value={renameMap}></textarea>
+						<p class="text-[10px] text-fg-muted italic">
+							{$t("Supports Regex: /pattern/flags = replacement (e.g. /^HK-(.*)/ = Hong Kong $1)")}
+						</p>
 					</div>
 
 					<!-- Region Flags -->
