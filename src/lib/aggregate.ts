@@ -433,9 +433,11 @@ export function sortResultLines(lines: string[], mode: SortMode = 'none', priori
 
 	for (const line of lines) {
 		let matched = false;
+		const displayName = getLineName(line) || '';
 		for (let i = 0; i < priorities.length; i++) {
 			const p = priorities[i];
-			if (line.includes(p)) {
+			// Match against decoded display name or the raw line
+			if (displayName.includes(p) || line.includes(p)) {
 				priorityGroups[i].push(line);
 				matched = true;
 				break;

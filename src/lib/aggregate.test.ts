@@ -48,6 +48,15 @@ describe('sortResultLines', () => {
 		expect(sorted[3]).toContain('US-01');
 	});
 
+	it('should prioritize based on keywords with spaces', () => {
+		const spaceLines = [
+			'ss://abc#🇺🇸 US Server 01',
+			'vless://def#🇭🇰 HK Server 01'
+		];
+		const sorted = sortResultLines(spaceLines, 'none', 'HK Server');
+		expect(sorted[0]).toContain('HK Server');
+	});
+
 	it('should sort within priority groups', () => {
 		const unsortedLines = [
 			'vless://def#🇭🇰 HK-02',
