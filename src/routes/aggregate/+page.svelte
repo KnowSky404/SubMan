@@ -57,6 +57,8 @@
 	let customRegionFlagMap = "";
 	let allowedTypes: string[] = [];
 	let prependRegionFlags = true;
+	let sortMode: string = "none";
+	let sortPriority = "";
 	
 	// Menu State
 	let showNodesMenu = false;
@@ -132,12 +134,15 @@
 		customRegionFlagMap = rule.customRegionFlagMap || "";
 		allowedTypes = rule.allowedTypes || [];
 		prependRegionFlags = rule.prependRegionFlags ?? true;
+		sortMode = rule.sortMode || "none";
+		sortPriority = rule.sortPriority || "";
 	}
 
 	function resetRuleForm() {
 		editingRuleId = ""; ruleName = ""; selectedNodeIds = [];
 		selectedSubscriptionIds = []; excludeTags = ""; renameMap = ""; 
 		customRegionFlagMap = ""; allowedTypes = []; prependRegionFlags = true;
+		sortMode = "none"; sortPriority = "";
 		previewEntries = [];
 	}
 
@@ -167,7 +172,8 @@
 			id, name: ruleName.trim(), nodeIds: selectedNodeIds, subscriptionIds: selectedSubscriptionIds,
 			excludeTagIds: excludeTags.split(",").map(t => t.trim()).filter(Boolean),
 			renameMap: Object.fromEntries(renameMap.split("\n").map(l => l.split("=").map(p => p.trim())).filter(e => e.length === 2)),
-			customRegionFlagMap, allowedTypes: allowedTypes as any[], prependRegionFlags, updatedAt: nowIso()
+			customRegionFlagMap, allowedTypes: allowedTypes as any[], prependRegionFlags,
+			sortMode: sortMode as any, sortPriority, updatedAt: nowIso()
 		});
 		editingRuleId = id;
 		showToast($t("Rule saved successfully"), 'success');
@@ -225,7 +231,8 @@
 				nodeIds: selectedNodeIds, subscriptionIds: selectedSubscriptionIds,
 				excludeTagIds: excludeTags.split(",").map(t => t.trim()).filter(Boolean),
 				renameMap: Object.fromEntries(renameMap.split("\n").map(l => l.split("=").map(p => p.trim())).filter(e => e.length === 2)),
-				customRegionFlagMap, allowedTypes, prependRegionFlags, updatedAt: nowIso()
+				customRegionFlagMap, allowedTypes, prependRegionFlags,
+				sortMode, sortPriority, updatedAt: nowIso()
 			};
 			const result = await buildAggregateOutput(rule, $appState.nodes, $appState.subscriptions);
 			const lines = result.content.split("\n").map(l => l.trim()).filter(Boolean);
@@ -389,6 +396,23 @@
 							{/each}
 						</div>
 						<p class="text-[10px] text-fg-muted italic">{$t("Leave empty to allow all protocols.")}</p>
+					</div>
+
+					<!-- Sorting Configuration -->
+					<div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+						<div class="flex flex-col gap-1.5">
+							<label class="text-sm font-semibold">{$t("Sort Mode")}</label>
+							<select class="gh-select" bind:value={sortMode}>
+								<option value="none">{$t("None (Original Order)")}</option>
+								<option value="name">{$t("Alphabetical (A-Z)")}</option>
+								<option value="type">{$t("By Protocol")}</option>
+								<option value="region">{$t("By Region")}</option>
+							</select>
+						</div>
+						<div class="flex flex-col gap-1.5">
+							<label class="text-sm font-semibold">{$t("Priority Keywords (per line)")}</label>
+							<textarea class="gh-input gh-textarea h-20 text-xs font-mono" placeholder="e.g.\nHK\nSG" bind:value={sortPriority}></textarea>
+						</div>
 					</div>
 
 					<!-- Rename Rules -->
