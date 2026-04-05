@@ -45,9 +45,11 @@
 		Square,
 		ChevronUp,
 		ListFilter,
+		GripVertical,
 		Flag
 	} from "lucide-svelte";
 	import { fade, slide, fly } from "svelte/transition";
+	import { dndzone, type DndEvent } from "svelte-dnd-action";
 
 	let ruleName = "";
 	let selectedNodeIds: string[] = [];
@@ -127,8 +129,9 @@
 	function loadRule(rule: any) {
 		editingRuleId = rule.id;
 		ruleName = rule.name;
-		selectedNodeIds = [...rule.nodeIds];
-		selectedSubscriptionIds = [...rule.subscriptionIds];
+		// Filter out any IDs that no longer exist in the global state
+		selectedNodeIds = (rule.nodeIds || []).filter(id => $appState.nodes.some(n => n.id === id));
+		selectedSubscriptionIds = (rule.subscriptionIds || []).filter(id => $appState.subscriptions.some(s => s.id === id));
 		excludeTags = (rule.excludeTagIds || []).join(", ");
 		renameMap = Object.entries(rule.renameMap || {}).map(([k, v]) => `${k}=${v}`).join("\n");
 		customRegionFlagMap = rule.customRegionFlagMap || "";
@@ -168,8 +171,15 @@
 	async function saveRule() {
 		if (!ruleName.trim()) return;
 		const id = editingRuleId || createId("agg");
+		
+		// Ensure we only save IDs that actually exist in the global state
+		const finalNodeIds = selectedNodeIds.filter(id => $appState.nodes.some(n => n.id === id));
+		const finalSubIds = selectedSubscriptionIds.filter(id => $appState.subscriptions.some(s => s.id === id));
+
 		upsertAggregate({
-			id, name: ruleName.trim(), nodeIds: selectedNodeIds, subscriptionIds: selectedSubscriptionIds,
+			id, name: ruleName.trim(), 
+			nodeIds: finalNodeIds, 
+			subscriptionIds: finalSubIds,
 			excludeTagIds: excludeTags.split(",").map(t => t.trim()).filter(Boolean),
 			renameMap: Object.fromEntries(renameMap.split("\n").map(l => l.split("=").map(p => p.trim())).filter(e => e.length === 2)),
 			customRegionFlagMap, allowedTypes: allowedTypes as any[], prependRegionFlags,
@@ -244,7 +254,7 @@
 				if (hashIdx > schemeIdx) {
 					try { name = decodeURIComponent(line.slice(hashIdx + 1)); } catch { name = line.slice(hashIdx + 1); }
 				}
-				return { id: `p-${idx}`, line, protocol, name };
+				return { id: `p-${idx}-${line}`, line, protocol, name };
 			});
 			if (previewEntries.length === 0) showToast($t("No nodes matched criteria"), 'info');
 			else showToast($t("Preview generated"), 'success');
@@ -266,6 +276,18 @@
 		const line = `${rule.code} = ${rule.keywords.join(", ")}`;
 		customRegionFlagMap = customRegionFlagMap.trim() ? `${customRegionFlagMap}\n${line}` : line;
 		showBuiltInRegionMap = false;
+	}
+
+	function handlePreviewDndConsider(e: CustomEvent<DndEvent<{ id: string; protocol: string; name: string }>>) {
+		previewEntries = e.detail.items;
+	}
+
+	function handlePreviewDndFinalize(e: CustomEvent<DndEvent<{ id: string; protocol: string; name: string }>>) {
+		previewEntries = e.detail.items;
+		// Update sortPriority with the actual order of names
+		sortPriority = previewEntries.map(entry => entry.name).join("\n");
+		// Auto-save the rule to make it permanent
+		saveRule();
 	}
 </script>
 
@@ -312,7 +334,10 @@
 								on:click={() => { showNodesMenu = !showNodesMenu; showSubsMenu = false; }}
 							>
 								<span class="truncate">
-									{selectedNodeIds.length > 0 ? $t("{count} nodes selected", { count: selectedNodeIds.length }) : $t("Select nodes...")}
+									{#record}
+										{@const activeCount = selectedNodeIds.filter(id => $appState.nodes.some(n => n.id === id)).length}
+										{activeCount > 0 ? $t("{count} nodes selected", { count: activeCount }) : $t("Select nodes...")}
+									{/record}
 								</span>
 							</button>
 							
@@ -351,7 +376,10 @@
 								on:click={() => { showSubsMenu = !showSubsMenu; showNodesMenu = false; }}
 							>
 								<span class="truncate">
-									{selectedSubscriptionIds.length > 0 ? $t("{count} subs selected", { count: selectedSubscriptionIds.length }) : $t("Select subscriptions...")}
+									{#record}
+										{@const activeCount = selectedSubscriptionIds.filter(id => $appState.subscriptions.some(s => s.id === id)).length}
+										{activeCount > 0 ? $t("{count} subs selected", { count: activeCount }) : $t("Select subscriptions...")}
+									{/record}
 								</span>
 							</button>
 
@@ -460,10 +488,18 @@
 						</div>
 						<button class="text-fg-muted hover:text-fg-default" on:click={() => (previewEntries = [])}><X class="h-4 w-4" /></button>
 					</div>
-					<div class="p-2 bg-canvas-default max-h-96 overflow-y-auto flex flex-col gap-1">
-						{#each previewEntries as entry}
-							<div class="flex items-center justify-between p-2 rounded hover:bg-canvas-subtle transition-colors group">
+					<div 
+						class="p-2 bg-canvas-default max-h-96 overflow-y-auto flex flex-col gap-1"
+						use:dndzone={{ items: previewEntries, flipDurationMs: 200, dragDisabled: false }}
+						on:consider={handlePreviewDndConsider}
+						on:finalize={handlePreviewDndFinalize}
+					>
+						{#each previewEntries as entry (entry.id)}
+							<div class="flex items-center justify-between p-2 rounded hover:bg-canvas-subtle transition-colors group cursor-grab active:cursor-grabbing bg-canvas-default border border-transparent hover:border-border-default">
 								<div class="flex items-center gap-3 min-w-0">
+									<div class="text-fg-subtle shrink-0">
+										<GripVertical class="h-3.5 w-3.5 opacity-50" />
+									</div>
 									<span class="px-1.5 py-0.5 rounded bg-canvas-subtle border border-border-default text-[9px] font-black uppercase text-fg-muted shrink-0">{entry.protocol}</span>
 									<span class="text-xs font-bold truncate">{entry.name}</span>
 								</div>
