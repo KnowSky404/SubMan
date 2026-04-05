@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'bun:test';
-import { sortResultLines } from './aggregate';
+import { sortResultLines, buildAggregateOutput } from './aggregate';
+import type { AggregateRule, NodeItem } from './models';
 
 describe('sortResultLines', () => {
 	const lines = [
@@ -68,5 +69,86 @@ describe('sortResultLines', () => {
 		expect(sorted[0]).toContain('HK-01');
 		expect(sorted[1]).toContain('HK-02');
 		expect(sorted[2]).toContain('SG-01');
+	});
+});
+
+describe('Renaming Logic', () => {
+	const mockNode: NodeItem = {
+		id: 'n1',
+		name: 'HK-Premium-01',
+		type: 'vless',
+		raw: 'vless://uuid@host:port?security=tls#HK-Premium-01',
+		tags: [],
+		enabled: true,
+		updatedAt: '',
+		source: 'single'
+	};
+
+	it('should apply literal renaming', async () => {
+		const rule: AggregateRule = {
+			id: 'r1',
+			name: 'Test',
+			nodeIds: ['n1'],
+			subscriptionIds: [],
+			excludeTagIds: [],
+			renameMap: { 'HK-Premium-01': 'HK-01' },
+			allowedTypes: [],
+			prependRegionFlags: false,
+			updatedAt: ''
+		};
+		const result = await buildAggregateOutput(rule, [mockNode], []);
+		expect(result.content).toContain('#HK-01');
+	});
+
+	it('should apply regex renaming with capture groups', async () => {
+		const rule: AggregateRule = {
+			id: 'r1',
+			name: 'Test',
+			nodeIds: ['n1'],
+			subscriptionIds: [],
+			excludeTagIds: [],
+			renameMap: {},
+			renameRules: ['/HK-(.*)-(.*)/ = Hong Kong $2'],
+			allowedTypes: [],
+			prependRegionFlags: false,
+			updatedAt: ''
+		};
+		const result = await buildAggregateOutput(rule, [mockNode], []);
+		expect(result.content).toContain('#Hong%20Kong%2001');
+	});
+
+	it('should apply sequential renaming', async () => {
+		const rule: AggregateRule = {
+			id: 'r1',
+			name: 'Test',
+			nodeIds: ['n1'],
+			subscriptionIds: [],
+			excludeTagIds: [],
+			renameMap: {},
+			renameRules: ['/HK/ = HKG', '/HKG-(.*)/ = $1'],
+			allowedTypes: [],
+			prependRegionFlags: false,
+			updatedAt: ''
+		};
+		const result = await buildAggregateOutput(rule, [mockNode], []);
+		// HK-Premium-01 -> HKG-Premium-01 -> Premium-01
+		expect(result.content).toContain('#Premium-01');
+	});
+
+	it('should support regex flags', async () => {
+		const rule: AggregateRule = {
+			id: 'r1',
+			name: 'Test',
+			nodeIds: ['n1'],
+			subscriptionIds: [],
+			excludeTagIds: [],
+			renameMap: {},
+			renameRules: ['/hk/i = Hong Kong'],
+			allowedTypes: [],
+			prependRegionFlags: false,
+			updatedAt: ''
+		};
+		const result = await buildAggregateOutput(rule, [mockNode], []);
+		expect(result.content).toContain('#Hong%20Kong-Premium-01');
 	});
 });
