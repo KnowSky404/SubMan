@@ -98,23 +98,76 @@
 		.sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
 
 	function handleAdd() {
-		if (activeTab === "nodes") {
-			if (!nodeName.trim() || !nodeRaw.trim()) return;
-			upsertNode({
-				id: createId("node"), name: nodeName.trim(), type: nodeType, raw: nodeRaw.trim(),
-				tags: parseTags(nodeTags), enabled: true, updatedAt: nowIso(), source: "single"
-			});
-			nodeName = ""; nodeRaw = ""; nodeTags = "";
+		if (addMode === "single") {
+			if (activeTab === "nodes") {
+				if (!nodeName.trim() || !nodeRaw.trim()) return;
+				upsertNode({
+					id: createId("node"), name: nodeName.trim(), type: nodeType, raw: nodeRaw.trim(),
+					tags: parseTags(nodeTags), enabled: true, updatedAt: nowIso(), source: "single"
+				});
+				nodeName = ""; nodeRaw = ""; nodeTags = "";
+			} else {
+				if (!subName.trim() || !subUrl.trim()) return;
+				upsertSubscription({
+					id: createId("sub"), name: subName.trim(), url: subUrl.trim(), enabled: true,
+					tags: parseTags(subTags), updatedAt: nowIso()
+				});
+				subName = ""; subUrl = ""; subTags = "";
+			}
+			showToastNotify($t("Resource added"));
 		} else {
-			if (!subName.trim() || !subUrl.trim()) return;
-			upsertSubscription({
-				id: createId("sub"), name: subName.trim(), url: subUrl.trim(), enabled: true,
-				tags: parseTags(subTags), updatedAt: nowIso()
-			});
-			subName = ""; subUrl = ""; subTags = "";
+			// Batch Import Logic
+			const lines = batchContent.split("\n").map(l => l.trim()).filter(Boolean);
+			let count = 0;
+
+			if (activeTab === "nodes") {
+				for (const line of lines) {
+					const nodes = extractSubscriptionNodeLines(line);
+					for (const raw of nodes) {
+						upsertNode({
+							id: createId("node"),
+							name: inferNodeNameFromRaw(raw, `Imported Node ${count + 1}`),
+							type: inferNodeTypeFromRaw(raw),
+							raw,
+							tags: parseTags(batchTags),
+							enabled: true,
+							updatedAt: nowIso(),
+							source: "single"
+						});
+						count++;
+					}
+				}
+			} else {
+				for (const line of lines) {
+					// Support "Name = URL" or just "URL"
+					const parts = line.split("=").map(p => p.trim());
+					let name = "";
+					let url = "";
+					if (parts.length >= 2) {
+						name = parts[0];
+						url = parts[1];
+					} else {
+						url = parts[0];
+						try { name = new URL(url).hostname; } catch { name = `Sub ${count + 1}`; }
+					}
+					
+					if (url.includes("://")) {
+						upsertSubscription({
+							id: createId("sub"),
+							name,
+							url,
+							enabled: true,
+							tags: parseTags(batchTags),
+							updatedAt: nowIso()
+						});
+						count++;
+					}
+				}
+			}
+			batchContent = ""; batchTags = "";
+			showToastNotify($t("Imported {count} items", { count }));
 		}
 		isAddModalOpen = false;
-		showToastNotify($t("Resource added"));
 	}
 
 	// Edit Logic

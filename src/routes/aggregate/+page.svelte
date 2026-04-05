@@ -9,7 +9,7 @@
 		upsertPublishTarget
 	} from "$lib/stores/app";
 	import { authState } from "$lib/stores/auth";
-	import { buildAggregateOutput } from "$lib/aggregate";
+	import { BUILT_IN_REGION_FLAG_RULES, buildAggregateOutput, regionCodeToFlagEmoji } from "$lib/aggregate";
 	import { createGist, toStableGistRawUrl, updateGist } from "$lib/gist";
 	import { exportSyncState } from "$lib/serialization";
 	import { WORKSPACE_FILE } from "$lib/workspace";
@@ -44,7 +44,8 @@
 		SquareCheck,
 		Square,
 		ChevronUp,
-		ListFilter
+		ListFilter,
+		Flag
 	} from "lucide-svelte";
 	import { fade, slide, fly } from "svelte/transition";
 
@@ -63,6 +64,10 @@
 	let nodeSearchQuery = "";
 	let subSearchQuery = "";
 	
+	// Region Browser State
+	let showBuiltInRegionMap = false;
+	let builtInRegionMapSearch = "";
+
 	let previewEntries: { id: string; protocol: string; name: string }[] = [];
 	let previewLoading = false;
 	
@@ -75,6 +80,16 @@
 	let publishUrl: string | null = null;
 	let publishing = false;
 	let editingRuleId = "";
+
+	const protocolOptions: { id: string; label: string }[] = [
+		{ id: "vless", label: "VLESS" },
+		{ id: "vmess", label: "VMess" },
+		{ id: "trojan", label: "Trojan" },
+		{ id: "ss", label: "Shadowsocks" },
+		{ id: "ssr", label: "SSR" },
+		{ id: "hysteria2", label: "Hysteria2" },
+		{ id: "tuic", label: "TUIC" }
+	];
 
 	function toggleSelection(list: string[], id: string) {
 		return list.includes(id) ? list.filter(item => item !== id) : [...list, id];
@@ -102,13 +117,17 @@
 
 	$: filteredNodesInRule = $appState.nodes.filter(n => n.name.toLowerCase().includes(nodeSearchQuery.toLowerCase()));
 	$: filteredSubsInRule = $appState.subscriptions.filter(s => s.name.toLowerCase().includes(subSearchQuery.toLowerCase()));
+	$: filteredRegionRules = BUILT_IN_REGION_FLAG_RULES.filter(r => 
+		r.code.toLowerCase().includes(builtInRegionMapSearch.toLowerCase()) || 
+		r.keywords.some(k => k.toLowerCase().includes(builtInRegionMapSearch.toLowerCase()))
+	);
 
 	function loadRule(rule: any) {
 		editingRuleId = rule.id;
 		ruleName = rule.name;
 		selectedNodeIds = [...rule.nodeIds];
 		selectedSubscriptionIds = [...rule.subscriptionIds];
-		excludeTags = rule.excludeTagIds.join(", ");
+		excludeTags = (rule.excludeTagIds || []).join(", ");
 		renameMap = Object.entries(rule.renameMap || {}).map(([k, v]) => `${k}=${v}`).join("\n");
 		customRegionFlagMap = rule.customRegionFlagMap || "";
 		allowedTypes = rule.allowedTypes || [];
@@ -235,6 +254,12 @@
 			showToast($t("Copy failed"), 'error');
 		}
 	}
+
+	function insertRegionRule(rule: any) {
+		const line = `${rule.code} = ${rule.keywords.join(", ")}`;
+		customRegionFlagMap = customRegionFlagMap.trim() ? `${customRegionFlagMap}\n${line}` : line;
+		showBuiltInRegionMap = false;
+	}
 </script>
 
 <div class="flex flex-col gap-6">
@@ -350,10 +375,43 @@
 						</div>
 					</div>
 
-					<!-- Advanced -->
+					<!-- Allowed Types -->
+					<div class="flex flex-col gap-2">
+						<label class="text-sm font-semibold">{$t("Allowed Protocols")}</label>
+						<div class="flex flex-wrap gap-2">
+							{#each protocolOptions as opt}
+								<button 
+									class={cn("gh-btn gh-btn-sm", allowedTypes.includes(opt.id) ? "gh-btn-primary" : "bg-canvas-default")}
+									on:click={() => (allowedTypes = toggleSelection(allowedTypes, opt.id))}
+								>
+									{opt.label}
+								</button>
+							{/each}
+						</div>
+						<p class="text-[10px] text-fg-muted italic">{$t("Leave empty to allow all protocols.")}</p>
+					</div>
+
+					<!-- Rename Rules -->
 					<div class="flex flex-col gap-1.5">
 						<label class="text-sm font-semibold">{$t("Rename Rules (old=new per line)")}</label>
 						<textarea class="gh-input gh-textarea font-mono text-xs" placeholder="Original Name = New Name" bind:value={renameMap}></textarea>
+					</div>
+
+					<!-- Region Flags -->
+					<div class="flex flex-col gap-3">
+						<div class="flex items-center justify-between">
+							<label class="text-sm font-semibold flex items-center gap-2"><Flag class="h-4 w-4" />{$t("Region Flag Map")}</label>
+							<button class="text-xs text-accent-fg hover:underline" on:click={() => (showBuiltInRegionMap = true)}>{$t("Browse Icons")}</button>
+						</div>
+						<textarea class="gh-input gh-textarea font-mono text-xs h-32" placeholder="US = US, USA, America" bind:value={customRegionFlagMap}></textarea>
+						
+						<div class="flex items-center gap-2 p-2.5 rounded bg-canvas-subtle border border-border-default">
+							<input type="checkbox" class="rounded border-border-default" bind:checked={prependRegionFlags} />
+							<div class="flex flex-col">
+								<span class="text-xs font-bold">{$t("Auto-prepend Region Flags")}</span>
+								<span class="text-[10px] text-fg-muted">{$t("Uses emoji flags based on country codes")}</span>
+							</div>
+						</div>
 					</div>
 				</div>
 				<div class="p-4 bg-canvas-subtle border-t border-border-default flex justify-end gap-2">
@@ -434,7 +492,7 @@
 					</div>
 
 					{#if publishUrl}
-						<div class="mt-2 p-3 rounded bg-green-50 dark:bg-green-950/20 border border-green-200 dark:border-green-900 flex flex-col gap-2" in:fade>
+						<div class="mt-2 p-3 rounded bg-green-50 dark:bg-green-950/20 border border-green-200 dark:border-green-800 flex flex-col gap-2" in:fade>
 							<div class="flex items-center justify-between text-green-800 dark:text-green-400 text-[10px] font-bold uppercase">
 								<span>{$t("Live Link")}</span>
 								<CheckCircle2 class="h-3 w-3" />
@@ -463,3 +521,49 @@
 		</div>
 	</div>
 </div>
+
+<!-- Region Flags Browser Modal -->
+{#if showBuiltInRegionMap}
+	<div class="fixed inset-0 z-[150] flex items-center justify-center p-4">
+		<div class="fixed inset-0 bg-black/60 backdrop-blur-sm" on:click={() => (showBuiltInRegionMap = false)}></div>
+		<div class="relative w-full max-w-4xl gh-box shadow-2xl flex flex-col max-h-[85vh] bg-canvas-default" in:fly={{ y: 20 }}>
+			<div class="gh-box-header">
+				<div class="flex items-center gap-2">
+					<Flag class="h-4 w-4" />
+					<span>{$t("Built-in Region Flag Rules")}</span>
+				</div>
+				<button class="hover:text-accent-fg" on:click={() => (showBuiltInRegionMap = false)}><X class="h-4 w-4" /></button>
+			</div>
+			
+			<div class="p-4 border-b border-border-default bg-canvas-subtle">
+				<div class="relative">
+					<Search class="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-fg-subtle" />
+					<input class="gh-input pl-9 h-10" placeholder={$t("Search code or keyword...")} bind:value={builtInRegionMapSearch} />
+				</div>
+			</div>
+
+			<div class="flex-1 overflow-y-auto p-4">
+				<div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+					{#each filteredRegionRules as rule}
+						<button 
+							class="p-3 rounded-lg border border-border-default bg-canvas-subtle hover:border-accent-emphasis hover:bg-canvas-default text-left flex flex-col gap-2 transition-all group"
+							on:click={() => insertRegionRule(rule)}
+						>
+							<div class="flex items-center gap-3">
+								<span class="text-2xl shrink-0">{regionCodeToFlagEmoji(rule.code)}</span>
+								<span class="font-bold text-sm text-accent-fg group-hover:underline">{rule.code}</span>
+							</div>
+							<p class="text-[10px] text-fg-muted line-clamp-2 leading-relaxed">
+								{rule.keywords.join(", ")}
+							</p>
+						</button>
+					{/each}
+				</div>
+			</div>
+			
+			<div class="p-3 bg-canvas-subtle border-t border-border-default flex justify-end">
+				<button class="gh-btn" on:click={() => (showBuiltInRegionMap = false)}>{$t("Close")}</button>
+			</div>
+		</div>
+	</div>
+{/if}
