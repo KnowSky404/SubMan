@@ -16,30 +16,33 @@ Default workspace identity:
 - Auto sync: local changes are pushed to the workspace gist and sync status is tracked
 - Nodes and subscriptions: add, edit, enable/disable, tag, search, and filter
 - Batch import: multi-line import with dedupe and preview; supports base64 subscription content
-- Aggregation rules: select nodes/subscriptions, exclude tags, filter by proxy types, rename mapping, region flags
+- Aggregation rules: select nodes/subscriptions, exclude tags, filter by proxy types, regex renaming, region flags
+- Result sorting: support automatic sorting by name, protocol, or region (flags), and fully custom ordering via priority keywords or manual drag-and-drop
 - Custom region rules: custom flag map with built-in template and lookup
 - Publish targets: bind a rule to multiple targets with file name, description, and visibility
 - Stable links: same Gist + same file name keeps a stable raw URL; rename guidance with cleanup outcomes
 - Workspace file manager: list files, copy raw links, delete outputs, clean non-config files in bulk
+- Auto-cleanup mechanism: automatically remove invalid associations in aggregate rules when nodes or subscriptions are deleted
 - Activity log: records workspace setup, sync, and repair actions
 
 ## Typical Flow
 1. Save a GitHub token in `/auth` (requires `gist` scope) and bind the workspace
 2. Add nodes and subscriptions in `/nodes` (batch import supported)
-3. Build rules and preview output in `/aggregate`
+3. Build rules in `/aggregate`, configure sorting and renaming, then preview output
 4. Create publish targets and publish to the workspace gist, then copy the stable subscription link
 
 ## Pages
 - `/auth`: workspace settings, conflict handling, health check, import/export, sync status
 - `/gists`: workspace file list, raw link copy, file cleanup
 - `/nodes`: nodes and subscriptions management (search, filters, batch import)
-- `/aggregate`: rule editor, publish target management, output publishing
+- `/aggregate`: rule editor, visual drag-and-drop sorting, publish target management, output publishing
 
 ## Aggregation and Publishing
-- Rule options: node/subscription selection, tag exclusions, proxy type filtering, rename map
+- Rule options: node/subscription selection, tag exclusions, proxy type filtering, regex renaming map
+- Sorting engine: hybrid sort mode supporting priority keywords and syncing manual preview reordering to config
 - Subscription fetch: pulls subscription URLs at publish time and decodes base64 content when detected
 - Region flags: detect region keywords in names and prepend flags automatically
-- Preview: line count, protocol hints, warnings, and errors
+- Preview: line count, protocol hints, warnings, and errors; supports real-time drag-and-drop reordering
 - Publish strategy: keep file name for stable links; renames create a new stable link and provide cleanup guidance
 
 ## Workspace Model
