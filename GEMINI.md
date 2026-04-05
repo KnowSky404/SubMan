@@ -45,7 +45,7 @@ Gist-first 的代理订阅管理工具（VLESS/VMess 等）。纯前端实现。
 
 ## 约定
 - 代码保持 ASCII 字符
-- **原子化提交**：每完成一个独立的功能点、UI 改进或 Bug 修复后，必须立即执行 git commit。
+- **原子化提交 (Atomic Commits)**：严格遵循“一事一议”原则。每完成一个独立的逻辑单元、功能点、UI 改进或 Bug 修复后，必须立即执行原子化 git commit。严禁将多个不相关的变更合并为一个提交，确保每个 commit 的粒度最小且逻辑完整，便于回溯和代码审查。
 - 所有文件写入同一个 Workspace Gist
 - 涉及依赖变更时使用默认 `bun` 命令：`bun add <pkg>`、`bun add -d <pkg>`、`bun remove <pkg>`
 
