@@ -44,6 +44,7 @@ export type AggregateRule = {
 	subscriptionIds: string[];
 	excludeTagIds: string[];
 	renameMap: Record<string, string>;
+	renameRules?: string[];
 	allowedTypes: ProxyType[];
 	prependRegionFlags?: boolean;
 	customRegionFlagMap?: string;
