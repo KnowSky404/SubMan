@@ -1,4 +1,4 @@
-import type { AggregateRule, NodeItem, SubscriptionItem } from '$lib/models';
+import type { AggregateRule, NodeItem, SortMode, SubscriptionItem } from '$lib/models';
 import { loadSubscriptionContent, normalizeSubscriptionContent } from '$lib/subscription';
 
 export type AggregateBuildResult = {
@@ -416,6 +416,64 @@ function filterByAllowedTypes(lines: string[], allowedTypes: NodeItem['type'][] 
 	return lines.filter((line) => allowedTypes.includes(inferTypeFromLine(line)));
 }
 
+function getFlagFromLine(line: string): string {
+	const match = line.match(/^(?:[\u{1F1E6}-\u{1F1FF}]{2})/u);
+	return match ? match[0] : '';
+}
+
+export function sortResultLines(lines: string[], mode: SortMode = 'none', priorityStr: string = ''): string[] {
+	if (lines.length === 0) return [];
+
+	const priorities = priorityStr
+		.split('\n')
+		.map((p) => p.trim())
+		.filter(Boolean);
+	const priorityGroups: string[][] = priorities.map(() => []);
+	const remaining: string[] = [];
+
+	for (const line of lines) {
+		let matched = false;
+		for (let i = 0; i < priorities.length; i++) {
+			const p = priorities[i];
+			if (line.includes(p)) {
+				priorityGroups[i].push(line);
+				matched = true;
+				break;
+			}
+		}
+		if (!matched) {
+			remaining.push(line);
+		}
+	}
+
+	const sortFn = (a: string, b: string) => {
+		if (mode === 'none') return 0;
+		if (mode === 'name') {
+			const nameA = getLineName(a) || '';
+			const nameB = getLineName(b) || '';
+			return nameA.localeCompare(nameB);
+		}
+		if (mode === 'type') {
+			return inferTypeFromLine(a).localeCompare(inferTypeFromLine(b));
+		}
+		if (mode === 'region') {
+			const flagA = getFlagFromLine(a);
+			const flagB = getFlagFromLine(b);
+			if (flagA !== flagB) return flagA.localeCompare(flagB);
+			return (getLineName(a) || '').localeCompare(getLineName(b) || '');
+		}
+		return 0;
+	};
+
+	const result: string[] = [];
+	for (const group of priorityGroups) {
+		result.push(...group.sort(sortFn));
+	}
+	result.push(...remaining.sort(sortFn));
+
+	return result;
+}
+
 function looksLikeBase64(value: string): boolean {
 	return Boolean(normalizeBase64(value));
 }
@@ -474,7 +532,9 @@ export async function buildAggregateOutput(
 		return shouldPrependRegionFlags ? applyRegionFlagByName(renamed, activeRegionFlagRules) : renamed;
 	});
 	const filteredSubscriptionLines = filterByAllowedTypes(renamedSubscriptionLines, allowedTypes);
-	const content = normalizeSubscriptionContent([...nodeLines, ...filteredSubscriptionLines].join('\n'));
+	const combinedLines = [...nodeLines, ...filteredSubscriptionLines];
+	const sortedLines = sortResultLines(combinedLines, rule.sortMode, rule.sortPriority);
+	const content = normalizeSubscriptionContent(sortedLines.join('\n'));
 	return {
 		content,
 		lines: content ? content.split('\n').length : 0,
