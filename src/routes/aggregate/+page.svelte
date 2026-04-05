@@ -126,6 +126,9 @@
 		r.keywords.some(k => k.toLowerCase().includes(builtInRegionMapSearch.toLowerCase()))
 	);
 
+	$: activeNodeCount = selectedNodeIds.filter(id => $appState.nodes.some(n => n.id === id)).length;
+	$: activeSubCount = selectedSubscriptionIds.filter(id => $appState.subscriptions.some(s => s.id === id)).length;
+
 	function loadRule(rule: any) {
 		editingRuleId = rule.id;
 		ruleName = rule.name;
@@ -334,10 +337,7 @@
 								on:click={() => { showNodesMenu = !showNodesMenu; showSubsMenu = false; }}
 							>
 								<span class="truncate">
-									{#record}
-										{@const activeCount = selectedNodeIds.filter(id => $appState.nodes.some(n => n.id === id)).length}
-										{activeCount > 0 ? $t("{count} nodes selected", { count: activeCount }) : $t("Select nodes...")}
-									{/record}
+									{activeNodeCount > 0 ? $t("{count} nodes selected", { count: activeNodeCount }) : $t("Select nodes...")}
 								</span>
 							</button>
 							
@@ -376,10 +376,7 @@
 								on:click={() => { showSubsMenu = !showSubsMenu; showNodesMenu = false; }}
 							>
 								<span class="truncate">
-									{#record}
-										{@const activeCount = selectedSubscriptionIds.filter(id => $appState.subscriptions.some(s => s.id === id)).length}
-										{activeCount > 0 ? $t("{count} subs selected", { count: activeCount }) : $t("Select subscriptions...")}
-									{/record}
+									{activeSubCount > 0 ? $t("{count} subs selected", { count: activeSubCount }) : $t("Select subscriptions...")}
 								</span>
 							</button>
 
