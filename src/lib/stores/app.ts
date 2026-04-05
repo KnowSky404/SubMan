@@ -64,6 +64,10 @@ export function removeNode(nodeId: string): void {
 	appState.update((state) => ({
 		...state,
 		nodes: state.nodes.filter((node) => node.id !== nodeId),
+		aggregates: state.aggregates.map((rule) => ({
+			...rule,
+			nodeIds: rule.nodeIds.filter((id) => id !== nodeId)
+		})),
 		lastUpdated: nowIso()
 	}));
 }
@@ -84,6 +88,10 @@ export function removeSubscription(subscriptionId: string): void {
 	appState.update((state) => ({
 		...state,
 		subscriptions: state.subscriptions.filter((item) => item.id !== subscriptionId),
+		aggregates: state.aggregates.map((rule) => ({
+			...rule,
+			subscriptionIds: rule.subscriptionIds.filter((id) => id !== subscriptionId)
+		})),
 		lastUpdated: nowIso()
 	}));
 }
