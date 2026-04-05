@@ -340,17 +340,58 @@ function replaceLineName(rawLine: string, nextName: string): string {
 	return rawLine;
 }
 
-function applyRenameByName(rawLine: string, originalName: string | null, renameMap: Record<string, string>): string {
+const REGEX_RULE_PATTERN = /^\/(.+)\/([gimuy]*)\s*=\s*(.+)$/;
+const LITERAL_RULE_PATTERN = /^(.+)\s*=\s*(.+)$/;
+
+function applyRenameRules(
+	rawLine: string,
+	originalName: string | null,
+	rules: string[] = [],
+	legacyMap: Record<string, string> = {}
+): string {
 	if (!originalName) {
 		return rawLine;
 	}
 
-	const nextName = renameMap[originalName];
-	if (!nextName) {
-		return rawLine;
+	let currentName = originalName;
+	let changed = false;
+
+	// 1. Try legacy map first (for backward compatibility)
+	const legacyNext = legacyMap[originalName];
+	if (legacyNext) {
+		currentName = legacyNext;
+		changed = true;
 	}
 
-	return replaceLineName(rawLine, nextName);
+	// 2. Apply new sequential rules (Regex or Literal)
+	for (const rule of rules) {
+		const regexMatch = rule.match(REGEX_RULE_PATTERN);
+		if (regexMatch) {
+			try {
+				const re = new RegExp(regexMatch[1], regexMatch[2]);
+				const nextName = currentName.replace(re, regexMatch[3]);
+				if (nextName !== currentName) {
+					currentName = nextName;
+					changed = true;
+				}
+			} catch (e) {
+				// Invalid regex, skip
+			}
+			continue;
+		}
+
+		const literalMatch = rule.match(LITERAL_RULE_PATTERN);
+		if (literalMatch) {
+			const pattern = literalMatch[1].trim();
+			const replacement = literalMatch[2].trim();
+			if (currentName === pattern) {
+				currentName = replacement;
+				changed = true;
+			}
+		}
+	}
+
+	return changed ? replaceLineName(rawLine, currentName) : rawLine;
 }
 
 function applyRegionFlagByName(rawLine: string, rules: RegionFlagRule[]): string {
@@ -508,7 +549,12 @@ export async function buildAggregateOutput(
 	);
 
 	const nodeLines = selectedNodes.map((node) => {
-		const renamed = applyRenameByName(node.raw, node.name.trim() || getLineName(node.raw), rule.renameMap);
+		const renamed = applyRenameRules(
+			node.raw,
+			node.name.trim() || getLineName(node.raw),
+			rule.renameRules,
+			rule.renameMap
+		);
 		return shouldPrependRegionFlags ? applyRegionFlagByName(renamed, activeRegionFlagRules) : renamed;
 	});
 
@@ -530,7 +576,7 @@ export async function buildAggregateOutput(
 	}
 
 	const renamedSubscriptionLines = subscriptionLines.map((line) => {
-		const renamed = applyRenameByName(line, getLineName(line), rule.renameMap);
+		const renamed = applyRenameRules(line, getLineName(line), rule.renameRules, rule.renameMap);
 		return shouldPrependRegionFlags ? applyRegionFlagByName(renamed, activeRegionFlagRules) : renamed;
 	});
 	const filteredSubscriptionLines = filterByAllowedTypes(renamedSubscriptionLines, allowedTypes);
