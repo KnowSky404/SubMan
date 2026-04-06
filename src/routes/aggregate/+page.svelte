@@ -241,11 +241,13 @@
 		}
 		previewLoading = true;
 		try {
+			const renameRules = renameMap.split("\n").map(l => l.trim()).filter(Boolean);
 			const rule: any = {
 				id: "preview", name: ruleName || "Preview",
 				nodeIds: selectedNodeIds, subscriptionIds: selectedSubscriptionIds,
 				excludeTagIds: excludeTags.split(",").map(t => t.trim()).filter(Boolean),
-				renameMap: Object.fromEntries(renameMap.split("\n").map(l => l.split("=").map(p => p.trim())).filter(e => e.length === 2)),
+				renameMap: {},
+				renameRules,
 				customRegionFlagMap, allowedTypes, prependRegionFlags,
 				sortMode, sortPriority, updatedAt: nowIso()
 			};
