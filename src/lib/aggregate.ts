@@ -384,7 +384,8 @@ function applyRenameRules(
 		if (literalMatch) {
 			const pattern = literalMatch[1].trim();
 			const replacement = literalMatch[2].trim();
-			if (currentName === pattern) {
+			// Match after trimming both sides to avoid invisible space issues
+			if (currentName.trim() === pattern) {
 				currentName = replacement;
 				changed = true;
 			}
