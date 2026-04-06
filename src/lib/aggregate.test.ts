@@ -117,6 +117,33 @@ describe('Renaming Logic', () => {
 		expect(result.content).toContain('#Hong%20Kong%2001');
 	});
 
+	it('should apply literal renaming for the specific failing rule', async () => {
+		const complexNode: NodeItem = {
+			id: 'n2',
+			name: 'vless_reality_ztr-cn-hk',
+			type: 'vless',
+			raw: 'vless://uuid@host:port?security=tls#vless_reality_ztr-cn-hk',
+			tags: [],
+			enabled: true,
+			updatedAt: '',
+			source: 'single'
+		};
+		const rule: AggregateRule = {
+			id: 'r1',
+			name: 'Test',
+			nodeIds: ['n2'],
+			subscriptionIds: [],
+			excludeTagIds: [],
+			renameMap: {},
+			renameRules: ['vless_reality_ztr-cn-hk=ZTR-CN-HK'],
+			allowedTypes: [],
+			prependRegionFlags: false,
+			updatedAt: ''
+		};
+		const result = await buildAggregateOutput(rule, [complexNode], []);
+		expect(result.content).toContain('#ZTR-CN-HK');
+	});
+
 	it('should apply sequential renaming', async () => {
 		const rule: AggregateRule = {
 			id: 'r1',
@@ -133,6 +160,23 @@ describe('Renaming Logic', () => {
 		const result = await buildAggregateOutput(rule, [mockNode], []);
 		// HK-Premium-01 -> HKG-Premium-01 -> Premium-01
 		expect(result.content).toContain('#Premium-01');
+	});
+
+	it('should apply literal renaming with spaces in rule', async () => {
+		const rule: AggregateRule = {
+			id: 'r1',
+			name: 'Test',
+			nodeIds: ['n1'],
+			subscriptionIds: [],
+			excludeTagIds: [],
+			renameMap: {},
+			renameRules: ['HK-Premium-01 = HK-01'],
+			allowedTypes: [],
+			prependRegionFlags: false,
+			updatedAt: ''
+		};
+		const result = await buildAggregateOutput(rule, [mockNode], []);
+		expect(result.content).toContain('#HK-01');
 	});
 
 	it('should support regex flags', async () => {
