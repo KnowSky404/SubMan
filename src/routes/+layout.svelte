@@ -60,6 +60,9 @@ $: isWorkspaceConnected = Boolean($authState.token && $appState.activeGistId);
 $: workspaceMetaText = isWorkspaceConnected
 	? $appState.activeGistId
 	: $t("Browser storage only");
+$: livePublishCount = $appState.publishTargets.filter(
+	(target) => target.lastPublishedUrl,
+).length;
 
 function isActive(href: string) {
 	return href === "/" ? pathname === "/" : pathname.startsWith(href);
@@ -156,6 +159,20 @@ onMount(() => {
 							{/if}
 						</span>
 						<span class="truncate font-mono text-xs">{workspaceMetaText}</span>
+					</div>
+					<div class="gh-page-meta">
+						<span class="gh-page-meta-item">
+							<Octicon icon={server} className="h-3.5 w-3.5" />
+							{$t("{count} nodes", { count: $appState.nodes.length })}
+						</span>
+						<span class="gh-page-meta-item">
+							<Octicon icon={workflow} className="h-3.5 w-3.5" />
+							{$t("{count} rules", { count: $appState.aggregates.length })}
+						</span>
+						<span class="gh-page-meta-item">
+							<Octicon icon={code} className="h-3.5 w-3.5" />
+							{$t("{count} live links", { count: livePublishCount })}
+						</span>
 					</div>
 				</div>
 

@@ -147,6 +147,10 @@ import { dndzone, type DndEvent } from "svelte-dnd-action";
 		sortPriority = rule.sortPriority || "";
 	}
 
+	$: publishedTargetCount = $appState.publishTargets.filter(
+		(target) => target.lastPublishedUrl,
+	).length;
+
 	function resetRuleForm() {
 		editingRuleId = ""; ruleName = ""; selectedNodeIds = [];
 		selectedSubscriptionIds = []; excludeTags = ""; renameMap = ""; 
@@ -308,6 +312,20 @@ import { dndzone, type DndEvent } from "svelte-dnd-action";
 			<div>
 				<h1 class="text-[2rem] font-semibold leading-tight">{$t("Aggregation Builder")}</h1>
 				<p class="gh-page-subtitle">{$t("Combine sources, preview the result, and publish output files.")}</p>
+				<div class="gh-page-meta">
+					<span class="gh-page-meta-item">
+						<Octicon icon={workflow} className="h-3.5 w-3.5" />
+						{$t("{count} rules", { count: $appState.aggregates.length })}
+					</span>
+					<span class="gh-page-meta-item">
+						<Octicon icon={upload} className="h-3.5 w-3.5" />
+						{$t("{count} targets", { count: $appState.publishTargets.length })}
+					</span>
+					<span class="gh-page-meta-item">
+						<Octicon icon={checkCircle} className="h-3.5 w-3.5" />
+						{$t("{count} live links", { count: publishedTargetCount })}
+					</span>
+				</div>
 			</div>
 		</div>
 	</div>
@@ -321,10 +339,13 @@ import { dndzone, type DndEvent } from "svelte-dnd-action";
 						<Octicon icon={sliders} className="h-4 w-4" />
 						<span>{$t("Rule Definition")}</span>
 					</div>
-					<select class="gh-select gh-select-sm w-48" value={editingRuleId} on:change={(e) => { const id = e.currentTarget.value; id ? loadRule($appState.aggregates.find(r => r.id === id)) : resetRuleForm(); }}>
-						<option value="">+ {$t("New Rule")}</option>
-						{#each $appState.aggregates as rule}<option value={rule.id}>{rule.name}</option>{/each}
-					</select>
+					<div class="flex items-center gap-2">
+						<span class="badge">{$appState.aggregates.length}</span>
+						<select class="gh-select gh-select-sm w-48" value={editingRuleId} on:change={(e) => { const id = e.currentTarget.value; id ? loadRule($appState.aggregates.find(r => r.id === id)) : resetRuleForm(); }}>
+							<option value="">+ {$t("New Rule")}</option>
+							{#each $appState.aggregates as rule}<option value={rule.id}>{rule.name}</option>{/each}
+						</select>
+					</div>
 				</div>
 				<div class="p-4 bg-canvas-default flex flex-col gap-6">
 					<!-- Basics -->
@@ -540,6 +561,7 @@ import { dndzone, type DndEvent } from "svelte-dnd-action";
 				<div class="gh-box shadow-sm !overflow-visible">
 					<div class="gh-box-header text-sm">
 						<div class="flex items-center gap-2"><Octicon icon={upload} className="h-4 w-4" />{$t("Publish to Gist")}</div>
+						<span class="badge">{$appState.publishTargets.length}</span>
 					</div>
 					<div class="p-4 bg-canvas-default flex flex-col gap-4">
 						<div class="flex flex-col gap-1.5">

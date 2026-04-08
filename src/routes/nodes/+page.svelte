@@ -114,6 +114,11 @@ import { slide, fly } from "svelte/transition";
 		})
 		.sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
 
+	$: enabledNodeCount = $appState.nodes.filter((node) => node.enabled).length;
+	$: enabledSubscriptionCount = $appState.subscriptions.filter(
+		(subscription) => subscription.enabled,
+	).length;
+
 	function handleAdd() {
 		if (addMode === "single") {
 			if (activeTab === "nodes") {
@@ -322,6 +327,24 @@ import { slide, fly } from "svelte/transition";
 				<div>
 					<h1 class="text-[2rem] font-semibold leading-tight">{$t("Nodes & Subscriptions")}</h1>
 					<p class="gh-page-subtitle">{$t("Store single URIs and upstream feeds.")}</p>
+					<div class="gh-page-meta">
+						<span class="gh-page-meta-item">
+							<Octicon icon={server} className="h-3.5 w-3.5" />
+							{$t("{count} nodes", { count: $appState.nodes.length })}
+						</span>
+						<span class="gh-page-meta-item">
+							<Octicon icon={check} className="h-3.5 w-3.5" />
+							{$t("{count} enabled", { count: enabledNodeCount })}
+						</span>
+						<span class="gh-page-meta-item">
+							<Octicon icon={link} className="h-3.5 w-3.5" />
+							{$t("{count} subscriptions", { count: $appState.subscriptions.length })}
+						</span>
+						<span class="gh-page-meta-item">
+							<Octicon icon={sync} className="h-3.5 w-3.5" />
+							{$t("{count} enabled feeds", { count: enabledSubscriptionCount })}
+						</span>
+					</div>
 				</div>
 			</div>
 
@@ -431,7 +454,15 @@ import { slide, fly } from "svelte/transition";
 	<div class="gh-box shadow-sm">
 		<div class="gh-box-header text-sm">
 			<span>{activeTab === "nodes" ? $t("Nodes") : $t("Subscriptions")}</span>
-			<span class="text-xs font-normal text-fg-muted">{activeTab === "nodes" ? filteredNodes.length : filteredSubscriptions.length} {$t("results")}</span>
+			<div class="flex items-center gap-2">
+				{#if activeTab === "nodes"}
+					<span class="badge">{filteredNodes.length} {$t("results")}</span>
+					<span class="badge">{enabledNodeCount} {$t("enabled")}</span>
+				{:else}
+					<span class="badge">{filteredSubscriptions.length} {$t("results")}</span>
+					<span class="badge">{enabledSubscriptionCount} {$t("enabled")}</span>
+				{/if}
+			</div>
 		</div>
 
 		{#if activeTab === "nodes"}

@@ -291,6 +291,18 @@ pre {
 	@apply text-[13px] text-fg-muted;
 }
 
+.gh-page-meta {
+	@apply flex flex-wrap items-center gap-2 pt-1 text-xs text-fg-muted;
+}
+
+.gh-page-meta-item {
+	@apply inline-flex items-center gap-1.5 rounded-md border border-border-default bg-canvas-default px-2.5 py-1;
+}
+
+.gh-page-meta-item-code {
+	@apply max-w-full truncate font-mono text-[11px];
+}
+
 .app-header {
 	background: var(--header-bg);
 	border-bottom: 1px solid var(--header-border);

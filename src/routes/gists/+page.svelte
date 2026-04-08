@@ -52,6 +52,7 @@ async function refreshWorkspace() {
 onMount(() => {
 	if ($authState.token && $appState.activeGistId) void refreshWorkspace();
 });
+$: workspaceFileCount = workspace?.files.length ?? 0;
 
 async function copyLink(url?: string) {
 	if (!url) return;
@@ -99,6 +100,18 @@ async function deleteFile(filename: string) {
 				<div>
 					<h1 class="text-[2rem] font-semibold leading-tight">{$t("Gist Files")}</h1>
 					<p class="gh-page-subtitle">{$t("Inspect the active workspace gist and copy raw file URLs.")}</p>
+					<div class="gh-page-meta">
+						<span class="gh-page-meta-item">
+							<Octicon icon={repo} className="h-3.5 w-3.5" />
+							{$t("{count} files", { count: workspaceFileCount })}
+						</span>
+						{#if $appState.activeGistId}
+							<span class="gh-page-meta-item">
+								<Octicon icon={shieldCheck} className="h-3.5 w-3.5" />
+								<span class="gh-page-meta-item-code">{$appState.activeGistId}</span>
+							</span>
+						{/if}
+					</div>
 				</div>
 			</div>
 			<div class="flex items-center gap-2">
@@ -114,7 +127,12 @@ async function deleteFile(filename: string) {
 		<!-- Workspace Info -->
 		<div class="lg:col-span-1 flex flex-col gap-6">
 			<div class="gh-box">
-				<div class="gh-box-header text-xs">{$t("Active Gist")}</div>
+				<div class="gh-box-header text-xs">
+					<span>{$t("Active Gist")}</span>
+					{#if $appState.activeGistId}
+						<span class="badge">1</span>
+					{/if}
+				</div>
 				<div class="p-4 bg-canvas-default flex flex-col gap-3">
 					{#if $appState.activeGistId}
 						<code class="text-[10px] font-mono break-all bg-canvas-subtle p-2 rounded border border-border-default">{$appState.activeGistId}</code>
@@ -139,9 +157,7 @@ async function deleteFile(filename: string) {
 						<Octicon icon={code} className="h-4 w-4" />
 						<span>{$t("Repository Files")}</span>
 					</div>
-					{#if workspace}
-						<span class="badge">{workspace.files.length}</span>
-					{/if}
+					<span class="badge">{workspaceFileCount}</span>
 				</div>
 
 				{#if !workspace}

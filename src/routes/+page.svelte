@@ -50,6 +50,10 @@ $: isConnected = Boolean($authState.token && $appState.activeGistId);
 $: publishTargetCount = $appState.publishTargets.filter(
 	(target) => target.lastPublishedUrl,
 ).length;
+$: enabledNodeCount = $appState.nodes.filter((node) => node.enabled).length;
+$: enabledSubscriptionCount = $appState.subscriptions.filter(
+	(subscription) => subscription.enabled,
+).length;
 </script>
 
 <div class="flex flex-col gap-6 pb-10">
@@ -60,6 +64,29 @@ $: publishTargetCount = $appState.publishTargets.filter(
 				<p class="gh-page-subtitle">
 					{$t("GitHub-backed nodes, rules, and published subscription files.")}
 				</p>
+				<div class="gh-page-meta">
+					<span class={cn("gh-page-meta-item", isConnected && "badge-success")}>
+						{#if isConnected}
+							<Octicon icon={shieldCheck} className="h-3.5 w-3.5" />
+							{$t("Workspace connected")}
+						{:else}
+							<Octicon icon={database} className="h-3.5 w-3.5" />
+							{$t("Local-only")}
+						{/if}
+					</span>
+					<span class="gh-page-meta-item">
+						<Octicon icon={server} className="h-3.5 w-3.5" />
+						{$t("{count} enabled nodes", { count: enabledNodeCount })}
+					</span>
+					<span class="gh-page-meta-item">
+						<Octicon icon={sync} className="h-3.5 w-3.5" />
+						{$t("{count} enabled subscriptions", { count: enabledSubscriptionCount })}
+					</span>
+					<span class="gh-page-meta-item">
+						<Octicon icon={link} className="h-3.5 w-3.5" />
+						{$t("{count} live links", { count: publishTargetCount })}
+					</span>
+				</div>
 			</div>
 
 			<div class="flex flex-wrap items-center gap-2">
@@ -80,6 +107,7 @@ $: publishTargetCount = $appState.publishTargets.filter(
 			<section class="gh-box">
 				<div class="gh-box-header">
 					<span>{$t("At a glance")}</span>
+					<span class="badge">4</span>
 				</div>
 				<div class="grid grid-cols-1 divide-y divide-border-default md:grid-cols-2 md:divide-x md:divide-y-0">
 					{#each stats as stat}
@@ -102,6 +130,7 @@ $: publishTargetCount = $appState.publishTargets.filter(
 			<section class="gh-box">
 				<div class="gh-box-header">
 					<span>{$t("Workflow")}</span>
+					<span class="badge">3 {$t("steps")}</span>
 				</div>
 
 				<div class="divide-y divide-border-default">
@@ -158,6 +187,7 @@ $: publishTargetCount = $appState.publishTargets.filter(
 			<section class="gh-box">
 				<div class="gh-box-header">
 					<span>{$t("Current state")}</span>
+					<span class="badge">{publishTargetCount}</span>
 				</div>
 				<div class="divide-y divide-border-default">
 					<div class="gh-box-row flex items-start gap-3">
