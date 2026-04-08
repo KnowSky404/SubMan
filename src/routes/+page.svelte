@@ -23,25 +23,25 @@ $: stats = [
 	{
 		label: "Nodes",
 		count: $appState.nodes.length,
-		description: "Single proxy URIs stored in the current workspace.",
+		description: "Single proxy URIs in the workspace.",
 		icon: server,
 	},
 	{
 		label: "Subscriptions",
 		count: $appState.subscriptions.length,
-		description: "Remote feeds that can be fetched and merged.",
+		description: "Remote feeds available for fetch and merge.",
 		icon: sync,
 	},
 	{
 		label: "Rules",
 		count: $appState.aggregates.length,
-		description: "Selection and rewrite rules used for aggregation.",
+		description: "Selection and rename rules.",
 		icon: project,
 	},
 	{
 		label: "Publish Targets",
 		count: $appState.publishTargets.length,
-		description: "Output files published back into the workspace gist.",
+		description: "Published output files.",
 		icon: zap,
 	},
 ];
@@ -58,7 +58,7 @@ $: publishTargetCount = $appState.publishTargets.filter(
 			<div class="space-y-2">
 				<h1 class="gh-page-title">{$t("Repository overview")}</h1>
 				<p class="gh-page-subtitle">
-					{$t("Manage nodes, compose aggregation rules, and publish stable subscription links from one GitHub-backed workspace.")}
+					{$t("GitHub-backed nodes, rules, and published subscription files.")}
 				</p>
 			</div>
 
@@ -83,7 +83,7 @@ $: publishTargetCount = $appState.publishTargets.filter(
 				</div>
 				<div class="grid grid-cols-1 divide-y divide-border-default md:grid-cols-2 md:divide-x md:divide-y-0">
 					{#each stats as stat}
-						<div class="flex gap-3 p-4">
+						<div class="flex gap-3 p-3.5">
 							<div class="mt-0.5 rounded-md border border-border-default bg-canvas-subtle p-2 text-fg-muted">
 								<Octicon icon={stat.icon} className="h-4 w-4" />
 							</div>
@@ -101,7 +101,7 @@ $: publishTargetCount = $appState.publishTargets.filter(
 
 			<section class="gh-box">
 				<div class="gh-box-header">
-					<span>{$t("Recommended workflow")}</span>
+					<span>{$t("Workflow")}</span>
 				</div>
 
 				<div class="divide-y divide-border-default">
@@ -109,14 +109,14 @@ $: publishTargetCount = $appState.publishTargets.filter(
 						<div class="space-y-1">
 							<div class="flex items-center gap-2">
 								<span class="badge">1</span>
-								<h2 class="text-sm font-semibold">{$t("Add nodes and subscriptions")}</h2>
+								<h2 class="text-sm font-semibold">{$t("Collect sources")}</h2>
 							</div>
 							<p class="text-sm text-fg-muted">
-								{$t("Capture individual proxy URIs or remote subscription URLs before building aggregation rules.")}
+								{$t("Add single URIs or upstream subscription URLs.")}
 							</p>
 						</div>
 						<a href="/nodes" class="gh-link inline-flex items-center gap-1 text-sm font-medium">
-							{$t("Open Nodes")}
+							{$t("Nodes")}
 							<Octicon icon={arrowRight} className="h-4 w-4" />
 						</a>
 					</div>
@@ -125,14 +125,14 @@ $: publishTargetCount = $appState.publishTargets.filter(
 						<div class="space-y-1">
 							<div class="flex items-center gap-2">
 								<span class="badge">2</span>
-								<h2 class="text-sm font-semibold">{$t("Build aggregation rules")}</h2>
+								<h2 class="text-sm font-semibold">{$t("Compose rules")}</h2>
 							</div>
 							<p class="text-sm text-fg-muted">
-								{$t("Choose source sets, exclude tags, and rename nodes to generate a stable output shape.")}
+								{$t("Filter, rename, and preview the output set.")}
 							</p>
 						</div>
 						<a href="/aggregate" class="gh-link inline-flex items-center gap-1 text-sm font-medium">
-							{$t("Open Aggregate")}
+							{$t("Aggregate")}
 							<Octicon icon={arrowRight} className="h-4 w-4" />
 						</a>
 					</div>
@@ -141,14 +141,14 @@ $: publishTargetCount = $appState.publishTargets.filter(
 						<div class="space-y-1">
 							<div class="flex items-center gap-2">
 								<span class="badge">3</span>
-								<h2 class="text-sm font-semibold">{$t("Publish and inspect raw files")}</h2>
+								<h2 class="text-sm font-semibold">{$t("Publish output")}</h2>
 							</div>
 							<p class="text-sm text-fg-muted">
-								{$t("Push outputs into the workspace gist, then inspect or copy the generated raw URLs from the Gists tab.")}
+								{$t("Write files to the workspace gist and copy raw URLs.")}
 							</p>
 						</div>
 						<a href="/gists" class="gh-link inline-flex items-center gap-1 text-sm font-medium">
-							{$t("Open Gists")}
+							{$t("Gists")}
 							<Octicon icon={arrowRight} className="h-4 w-4" />
 						</a>
 					</div>
@@ -157,7 +157,7 @@ $: publishTargetCount = $appState.publishTargets.filter(
 
 			<section class="gh-box">
 				<div class="gh-box-header">
-					<span>{$t("Workspace snapshot")}</span>
+					<span>{$t("Current state")}</span>
 				</div>
 				<div class="divide-y divide-border-default">
 					<div class="gh-box-row flex items-start gap-3">
@@ -166,7 +166,7 @@ $: publishTargetCount = $appState.publishTargets.filter(
 						</div>
 						<div class="space-y-1">
 							<p class="text-sm font-semibold">{$t("Published links")}</p>
-							<p class="text-sm text-fg-muted">
+							<p class="text-[13px] text-fg-muted">
 								{$t("{count} publish target(s) already have a live raw URL.", { count: publishTargetCount })}
 							</p>
 						</div>
@@ -178,7 +178,7 @@ $: publishTargetCount = $appState.publishTargets.filter(
 						</div>
 						<div class="space-y-1">
 							<p class="text-sm font-semibold">{$t("Last local update")}</p>
-							<p class="text-sm text-fg-muted">
+							<p class="text-[13px] text-fg-muted">
 								{new Date($appState.lastUpdated || Date.now()).toLocaleString()}
 							</p>
 						</div>
@@ -192,9 +192,9 @@ $: publishTargetCount = $appState.publishTargets.filter(
 				<div class="gh-box-header">
 					<span>{$t("About")}</span>
 				</div>
-				<div class="space-y-4 p-4">
-					<p class="text-sm text-fg-muted">
-						{$t("Gist-first proxy subscription manager with local fallback storage and direct publishing from the browser.")}
+				<div class="space-y-3 p-4">
+					<p class="text-[13px] text-fg-muted">
+						{$t("Browser-first subscription manager with gist-backed sync and publish.")}
 					</p>
 
 					<div class="space-y-2 text-sm">
@@ -225,7 +225,7 @@ $: publishTargetCount = $appState.publishTargets.filter(
 				<div class="gh-box-header">
 					<span>{$t("Workspace status")}</span>
 				</div>
-				<div class="space-y-4 p-4">
+				<div class="space-y-3 p-4">
 					<div class="flex items-start gap-3">
 						<div
 							class={cn(
@@ -249,11 +249,11 @@ $: publishTargetCount = $appState.publishTargets.filter(
 									{$t("Running in local-only mode")}
 								{/if}
 							</p>
-							<p class="text-sm text-fg-muted">
+							<p class="text-[13px] text-fg-muted">
 								{#if isConnected}
-									{$t("Local changes are eligible for automatic sync into the active gist.")}
+									{$t("Local changes can sync to the active gist.")}
 								{:else}
-									{$t("Connect GitHub to sync config and publish stable links from a shared workspace gist.")}
+									{$t("Connect GitHub to sync config and publish shared raw links.")}
 								{/if}
 							</p>
 						</div>

@@ -98,7 +98,7 @@ async function deleteFile(filename: string) {
 				<Octicon icon={repo} className="h-6 w-6 text-fg-muted" />
 				<div>
 					<h1 class="text-[2rem] font-semibold leading-tight">{$t("Gist Files")}</h1>
-					<p class="gh-page-subtitle">{$t("Inspect the active workspace gist, copy raw URLs, and remove generated files when needed.")}</p>
+					<p class="gh-page-subtitle">{$t("Inspect the active workspace gist and copy raw file URLs.")}</p>
 				</div>
 			</div>
 			<div class="flex items-center gap-2">
@@ -127,7 +127,7 @@ async function deleteFile(filename: string) {
 
 			<div class="blankslate p-4 py-6">
 				<Octicon icon={database} className="mb-2 h-8 w-8 text-fg-subtle" />
-				<p class="text-xs text-fg-muted">{$t("Managed files are automatically updated during publication.")}</p>
+				<p class="text-xs text-fg-muted">{$t("Published files are written back into this gist.")}</p>
 			</div>
 		</div>
 
@@ -147,7 +147,7 @@ async function deleteFile(filename: string) {
 				{#if !workspace}
 					<div class="blankslate border-none">
 						<Octicon icon={sync} className="mb-3 h-10 w-10 text-fg-subtle opacity-20" />
-						<p class="text-fg-muted">{$t("Click refresh to load workspace files.")}</p>
+						<p class="text-fg-muted">{$t("Refresh to load files.")}</p>
 					</div>
 				{:else}
 					{#each workspace.files as file}
@@ -159,21 +159,23 @@ async function deleteFile(filename: string) {
 									<Octicon icon={file} className="h-4 w-4 text-fg-muted" />
 								{/if}
 								<div class="flex flex-col min-w-0">
-									<span class="text-sm font-bold text-accent-fg hover:underline cursor-pointer truncate">{file.filename}</span>
-									<span class="text-[10px] text-fg-subtle">{file.size} Bytes</span>
+									<div class="flex items-center gap-2 min-w-0">
+										<span class="truncate text-sm font-semibold text-accent-fg hover:underline cursor-pointer">{file.filename}</span>
+										{#if file.filename === WORKSPACE_FILE}
+											<span class="badge badge-success">Config</span>
+										{/if}
+									</div>
+									<span class="text-[11px] text-fg-subtle">{file.size} bytes</span>
 								</div>
-								{#if file.filename === WORKSPACE_FILE}
-									<span class="badge badge-success text-[9px] scale-90">Config</span>
-								{/if}
 							</div>
 							
-							<div class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+							<div class="flex items-center gap-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
 								{#if file.rawUrl}
 									<button class="gh-btn gh-btn-sm" on:click={() => copyLink(file.rawUrl)} title={$t("Copy Raw URL")}><Octicon icon={copy} className="h-3.5 w-3.5" /></button>
 									<a href={file.rawUrl} target="_blank" class="gh-btn gh-btn-sm" title={$t("Open Raw")}><Octicon icon={linkExternal} className="h-3.5 w-3.5" /></a>
 								{/if}
 								{#if file.filename !== WORKSPACE_FILE}
-									<button class="gh-btn gh-btn-sm text-danger-fg" on:click={() => deleteFile(file.filename)} disabled={deleting} title={$t("Delete")}><Octicon icon={trash} className="h-3.5 w-3.5" /></button>
+									<button class="gh-btn gh-btn-sm gh-btn-danger" on:click={() => deleteFile(file.filename)} disabled={deleting} title={$t("Delete")}><Octicon icon={trash} className="h-3.5 w-3.5" /></button>
 								{/if}
 							</div>
 						</div>

@@ -315,20 +315,21 @@ import { slide, fly } from "svelte/transition";
 <div class="flex flex-col gap-6">
 	<div class="gh-page-header">
 		<div class="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-		<div class="flex items-center gap-3">
-			<div class="flex h-10 w-10 items-center justify-center rounded-full bg-canvas-subtle border border-border-default">
-				<Octicon icon={server} className="h-5 w-5 text-fg-muted" />
+			<div class="flex items-center gap-3">
+				<div class="flex h-9 w-9 items-center justify-center rounded-md bg-canvas-subtle border border-border-default">
+					<Octicon icon={server} className="h-4 w-4 text-fg-muted" />
+				</div>
+				<div>
+					<h1 class="text-[2rem] font-semibold leading-tight">{$t("Nodes & Subscriptions")}</h1>
+					<p class="gh-page-subtitle">{$t("Store single URIs and upstream feeds.")}</p>
+				</div>
 			</div>
-			<div>
-				<h1 class="text-[2rem] font-semibold leading-tight">{$t("Nodes & Subscriptions")}</h1>
-				<p class="gh-page-subtitle">{$t("Manage your proxy sources and connectivity settings")}</p>
-			</div>
+
+			<button type="button" class="gh-btn gh-btn-primary" on:click={() => (isAddModalOpen = !isAddModalOpen)}>
+				<Octicon icon={plus} className="h-4 w-4" />
+				{$t("New Resource")}
+			</button>
 		</div>
-		<button type="button" class="gh-btn gh-btn-primary" on:click={() => (isAddModalOpen = !isAddModalOpen)}>
-			<Octicon icon={plus} className="h-4 w-4" />
-			{$t("New Resource")}
-		</button>
-	</div>
 	</div>
 
 	<!-- Add Modal / Embedded Form -->
@@ -382,7 +383,7 @@ import { slide, fly } from "svelte/transition";
 					<div class="flex flex-col gap-4">
 						<div class="flex flex-col gap-1.5">
 							<label class="gh-form-label" for={addFormIds.batchContent}>{$t("Batch content")}</label>
-							<textarea id={addFormIds.batchContent} class="gh-input gh-textarea font-mono h-40" placeholder={$t("One per line...")} bind:value={batchContent}></textarea>
+							<textarea id={addFormIds.batchContent} class="gh-input gh-textarea h-36 font-mono" placeholder={$t("One per line...")} bind:value={batchContent}></textarea>
 						</div>
 						<div class="flex flex-col gap-1.5">
 							<label class="gh-form-label" for={addFormIds.batchTags}>{$t("Common tags")}</label>
@@ -429,42 +430,42 @@ import { slide, fly } from "svelte/transition";
 	<!-- Content Box -->
 	<div class="gh-box shadow-sm">
 		<div class="gh-box-header text-sm">
-			<span>{$t("Resources")}</span>
-			<span class="text-xs text-fg-muted font-normal">{activeTab === "nodes" ? filteredNodes.length : filteredSubscriptions.length} results</span>
+			<span>{activeTab === "nodes" ? $t("Nodes") : $t("Subscriptions")}</span>
+			<span class="text-xs font-normal text-fg-muted">{activeTab === "nodes" ? filteredNodes.length : filteredSubscriptions.length} {$t("results")}</span>
 		</div>
 
 		{#if activeTab === "nodes"}
-				{#if filteredNodes.length === 0}
-					<div class="blankslate">
-						<Octicon icon={server} className="mb-3 h-10 w-10 text-fg-subtle" />
-						<h3 class="text-lg font-bold">{$t("No nodes found")}</h3>
-						<p class="text-fg-muted text-sm mb-4">{$t("Add a single node or import a batch to get started.")}</p>
-						<button type="button" class="gh-btn" on:click={() => (isAddModalOpen = true)}>{$t("Create node")}</button>
-					</div>
-				{:else}
-					{#each filteredNodes as node (node.id)}
-						<div class={cn("gh-box-row group flex flex-col gap-0", !node.enabled && "opacity-60")}>
+			{#if filteredNodes.length === 0}
+				<div class="blankslate">
+					<Octicon icon={server} className="mb-3 h-10 w-10 text-fg-subtle" />
+					<h3 class="text-lg font-bold">{$t("No nodes yet")}</h3>
+					<p class="mb-4 text-sm text-fg-muted">{$t("Add one URI or import a batch.")}</p>
+					<button type="button" class="gh-btn" on:click={() => (isAddModalOpen = true)}>{$t("Add node")}</button>
+				</div>
+			{:else}
+				{#each filteredNodes as node (node.id)}
+					<div class={cn("gh-box-row group flex flex-col gap-0", !node.enabled && "opacity-60")}>
 							<div class="flex items-start justify-between gap-4">
 								<div class="flex items-start gap-3 min-w-0">
 									<button type="button" class={cn("mt-1 flex h-5 w-5 shrink-0 items-center justify-center rounded-md border", node.enabled ? "bg-accent-emphasis border-accent-emphasis text-white" : "border-border-default bg-canvas-default")} on:click={() => toggleEnabled(node.id, "node")} aria-label={$t(node.enabled ? "Disable node" : "Enable node")}>
 										{#if node.enabled}<Octicon icon={check} className="h-3.5 w-3.5" />{/if}
 									</button>
-									<div class="flex flex-col gap-1 min-w-0">
+									<div class="flex min-w-0 flex-col gap-0.5">
 										<div class="flex items-center gap-2">
 											<button type="button" class="gh-link truncate text-left font-semibold" on:click={() => startEditNode(node)}>{node.name}</button>
 											<span class="px-1.5 py-0.5 rounded border border-border-default bg-canvas-subtle text-[10px] font-black uppercase tracking-tight text-fg-muted">{node.type}</span>
 										</div>
-										<code class="text-[11px] text-fg-muted truncate font-mono bg-canvas-subtle px-1 rounded">{node.raw}</code>
+										<code class="rounded bg-canvas-subtle px-1.5 py-0.5 font-mono text-[10px] text-fg-muted truncate">{node.raw}</code>
 										{#if node.tags.length > 0}
-											<div class="flex flex-wrap gap-1 mt-1">
+											<div class="mt-0.5 flex flex-wrap gap-1">
 												{#each node.tags as tag}
 													<span class="badge"><Octicon icon={tag} className="mr-1 h-3 w-3" />{tag.label}</span>
 												{/each}
 											</div>
 										{/if}
+									</div>
 								</div>
-							</div>
-								<div class="flex items-center gap-1 shrink-0 opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100">
+								<div class="flex shrink-0 items-center gap-1 opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100">
 									<button type="button" class="gh-btn gh-btn-sm" on:click={() => startEditNode(node)} aria-label={$t("Edit node")}><Octicon icon={pencil} className="h-3.5 w-3.5" /></button>
 									<button type="button" class="gh-btn gh-btn-sm" on:click={() => copy(node.raw)} aria-label={$t("Copy URI")}><Octicon icon={copyIcon} className="h-3.5 w-3.5" /></button>
 									<button type="button" class="gh-btn gh-btn-sm gh-btn-danger" on:click={() => remove(node.id, "node", node.name)} aria-label={$t("Delete node")}><Octicon icon={trash} className="h-3.5 w-3.5" /></button>
@@ -505,37 +506,37 @@ import { slide, fly } from "svelte/transition";
 				{/each}
 			{/if}
 		{:else}
-				{#if filteredSubscriptions.length === 0}
-					<div class="blankslate">
-						<Octicon icon={link} className="mb-3 h-10 w-10 text-fg-subtle" />
-						<h3 class="text-lg font-bold">{$t("No subscriptions found")}</h3>
-						<p class="text-fg-muted text-sm mb-4">{$t("Subscribe to a link to auto-fetch nodes.")}</p>
-						<button type="button" class="gh-btn" on:click={() => (isAddModalOpen = true)}>{$t("Add subscription")}</button>
-					</div>
-				{:else}
-					{#each filteredSubscriptions as sub (sub.id)}
-						<div class={cn("gh-box-row group flex flex-col gap-0", !sub.enabled && "opacity-60")}>
+			{#if filteredSubscriptions.length === 0}
+				<div class="blankslate">
+					<Octicon icon={link} className="mb-3 h-10 w-10 text-fg-subtle" />
+					<h3 class="text-lg font-bold">{$t("No subscriptions yet")}</h3>
+					<p class="mb-4 text-sm text-fg-muted">{$t("Add a feed URL to fetch nodes.")}</p>
+					<button type="button" class="gh-btn" on:click={() => (isAddModalOpen = true)}>{$t("Add subscription")}</button>
+				</div>
+			{:else}
+				{#each filteredSubscriptions as sub (sub.id)}
+					<div class={cn("gh-box-row group flex flex-col gap-0", !sub.enabled && "opacity-60")}>
 							<div class="flex items-start justify-between gap-4">
 								<div class="flex items-start gap-3 min-w-0">
 									<button type="button" class={cn("mt-1 flex h-5 w-5 shrink-0 items-center justify-center rounded-md border", sub.enabled ? "bg-[color:var(--success-emphasis)] border-[color:var(--success-emphasis)] text-white" : "border-border-default bg-canvas-default")} on:click={() => toggleEnabled(sub.id, "sub")} aria-label={$t(sub.enabled ? "Disable subscription" : "Enable subscription")}>
 										{#if sub.enabled}<Octicon icon={check} className="h-3.5 w-3.5" />{/if}
 									</button>
-									<div class="flex flex-col gap-1 min-w-0">
+									<div class="flex min-w-0 flex-col gap-0.5">
 										<button type="button" class="gh-link truncate text-left font-semibold" on:click={() => startEditSub(sub)}>{sub.name}</button>
-										<div class="flex items-center gap-2 text-[11px] text-fg-muted">
+										<div class="flex items-center gap-1.5 text-[10px] text-fg-muted">
 											<Octicon icon={linkExternal} className="h-3 w-3" />
 											<span class="truncate">{sub.url}</span>
 										</div>
 										{#if sub.tags.length > 0}
-											<div class="flex flex-wrap gap-1 mt-1">
+											<div class="mt-0.5 flex flex-wrap gap-1">
 												{#each sub.tags as tag}
 													<span class="badge"><Octicon icon={tag} className="mr-1 h-3 w-3" />{tag.label}</span>
 												{/each}
 											</div>
 										{/if}
+									</div>
 								</div>
-							</div>
-								<div class="flex items-center gap-1 shrink-0 opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100">
+								<div class="flex shrink-0 items-center gap-1 opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100">
 									<button type="button" class="gh-btn gh-btn-sm" on:click={() => openSubscriptionPreview(sub)} aria-label={$t("Preview nodes")}><Octicon icon={eye} className="h-3.5 w-3.5" /></button>
 									<button type="button" class="gh-btn gh-btn-sm" on:click={() => startEditSub(sub)} aria-label={$t("Edit subscription")}><Octicon icon={pencil} className="h-3.5 w-3.5" /></button>
 									<button type="button" class="gh-btn gh-btn-sm" on:click={() => copy(sub.url)} aria-label={$t("Copy URL")}><Octicon icon={copyIcon} className="h-3.5 w-3.5" /></button>

@@ -307,7 +307,7 @@ import { dndzone, type DndEvent } from "svelte-dnd-action";
 			<Octicon icon={workflow} className="h-6 w-6 text-fg-muted" />
 			<div>
 				<h1 class="text-[2rem] font-semibold leading-tight">{$t("Aggregation Builder")}</h1>
-				<p class="gh-page-subtitle">{$t("Combine node sources, preview the result, and publish output files back into the workspace gist.")}</p>
+				<p class="gh-page-subtitle">{$t("Combine sources, preview the result, and publish output files.")}</p>
 			</div>
 		</div>
 	</div>
@@ -331,7 +331,7 @@ import { dndzone, type DndEvent } from "svelte-dnd-action";
 					<div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
 						<div class="flex flex-col gap-1.5">
 							<label class="gh-form-label" for={fieldIds.ruleName}>{$t("Rule Name")}</label>
-							<input id={fieldIds.ruleName} class="gh-input" placeholder="e.g. My Proxy Rule" bind:value={ruleName} />
+							<input id={fieldIds.ruleName} class="gh-input" placeholder="e.g. Global" bind:value={ruleName} />
 						</div>
 						<div class="flex flex-col gap-1.5">
 							<label class="gh-form-label" for={fieldIds.excludeTags}>{$t("Exclude Tags")}</label>
@@ -370,7 +370,7 @@ import { dndzone, type DndEvent } from "svelte-dnd-action";
 									</div>
 									<div class="max-h-[400px] overflow-y-auto p-1 flex flex-col gap-0.5">
 										<button type="button" class="flex items-center gap-2 p-1.5 rounded hover:bg-canvas-subtle text-xs text-accent-fg font-semibold w-full text-left" on:click={selectAllNodes}>
-											<Octicon icon={checklist} className="h-3.5 w-3.5" /> {$t("Toggle All Visible")}
+											<Octicon icon={checklist} className="h-3.5 w-3.5" /> {$t("Select visible")}
 										</button>
 										<div class="border-t border-border-default my-1"></div>
 										{#each filteredNodesInRule as node}
@@ -415,7 +415,7 @@ import { dndzone, type DndEvent } from "svelte-dnd-action";
 									</div>
 									<div class="max-h-[400px] overflow-y-auto p-1 flex flex-col gap-0.5">
 										<button type="button" class="flex items-center gap-2 p-1.5 rounded hover:bg-canvas-subtle text-xs text-accent-fg font-semibold w-full text-left" on:click={selectAllSubs}>
-											<Octicon icon={checklist} className="h-3.5 w-3.5" /> {$t("Toggle All Visible")}
+											<Octicon icon={checklist} className="h-3.5 w-3.5" /> {$t("Select visible")}
 										</button>
 										<div class="border-t border-border-default my-1"></div>
 										{#each filteredSubsInRule as sub}
@@ -463,10 +463,11 @@ import { dndzone, type DndEvent } from "svelte-dnd-action";
 							<textarea class="gh-input gh-textarea h-20 text-xs font-mono" placeholder="e.g.\nHK\nSG" bind:value={sortPriority}></textarea>
 						</div>
 					</div>
+
 					<!-- Rename Rules -->
 					<div class="flex flex-col gap-1.5">
-						<label class="text-sm font-semibold">{$t("Rename Rules (old=new per line)")}</label>
-						<textarea class="gh-input gh-textarea font-mono text-xs" placeholder="Original Name = New Name" bind:value={renameMap}></textarea>
+						<label class="gh-form-label" for={fieldIds.renameMap}>{$t("Rename Rules")}</label>
+						<textarea id={fieldIds.renameMap} class="gh-input gh-textarea font-mono text-xs" placeholder="Old Name = New Name" bind:value={renameMap}></textarea>
 						<p class="text-[10px] text-fg-muted italic">
 							{$t("Supports Regex: /pattern/flags = replacement (e.g. /^HK-(.*)/ = Hong Kong $1)")}
 						</p>
@@ -495,9 +496,9 @@ import { dndzone, type DndEvent } from "svelte-dnd-action";
 					{/if}
 					<button type="button" class="gh-btn" on:click={buildPreview} disabled={previewLoading}>
 						{#if previewLoading}<Octicon icon={sync} className="mr-1 h-4 w-4 animate-spin" />{:else}<Octicon icon={eye} className="mr-1 h-4 w-4" />{/if}
-						{$t("Preview Output")}
+						{$t("Preview")}
 					</button>
-					<button type="button" class="gh-btn gh-btn-primary px-8" on:click={saveRule}><Octicon icon={checkCircle} className="mr-1 h-4 w-4" />{$t("Save Rule")}</button>
+					<button type="button" class="gh-btn gh-btn-primary px-8" on:click={saveRule}><Octicon icon={checkCircle} className="mr-1 h-4 w-4" />{$t("Save")}</button>
 				</div>
 			</div>
 
@@ -544,7 +545,7 @@ import { dndzone, type DndEvent } from "svelte-dnd-action";
 						<div class="flex flex-col gap-1.5">
 							<label class="gh-form-label text-xs uppercase tracking-wide" for={fieldIds.targetSelect}>{$t("Select Target")}</label>
 							<select id={fieldIds.targetSelect} class="gh-select w-full" value={selectedTargetId} on:change={(e) => { const id = e.currentTarget.value; id ? loadPublishTarget($appState.publishTargets.find(t => t.id === id)) : resetTargetForm(); }}>
-								<option value="">+ {$t("New Target")}</option>
+								<option value="">+ {$t("New target")}</option>
 								{#each $appState.publishTargets as target}<option value={target.id}>{target.name}</option>{/each}
 							</select>
 						</div>
@@ -557,7 +558,7 @@ import { dndzone, type DndEvent } from "svelte-dnd-action";
 						</div>
 
 						<div class="flex flex-col gap-1.5">
-							<label class="gh-form-label text-xs uppercase tracking-wide" for={fieldIds.targetFile}>{$t("Output File Name")}</label>
+							<label class="gh-form-label text-xs uppercase tracking-wide" for={fieldIds.targetFile}>{$t("Output File")}</label>
 							<input id={fieldIds.targetFile} class="gh-input font-mono" placeholder="nodes.txt" bind:value={publishTargetFile} />
 						</div>
 
@@ -567,10 +568,10 @@ import { dndzone, type DndEvent } from "svelte-dnd-action";
 					</div>
 
 						<div class="flex flex-col gap-2 pt-2 border-t border-border-default">
-							<button type="button" class="gh-btn w-full" on:click={saveTarget}>{$t("Save Target Info")}</button>
+							<button type="button" class="gh-btn w-full" on:click={saveTarget}>{$t("Save Target")}</button>
 							<button type="button" class="gh-btn gh-btn-primary w-full py-3 h-auto" on:click={publish} disabled={publishing || !$authState.token}>
 								{#if publishing}<Octicon icon={sync} className="h-4 w-4 animate-spin" />{:else}<Octicon icon={upload} className="h-4 w-4" />{/if}
-								{$t("Publish Now")}
+								{$t("Publish")}
 							</button>
 						</div>
 
@@ -597,7 +598,7 @@ import { dndzone, type DndEvent } from "svelte-dnd-action";
 			{#if !$authState.token}
 				<div class="blankslate p-4 py-6">
 					<Octicon icon={database} className="mb-2 h-8 w-8 text-fg-subtle" />
-					<p class="text-xs text-fg-muted mb-3 leading-relaxed">{$t("Connect GitHub to enable cloud sync and auto-publishing.")}</p>
+					<p class="mb-3 text-xs leading-relaxed text-fg-muted">{$t("Connect GitHub to sync and publish from a gist.")}</p>
 					<a href="/auth" class="gh-btn gh-btn-sm">{$t("Go to Settings")}</a>
 				</div>
 			{/if}

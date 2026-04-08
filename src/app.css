@@ -126,11 +126,11 @@ pre {
 }
 
 .gh-box-header {
-	@apply flex items-center justify-between gap-3 border-b border-border-default bg-canvas-subtle px-4 py-3 font-semibold;
+	@apply flex items-center justify-between gap-3 border-b border-border-default bg-canvas-subtle px-4 py-2.5 text-sm font-semibold;
 }
 
 .gh-box-row {
-	@apply border-b border-border-default px-4 py-3 last:border-b-0;
+	@apply border-b border-border-default px-4 py-2.5 last:border-b-0;
 }
 
 .gh-box-row:hover {
@@ -280,7 +280,7 @@ pre {
 }
 
 .gh-page-header {
-	@apply flex flex-col gap-3 border-b border-border-default pb-4;
+	@apply flex flex-col gap-2 border-b border-border-default pb-3;
 }
 
 .gh-page-title {
@@ -288,7 +288,7 @@ pre {
 }
 
 .gh-page-subtitle {
-	@apply text-sm text-fg-muted;
+	@apply text-[13px] text-fg-muted;
 }
 
 .app-header {
@@ -385,7 +385,7 @@ pre {
 }
 
 .badge {
-	@apply inline-flex items-center rounded-full border border-border-default bg-canvas-subtle px-2 py-0.5 text-xs font-medium text-fg-muted;
+	@apply inline-flex items-center rounded-full border border-border-default bg-canvas-subtle px-2 py-0.5 text-[11px] font-medium text-fg-muted;
 }
 
 .badge-success {
