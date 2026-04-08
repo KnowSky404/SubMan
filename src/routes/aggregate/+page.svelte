@@ -38,7 +38,6 @@ import {
 	workflow,
 	x,
 } from "$lib/octicons";
-import { GripVertical } from "lucide-svelte";
 import { fade, slide, fly } from "svelte/transition";
 import { dndzone, type DndEvent } from "svelte-dnd-action";
 
@@ -543,7 +542,14 @@ import { dndzone, type DndEvent } from "svelte-dnd-action";
 							<div class="flex items-center justify-between p-2 rounded hover:bg-canvas-subtle transition-colors group cursor-grab active:cursor-grabbing bg-canvas-default border border-transparent hover:border-border-default">
 								<div class="flex items-center gap-3 min-w-0">
 									<div class="text-fg-subtle shrink-0">
-										<GripVertical class="h-3.5 w-3.5 opacity-50" />
+										<div class="grid grid-cols-2 gap-px opacity-50" aria-hidden="true">
+											<span class="h-1 w-1 rounded-full bg-current"></span>
+											<span class="h-1 w-1 rounded-full bg-current"></span>
+											<span class="h-1 w-1 rounded-full bg-current"></span>
+											<span class="h-1 w-1 rounded-full bg-current"></span>
+											<span class="h-1 w-1 rounded-full bg-current"></span>
+											<span class="h-1 w-1 rounded-full bg-current"></span>
+										</div>
 									</div>
 									<span class="px-1.5 py-0.5 rounded bg-canvas-subtle border border-border-default text-[9px] font-black uppercase text-fg-muted shrink-0">{entry.protocol}</span>
 									<span class="text-xs font-bold truncate">{entry.name}</span>
