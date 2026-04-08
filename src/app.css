@@ -303,6 +303,18 @@ pre {
 	@apply max-w-full truncate font-mono text-[11px];
 }
 
+.gh-list-header {
+	@apply flex items-center justify-between gap-3 border-b border-border-default bg-canvas-subtle px-4 py-2 text-[11px] font-semibold uppercase tracking-wide text-fg-muted;
+}
+
+.gh-list-meta {
+	@apply flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-fg-muted;
+}
+
+.gh-list-meta-code {
+	@apply max-w-full truncate rounded bg-canvas-subtle px-1.5 py-0.5 font-mono text-[10px];
+}
+
 .app-header {
 	background: var(--header-bg);
 	border-bottom: 1px solid var(--header-border);
