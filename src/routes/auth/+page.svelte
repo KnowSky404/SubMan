@@ -176,10 +176,14 @@
 </script>
 
 <div class="flex flex-col gap-8">
-	<!-- Settings Header -->
-	<div class="flex items-center gap-3 border-b border-border-default pb-4">
-		<Settings class="h-6 w-6 text-fg-muted" />
-		<h1 class="text-2xl font-bold">{$t("Settings")}</h1>
+	<div class="gh-page-header">
+		<div class="flex items-center gap-3">
+			<Settings class="h-6 w-6 text-fg-muted" />
+			<div>
+				<h1 class="text-[2rem] font-semibold leading-tight">{$t("Settings")}</h1>
+				<p class="gh-page-subtitle">{$t("Manage GitHub workspace authentication, sync behavior, and local import or export.")}</p>
+			</div>
+		</div>
 	</div>
 
 	<!-- Conflict Resolution UI -->
@@ -230,12 +234,15 @@
 				</p>
 				
 				{#if !$authState.token}
-					<div class="flex flex-col sm:flex-row gap-2">
-						<input type="password" class="gh-input flex-1 font-mono" placeholder="ghp_xxxxxxxxxxxx" bind:value={tokenInput} />
-						<button class="gh-btn gh-btn-primary" on:click={handleTokenSave} disabled={workspaceBusy}>
+					<div class="flex flex-col gap-2">
+						<label class="gh-form-label" for="github-token">{$t("Personal access token")}</label>
+						<div class="flex flex-col sm:flex-row gap-2">
+							<input id="github-token" type="password" class="gh-input flex-1 font-mono" placeholder="ghp_xxxxxxxxxxxx" bind:value={tokenInput} />
+							<button type="button" class="gh-btn gh-btn-primary" on:click={handleTokenSave} disabled={workspaceBusy}>
 							{#if workspaceBusy}<RefreshCw class="h-4 w-4 animate-spin" />{:else}<Save class="h-4 w-4" />{/if}
 							{$t("Connect")}
-						</button>
+							</button>
+						</div>
 					</div>
 					<a href="https://github.com/settings/tokens/new?description=SubMan&scopes=gist" target="_blank" class="text-xs text-accent-fg hover:underline flex items-center gap-1">
 						<ExternalLink class="h-3 w-3" /> {$t("Generate a new token on GitHub")}
@@ -251,11 +258,11 @@
 								</div>
 							</div>
 							<div class="flex gap-2">
-								<button class="gh-btn gh-btn-sm" on:click={handleManualPull} disabled={workspaceBusy}>
+								<button type="button" class="gh-btn gh-btn-sm" on:click={handleManualPull} disabled={workspaceBusy}>
 									<RefreshCw class={cn("h-3.5 w-3.5 mr-1", workspaceBusy && "animate-spin")} />
 									{$t("Pull Now")}
 								</button>
-								<button class="gh-btn gh-btn-danger gh-btn-sm" on:click={handleTokenClear}><Trash2 class="h-3.5 w-3.5" />{$t("Disconnect")}</button>
+								<button type="button" class="gh-btn gh-btn-danger gh-btn-sm" on:click={handleTokenClear}><Trash2 class="h-3.5 w-3.5" />{$t("Disconnect")}</button>
 							</div>
 						</div>
 						<p class="text-[10px] text-fg-muted">
@@ -270,18 +277,19 @@
 	<!-- Local Data Management -->
 	<section>
 		<div class="mb-2"><h2 class="text-lg font-bold flex items-center gap-2"><Database class="h-5 w-5" />{$t("Data Management")}</h2></div>
-		<div class="gh-box">
-			<div class="gh-box-header">{$t("Import / Export")}</div>
-			<div class="p-4 bg-canvas-default flex flex-col gap-4">
-				<p class="text-sm text-fg-muted">{$t("Manually backup or restore your local configuration as a JSON payload.")}</p>
-				<textarea class="gh-input gh-textarea font-mono text-xs h-32" placeholder="JSON data..." bind:value={payload}></textarea>
-				<div class="flex flex-wrap gap-2">
-					<button class="gh-btn flex-1" on:click={handleExport}><Upload class="h-4 w-4" />{$t("Export to JSON")}</button>
-					<button class="gh-btn flex-1" on:click={handleImport}><Download class="h-4 w-4" />{$t("Import from JSON")}</button>
-					<button class="gh-btn" on:click={() => { navigator.clipboard.writeText(payload); setStatus($t("Copied to clipboard")); }} disabled={!payload}><Copy class="h-4 w-4" /></button>
+			<div class="gh-box">
+				<div class="gh-box-header">{$t("Import / Export")}</div>
+				<div class="p-4 bg-canvas-default flex flex-col gap-4">
+					<p class="text-sm text-fg-muted">{$t("Manually backup or restore your local configuration as a JSON payload.")}</p>
+					<label class="gh-form-label" for="settings-payload">{$t("JSON payload")}</label>
+					<textarea id="settings-payload" class="gh-input gh-textarea font-mono text-xs h-32" placeholder="JSON data..." bind:value={payload}></textarea>
+					<div class="flex flex-wrap gap-2">
+						<button type="button" class="gh-btn flex-1" on:click={handleExport}><Upload class="h-4 w-4" />{$t("Export to JSON")}</button>
+						<button type="button" class="gh-btn flex-1" on:click={handleImport}><Download class="h-4 w-4" />{$t("Import from JSON")}</button>
+						<button type="button" class="gh-btn" on:click={() => { navigator.clipboard.writeText(payload); setStatus($t("Copied to clipboard")); }} disabled={!payload}><Copy class="h-4 w-4" /></button>
+					</div>
 				</div>
 			</div>
-		</div>
 	</section>
 
 	<!-- About / Info -->

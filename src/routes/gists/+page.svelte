@@ -89,16 +89,21 @@
 </script>
 
 <div class="flex flex-col gap-6">
-	<div class="flex items-center justify-between border-b border-border-default pb-4">
-		<div class="flex items-center gap-3">
-			<Layers class="h-6 w-6 text-fg-muted" />
-			<h1 class="text-2xl font-bold">{$t("Gist Files")}</h1>
-		</div>
-		<div class="flex items-center gap-2">
-			<button class="gh-btn" on:click={refreshWorkspace} disabled={loading}>
-				<RefreshCw class={cn("h-4 w-4", loading && "animate-spin")} />
-				{$t("Refresh")}
-			</button>
+	<div class="gh-page-header">
+		<div class="flex items-center justify-between gap-4">
+			<div class="flex items-center gap-3">
+				<Layers class="h-6 w-6 text-fg-muted" />
+				<div>
+					<h1 class="text-[2rem] font-semibold leading-tight">{$t("Gist Files")}</h1>
+					<p class="gh-page-subtitle">{$t("Inspect the active workspace gist, copy raw URLs, and remove generated files when needed.")}</p>
+				</div>
+			</div>
+			<div class="flex items-center gap-2">
+				<button type="button" class="gh-btn" on:click={refreshWorkspace} disabled={loading}>
+					<RefreshCw class={cn("h-4 w-4", loading && "animate-spin")} />
+					{$t("Refresh")}
+				</button>
+			</div>
 		</div>
 	</div>
 

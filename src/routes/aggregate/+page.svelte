@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { onDestroy } from "svelte";
 	import { t } from "$lib/i18n";
 	import {
 		appState,
@@ -33,9 +32,7 @@
 		RefreshCw,
 		Globe,
 		ExternalLink,
-		Settings,
 		Search,
-		Cpu,
 		Database,
 		X,
 		Info,
@@ -84,6 +81,18 @@
 	let publishUrl: string | null = null;
 	let publishing = false;
 	let editingRuleId = "";
+	const fieldIds = {
+		ruleName: "aggregate-rule-name",
+		excludeTags: "aggregate-exclude-tags",
+		nodesMenu: "aggregate-source-nodes",
+		subsMenu: "aggregate-source-subscriptions",
+		nodeSearch: "aggregate-node-search",
+		subSearch: "aggregate-sub-search",
+		renameMap: "aggregate-rename-map",
+		targetSelect: "aggregate-target-select",
+		targetRule: "aggregate-target-rule",
+		targetFile: "aggregate-target-file"
+	};
 
 	const protocolOptions: { id: string; label: string }[] = [
 		{ id: "vless", label: "VLESS" },
@@ -299,9 +308,14 @@
 </script>
 
 <div class="flex flex-col gap-6">
-	<div class="flex items-center gap-3 border-b border-border-default pb-4">
-		<Zap class="h-6 w-6 text-fg-muted" />
-		<h1 class="text-2xl font-bold">{$t("Aggregation Builder")}</h1>
+	<div class="gh-page-header">
+		<div class="flex items-center gap-3">
+			<Zap class="h-6 w-6 text-fg-muted" />
+			<div>
+				<h1 class="text-[2rem] font-semibold leading-tight">{$t("Aggregation Builder")}</h1>
+				<p class="gh-page-subtitle">{$t("Combine node sources, preview the result, and publish output files back into the workspace gist.")}</p>
+			</div>
+		</div>
 	</div>
 
 	<div class="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
@@ -322,12 +336,12 @@
 					<!-- Basics -->
 					<div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
 						<div class="flex flex-col gap-1.5">
-							<label class="text-sm font-semibold">{$t("Rule Name")}</label>
-							<input class="gh-input" placeholder="e.g. My Proxy Rule" bind:value={ruleName} />
+							<label class="gh-form-label" for={fieldIds.ruleName}>{$t("Rule Name")}</label>
+							<input id={fieldIds.ruleName} class="gh-input" placeholder="e.g. My Proxy Rule" bind:value={ruleName} />
 						</div>
 						<div class="flex flex-col gap-1.5">
-							<label class="text-sm font-semibold">{$t("Exclude Tags")}</label>
-							<input class="gh-input" placeholder="domestic, bypass..." bind:value={excludeTags} />
+							<label class="gh-form-label" for={fieldIds.excludeTags}>{$t("Exclude Tags")}</label>
+							<input id={fieldIds.excludeTags} class="gh-input" placeholder="domestic, bypass..." bind:value={excludeTags} />
 						</div>
 					</div>
 
@@ -335,10 +349,15 @@
 					<div class="grid grid-cols-1 sm:grid-cols-2 gap-6">
 						<!-- Nodes Dropdown -->
 						<div class="flex flex-col gap-1.5 relative">
-							<label class="text-sm font-semibold">{$t("Source Nodes")}</label>
+							<div id={`${fieldIds.nodesMenu}-label`} class="gh-form-label">{$t("Source Nodes")}</div>
 							<button 
+								type="button"
+								id={fieldIds.nodesMenu}
 								class="gh-select w-full text-left flex items-center justify-between" 
 								on:click={() => { showNodesMenu = !showNodesMenu; showSubsMenu = false; }}
+								aria-haspopup="dialog"
+								aria-expanded={showNodesMenu}
+								aria-labelledby={`${fieldIds.nodesMenu}-label ${fieldIds.nodesMenu}`}
 							>
 								<span class="truncate">
 									{activeNodeCount > 0 ? $t("{count} nodes selected", { count: activeNodeCount }) : $t("Select nodes...")}
@@ -346,21 +365,22 @@
 							</button>
 							
 							{#if showNodesMenu}
-								<div class="fixed inset-0 z-[110]" on:click={() => (showNodesMenu = false)}></div>
+								<button type="button" class="fixed inset-0 z-[110]" on:click={() => (showNodesMenu = false)} aria-label={$t("Close source nodes menu")}></button>
 								<div class="absolute top-full left-0 mt-1 w-full min-w-[280px] gh-box shadow-xl z-[120] bg-canvas-default" transition:slide={{ duration: 150 }}>
 									<div class="p-2 border-b border-border-default bg-canvas-subtle">
 										<div class="relative">
 											<Search class="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-fg-subtle" />
-											<input class="gh-input pl-8 h-7 text-xs w-full" placeholder={$t("Filter nodes...")} bind:value={nodeSearchQuery} on:click|stopPropagation />
+											<label class="sr-only" for={fieldIds.nodeSearch}>{$t("Filter nodes")}</label>
+											<input id={fieldIds.nodeSearch} class="gh-input pl-8 h-7 text-xs w-full" placeholder={$t("Filter nodes...")} bind:value={nodeSearchQuery} />
 										</div>
 									</div>
 									<div class="max-h-[400px] overflow-y-auto p-1 flex flex-col gap-0.5">
-										<button class="flex items-center gap-2 p-1.5 rounded hover:bg-canvas-subtle text-xs text-accent-fg font-semibold w-full text-left" on:click|stopPropagation={selectAllNodes}>
+										<button type="button" class="flex items-center gap-2 p-1.5 rounded hover:bg-canvas-subtle text-xs text-accent-fg font-semibold w-full text-left" on:click={selectAllNodes}>
 											<ListFilter class="h-3.5 w-3.5" /> {$t("Toggle All Visible")}
 										</button>
 										<div class="border-t border-border-default my-1"></div>
 										{#each filteredNodesInRule as node}
-											<label class="flex items-center gap-2 p-1.5 rounded hover:bg-canvas-subtle cursor-pointer text-xs transition-colors" on:click|stopPropagation>
+											<label class="flex items-center gap-2 p-1.5 rounded hover:bg-canvas-subtle cursor-pointer text-xs transition-colors">
 												<input type="checkbox" class="rounded border-border-default" checked={selectedNodeIds.includes(node.id)} on:change={() => (selectedNodeIds = toggleSelection(selectedNodeIds, node.id))} />
 												<span class="truncate flex-1">{node.name}</span>
 												<span class="text-[9px] uppercase font-black text-fg-subtle">{node.type}</span>
@@ -374,10 +394,15 @@
 
 						<!-- Subscriptions Dropdown -->
 						<div class="flex flex-col gap-1.5 relative">
-							<label class="text-sm font-semibold">{$t("Source Subscriptions")}</label>
+							<div id={`${fieldIds.subsMenu}-label`} class="gh-form-label">{$t("Source Subscriptions")}</div>
 							<button 
+								type="button"
+								id={fieldIds.subsMenu}
 								class="gh-select w-full text-left flex items-center justify-between" 
 								on:click={() => { showSubsMenu = !showSubsMenu; showNodesMenu = false; }}
+								aria-haspopup="dialog"
+								aria-expanded={showSubsMenu}
+								aria-labelledby={`${fieldIds.subsMenu}-label ${fieldIds.subsMenu}`}
 							>
 								<span class="truncate">
 									{activeSubCount > 0 ? $t("{count} subs selected", { count: activeSubCount }) : $t("Select subscriptions...")}
@@ -385,21 +410,22 @@
 							</button>
 
 							{#if showSubsMenu}
-								<div class="fixed inset-0 z-[110]" on:click={() => (showSubsMenu = false)}></div>
+								<button type="button" class="fixed inset-0 z-[110]" on:click={() => (showSubsMenu = false)} aria-label={$t("Close source subscriptions menu")}></button>
 								<div class="absolute top-full left-0 mt-1 w-full min-w-[280px] gh-box shadow-xl z-[120] bg-canvas-default" transition:slide={{ duration: 150 }}>
 									<div class="p-2 border-b border-border-default bg-canvas-subtle">
 										<div class="relative">
 											<Search class="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-fg-subtle" />
-											<input class="gh-input pl-8 h-7 text-xs w-full" placeholder={$t("Filter subs...")} bind:value={subSearchQuery} on:click|stopPropagation />
+											<label class="sr-only" for={fieldIds.subSearch}>{$t("Filter subscriptions")}</label>
+											<input id={fieldIds.subSearch} class="gh-input pl-8 h-7 text-xs w-full" placeholder={$t("Filter subs...")} bind:value={subSearchQuery} />
 										</div>
 									</div>
 									<div class="max-h-[400px] overflow-y-auto p-1 flex flex-col gap-0.5">
-										<button class="flex items-center gap-2 p-1.5 rounded hover:bg-canvas-subtle text-xs text-accent-fg font-semibold w-full text-left" on:click|stopPropagation={selectAllSubs}>
+										<button type="button" class="flex items-center gap-2 p-1.5 rounded hover:bg-canvas-subtle text-xs text-accent-fg font-semibold w-full text-left" on:click={selectAllSubs}>
 											<ListFilter class="h-3.5 w-3.5" /> {$t("Toggle All Visible")}
 										</button>
 										<div class="border-t border-border-default my-1"></div>
 										{#each filteredSubsInRule as sub}
-											<label class="flex items-center gap-2 p-1.5 rounded hover:bg-canvas-subtle cursor-pointer text-xs transition-colors" on:click|stopPropagation>
+											<label class="flex items-center gap-2 p-1.5 rounded hover:bg-canvas-subtle cursor-pointer text-xs transition-colors">
 												<input type="checkbox" class="rounded border-border-default" checked={selectedSubscriptionIds.includes(sub.id)} on:change={() => (selectedSubscriptionIds = toggleSelection(selectedSubscriptionIds, sub.id))} />
 												<span class="truncate flex-1">{sub.name}</span>
 											</label>
@@ -472,13 +498,13 @@
 				</div>
 				<div class="p-4 bg-canvas-subtle border-t border-border-default flex justify-end gap-2">
 					{#if editingRuleId}
-						<button class="gh-btn gh-btn-danger" on:click={() => { removeAggregate(editingRuleId); resetRuleForm(); }}><Trash2 class="h-4 w-4" /></button>
+						<button type="button" class="gh-btn gh-btn-danger" on:click={() => { removeAggregate(editingRuleId); resetRuleForm(); }} aria-label={$t("Delete current rule")}><Trash2 class="h-4 w-4" /></button>
 					{/if}
-					<button class="gh-btn" on:click={buildPreview} disabled={previewLoading}>
+					<button type="button" class="gh-btn" on:click={buildPreview} disabled={previewLoading}>
 						{#if previewLoading}<RefreshCw class="h-4 w-4 animate-spin mr-1" />{:else}<Eye class="h-4 w-4 mr-1" />{/if}
 						{$t("Preview Output")}
 					</button>
-					<button class="gh-btn gh-btn-primary px-8" on:click={saveRule}><Save class="h-4 w-4 mr-1" />{$t("Save Rule")}</button>
+					<button type="button" class="gh-btn gh-btn-primary px-8" on:click={saveRule}><Save class="h-4 w-4 mr-1" />{$t("Save Rule")}</button>
 				</div>
 			</div>
 
@@ -490,7 +516,7 @@
 							<span>{$t("Preview Results")}</span>
 							<span class="badge ml-2">{previewEntries.length} {$t("Nodes")}</span>
 						</div>
-						<button class="text-fg-muted hover:text-fg-default" on:click={() => (previewEntries = [])}><X class="h-4 w-4" /></button>
+						<button type="button" class="gh-icon-button h-7 w-7" on:click={() => (previewEntries = [])} aria-label={$t("Close preview results")}><X class="h-4 w-4" /></button>
 					</div>
 					<div 
 						class="p-2 bg-canvas-default max-h-96 overflow-y-auto flex flex-col gap-1"
@@ -507,7 +533,7 @@
 									<span class="px-1.5 py-0.5 rounded bg-canvas-subtle border border-border-default text-[9px] font-black uppercase text-fg-muted shrink-0">{entry.protocol}</span>
 									<span class="text-xs font-bold truncate">{entry.name}</span>
 								</div>
-								<button class="gh-btn gh-btn-sm opacity-0 group-hover:opacity-100 transition-opacity" on:click={() => copyLine(entry.line)}><Copy class="h-3.5 w-3.5" /></button>
+								<button type="button" class="gh-btn gh-btn-sm opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity" on:click={() => copyLine(entry.line)} aria-label={$t("Copy preview line")}><Copy class="h-3.5 w-3.5" /></button>
 							</div>
 						{/each}
 					</div>
@@ -517,42 +543,42 @@
 
 		<!-- Sidebar: Publish Settings -->
 		<div class="flex flex-col gap-6">
-			<div class="gh-box shadow-sm !overflow-visible">
-				<div class="gh-box-header text-sm">
-					<div class="flex items-center gap-2"><CloudUpload class="h-4 w-4" />{$t("Publish to Gist")}</div>
-				</div>
-				<div class="p-4 bg-canvas-default flex flex-col gap-4">
-					<div class="flex flex-col gap-1.5">
-						<label class="text-xs font-bold text-fg-muted uppercase">{$t("Select Target")}</label>
-						<select class="gh-select w-full" value={selectedTargetId} on:change={(e) => { const id = e.currentTarget.value; id ? loadPublishTarget($appState.publishTargets.find(t => t.id === id)) : resetTargetForm(); }}>
-							<option value="">+ {$t("New Target")}</option>
-							{#each $appState.publishTargets as target}<option value={target.id}>{target.name}</option>{/each}
-						</select>
+				<div class="gh-box shadow-sm !overflow-visible">
+					<div class="gh-box-header text-sm">
+						<div class="flex items-center gap-2"><CloudUpload class="h-4 w-4" />{$t("Publish to Gist")}</div>
 					</div>
+					<div class="p-4 bg-canvas-default flex flex-col gap-4">
+						<div class="flex flex-col gap-1.5">
+							<label class="gh-form-label text-xs uppercase tracking-wide" for={fieldIds.targetSelect}>{$t("Select Target")}</label>
+							<select id={fieldIds.targetSelect} class="gh-select w-full" value={selectedTargetId} on:change={(e) => { const id = e.currentTarget.value; id ? loadPublishTarget($appState.publishTargets.find(t => t.id === id)) : resetTargetForm(); }}>
+								<option value="">+ {$t("New Target")}</option>
+								{#each $appState.publishTargets as target}<option value={target.id}>{target.name}</option>{/each}
+							</select>
+						</div>
 
-					<div class="flex flex-col gap-1.5">
-						<label class="text-xs font-bold text-fg-muted uppercase">{$t("Binding Rule")}</label>
-						<select class="gh-select w-full" bind:value={publishTargetRuleId}>
-							{#each $appState.aggregates as rule}<option value={rule.id}>{rule.name}</option>{/each}
-						</select>
-					</div>
+						<div class="flex flex-col gap-1.5">
+							<label class="gh-form-label text-xs uppercase tracking-wide" for={fieldIds.targetRule}>{$t("Binding Rule")}</label>
+							<select id={fieldIds.targetRule} class="gh-select w-full" bind:value={publishTargetRuleId}>
+								{#each $appState.aggregates as rule}<option value={rule.id}>{rule.name}</option>{/each}
+							</select>
+						</div>
 
-					<div class="flex flex-col gap-1.5">
-						<label class="text-xs font-bold text-fg-muted uppercase">{$t("Output File Name")}</label>
-						<input class="gh-input font-mono" placeholder="nodes.txt" bind:value={publishTargetFile} />
-					</div>
+						<div class="flex flex-col gap-1.5">
+							<label class="gh-form-label text-xs uppercase tracking-wide" for={fieldIds.targetFile}>{$t("Output File Name")}</label>
+							<input id={fieldIds.targetFile} class="gh-input font-mono" placeholder="nodes.txt" bind:value={publishTargetFile} />
+						</div>
 
 					<div class="flex items-center gap-2 p-2.5 rounded bg-canvas-subtle border border-border-default">
 						<input type="checkbox" class="rounded border-border-default" bind:checked={publishTargetPublic} />
 						<span class="text-xs font-bold">{$t("Public Gist")}</span>
 					</div>
 
-					<div class="flex flex-col gap-2 pt-2 border-t border-border-default">
-						<button class="gh-btn w-full" on:click={saveTarget}>{$t("Save Target Info")}</button>
-						<button class="gh-btn gh-btn-primary w-full py-3 h-auto" on:click={publish} disabled={publishing || !$authState.token}>
-							{#if publishing}<RefreshCw class="h-4 w-4 animate-spin" />{:else}<CloudUpload class="h-4 w-4" />{/if}
-							{$t("Publish Now")}
-						</button>
+						<div class="flex flex-col gap-2 pt-2 border-t border-border-default">
+							<button type="button" class="gh-btn w-full" on:click={saveTarget}>{$t("Save Target Info")}</button>
+							<button type="button" class="gh-btn gh-btn-primary w-full py-3 h-auto" on:click={publish} disabled={publishing || !$authState.token}>
+								{#if publishing}<RefreshCw class="h-4 w-4 animate-spin" />{:else}<CloudUpload class="h-4 w-4" />{/if}
+								{$t("Publish Now")}
+							</button>
 					</div>
 
 					{#if publishUrl}
@@ -562,10 +588,10 @@
 								<CheckCircle2 class="h-3 w-3" />
 							</div>
 							<code class="text-[10px] break-all font-mono text-green-900 dark:text-green-300 opacity-80">{publishUrl}</code>
-							<button class="gh-btn gh-btn-sm" on:click={async () => { 
-								try {
-									await navigator.clipboard.writeText(publishUrl); 
-									showToast($t("Link copied to clipboard"), 'success'); 
+								<button type="button" class="gh-btn gh-btn-sm" on:click={async () => { 
+									try {
+										await navigator.clipboard.writeText(publishUrl); 
+										showToast($t("Link copied to clipboard"), 'success'); 
 								} catch {
 									showToast($t("Copy failed"), 'error');
 								}

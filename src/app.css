@@ -244,6 +244,24 @@ pre {
   color: var(--fg-default);
 }
 
+.gh-tabs {
+  @apply flex items-center gap-1 border-b border-border-default;
+}
+
+.gh-tab {
+  @apply inline-flex items-center gap-1.5 rounded-t-md px-3 py-2 text-sm font-medium text-fg-muted transition-colors;
+  border-bottom: 2px solid transparent;
+}
+
+.gh-tab:hover {
+  color: var(--fg-default);
+}
+
+.gh-tab-active {
+  border-bottom-color: var(--border-accent);
+  color: var(--fg-default);
+}
+
 .gh-page-header {
   @apply flex flex-col gap-3 border-b border-border-default pb-4;
 }

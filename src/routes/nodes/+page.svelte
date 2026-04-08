@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { onDestroy } from "svelte";
 	import { t } from "$lib/i18n";
 	import {
 		appState,
@@ -34,12 +33,11 @@
 		AlertCircle,
 		X,
 		ExternalLink,
-		ChevronDown,
 		Save,
 		RefreshCw,
 		Eye
 	} from "lucide-svelte";
-	import { fade, slide, fly } from "svelte/transition";
+	import { slide, fly } from "svelte/transition";
 
 	let activeTab: "nodes" | "subscriptions" = "nodes";
 	let isAddModalOpen = false;
@@ -68,6 +66,19 @@
 	// Edit State
 	let nodeDrafts: Record<string, { name: string; type: ProxyType; raw: string; tags: string }> = {};
 	let subDrafts: Record<string, { name: string; url: string; tags: string }> = {};
+	const addFormIds = {
+		nodeName: "node-name",
+		nodeType: "node-type",
+		nodeRaw: "node-raw",
+		nodeTags: "node-tags",
+		subName: "subscription-name",
+		subUrl: "subscription-url",
+		subTags: "subscription-tags",
+		batchContent: "batch-content",
+		batchTags: "batch-tags",
+		filterQuery: "resource-filter-query",
+		filterStatus: "resource-filter-status"
+	};
 
 	function showToastNotify(message: string, type: "success" | "info" | "error" = "success") {
 		showToast(message, type);
@@ -296,21 +307,22 @@
 </script>
 
 <div class="flex flex-col gap-6">
-	<!-- Page Header -->
-	<div class="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-border-default pb-4">
+	<div class="gh-page-header">
+		<div class="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
 		<div class="flex items-center gap-3">
 			<div class="flex h-10 w-10 items-center justify-center rounded-full bg-canvas-subtle border border-border-default">
 				<Network class="h-5 w-5 text-fg-muted" />
 			</div>
 			<div>
-				<h1 class="text-xl font-bold">{$t("Nodes & Subscriptions")}</h1>
-				<p class="text-sm text-fg-muted">{$t("Manage your proxy sources and connectivity settings")}</p>
+				<h1 class="text-[2rem] font-semibold leading-tight">{$t("Nodes & Subscriptions")}</h1>
+				<p class="gh-page-subtitle">{$t("Manage your proxy sources and connectivity settings")}</p>
 			</div>
 		</div>
-		<button class="gh-btn gh-btn-primary" on:click={() => (isAddModalOpen = !isAddModalOpen)}>
+		<button type="button" class="gh-btn gh-btn-primary" on:click={() => (isAddModalOpen = !isAddModalOpen)}>
 			<Plus class="h-4 w-4" />
 			{$t("New Resource")}
 		</button>
+	</div>
 	</div>
 
 	<!-- Add Modal / Embedded Form -->
@@ -318,58 +330,64 @@
 		<div class="gh-box" transition:slide>
 			<div class="gh-box-header">
 				<div class="flex items-center gap-4">
-					<button class={cn("gh-tab", addMode === "single" && "gh-tab-active")} on:click={() => (addMode = "single")}>{$t("Single Entry")}</button>
-					<button class={cn("gh-tab", addMode === "batch" && "gh-tab-active")} on:click={() => (addMode = "batch")}>{$t("Batch Import")}</button>
+					<button type="button" class={cn("gh-tab", addMode === "single" && "gh-tab-active")} on:click={() => (addMode = "single")}>{$t("Single Entry")}</button>
+					<button type="button" class={cn("gh-tab", addMode === "batch" && "gh-tab-active")} on:click={() => (addMode = "batch")}>{$t("Batch Import")}</button>
 				</div>
-				<button class="text-fg-muted hover:text-fg-default" on:click={() => (isAddModalOpen = false)}><X class="h-4 w-4" /></button>
+				<button type="button" class="gh-icon-button h-7 w-7" on:click={() => (isAddModalOpen = false)} aria-label={$t("Close add resource panel")}><X class="h-4 w-4" /></button>
 			</div>
 			<div class="p-4 bg-canvas-default flex flex-col gap-4">
 				{#if addMode === "single"}
 					<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
 						<div class="flex flex-col gap-1.5">
-							<label class="text-sm font-semibold">{$t("Name")}</label>
+							<label class="gh-form-label" for={activeTab === "nodes" ? addFormIds.nodeName : addFormIds.subName}>{$t("Name")}</label>
 							{#if activeTab === "nodes"}
-								<input class="gh-input" placeholder={$t("Friendly name")} bind:value={nodeName} />
+								<input id={addFormIds.nodeName} class="gh-input" placeholder={$t("Friendly name")} bind:value={nodeName} />
 							{:else}
-								<input class="gh-input" placeholder={$t("Friendly name")} bind:value={subName} />
+								<input id={addFormIds.subName} class="gh-input" placeholder={$t("Friendly name")} bind:value={subName} />
 							{/if}
 						</div>
 						{#if activeTab === "nodes"}
 							<div class="flex flex-col gap-1.5">
-								<label class="text-sm font-semibold">{$t("Protocol")}</label>
-								<select class="gh-input" bind:value={nodeType}>
+								<label class="gh-form-label" for={addFormIds.nodeType}>{$t("Protocol")}</label>
+								<select id={addFormIds.nodeType} class="gh-select" bind:value={nodeType}>
 									<option value="vless">VLESS</option><option value="vmess">VMess</option><option value="trojan">Trojan</option>
 									<option value="ss">SS</option><option value="ssr">SSR</option><option value="hysteria2">Hysteria2</option>
 								</select>
 							</div>
 						{/if}
 						<div class="md:col-span-2 flex flex-col gap-1.5">
-							<label class="text-sm font-semibold">{activeTab === "nodes" ? $t("Raw URI") : $t("URL")}</label>
+							<label class="gh-form-label" for={activeTab === "nodes" ? addFormIds.nodeRaw : addFormIds.subUrl}>{activeTab === "nodes" ? $t("Raw URI") : $t("URL")}</label>
 							{#if activeTab === "nodes"}
-								<textarea class="gh-input gh-textarea font-mono" placeholder="vless://..." bind:value={nodeRaw}></textarea>
+								<textarea id={addFormIds.nodeRaw} class="gh-input gh-textarea font-mono" placeholder="vless://..." bind:value={nodeRaw}></textarea>
 							{:else}
-								<textarea class="gh-input gh-textarea font-mono" placeholder="https://..." bind:value={subUrl}></textarea>
+								<textarea id={addFormIds.subUrl} class="gh-input gh-textarea font-mono" placeholder="https://..." bind:value={subUrl}></textarea>
 							{/if}
 						</div>
 						<div class="md:col-span-2 flex flex-col gap-1.5">
-							<label class="text-sm font-semibold">{$t("Tags (comma separated)")}</label>
+							<label class="gh-form-label" for={activeTab === "nodes" ? addFormIds.nodeTags : addFormIds.subTags}>{$t("Tags (comma separated)")}</label>
 							{#if activeTab === "nodes"}
-								<input class="gh-input" placeholder="tag1, tag2..." bind:value={nodeTags} />
+								<input id={addFormIds.nodeTags} class="gh-input" placeholder="tag1, tag2..." bind:value={nodeTags} />
 							{:else}
-								<input class="gh-input" placeholder="tag1, tag2..." bind:value={subTags} />
+								<input id={addFormIds.subTags} class="gh-input" placeholder="tag1, tag2..." bind:value={subTags} />
 							{/if}
 						</div>
 					</div>
 				{:else}
 					<div class="flex flex-col gap-4">
-						<textarea class="gh-input gh-textarea font-mono h-40" placeholder={$t("One per line...")} bind:value={batchContent}></textarea>
-						<input class="gh-input" placeholder={$t("Common tags for this batch...")} bind:value={batchTags} />
+						<div class="flex flex-col gap-1.5">
+							<label class="gh-form-label" for={addFormIds.batchContent}>{$t("Batch content")}</label>
+							<textarea id={addFormIds.batchContent} class="gh-input gh-textarea font-mono h-40" placeholder={$t("One per line...")} bind:value={batchContent}></textarea>
+						</div>
+						<div class="flex flex-col gap-1.5">
+							<label class="gh-form-label" for={addFormIds.batchTags}>{$t("Common tags")}</label>
+							<input id={addFormIds.batchTags} class="gh-input" placeholder={$t("Common tags for this batch...")} bind:value={batchTags} />
+						</div>
 					</div>
 				{/if}
 			</div>
 			<div class="p-4 bg-canvas-subtle border-t border-border-default flex justify-end gap-2">
-				<button class="gh-btn" on:click={() => (isAddModalOpen = false)}>{$t("Cancel")}</button>
-				<button class="gh-btn gh-btn-primary px-6" on:click={handleAdd}>{$t("Save Resource")}</button>
+				<button type="button" class="gh-btn" on:click={() => (isAddModalOpen = false)}>{$t("Cancel")}</button>
+				<button type="button" class="gh-btn gh-btn-primary px-6" on:click={handleAdd}>{$t("Save Resource")}</button>
 			</div>
 		</div>
 	{/if}
@@ -377,11 +395,11 @@
 	<!-- Filter Bar -->
 	<div class="flex flex-col sm:flex-row items-center justify-between gap-4">
 		<div class="gh-tabs w-full sm:w-auto">
-			<button class={cn("gh-tab", activeTab === "nodes" && "gh-tab-active")} on:click={() => { activeTab = "nodes"; expandedId = null; }}>
+			<button type="button" class={cn("gh-tab", activeTab === "nodes" && "gh-tab-active")} on:click={() => { activeTab = "nodes"; expandedId = null; }}>
 				<Network class="h-4 w-4 inline mr-1" /> {$t("Nodes")}
 				<span class="ml-1 px-1.5 py-0.5 rounded-full bg-canvas-subtle border border-border-default text-[10px]">{ $appState.nodes.length }</span>
 			</button>
-			<button class={cn("gh-tab", activeTab === "subscriptions" && "gh-tab-active")} on:click={() => { activeTab = "subscriptions"; expandedId = null; }}>
+			<button type="button" class={cn("gh-tab", activeTab === "subscriptions" && "gh-tab-active")} on:click={() => { activeTab = "subscriptions"; expandedId = null; }}>
 				<LinkIcon class="h-4 w-4 inline mr-1" /> {$t("Subscriptions")}
 				<span class="ml-1 px-1.5 py-0.5 rounded-full bg-canvas-subtle border border-border-default text-[10px]">{ $appState.subscriptions.length }</span>
 			</button>
@@ -390,9 +408,11 @@
 		<div class="flex items-center gap-2 w-full sm:w-auto">
 			<div class="relative flex-1 sm:w-64">
 				<Search class="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-fg-subtle" />
-				<input class="gh-input pl-9 h-9" placeholder={$t("Filter resources...")} bind:value={searchQuery} />
+				<label class="sr-only" for={addFormIds.filterQuery}>{$t("Filter resources")}</label>
+				<input id={addFormIds.filterQuery} class="gh-input pl-9 h-9" placeholder={$t("Filter resources...")} bind:value={searchQuery} />
 			</div>
-			<select class="gh-input w-32 h-9" bind:value={filterStatus}>
+			<label class="sr-only" for={addFormIds.filterStatus}>{$t("Filter status")}</label>
+			<select id={addFormIds.filterStatus} class="gh-select w-32 h-9" bind:value={filterStatus}>
 				<option value="all">{$t("All")}</option>
 				<option value="enabled">{$t("Enabled")}</option>
 				<option value="disabled">{$t("Disabled")}</option>
@@ -408,27 +428,27 @@
 		</div>
 
 		{#if activeTab === "nodes"}
-			{#if filteredNodes.length === 0}
-				<div class="blankslate">
-					<Network class="h-10 w-10 text-fg-subtle mb-3" />
-					<h3 class="text-lg font-bold">{$t("No nodes found")}</h3>
-					<p class="text-fg-muted text-sm mb-4">{$t("Add a single node or import a batch to get started.")}</p>
-					<button class="gh-btn" on:click={() => (isAddModalOpen = true)}>{$t("Create node")}</button>
-				</div>
-			{:else}
-				{#each filteredNodes as node (node.id)}
-					<div class={cn("gh-box-row group flex flex-col gap-0", !node.enabled && "opacity-60")}>
-						<div class="flex items-start justify-between gap-4">
-							<div class="flex items-start gap-3 min-w-0">
-								<button class={cn("mt-1 flex h-5 w-5 shrink-0 items-center justify-center rounded-md border", node.enabled ? "bg-accent-emphasis border-accent-emphasis text-white" : "border-border-default bg-canvas-default")} on:click={() => toggleEnabled(node.id, "node")}>
-									{#if node.enabled}<Check class="h-3.5 w-3.5" />{/if}
-								</button>
-								<div class="flex flex-col gap-1 min-w-0">
-									<div class="flex items-center gap-2">
-										<h3 class="font-bold text-accent-fg hover:underline cursor-pointer truncate" on:click={() => startEditNode(node)}>{node.name}</h3>
-										<span class="px-1.5 py-0.5 rounded border border-border-default bg-canvas-subtle text-[10px] font-black uppercase tracking-tight text-fg-muted">{node.type}</span>
-									</div>
-									<code class="text-[11px] text-fg-muted truncate font-mono bg-canvas-subtle px-1 rounded">{node.raw}</code>
+				{#if filteredNodes.length === 0}
+					<div class="blankslate">
+						<Network class="h-10 w-10 text-fg-subtle mb-3" />
+						<h3 class="text-lg font-bold">{$t("No nodes found")}</h3>
+						<p class="text-fg-muted text-sm mb-4">{$t("Add a single node or import a batch to get started.")}</p>
+						<button type="button" class="gh-btn" on:click={() => (isAddModalOpen = true)}>{$t("Create node")}</button>
+					</div>
+				{:else}
+					{#each filteredNodes as node (node.id)}
+						<div class={cn("gh-box-row group flex flex-col gap-0", !node.enabled && "opacity-60")}>
+							<div class="flex items-start justify-between gap-4">
+								<div class="flex items-start gap-3 min-w-0">
+									<button type="button" class={cn("mt-1 flex h-5 w-5 shrink-0 items-center justify-center rounded-md border", node.enabled ? "bg-accent-emphasis border-accent-emphasis text-white" : "border-border-default bg-canvas-default")} on:click={() => toggleEnabled(node.id, "node")} aria-label={$t(node.enabled ? "Disable node" : "Enable node")}>
+										{#if node.enabled}<Check class="h-3.5 w-3.5" />{/if}
+									</button>
+									<div class="flex flex-col gap-1 min-w-0">
+										<div class="flex items-center gap-2">
+											<button type="button" class="gh-link truncate text-left font-semibold" on:click={() => startEditNode(node)}>{node.name}</button>
+											<span class="px-1.5 py-0.5 rounded border border-border-default bg-canvas-subtle text-[10px] font-black uppercase tracking-tight text-fg-muted">{node.type}</span>
+										</div>
+										<code class="text-[11px] text-fg-muted truncate font-mono bg-canvas-subtle px-1 rounded">{node.raw}</code>
 									{#if node.tags.length > 0}
 										<div class="flex flex-wrap gap-1 mt-1">
 											{#each node.tags as tag}
@@ -438,67 +458,67 @@
 									{/if}
 								</div>
 							</div>
-							<div class="flex items-center gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
-								<button class="gh-btn gh-btn-sm" on:click={() => startEditNode(node)} title={$t("Edit")}><Edit3 class="h-3.5 w-3.5" /></button>
-								<button class="gh-btn gh-btn-sm" on:click={() => copy(node.raw)} title={$t("Copy URI")}><Copy class="h-3.5 w-3.5" /></button>
-								<button class="gh-btn gh-btn-sm text-danger-fg" on:click={() => remove(node.id, "node", node.name)} title={$t("Delete")}><Trash2 class="h-3.5 w-3.5" /></button>
+								<div class="flex items-center gap-1 shrink-0 opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100">
+									<button type="button" class="gh-btn gh-btn-sm" on:click={() => startEditNode(node)} aria-label={$t("Edit node")}><Edit3 class="h-3.5 w-3.5" /></button>
+									<button type="button" class="gh-btn gh-btn-sm" on:click={() => copy(node.raw)} aria-label={$t("Copy URI")}><Copy class="h-3.5 w-3.5" /></button>
+									<button type="button" class="gh-btn gh-btn-sm gh-btn-danger" on:click={() => remove(node.id, "node", node.name)} aria-label={$t("Delete node")}><Trash2 class="h-3.5 w-3.5" /></button>
+								</div>
 							</div>
-						</div>
 
-						<!-- Inline Editor for Node -->
-						{#if expandedId === node.id && nodeDrafts[node.id]}
-							<div class="mt-4 p-4 border border-border-default rounded-md bg-canvas-subtle flex flex-col gap-4" transition:slide>
-								<div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-									<div class="flex flex-col gap-1.5">
-										<label class="text-xs font-bold uppercase text-fg-muted">{$t("Name")}</label>
-										<input class="gh-input" bind:value={nodeDrafts[node.id].name} />
+							<!-- Inline Editor for Node -->
+							{#if expandedId === node.id && nodeDrafts[node.id]}
+								<div class="mt-4 p-4 border border-border-default rounded-md bg-canvas-subtle flex flex-col gap-4" transition:slide>
+									<div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+										<div class="flex flex-col gap-1.5">
+											<label class="gh-form-label text-xs uppercase tracking-wide" for={`node-name-${node.id}`}>{$t("Name")}</label>
+											<input id={`node-name-${node.id}`} class="gh-input" bind:value={nodeDrafts[node.id].name} />
+										</div>
+										<div class="flex flex-col gap-1.5">
+											<label class="gh-form-label text-xs uppercase tracking-wide" for={`node-type-${node.id}`}>{$t("Protocol")}</label>
+											<select id={`node-type-${node.id}`} class="gh-select" bind:value={nodeDrafts[node.id].type}>
+												<option value="vless">VLESS</option><option value="vmess">VMess</option><option value="trojan">Trojan</option>
+												<option value="ss">SS</option><option value="ssr">SSR</option><option value="hysteria2">Hysteria2</option>
+											</select>
+										</div>
+										<div class="md:col-span-2 flex flex-col gap-1.5">
+											<label class="gh-form-label text-xs uppercase tracking-wide" for={`node-raw-${node.id}`}>{$t("Raw URI")}</label>
+											<textarea id={`node-raw-${node.id}`} class="gh-input gh-textarea font-mono text-xs" bind:value={nodeDrafts[node.id].raw}></textarea>
+										</div>
+										<div class="md:col-span-2 flex flex-col gap-1.5">
+											<label class="gh-form-label text-xs uppercase tracking-wide" for={`node-tags-${node.id}`}>{$t("Tags")}</label>
+											<input id={`node-tags-${node.id}`} class="gh-input" bind:value={nodeDrafts[node.id].tags} />
+										</div>
 									</div>
-									<div class="flex flex-col gap-1.5">
-										<label class="text-xs font-bold uppercase text-fg-muted">{$t("Protocol")}</label>
-										<select class="gh-input" bind:value={nodeDrafts[node.id].type}>
-											<option value="vless">VLESS</option><option value="vmess">VMess</option><option value="trojan">Trojan</option>
-											<option value="ss">SS</option><option value="ssr">SSR</option><option value="hysteria2">Hysteria2</option>
-										</select>
-									</div>
-									<div class="md:col-span-2 flex flex-col gap-1.5">
-										<label class="text-xs font-bold uppercase text-fg-muted">{$t("Raw URI")}</label>
-										<textarea class="gh-input gh-textarea font-mono text-xs" bind:value={nodeDrafts[node.id].raw}></textarea>
-									</div>
-									<div class="md:col-span-2 flex flex-col gap-1.5">
-										<label class="text-xs font-bold uppercase text-fg-muted">{$t("Tags")}</label>
-										<input class="gh-input" bind:value={nodeDrafts[node.id].tags} />
+									<div class="flex justify-end gap-2">
+										<button type="button" class="gh-btn gh-btn-sm" on:click={() => (expandedId = null)}>{$t("Cancel")}</button>
+										<button type="button" class="gh-btn gh-btn-sm gh-btn-primary" on:click={() => saveEditNode(node.id)}><Save class="h-3 w-3 mr-1" />{$t("Save")}</button>
 									</div>
 								</div>
-								<div class="flex justify-end gap-2">
-									<button class="gh-btn gh-btn-sm" on:click={() => (expandedId = null)}>{$t("Cancel")}</button>
-									<button class="gh-btn gh-btn-sm gh-btn-primary" on:click={() => saveEditNode(node.id)}><Save class="h-3 w-3 mr-1" />{$t("Save")}</button>
-								</div>
-							</div>
-						{/if}
+							{/if}
 					</div>
 				{/each}
 			{/if}
 		{:else}
-			{#if filteredSubscriptions.length === 0}
-				<div class="blankslate">
-					<LinkIcon class="h-10 w-10 text-fg-subtle mb-3" />
-					<h3 class="text-lg font-bold">{$t("No subscriptions found")}</h3>
-					<p class="text-fg-muted text-sm mb-4">{$t("Subscribe to a link to auto-fetch nodes.")}</p>
-					<button class="gh-btn" on:click={() => (isAddModalOpen = true)}>{$t("Add subscription")}</button>
-				</div>
-			{:else}
-				{#each filteredSubscriptions as sub (sub.id)}
-					<div class={cn("gh-box-row group flex flex-col gap-0", !sub.enabled && "opacity-60")}>
-						<div class="flex items-start justify-between gap-4">
-							<div class="flex items-start gap-3 min-w-0">
-								<button class={cn("mt-1 flex h-5 w-5 shrink-0 items-center justify-center rounded-md border", sub.enabled ? "bg-green-600 border-green-600 text-white" : "border-border-default bg-canvas-default")} on:click={() => toggleEnabled(sub.id, "sub")}>
-									{#if sub.enabled}<Check class="h-3.5 w-3.5" />{/if}
-								</button>
-								<div class="flex flex-col gap-1 min-w-0">
-									<h3 class="font-bold text-accent-fg hover:underline cursor-pointer truncate" on:click={() => startEditSub(sub)}>{sub.name}</h3>
-									<div class="flex items-center gap-2 text-[11px] text-fg-muted">
-										<ExternalLink class="h-3 w-3" />
-										<span class="truncate">{sub.url}</span>
+				{#if filteredSubscriptions.length === 0}
+					<div class="blankslate">
+						<LinkIcon class="h-10 w-10 text-fg-subtle mb-3" />
+						<h3 class="text-lg font-bold">{$t("No subscriptions found")}</h3>
+						<p class="text-fg-muted text-sm mb-4">{$t("Subscribe to a link to auto-fetch nodes.")}</p>
+						<button type="button" class="gh-btn" on:click={() => (isAddModalOpen = true)}>{$t("Add subscription")}</button>
+					</div>
+				{:else}
+					{#each filteredSubscriptions as sub (sub.id)}
+						<div class={cn("gh-box-row group flex flex-col gap-0", !sub.enabled && "opacity-60")}>
+							<div class="flex items-start justify-between gap-4">
+								<div class="flex items-start gap-3 min-w-0">
+									<button type="button" class={cn("mt-1 flex h-5 w-5 shrink-0 items-center justify-center rounded-md border", sub.enabled ? "bg-[color:var(--success-emphasis)] border-[color:var(--success-emphasis)] text-white" : "border-border-default bg-canvas-default")} on:click={() => toggleEnabled(sub.id, "sub")} aria-label={$t(sub.enabled ? "Disable subscription" : "Enable subscription")}>
+										{#if sub.enabled}<Check class="h-3.5 w-3.5" />{/if}
+									</button>
+									<div class="flex flex-col gap-1 min-w-0">
+										<button type="button" class="gh-link truncate text-left font-semibold" on:click={() => startEditSub(sub)}>{sub.name}</button>
+										<div class="flex items-center gap-2 text-[11px] text-fg-muted">
+											<ExternalLink class="h-3 w-3" />
+											<span class="truncate">{sub.url}</span>
 									</div>
 									{#if sub.tags.length > 0}
 										<div class="flex flex-wrap gap-1 mt-1">
@@ -509,37 +529,37 @@
 									{/if}
 								</div>
 							</div>
-							<div class="flex items-center gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
-								<button class="gh-btn gh-btn-sm" on:click={() => openSubscriptionPreview(sub)} title={$t("Preview Nodes")}><Eye class="h-3.5 w-3.5" /></button>
-								<button class="gh-btn gh-btn-sm" on:click={() => startEditSub(sub)} title={$t("Edit")}><Edit3 class="h-3.5 w-3.5" /></button>
-								<button class="gh-btn gh-btn-sm" on:click={() => copy(sub.url)} title={$t("Copy URL")}><Copy class="h-3.5 w-3.5" /></button>
-								<button class="gh-btn gh-btn-sm text-danger-fg" on:click={() => remove(sub.id, "sub", sub.name)} title={$t("Delete")}><Trash2 class="h-3.5 w-3.5" /></button>
+								<div class="flex items-center gap-1 shrink-0 opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100">
+									<button type="button" class="gh-btn gh-btn-sm" on:click={() => openSubscriptionPreview(sub)} aria-label={$t("Preview nodes")}><Eye class="h-3.5 w-3.5" /></button>
+									<button type="button" class="gh-btn gh-btn-sm" on:click={() => startEditSub(sub)} aria-label={$t("Edit subscription")}><Edit3 class="h-3.5 w-3.5" /></button>
+									<button type="button" class="gh-btn gh-btn-sm" on:click={() => copy(sub.url)} aria-label={$t("Copy URL")}><Copy class="h-3.5 w-3.5" /></button>
+									<button type="button" class="gh-btn gh-btn-sm gh-btn-danger" on:click={() => remove(sub.id, "sub", sub.name)} aria-label={$t("Delete subscription")}><Trash2 class="h-3.5 w-3.5" /></button>
+								</div>
 							</div>
-						</div>
 
 						<!-- Inline Editor for Subscription -->
 						{#if expandedId === sub.id && subDrafts[sub.id]}
-							<div class="mt-4 p-4 border border-border-default rounded-md bg-canvas-subtle flex flex-col gap-4" transition:slide>
-								<div class="flex flex-col gap-3">
-									<div class="flex flex-col gap-1.5">
-										<label class="text-xs font-bold uppercase text-fg-muted">{$t("Name")}</label>
-										<input class="gh-input" bind:value={subDrafts[sub.id].name} />
+								<div class="mt-4 p-4 border border-border-default rounded-md bg-canvas-subtle flex flex-col gap-4" transition:slide>
+									<div class="flex flex-col gap-3">
+										<div class="flex flex-col gap-1.5">
+											<label class="gh-form-label text-xs uppercase tracking-wide" for={`sub-name-${sub.id}`}>{$t("Name")}</label>
+											<input id={`sub-name-${sub.id}`} class="gh-input" bind:value={subDrafts[sub.id].name} />
+										</div>
+										<div class="flex flex-col gap-1.5">
+											<label class="gh-form-label text-xs uppercase tracking-wide" for={`sub-url-${sub.id}`}>{$t("URL")}</label>
+											<input id={`sub-url-${sub.id}`} class="gh-input font-mono" bind:value={subDrafts[sub.id].url} />
+										</div>
+										<div class="flex flex-col gap-1.5">
+											<label class="gh-form-label text-xs uppercase tracking-wide" for={`sub-tags-${sub.id}`}>{$t("Tags")}</label>
+											<input id={`sub-tags-${sub.id}`} class="gh-input" bind:value={subDrafts[sub.id].tags} />
+										</div>
 									</div>
-									<div class="flex flex-col gap-1.5">
-										<label class="text-xs font-bold uppercase text-fg-muted">{$t("URL")}</label>
-										<input class="gh-input font-mono" bind:value={subDrafts[sub.id].url} />
-									</div>
-									<div class="flex flex-col gap-1.5">
-										<label class="text-xs font-bold uppercase text-fg-muted">{$t("Tags")}</label>
-										<input class="gh-input" bind:value={subDrafts[sub.id].tags} />
+									<div class="flex justify-end gap-2">
+										<button type="button" class="gh-btn gh-btn-sm" on:click={() => (expandedId = null)}>{$t("Cancel")}</button>
+										<button type="button" class="gh-btn gh-btn-sm gh-btn-primary" on:click={() => saveEditSub(sub.id)}><Save class="h-3 w-3 mr-1" />{$t("Save")}</button>
 									</div>
 								</div>
-								<div class="flex justify-end gap-2">
-									<button class="gh-btn gh-btn-sm" on:click={() => (expandedId = null)}>{$t("Cancel")}</button>
-									<button class="gh-btn gh-btn-sm gh-btn-primary" on:click={() => saveEditSub(sub.id)}><Save class="h-3 w-3 mr-1" />{$t("Save")}</button>
-								</div>
-							</div>
-						{/if}
+							{/if}
 					</div>
 				{/each}
 			{/if}
@@ -548,20 +568,20 @@
 </div>
 
 <!-- Subscription Preview Modal -->
-{#if previewSubscriptionId}
-	{@const sub = $appState.subscriptions.find(s => s.id === previewSubscriptionId)}
-	{@const cache = subscriptionPreviewCache[previewSubscriptionId]}
-	<div class="fixed inset-0 z-[150] flex items-center justify-center p-4">
-		<div class="fixed inset-0 bg-black/50 backdrop-blur-sm" on:click={closeSubscriptionPreview}></div>
-		<div class="relative w-full max-w-2xl gh-box shadow-2xl flex flex-col max-h-[80vh]" in:fly={{ y: 20 }}>
-			<div class="gh-box-header">
-				<div class="flex items-center gap-2">
-					<Eye class="h-4 w-4" />
-					<span>{$t("Subscription Preview")}</span>
-					{#if sub}<span class="text-xs text-fg-muted font-normal">({sub.name})</span>{/if}
+	{#if previewSubscriptionId}
+		{@const sub = $appState.subscriptions.find(s => s.id === previewSubscriptionId)}
+		{@const cache = subscriptionPreviewCache[previewSubscriptionId]}
+		<div class="fixed inset-0 z-[150] flex items-center justify-center p-4">
+			<button type="button" class="fixed inset-0 bg-black/50 backdrop-blur-sm" on:click={closeSubscriptionPreview} aria-label={$t("Close subscription preview")}></button>
+			<div class="relative w-full max-w-2xl gh-box shadow-2xl flex flex-col max-h-[80vh]" in:fly={{ y: 20 }}>
+				<div class="gh-box-header">
+					<div class="flex items-center gap-2">
+						<Eye class="h-4 w-4" />
+						<span>{$t("Subscription Preview")}</span>
+						{#if sub}<span class="text-xs text-fg-muted font-normal">({sub.name})</span>{/if}
+					</div>
+					<button type="button" class="gh-icon-button h-7 w-7" on:click={closeSubscriptionPreview} aria-label={$t("Close subscription preview")}><X class="h-4 w-4" /></button>
 				</div>
-				<button class="hover:text-accent-fg" on:click={closeSubscriptionPreview}><X class="h-4 w-4" /></button>
-			</div>
 			
 			<div class="p-4 bg-canvas-default overflow-y-auto flex-1">
 				{#if cache?.status === 'loading'}
@@ -579,29 +599,29 @@
 					</div>
 				{:else if cache?.status === 'ready'}
 					<div class="flex flex-col gap-2">
-						<div class="flex items-center justify-between mb-2">
-							<span class="text-xs font-bold text-fg-muted uppercase">{$t("Nodes Found")} ({cache.nodes.length})</span>
-							<button class="text-xs text-accent-fg hover:underline" on:click={() => sub && loadSubscriptionPreview(sub, true)}>{$t("Refresh")}</button>
-						</div>
-						{#each cache.nodes as node}
-							<div class="p-2 border border-border-default rounded hover:bg-canvas-subtle transition-colors group/item">
-								<div class="flex items-center justify-between gap-4">
-									<div class="flex items-center gap-2 min-w-0">
-										<span class="text-xs font-bold truncate">{node.name}</span>
-										<span class="px-1 py-0.5 rounded bg-canvas-default border border-border-default text-[9px] font-black uppercase text-fg-muted">{node.type}</span>
-									</div>
-									<button class="gh-btn gh-btn-sm opacity-0 group-hover/item:opacity-100" on:click={() => copy(node.raw)}><Copy class="h-3 w-3" /></button>
-								</div>
-								<code class="block mt-1 text-[10px] font-mono text-fg-muted truncate">{node.raw}</code>
+							<div class="flex items-center justify-between mb-2">
+								<span class="text-xs font-bold text-fg-muted uppercase">{$t("Nodes Found")} ({cache.nodes.length})</span>
+								<button type="button" class="text-xs text-accent-fg hover:underline" on:click={() => sub && loadSubscriptionPreview(sub, true)}>{$t("Refresh")}</button>
 							</div>
+							{#each cache.nodes as node}
+								<div class="p-2 border border-border-default rounded hover:bg-canvas-subtle transition-colors group/item">
+									<div class="flex items-center justify-between gap-4">
+										<div class="flex items-center gap-2 min-w-0">
+											<span class="text-xs font-bold truncate">{node.name}</span>
+											<span class="px-1 py-0.5 rounded bg-canvas-default border border-border-default text-[9px] font-black uppercase text-fg-muted">{node.type}</span>
+										</div>
+										<button type="button" class="gh-btn gh-btn-sm opacity-100 sm:opacity-0 sm:group-hover/item:opacity-100" on:click={() => copy(node.raw)} aria-label={$t("Copy node URI")}><Copy class="h-3 w-3" /></button>
+									</div>
+									<code class="block mt-1 text-[10px] font-mono text-fg-muted truncate">{node.raw}</code>
+								</div>
 						{/each}
 					</div>
 				{/if}
-			</div>
-			
-			<div class="p-3 bg-canvas-subtle border-t border-border-default flex justify-end">
-				<button class="gh-btn" on:click={closeSubscriptionPreview}>{$t("Close")}</button>
+				</div>
+				
+				<div class="p-3 bg-canvas-subtle border-t border-border-default flex justify-end">
+					<button type="button" class="gh-btn" on:click={closeSubscriptionPreview}>{$t("Close")}</button>
+				</div>
 			</div>
 		</div>
-	</div>
 {/if}
