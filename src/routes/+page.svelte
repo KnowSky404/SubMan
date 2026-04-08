@@ -1,129 +1,272 @@
-<script>
+<script lang="ts">
 	import { t } from "$lib/i18n";
 	import { appState } from "$lib/stores/app";
 	import { authState } from "$lib/stores/auth";
 	import { cn } from "$lib/utils/cn";
-	import { 
-		Zap, 
-		Globe, 
-		RefreshCw, 
-		Layers, 
+	import {
+		Zap,
+		RefreshCw,
+		Layers,
 		Network,
 		ArrowRight,
 		ExternalLink,
-		Package,
-		Star,
-		GitFork,
-		Info,
 		CheckCircle2,
 		ShieldCheck,
-		Database
+		Database,
+		FileCode2,
+		Link2,
+		Globe2
 	} from "lucide-svelte";
-	import { fade } from "svelte/transition";
 
 	$: stats = [
-		{ label: "Nodes", count: $appState.nodes.length, icon: Globe, color: "text-blue-500" },
-		{ label: "Subscriptions", count: $appState.subscriptions.length, icon: RefreshCw, color: "text-green-500" },
-		{ label: "Rules", count: $appState.aggregates.length, icon: Layers, color: "text-purple-500" },
-		{ label: "Publish Targets", count: $appState.publishTargets.length, icon: Zap, color: "text-orange-500" }
+		{
+			label: "Nodes",
+			count: $appState.nodes.length,
+			description: "Single proxy URIs stored in the current workspace.",
+			icon: Network
+		},
+		{
+			label: "Subscriptions",
+			count: $appState.subscriptions.length,
+			description: "Remote feeds that can be fetched and merged.",
+			icon: RefreshCw
+		},
+		{
+			label: "Rules",
+			count: $appState.aggregates.length,
+			description: "Selection and rewrite rules used for aggregation.",
+			icon: Layers
+		},
+		{
+			label: "Publish Targets",
+			count: $appState.publishTargets.length,
+			description: "Output files published back into the workspace gist.",
+			icon: Zap
+		}
 	];
 
 	$: isConnected = Boolean($authState.token && $appState.activeGistId);
+	$: publishTargetCount = $appState.publishTargets.filter((target) => target.lastPublishedUrl).length;
 </script>
 
-<div class="flex flex-col gap-8 pb-10">
-	<!-- Repository Header Style -->
-	<div class="flex flex-col gap-4">
-		<div class="flex flex-wrap items-center justify-between gap-4">
-			<div class="flex items-center gap-2 text-xl">
-				<Package class="h-5 w-5 text-fg-muted" />
-				<span class="text-accent-fg hover:underline cursor-pointer">KnowSky404</span>
-				<span class="text-fg-muted">/</span>
-				<span class="font-bold">SubMan</span>
-				<span class="badge ml-2">Public</span>
+<div class="flex flex-col gap-6 pb-10">
+	<section class="gh-page-header">
+		<div class="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+			<div class="space-y-2">
+				<h1 class="gh-page-title">{$t("Repository overview")}</h1>
+				<p class="gh-page-subtitle">
+					{$t("Manage nodes, compose aggregation rules, and publish stable subscription links from one GitHub-backed workspace.")}
+				</p>
 			</div>
-			<div class="flex items-center gap-2">
-				<button class="gh-btn gh-btn-sm"><Star class="h-3.5 w-3.5 mr-1" />Star<span class="ml-2 px-1.5 py-0.5 rounded-full bg-canvas-subtle border border-border-default text-[10px]">12</span></button>
-				<button class="gh-btn gh-btn-sm"><GitFork class="h-3.5 w-3.5 mr-1" />Fork</button>
+
+			<div class="flex flex-wrap items-center gap-2">
+				<a href="/gists" class="gh-btn">
+					<FileCode2 class="h-4 w-4" />
+					{$t("Browse Gist Files")}
+				</a>
+				<a href="https://github.com/KnowSky404/SubMan" target="_blank" rel="noreferrer" class="gh-btn">
+					<ExternalLink class="h-4 w-4" />
+					{$t("View on GitHub")}
+				</a>
 			</div>
 		</div>
-		
-		<p class="text-base text-fg-default">
-			{$t("Gist-first proxy subscription manager. Manage nodes, build aggregation rules, and publish stable links.")}
-		</p>
+	</section>
 
-		<div class="flex flex-wrap gap-4 text-xs text-fg-muted">
-			<div class="flex items-center gap-1"><div class="h-3 w-3 rounded-full bg-orange-500"></div> Svelte</div>
-			<div class="flex items-center gap-1"><Star class="h-3.5 w-3.5" /> AGPL v3 License</div>
-			<div class="flex items-center gap-1"><Info class="h-3.5 w-3.5" /> Last updated: {new Date($appState.lastUpdated || Date.now()).toLocaleDateString()}</div>
-		</div>
-	</div>
-
-	<!-- Connection Status Box -->
-	<div class={cn("gh-box p-4 flex flex-col sm:flex-row items-center justify-between gap-4", isConnected ? "bg-green-50/30 border-green-200 dark:bg-green-900/10" : "bg-canvas-subtle")}>
-		<div class="flex items-center gap-3 text-sm">
-			{#if isConnected}
-				<div class="h-8 w-8 flex items-center justify-center rounded-full bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"><ShieldCheck class="h-5 w-5" /></div>
-				<div>
-					<p class="font-bold">{$t("Workspace Connected")}</p>
-					<p class="text-xs text-fg-muted">{$appState.activeGistId}</p>
+	<div class="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,2fr)_320px]">
+		<div class="flex flex-col gap-6">
+			<section class="gh-box">
+				<div class="gh-box-header">
+					<span>{$t("At a glance")}</span>
 				</div>
-			{:else}
-				<div class="h-8 w-8 flex items-center justify-center rounded-full bg-gray-200 text-fg-muted dark:bg-gray-800"><Database class="h-5 w-5" /></div>
-				<div>
-					<p class="font-bold">{$t("Local-only Mode")}</p>
-					<p class="text-xs text-fg-muted">{$t("Connect GitHub to enable cloud sync and stable links.")}</p>
+				<div class="grid grid-cols-1 divide-y divide-border-default md:grid-cols-2 md:divide-x md:divide-y-0">
+					{#each stats as stat}
+						<div class="flex gap-3 p-4">
+							<div class="mt-0.5 rounded-md border border-border-default bg-canvas-subtle p-2 text-fg-muted">
+								<svelte:component this={stat.icon} class="h-4 w-4" />
+							</div>
+							<div class="min-w-0 space-y-1">
+								<div class="flex items-center gap-2">
+									<span class="text-sm font-semibold">{$t(stat.label)}</span>
+									<span class="badge">{stat.count}</span>
+								</div>
+								<p class="text-sm text-fg-muted">{stat.description}</p>
+							</div>
+						</div>
+					{/each}
 				</div>
-			{/if}
-		</div>
-		<a href="/auth" class={cn("gh-btn", !isConnected && "gh-btn-primary")}>
-			{isConnected ? $t("Manage Workspace") : $t("Setup GitHub")}
-		</a>
-	</div>
+			</section>
 
-	<!-- Stats Grid -->
-	<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-		{#each stats as stat}
-			<div class="gh-box p-4 flex flex-col gap-1 hover:border-accent-emphasis transition-colors cursor-default">
-				<div class="flex items-center justify-between">
-					<span class="text-xs font-bold text-fg-muted uppercase tracking-wider">{$t(stat.label)}</span>
-					<svelte:component this={stat.icon} class={cn("h-4 w-4", stat.color)} />
+			<section class="gh-box">
+				<div class="gh-box-header">
+					<span>{$t("Recommended workflow")}</span>
 				</div>
-				<span class="text-2xl font-bold">{stat.count}</span>
-			</div>
-		{/each}
-	</div>
 
-	<!-- Getting Started -->
-	<div class="flex flex-col gap-4">
-		<h2 class="text-lg font-bold">{$t("Quick Start Guide")}</h2>
-		<div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-			<div class="gh-box p-4 flex flex-col gap-3">
-				<div class="flex items-center gap-2 font-bold text-sm"><Network class="h-4 w-4" /> 1. {$t("Add Nodes")}</div>
-				<p class="text-xs text-fg-muted leading-relaxed">{$t("Import single nodes or subscription links in the Nodes module.")}</p>
-				<a href="/nodes" class="text-xs text-accent-fg font-semibold hover:underline flex items-center gap-1">{$t("Go to Nodes")} <ArrowRight class="h-3 w-3" /></a>
-			</div>
-			<div class="gh-box p-4 flex flex-col gap-3">
-				<div class="flex items-center gap-2 font-bold text-sm"><Layers class="h-4 w-4" /> 2. {$t("Create Rules")}</div>
-				<p class="text-xs text-fg-muted leading-relaxed">{$t("Compose rules to filter and rename nodes from multiple sources.")}</p>
-				<a href="/aggregate" class="text-xs text-accent-fg font-semibold hover:underline flex items-center gap-1">{$t("Go to Aggregate")} <ArrowRight class="h-3 w-3" /></a>
-			</div>
-			<div class="gh-box p-4 flex flex-col gap-3">
-				<div class="flex items-center gap-2 font-bold text-sm"><Zap class="h-4 w-4" /> 3. {$t("Publish Link")}</div>
-				<p class="text-xs text-fg-muted leading-relaxed">{$t("Bind rules to a Gist file to generate a permanent subscription URL.")}</p>
-				<a href="/aggregate" class="text-xs text-accent-fg font-semibold hover:underline flex items-center gap-1">{$t("View Targets")} <ArrowRight class="h-3 w-3" /></a>
-			</div>
-		</div>
-	</div>
+				<div class="divide-y divide-border-default">
+					<div class="gh-box-row flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+						<div class="space-y-1">
+							<div class="flex items-center gap-2">
+								<span class="badge">1</span>
+								<h2 class="text-sm font-semibold">{$t("Add nodes and subscriptions")}</h2>
+							</div>
+							<p class="text-sm text-fg-muted">
+								{$t("Capture individual proxy URIs or remote subscription URLs before building aggregation rules.")}
+							</p>
+						</div>
+						<a href="/nodes" class="gh-link inline-flex items-center gap-1 text-sm font-medium">
+							{$t("Open Nodes")}
+							<ArrowRight class="h-4 w-4" />
+						</a>
+					</div>
 
-	<!-- Community & Docs -->
-	<div class="gh-box bg-canvas-subtle p-6 flex flex-col md:flex-row items-center justify-between gap-6 border-dashed">
-		<div>
-			<h3 class="font-bold text-lg">{$t("Documentation & Support")}</h3>
-			<p class="text-sm text-fg-muted">{$t("Learn more about SubMan's features and how to host it yourself.")}</p>
+					<div class="gh-box-row flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+						<div class="space-y-1">
+							<div class="flex items-center gap-2">
+								<span class="badge">2</span>
+								<h2 class="text-sm font-semibold">{$t("Build aggregation rules")}</h2>
+							</div>
+							<p class="text-sm text-fg-muted">
+								{$t("Choose source sets, exclude tags, and rename nodes to generate a stable output shape.")}
+							</p>
+						</div>
+						<a href="/aggregate" class="gh-link inline-flex items-center gap-1 text-sm font-medium">
+							{$t("Open Aggregate")}
+							<ArrowRight class="h-4 w-4" />
+						</a>
+					</div>
+
+					<div class="gh-box-row flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+						<div class="space-y-1">
+							<div class="flex items-center gap-2">
+								<span class="badge">3</span>
+								<h2 class="text-sm font-semibold">{$t("Publish and inspect raw files")}</h2>
+							</div>
+							<p class="text-sm text-fg-muted">
+								{$t("Push outputs into the workspace gist, then inspect or copy the generated raw URLs from the Gists tab.")}
+							</p>
+						</div>
+						<a href="/gists" class="gh-link inline-flex items-center gap-1 text-sm font-medium">
+							{$t("Open Gists")}
+							<ArrowRight class="h-4 w-4" />
+						</a>
+					</div>
+				</div>
+			</section>
+
+			<section class="gh-box">
+				<div class="gh-box-header">
+					<span>{$t("Workspace snapshot")}</span>
+				</div>
+				<div class="divide-y divide-border-default">
+					<div class="gh-box-row flex items-start gap-3">
+						<div class="rounded-md border border-border-default bg-canvas-subtle p-2 text-fg-muted">
+							<Link2 class="h-4 w-4" />
+						</div>
+						<div class="space-y-1">
+							<p class="text-sm font-semibold">{$t("Published links")}</p>
+							<p class="text-sm text-fg-muted">
+								{$t("{count} publish target(s) already have a live raw URL.", { count: publishTargetCount })}
+							</p>
+						</div>
+					</div>
+
+					<div class="gh-box-row flex items-start gap-3">
+						<div class="rounded-md border border-border-default bg-canvas-subtle p-2 text-fg-muted">
+							<Globe2 class="h-4 w-4" />
+						</div>
+						<div class="space-y-1">
+							<p class="text-sm font-semibold">{$t("Last local update")}</p>
+							<p class="text-sm text-fg-muted">
+								{new Date($appState.lastUpdated || Date.now()).toLocaleString()}
+							</p>
+						</div>
+					</div>
+				</div>
+			</section>
 		</div>
-		<div class="flex gap-3">
-			<a href="https://github.com/KnowSky404/SubMan" target="_blank" class="gh-btn"><ExternalLink class="h-4 w-4 mr-2" /> {$t("View on GitHub")}</a>
-		</div>
+
+		<aside class="flex flex-col gap-6">
+			<section class="gh-box">
+				<div class="gh-box-header">
+					<span>{$t("About")}</span>
+				</div>
+				<div class="space-y-4 p-4">
+					<p class="text-sm text-fg-muted">
+						{$t("Gist-first proxy subscription manager with local fallback storage and direct publishing from the browser.")}
+					</p>
+
+					<div class="space-y-2 text-sm">
+						<div class="flex items-center justify-between gap-3">
+							<span class="text-fg-muted">{$t("Workspace mode")}</span>
+							<span class={cn("badge", isConnected && "badge-success")}>
+								{isConnected ? $t("Connected") : $t("Local-only")}
+							</span>
+						</div>
+						<div class="flex items-center justify-between gap-3">
+							<span class="text-fg-muted">{$t("Output files")}</span>
+							<span class="font-medium">{$appState.publishTargets.length}</span>
+						</div>
+						<div class="flex items-center justify-between gap-3">
+							<span class="text-fg-muted">{$t("Rules ready")}</span>
+							<span class="font-medium">{$appState.aggregates.length}</span>
+						</div>
+					</div>
+				</div>
+			</section>
+
+			<section
+				class={cn(
+					"gh-box",
+					isConnected ? "border-[color:color-mix(in_srgb,var(--success-emphasis)_24%,var(--border-default))]" : ""
+				)}
+			>
+				<div class="gh-box-header">
+					<span>{$t("Workspace status")}</span>
+				</div>
+				<div class="space-y-4 p-4">
+					<div class="flex items-start gap-3">
+						<div
+							class={cn(
+								"rounded-md border p-2",
+								isConnected
+									? "border-[color:color-mix(in_srgb,var(--success-emphasis)_25%,var(--border-default))] bg-[color:color-mix(in_srgb,var(--success-emphasis)_8%,var(--canvas-default))] text-[color:var(--success-emphasis)]"
+									: "border-border-default bg-canvas-subtle text-fg-muted"
+							)}
+						>
+							{#if isConnected}
+								<ShieldCheck class="h-4 w-4" />
+							{:else}
+								<Database class="h-4 w-4" />
+							{/if}
+						</div>
+						<div class="space-y-1">
+							<p class="text-sm font-semibold">
+								{#if isConnected}
+									{$t("Workspace connected")}
+								{:else}
+									{$t("Running in local-only mode")}
+								{/if}
+							</p>
+							<p class="text-sm text-fg-muted">
+								{#if isConnected}
+									{$t("Local changes are eligible for automatic sync into the active gist.")}
+								{:else}
+									{$t("Connect GitHub to sync config and publish stable links from a shared workspace gist.")}
+								{/if}
+							</p>
+						</div>
+					</div>
+
+					<div class="space-y-2">
+						<a href="/auth" class={cn("gh-btn w-full", !isConnected && "gh-btn-primary")}>
+							{isConnected ? $t("Manage Workspace") : $t("Connect GitHub")}
+						</a>
+						<a href="/aggregate" class="gh-btn w-full">
+							<CheckCircle2 class="h-4 w-4" />
+							{$t("Go to Publish")}
+						</a>
+					</div>
+				</div>
+			</section>
+		</aside>
 	</div>
 </div>

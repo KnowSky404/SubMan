@@ -3,36 +3,37 @@
 	import { onMount } from "svelte";
 	import { page } from "$app/stores";
 	import { fade, fly } from "svelte/transition";
-	import { locale, t } from "$lib/i18n";
+	import { t } from "$lib/i18n";
+	import { appState } from "$lib/stores/app";
+	import { authState } from "$lib/stores/auth";
 	import { startAutoSync } from "$lib/sync";
 	import { confirmDialog, resolveConfirm } from "$lib/stores/confirm";
 	import { startThemeSync, themeMode, type ThemeMode } from "$lib/stores/theme";
 	import { toastStore, dismissToast } from "$lib/stores/toast";
 	import { cn } from "$lib/utils/cn";
-	import { 
-		LayoutDashboard, 
-		Layers, 
-		Network, 
-		Zap, 
-		Settings, 
-		Github, 
-		Menu,
-		X,
+	import {
+		LayoutDashboard,
+		Layers,
+		Network,
+		Zap,
+		Settings,
+		Github,
 		AlertTriangle,
 		MonitorCog,
 		SunMedium,
 		MoonStar,
-		Languages,
 		Package,
-		History,
-		ChevronDown,
 		Check,
 		RefreshCw,
-		AlertCircle
+		AlertCircle,
+		ShieldCheck,
+		Database
 	} from "lucide-svelte";
 
 	const PROJECT_GITHUB_URL = "https://github.com/KnowSky404/SubMan";
-	
+	const PROJECT_OWNER = "KnowSky404";
+	const PROJECT_NAME = "SubMan";
+
 	const navItems = [
 		{ href: "/", label: "Overview", icon: LayoutDashboard },
 		{ href: "/nodes", label: "Nodes", icon: Network },
@@ -47,11 +48,16 @@
 		{ value: "dark", label: "Dark", icon: MoonStar }
 	];
 
-	let isMobileMenuOpen = false;
-
 	$: pathname = $page.url.pathname;
-	$: isActive = (href: string) => (href === "/" ? pathname === "/" : pathname.startsWith(href));
 	$: activeThemeOption = themeOptions.find((option) => option.value === $themeMode) ?? themeOptions[0];
+	$: isWorkspaceConnected = Boolean($authState.token && $appState.activeGistId);
+	$: workspaceMetaText = isWorkspaceConnected
+		? $appState.activeGistId
+		: $t("Browser storage only");
+
+	function isActive(href: string) {
+		return href === "/" ? pathname === "/" : pathname.startsWith(href);
+	}
 
 	function handleThemeChange(nextTheme: ThemeMode) {
 		themeMode.set(nextTheme);
@@ -60,114 +66,143 @@
 	onMount(() => {
 		const stopAutoSync = startAutoSync();
 		const stopThemeSync = startThemeSync();
-		return () => { stopAutoSync(); stopThemeSync(); };
+		return () => {
+			stopAutoSync();
+			stopThemeSync();
+		};
 	});
 </script>
 
-<div class="flex min-h-screen flex-col relative">
+<div class="flex min-h-screen flex-col">
 	<header class="app-header sticky top-0 z-[100]">
-		<div class="mx-auto flex max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
-			<div class="flex items-center gap-6">
-				<a href="/" class="flex items-center gap-2 hover:opacity-80 transition-opacity">
-					<div class="flex h-8 w-8 items-center justify-center rounded-md bg-gray-700">
-						<Package class="h-5 w-5 text-white" />
-					</div>
-					<span class="text-base font-bold tracking-tight">SubMan</span>
-				</a>
+		<div class="app-header-inner">
+			<a href="/" class="app-brand">
+				<span class="app-brand-mark">
+					<Package class="h-4 w-4" />
+				</span>
+				<span>{PROJECT_NAME}</span>
+			</a>
 
-				<nav class="hidden md:flex items-center gap-1">
-					{#each navItems as item}
-						<a
-							href={item.href}
-							class={cn(
-								"app-nav-link",
-								isActive(item.href) && "app-nav-link-active"
-							)}
-						>
-							<svelte:component this={item.icon} class="h-4 w-4" />
-							<span>{$t(item.label)}</span>
-						</a>
-					{/each}
-				</nav>
-			</div>
-
-			<div class="flex items-center gap-3">
-				<!-- Desktop Nav Tools -->
-				<div class="hidden items-center gap-2 sm:flex">
-					<div class="relative flex items-center">
-						<svelte:component this={activeThemeOption.icon} class="absolute left-2.5 h-3 w-3 text-gray-400 pointer-events-none" />
-						<select
-							class="gh-select-header w-28"
-							value={$themeMode}
-							on:change={(event) => handleThemeChange(event.currentTarget.value as ThemeMode)}
-						>
-							{#each themeOptions as option}
-								<option value={option.value}>{$t(option.label)}</option>
-							{/each}
-						</select>
-					</div>
-
-					<a
-						href={PROJECT_GITHUB_URL}
-						target="_blank"
-						rel="noreferrer"
-						class="flex h-8 w-8 items-center justify-center rounded-md hover:bg-gray-800 text-gray-400"
-					>
-						<Github class="h-4 w-4" />
-					</a>
+			<div class="app-header-tools">
+				<div class="hidden md:flex items-center">
+					<span class="app-header-chip">
+						{#if isWorkspaceConnected}
+							<ShieldCheck class="h-3.5 w-3.5" />
+							{$t("Workspace connected")}
+						{:else}
+							<Database class="h-3.5 w-3.5" />
+							{$t("Local mode")}
+						{/if}
+					</span>
 				</div>
 
-				<!-- Mobile Menu Toggle -->
-				<button class="md:hidden flex h-8 w-8 items-center justify-center rounded-md hover:bg-gray-800" on:click={() => (isMobileMenuOpen = !isMobileMenuOpen)}>
-					{#if isMobileMenuOpen}<X class="h-5 w-5" />{:else}<Menu class="h-5 w-5" />{/if}
-				</button>
+				<div class="relative">
+					<svelte:component this={activeThemeOption.icon} class="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[color:var(--header-muted)]" />
+					<select
+						class="gh-select-header w-28 pl-8"
+						value={$themeMode}
+						on:change={(event) => handleThemeChange(event.currentTarget.value as ThemeMode)}
+						aria-label={$t("Theme")}
+					>
+						{#each themeOptions as option}
+							<option value={option.value}>{$t(option.label)}</option>
+						{/each}
+					</select>
+				</div>
+
+				<a
+					href={PROJECT_GITHUB_URL}
+					target="_blank"
+					rel="noreferrer"
+					class="app-header-link"
+					aria-label={$t("Open project on GitHub")}
+				>
+					<Github class="h-4 w-4" />
+				</a>
 			</div>
 		</div>
 	</header>
 
-	{#if isMobileMenuOpen}
-		<div class="fixed inset-0 top-[57px] z-[90] bg-canvas-default md:hidden p-4" transition:fade={{ duration: 150 }}>
-			<nav class="flex flex-col gap-2">
+	<div class="app-repo-shell">
+		<div class="app-repo-inner">
+			<div class="app-repo-meta">
+				<div class="flex min-w-0 flex-col gap-2">
+					<div class="app-repo-title">
+						<Package class="h-5 w-5 text-fg-muted" />
+						<a href={PROJECT_GITHUB_URL} target="_blank" rel="noreferrer" class="app-repo-title-owner">
+							{PROJECT_OWNER}
+						</a>
+						<span class="text-fg-muted">/</span>
+						<span>{PROJECT_NAME}</span>
+						<span class="badge">Public</span>
+					</div>
+
+					<div class="flex flex-wrap items-center gap-2 text-sm text-fg-muted">
+						<span class={cn("badge", isWorkspaceConnected ? "badge-success" : "")}>
+							{#if isWorkspaceConnected}
+								<ShieldCheck class="h-3 w-3" />
+								{$t("Workspace")}
+							{:else}
+								<Database class="h-3 w-3" />
+								{$t("Local")}
+							{/if}
+						</span>
+						<span class="truncate font-mono text-xs">{workspaceMetaText}</span>
+					</div>
+				</div>
+
+				<div class="app-repo-tools">
+					<a href="/auth" class={cn("gh-btn", !isWorkspaceConnected && "gh-btn-primary")}>
+						{isWorkspaceConnected ? $t("Manage Workspace") : $t("Setup GitHub")}
+					</a>
+				</div>
+			</div>
+
+			<nav class="gh-underlinenav" aria-label={$t("Primary")}>
 				{#each navItems as item}
 					<a
 						href={item.href}
-						on:click={() => (isMobileMenuOpen = false)}
-						class={cn(
-							"flex items-center gap-3 px-3 py-3 rounded-md text-base font-medium",
-							isActive(item.href) ? "bg-canvas-subtle text-accent-fg" : "text-fg-default border border-transparent"
-						)}
+						class={cn("gh-underlinenav-item", isActive(item.href) && "gh-underlinenav-item-active")}
+						aria-current={isActive(item.href) ? "page" : undefined}
 					>
-						<svelte:component this={item.icon} class="h-5 w-5" />
-						{$t(item.label)}
+						<svelte:component this={item.icon} class="h-4 w-4" />
+						<span>{$t(item.label)}</span>
 					</a>
 				{/each}
 			</nav>
 		</div>
-	{/if}
+	</div>
 
-	<main class="app-main-container flex-1">
+	<main class="app-main-container">
 		<slot />
 	</main>
 
-	<!-- Global Toasts Container -->
-	<div class="fixed top-20 left-1/2 -translate-x-1/2 z-[200] flex flex-col gap-2 pointer-events-none w-full max-w-sm px-4">
+	<div class="pointer-events-none fixed left-1/2 top-20 z-[200] flex w-full max-w-sm -translate-x-1/2 flex-col gap-2 px-4">
 		{#each $toastStore as toast (toast.id)}
-			<div 
+			<div
 				in:fly={{ y: -20, duration: 300 }}
 				out:fade={{ duration: 200 }}
-				class="gh-box bg-canvas-default text-fg-default px-4 py-3 shadow-2xl flex items-center gap-3 pointer-events-auto border-border-default"
+				class="gh-box pointer-events-auto flex items-center gap-3 px-4 py-3 shadow-[var(--shadow-medium)]"
+				role="status"
 			>
-				<div class="flex-1 flex items-center gap-3 min-w-0">
-					{#if toast.type === 'success'}<Check class="h-4 w-4 text-green-500 shrink-0" />
-					{:else if toast.type === 'error'}<AlertCircle class="h-4 w-4 text-red-500 shrink-0" />
-					{:else}<RefreshCw class="h-4 w-4 text-blue-500 shrink-0" />{/if}
-					<span class="text-sm font-bold truncate">{toast.message}</span>
+				<div class="flex min-w-0 flex-1 items-center gap-3">
+					{#if toast.type === "success"}
+						<Check class="h-4 w-4 shrink-0 text-[color:var(--success-emphasis)]" />
+					{:else if toast.type === "error"}
+						<AlertCircle class="h-4 w-4 shrink-0 text-[color:var(--danger-emphasis)]" />
+					{:else}
+						<RefreshCw class="h-4 w-4 shrink-0 text-[color:var(--accent-emphasis)]" />
+					{/if}
+					<span class="truncate text-sm font-medium">{toast.message}</span>
 				</div>
-				<button 
-					class="p-1 hover:bg-canvas-subtle rounded-md transition-colors text-fg-muted hover:text-fg-default shrink-0"
+				<button
+					type="button"
+					class="gh-icon-button h-7 w-7"
 					on:click={() => dismissToast(toast.id)}
+					aria-label={$t("Dismiss notification")}
 				>
-					<X class="h-3.5 w-3.5" />
+					<span class="sr-only">{$t("Dismiss notification")}</span>
+					<span aria-hidden="true">×</span>
 				</button>
 			</div>
 		{/each}
@@ -175,21 +210,41 @@
 
 	{#if $confirmDialog.open}
 		<div class="fixed inset-0 z-[150] flex items-center justify-center p-4">
-			<div class="fixed inset-0 bg-black/60 backdrop-blur-sm" on:click={() => resolveConfirm(false)}></div>
-			<div class="relative w-full max-w-md gh-box shadow-2xl bg-canvas-default border-border-default" in:fly={{ y: 10, duration: 300 }}>
-				<div class="gh-box-header bg-canvas-subtle border-border-default text-fg-default">
+			<button
+				type="button"
+				class="fixed inset-0 bg-black/55 backdrop-blur-sm"
+				on:click={() => resolveConfirm(false)}
+				aria-label={$t("Close dialog")}
+			></button>
+			<div class="gh-box relative w-full max-w-md shadow-[var(--shadow-medium)]" in:fly={{ y: 10, duration: 300 }}>
+				<div class="gh-box-header">
 					<span class="flex items-center gap-2">
-						{#if $confirmDialog.danger}<AlertTriangle class="h-4 w-4 text-danger-fg" />{/if}
+						{#if $confirmDialog.danger}
+							<AlertTriangle class="h-4 w-4 text-[color:var(--danger-emphasis)]" />
+						{/if}
 						{$confirmDialog.title || $t("Confirm Action")}
 					</span>
-					<button class="text-fg-muted hover:text-accent-fg transition-colors" on:click={() => resolveConfirm(false)}><X class="h-4 w-4" /></button>
+					<button
+						type="button"
+						class="gh-icon-button h-7 w-7"
+						on:click={() => resolveConfirm(false)}
+						aria-label={$t("Close dialog")}
+					>
+						<span aria-hidden="true">×</span>
+					</button>
 				</div>
-				<div class="p-4 bg-canvas-default">
-					<p class="text-sm text-fg-default leading-relaxed">{$confirmDialog.message}</p>
+				<div class="p-4">
+					<p class="text-sm text-fg-default">{$confirmDialog.message}</p>
 				</div>
-				<div class="p-4 bg-canvas-subtle border-t border-border-default flex justify-end gap-2">
-					<button class="gh-btn" on:click={() => resolveConfirm(false)}>{$confirmDialog.cancelText || $t("Cancel")}</button>
-					<button class={cn("gh-btn", $confirmDialog.danger ? "gh-btn-danger" : "gh-btn-primary")} on:click={() => resolveConfirm(true)}>
+				<div class="flex justify-end gap-2 border-t border-border-default bg-canvas-subtle p-4">
+					<button type="button" class="gh-btn" on:click={() => resolveConfirm(false)}>
+						{$confirmDialog.cancelText || $t("Cancel")}
+					</button>
+					<button
+						type="button"
+						class={cn("gh-btn", $confirmDialog.danger ? "gh-btn-danger" : "gh-btn-primary")}
+						on:click={() => resolveConfirm(true)}
+					>
 						{$confirmDialog.confirmText || $t("Confirm")}
 					</button>
 				</div>

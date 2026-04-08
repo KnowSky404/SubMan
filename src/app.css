@@ -6,214 +6,387 @@
 
   --color-canvas-default: var(--canvas-default);
   --color-canvas-subtle: var(--canvas-subtle);
+  --color-canvas-inset: var(--canvas-inset);
   --color-border-default: var(--border-default);
   --color-border-muted: var(--border-muted);
+  --color-border-accent: var(--border-accent);
   --color-fg-default: var(--fg-default);
   --color-fg-muted: var(--fg-muted);
   --color-fg-subtle: var(--fg-subtle);
-  
   --color-accent-fg: var(--accent-fg);
   --color-accent-emphasis: var(--accent-emphasis);
   --color-accent-muted: var(--accent-muted);
   --color-accent-subtle: var(--accent-subtle);
+  --color-success-emphasis: var(--success-emphasis);
+  --color-danger-emphasis: var(--danger-emphasis);
+  --color-attention-emphasis: var(--attention-emphasis);
 
-  --color-success-fg: var(--success-fg);
-  --color-danger-fg: var(--danger-fg);
-  --color-attention-fg: var(--attention-fg);
-  --color-attention-subtle: var(--attention-subtle);
-
-  --shadow-sm: 0 1px 0 rgba(27, 31, 35, 0.04);
+  --shadow-sm: 0 1px 0 rgba(31, 35, 40, 0.04);
+  --shadow-medium: 0 8px 24px rgba(140, 149, 159, 0.2);
 }
 
 :root {
   --canvas-default: #ffffff;
   --canvas-subtle: #f6f8fa;
+  --canvas-inset: #f3f4f6;
   --border-default: #d0d7de;
-  --border-muted: hsla(210, 18%, 87%, 1);
+  --border-muted: #d8dee4;
+  --border-accent: #fd8c73;
   --fg-default: #1f2328;
-  --fg-muted: #657d81;
+  --fg-muted: #59636e;
   --fg-subtle: #6e7781;
-  
   --accent-fg: #0969da;
   --accent-emphasis: #0969da;
-  --accent-muted: rgba(84, 174, 255, 0.4);
+  --accent-muted: rgba(9, 105, 218, 0.15);
   --accent-subtle: #ddf4ff;
-
-  --success-fg: #1a7f37;
-  --danger-fg: #d1242f;
-  --attention-fg: #9a6700;
-  --attention-subtle: #fff8c5;
-
+  --success-emphasis: #1f883d;
+  --danger-emphasis: #cf222e;
+  --attention-emphasis: #bf8700;
+  --header-bg: #24292f;
+  --header-text: #f0f6fc;
+  --header-muted: #c9d1d9;
+  --header-hover: rgba(240, 246, 252, 0.08);
+  --header-border: rgba(240, 246, 252, 0.1);
   --radius: 6px;
 }
 
 :root[data-theme="dark"] {
   --canvas-default: #0d1117;
   --canvas-subtle: #161b22;
+  --canvas-inset: #0b0f14;
   --border-default: #30363d;
   --border-muted: #21262d;
+  --border-accent: #f78166;
   --fg-default: #e6edf3;
-  --fg-muted: #848d97;
+  --fg-muted: #9da7b3;
   --fg-subtle: #7d8590;
-  
   --accent-fg: #2f81f7;
   --accent-emphasis: #1f6feb;
-  --accent-muted: rgba(56, 139, 253, 0.4);
+  --accent-muted: rgba(56, 139, 253, 0.22);
   --accent-subtle: rgba(56, 139, 253, 0.15);
-
-  --success-fg: #3fb950;
-  --danger-fg: #f85149;
-  --attention-fg: #d29922;
-  --attention-subtle: rgba(187, 128, 9, 0.15);
+  --success-emphasis: #238636;
+  --danger-emphasis: #da3633;
+  --attention-emphasis: #9e6a03;
+  --header-bg: #010409;
+  --header-text: #f0f6fc;
+  --header-muted: #9ba7b4;
+  --header-hover: rgba(240, 246, 252, 0.08);
+  --header-border: #30363d;
 }
 
 html {
   font-size: 14px;
+  background: var(--canvas-subtle);
 }
 
 body {
-  background-color: var(--canvas-default);
+  background: linear-gradient(180deg, var(--canvas-default) 0 96px, var(--canvas-subtle) 96px 100%);
   color: var(--fg-default);
   font-family: var(--font-sans);
   line-height: 1.5;
 }
 
-/* GitHub Style Box */
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+code,
+pre {
+  font-family: var(--font-mono);
+}
+
+.gh-link {
+  color: var(--accent-fg);
+}
+
+.gh-link:hover {
+  text-decoration: underline;
+}
+
 .gh-box {
-  @apply rounded-md border border-border-default bg-canvas-default overflow-hidden;
+  @apply overflow-hidden rounded-md border border-border-default bg-canvas-default;
+  box-shadow: var(--shadow-sm);
 }
 
 .gh-box-header {
-  @apply px-4 py-3 border-b border-border-default bg-canvas-subtle font-semibold flex items-center justify-between;
+  @apply flex items-center justify-between gap-3 border-b border-border-default bg-canvas-subtle px-4 py-3 font-semibold;
 }
 
 .gh-box-row {
-  @apply px-4 py-3 border-b border-border-default last:border-b-0 hover:bg-canvas-subtle/50 transition-colors;
+  @apply border-b border-border-default px-4 py-3 last:border-b-0;
 }
 
-/* GitHub Style Buttons */
+.gh-box-row:hover {
+  background: color-mix(in srgb, var(--canvas-subtle) 84%, transparent);
+}
+
 .gh-btn {
-  @apply inline-flex items-center justify-center gap-1.5 rounded-md border border-border-default bg-canvas-subtle px-3 py-1.5 text-sm font-semibold text-fg-default shadow-sm hover:bg-gray-100 dark:hover:bg-gray-800 transition-all active:scale-[0.98] disabled:opacity-50;
+  @apply inline-flex items-center justify-center gap-2 rounded-md border border-border-default px-3 py-1.5 text-sm font-medium text-fg-default transition-colors disabled:cursor-not-allowed disabled:opacity-60;
+  background: linear-gradient(180deg, #f6f8fa 0%, #f3f4f6 100%);
+  box-shadow: var(--shadow-sm);
+}
+
+.gh-btn:hover {
+  background: #f3f4f6;
+}
+
+:root[data-theme="dark"] .gh-btn {
+  background: #212830;
+}
+
+:root[data-theme="dark"] .gh-btn:hover {
+  background: #262c36;
 }
 
 .gh-btn-primary {
-  @apply border-green-700 bg-[#218a3e] text-white hover:bg-[#2c974b] dark:bg-[#238636] dark:hover:bg-[#2ea043];
+  border-color: color-mix(in srgb, var(--success-emphasis) 70%, black);
+  background: var(--success-emphasis);
+  color: #ffffff;
+}
+
+.gh-btn-primary:hover {
+  background: color-mix(in srgb, var(--success-emphasis) 88%, black);
 }
 
 .gh-btn-danger {
-  @apply text-danger-fg hover:bg-red-600 hover:text-white dark:hover:bg-red-700;
+  color: var(--danger-emphasis);
+}
+
+.gh-btn-danger:hover {
+  border-color: color-mix(in srgb, var(--danger-emphasis) 55%, var(--border-default));
+  background: color-mix(in srgb, var(--danger-emphasis) 9%, var(--canvas-default));
+}
+
+.gh-btn-invisible {
+  @apply border-transparent bg-transparent shadow-none;
+}
+
+.gh-btn-invisible:hover {
+  background: var(--canvas-subtle);
 }
 
 .gh-btn-sm {
   @apply px-2 py-1 text-xs;
 }
 
-/* GitHub Style Inputs */
-.gh-input {
-  @apply flex h-8 w-full rounded-md border border-border-default bg-canvas-default px-3 py-1 text-sm shadow-sm ring-offset-white transition-all placeholder:text-fg-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-emphasis/30 focus-visible:border-accent-emphasis;
+.gh-icon-button {
+  @apply inline-flex h-8 w-8 items-center justify-center rounded-md border border-transparent text-fg-muted transition-colors;
 }
 
-/* Ensure relative inputs with icons have enough padding */
-.relative > .gh-input.pl-8 {
-  padding-left: 2.25rem !important;
+.gh-icon-button:hover {
+  background: var(--canvas-subtle);
+  color: var(--fg-default);
+}
+
+.gh-input,
+.gh-select {
+  @apply h-8 w-full rounded-md border border-border-default bg-canvas-default px-3 text-sm text-fg-default transition-all placeholder:text-fg-subtle focus-visible:outline-none;
+  box-shadow: inset 0 1px 0 rgba(208, 215, 222, 0.2);
+}
+
+.gh-input:focus-visible,
+.gh-select:focus-visible,
+.gh-select:focus {
+  border-color: var(--accent-emphasis);
+  box-shadow: 0 0 0 3px var(--accent-muted);
+}
+
+.gh-select {
+  @apply cursor-pointer appearance-none bg-no-repeat pr-8;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' width='16' height='16'%3E%3Cpath fill='%236e7781' d='M4.427 7.427l3.396 3.396a.25.25 0 0 0 .354 0l3.396-3.396A.25.25 0 0 0 11.396 7H4.604a.25.25 0 0 0-.177.427Z'/%3E%3C/svg%3E");
+  background-position: right 8px center;
+}
+
+:root[data-theme="dark"] .gh-select {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' width='16' height='16'%3E%3Cpath fill='%239da7b3' d='M4.427 7.427l3.396 3.396a.25.25 0 0 0 .354 0l3.396-3.396A.25.25 0 0 0 11.396 7H4.604a.25.25 0 0 0-.177.427Z'/%3E%3C/svg%3E");
+}
+
+.gh-select-sm {
+  @apply h-7 py-0 text-xs;
 }
 
 .gh-textarea {
-  @apply min-h-[80px] py-2 leading-relaxed;
+  @apply min-h-[88px] py-2 leading-relaxed;
 }
 
-/* GitHub Style Tabs */
-.gh-tabs {
-  @apply flex items-center gap-1 border-b border-border-default mb-4;
+.gh-form-label {
+  @apply text-sm font-medium text-fg-default;
 }
 
-.gh-tab {
-  @apply px-4 py-2 text-sm font-medium text-fg-default border-b-2 border-transparent hover:border-border-default transition-all mb-[-1px];
+.gh-form-caption {
+  @apply text-xs text-fg-muted;
 }
 
-.gh-tab-active {
-  @apply border-orange-500 font-semibold text-fg-default;
+.gh-underlinenav {
+  @apply flex items-center gap-1 overflow-x-auto border-b border-border-default;
 }
 
-/* Layout Parts */
+.gh-underlinenav-item {
+  @apply inline-flex items-center gap-2 rounded-t-md px-2 py-2 text-sm font-medium text-fg-muted transition-colors;
+  border-bottom: 2px solid transparent;
+  white-space: nowrap;
+}
+
+.gh-underlinenav-item:hover {
+  color: var(--fg-default);
+}
+
+.gh-underlinenav-item-active {
+  border-bottom-color: var(--border-accent);
+  color: var(--fg-default);
+}
+
+.gh-page-header {
+  @apply flex flex-col gap-3 border-b border-border-default pb-4;
+}
+
+.gh-page-title {
+  @apply text-[2rem] font-semibold leading-tight;
+}
+
+.gh-page-subtitle {
+  @apply text-sm text-fg-muted;
+}
+
 .app-header {
-  @apply bg-[#010409] text-white py-3 border-b border-border-default;
+  background: var(--header-bg);
+  border-bottom: 1px solid var(--header-border);
 }
 
-.app-nav-link {
-  @apply flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium hover:bg-gray-800 transition-colors;
+.app-header-inner,
+.app-repo-inner,
+.app-main-container {
+  @apply mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8;
 }
 
-.app-nav-link-active {
-  @apply bg-gray-800 font-semibold;
+.app-header-inner {
+  @apply flex min-h-14 items-center justify-between gap-4;
+}
+
+.app-brand {
+  @apply inline-flex items-center gap-3 text-sm font-semibold;
+  color: var(--header-text);
+}
+
+.app-brand-mark {
+  @apply flex h-8 w-8 items-center justify-center rounded-md border;
+  border-color: rgba(240, 246, 252, 0.18);
+  background: rgba(240, 246, 252, 0.06);
+}
+
+.app-header-tools {
+  @apply flex items-center gap-2;
+}
+
+.app-header-chip {
+  @apply inline-flex items-center gap-2 rounded-md border px-2.5 py-1.5 text-xs font-medium;
+  border-color: rgba(240, 246, 252, 0.14);
+  color: var(--header-muted);
+  background: rgba(240, 246, 252, 0.04);
+}
+
+.gh-select-header {
+  @apply h-8 rounded-md border px-2.5 pr-8 text-xs font-medium outline-none transition-colors;
+  border-color: rgba(240, 246, 252, 0.14);
+  background-color: rgba(240, 246, 252, 0.04);
+  color: var(--header-text);
+}
+
+.gh-select-header:hover {
+  background-color: var(--header-hover);
+}
+
+.app-header-link {
+  @apply inline-flex h-8 w-8 items-center justify-center rounded-md text-[color:var(--header-muted)] transition-colors;
+}
+
+.app-header-link:hover {
+  background: var(--header-hover);
+  color: var(--header-text);
+}
+
+.app-repo-shell {
+  @apply border-b border-border-default bg-canvas-default;
+}
+
+.app-repo-inner {
+  @apply flex flex-col gap-4 py-4;
+}
+
+.app-repo-meta {
+  @apply flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between;
+}
+
+.app-repo-title {
+  @apply flex min-w-0 flex-wrap items-center gap-2 text-[1.5rem] font-semibold;
+}
+
+.app-repo-title-owner {
+  color: var(--accent-fg);
+}
+
+.app-repo-title-owner:hover {
+  text-decoration: underline;
+}
+
+.app-repo-tools {
+  @apply flex flex-wrap items-center gap-2;
 }
 
 .app-main-container {
-  @apply mx-auto px-4 py-6 sm:px-6 lg:px-8;
-  width: 90%;
-  max-width: 1600px;
-  min-width: 1024px; /* Ensure it doesn't get too cramped on desktop */
+  @apply flex-1 py-6;
 }
 
 .blankslate {
-  @apply flex flex-col items-center justify-center py-12 px-8 text-center bg-canvas-subtle border border-dashed border-border-default rounded-lg;
+  @apply flex flex-col items-center justify-center rounded-md border border-dashed border-border-default bg-canvas-default px-8 py-12 text-center;
 }
 
 .badge {
   @apply inline-flex items-center rounded-full border border-border-default bg-canvas-subtle px-2 py-0.5 text-xs font-medium text-fg-muted;
 }
 
-.badge-success { @apply border-green-200 bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-400 dark:border-green-800; }
-
-/* GitHub Style Select */
-.gh-select {
-  @apply appearance-none bg-no-repeat border rounded-md px-3 py-1.5 pr-8 text-sm font-semibold shadow-sm cursor-pointer transition-all focus:outline-none focus:ring-2;
-  background-color: var(--canvas-subtle);
-  border-color: var(--border-default);
-  color: var(--fg-default);
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' width='16' height='16'%3E%3Cpath fill='%236e7781' d='M4.427 7.427l3.396 3.396a.25.25 0 00.354 0l3.396-3.396A.25.25 0 0011.396 7H4.604a.25.25 0 00-.177.427z'%3E%3C/path%3E%3C/svg%3E");
-  background-position: right 8px center;
+.badge-success {
+  border-color: color-mix(in srgb, var(--success-emphasis) 25%, var(--border-default));
+  background: color-mix(in srgb, var(--success-emphasis) 8%, var(--canvas-default));
+  color: color-mix(in srgb, var(--success-emphasis) 86%, black);
 }
 
-.gh-select:hover {
-  background-color: var(--canvas-subtle);
-  border-color: var(--border-default);
+.badge-danger {
+  border-color: color-mix(in srgb, var(--danger-emphasis) 25%, var(--border-default));
+  background: color-mix(in srgb, var(--danger-emphasis) 8%, var(--canvas-default));
+  color: color-mix(in srgb, var(--danger-emphasis) 86%, black);
 }
 
-.gh-select:focus {
-  border-color: var(--accent-emphasis);
-  box-shadow: 0 0 0 3px var(--accent-muted);
-}
-
-/* Dark mode arrow color adjustment */
-:root[data-theme="dark"] .gh-select {
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' width='16' height='16'%3E%3Cpath fill='%23848d97' d='M4.427 7.427l3.396 3.396a.25.25 0 00.354 0l3.396-3.396A.25.25 0 0011.396 7H4.604a.25.25 0 00-.177.427z'%3E%3C/path%3E%3C/svg%3E");
-}
-
-.gh-select-sm {
-  @apply py-1 pr-7 text-xs;
-}
-
-/* Header specific select to match GitHub dark top bar */
-.gh-select-header {
-  @apply appearance-none bg-no-repeat border rounded-md py-1 pr-8 text-xs font-semibold cursor-pointer transition-all focus:outline-none;
-  padding-left: 2rem; /* Space for icon */
-  background-color: #0d1117;
-  border-color: #30363d;
-  color: #e6edf3;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' width='16' height='16'%3E%3Cpath fill='%23848d97' d='M4.427 7.427l3.396 3.396a.25.25 0 00.354 0l3.396-3.396A.25.25 0 0011.396 7H4.604a.25.25 0 00-.177.427z'%3E%3C/path%3E%3C/svg%3E");
-  background-position: right 8px center;
-}
-
-.gh-select-header:hover {
-  background-color: #161b22;
-  border-color: #8b949e;
-}
-
-/* Status Labels */
 .State {
   @apply inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold text-white;
 }
-.State--success { @apply bg-[#238636]; }
-.State--danger { @apply bg-[#da3633]; }
-.State--muted { @apply bg-[#6e7781]; }
+
+.State--success {
+  background: var(--success-emphasis);
+}
+
+.State--danger {
+  background: var(--danger-emphasis);
+}
+
+.State--muted {
+  background: var(--fg-subtle);
+}
+
+@media (max-width: 767px) {
+  body {
+    background: var(--canvas-subtle);
+  }
+
+  .app-main-container {
+    @apply py-4;
+  }
+}
