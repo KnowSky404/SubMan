@@ -1,35 +1,36 @@
-import type { ProxyType } from '$lib/models';
+import type { ProxyType } from "$lib/models";
 
 const KNOWN_PROXY_TYPES = new Set<ProxyType>([
-	'vless',
-	'vmess',
-	'trojan',
-	'ss',
-	'ssr',
-	'hysteria2',
-	'tuic',
-	'other'
+	"vless",
+	"vmess",
+	"trojan",
+	"ss",
+	"ssr",
+	"hysteria2",
+	"tuic",
+	"other",
 ]);
 
-const MULTI_NODE_SCHEME_REGEX = /(vless|vmess|trojan|ssr?|hysteria2|hy2|tuic):\/\//gi;
+const MULTI_NODE_SCHEME_REGEX =
+	/(vless|vmess|trojan|ssr?|hysteria2|hy2|tuic):\/\//gi;
 
 export function normalizeBase64(value: string): string | null {
-	const compact = value.trim().replace(/\s+/g, '');
+	const compact = value.trim().replace(/\s+/g, "");
 	if (!compact) {
 		return null;
 	}
 	if (!/^[A-Za-z0-9+/=_-]+$/.test(compact)) {
 		return null;
 	}
-	let normalized = compact.replace(/-/g, '+').replace(/_/g, '/');
+	let normalized = compact.replace(/-/g, "+").replace(/_/g, "/");
 	const padding = normalized.length % 4;
 	if (padding === 1) {
 		return null;
 	}
 	if (padding === 2) {
-		normalized += '==';
+		normalized += "==";
 	} else if (padding === 3) {
-		normalized += '=';
+		normalized += "=";
 	}
 	return normalized;
 }
@@ -64,7 +65,10 @@ export function splitSubscriptionContentLine(line: string): string[] {
 	const parts: string[] = [];
 	for (let index = 0; index < matches.length; index += 1) {
 		const start = matches[index].index ?? 0;
-		const end = index + 1 < matches.length ? (matches[index + 1].index ?? value.length) : value.length;
+		const end =
+			index + 1 < matches.length
+				? (matches[index + 1].index ?? value.length)
+				: value.length;
 		const slice = value.slice(start, end).trim();
 		if (slice) {
 			parts.push(slice);
@@ -74,7 +78,9 @@ export function splitSubscriptionContentLine(line: string): string[] {
 }
 
 export function splitNodeSourceLine(line: string): string[] {
-	return splitSubscriptionContentLine(line).filter((item) => item.includes('://'));
+	return splitSubscriptionContentLine(line).filter((item) =>
+		item.includes("://"),
+	);
 }
 
 export function normalizeSubscriptionContent(text: string): string {
@@ -83,7 +89,7 @@ export function normalizeSubscriptionContent(text: string): string {
 		.flatMap((line) => splitSubscriptionContentLine(line))
 		.map((line) => line.trim())
 		.filter((line) => line.length > 0)
-		.join('\n');
+		.join("\n");
 }
 
 export function extractSubscriptionNodeLines(text: string): string[] {
@@ -95,22 +101,25 @@ export function extractSubscriptionNodeLines(text: string): string[] {
 }
 
 export function inferNodeTypeFromRaw(raw: string): ProxyType {
-	const index = raw.indexOf('://');
+	const index = raw.indexOf("://");
 	if (index <= 0) {
-		return 'other';
+		return "other";
 	}
 	const scheme = raw.slice(0, index).toLowerCase();
-	if (scheme === 'hy2') {
-		return 'hysteria2';
+	if (scheme === "hy2") {
+		return "hysteria2";
 	}
 	if (KNOWN_PROXY_TYPES.has(scheme as ProxyType)) {
 		return scheme as ProxyType;
 	}
-	return 'other';
+	return "other";
 }
 
-export function inferNodeNameFromRaw(raw: string, fallbackName: string): string {
-	const hashIndex = raw.lastIndexOf('#');
+export function inferNodeNameFromRaw(
+	raw: string,
+	fallbackName: string,
+): string {
+	const hashIndex = raw.lastIndexOf("#");
 	if (hashIndex > -1) {
 		const encoded = raw.slice(hashIndex + 1);
 		if (encoded) {
@@ -125,8 +134,8 @@ export function inferNodeNameFromRaw(raw: string, fallbackName: string): string 
 		}
 	}
 
-	if (raw.startsWith('vmess://')) {
-		const payload = raw.slice('vmess://'.length);
+	if (raw.startsWith("vmess://")) {
+		const payload = raw.slice("vmess://".length);
 		const decoded = decodeBase64Utf8(payload);
 		if (decoded) {
 			try {
@@ -143,16 +152,18 @@ export function inferNodeNameFromRaw(raw: string, fallbackName: string): string 
 	return fallbackName;
 }
 
-export async function loadSubscriptionContent(url: string): Promise<{ content: string; warning?: string }> {
+export async function loadSubscriptionContent(
+	url: string,
+): Promise<{ content: string; warning?: string }> {
 	const res = await fetch(url);
 	if (!res.ok) {
-		return { content: '', warning: `Failed to fetch ${url}` };
+		return { content: "", warning: `Failed to fetch ${url}` };
 	}
 
 	const text = await res.text();
 	if (looksLikeBase64(text)) {
 		const decoded = decodeBase64Utf8(text);
-		if (decoded && decoded.includes('://')) {
+		if (decoded && decoded.includes("://")) {
 			return { content: decoded };
 		}
 	}

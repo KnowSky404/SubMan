@@ -1,5 +1,5 @@
 export function createId(prefix: string): string {
-	if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
+	if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
 		return `${prefix}_${crypto.randomUUID()}`;
 	}
 

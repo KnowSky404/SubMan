@@ -36,7 +36,8 @@ const systemTheme = readable<ResolvedTheme>("light", (set) => {
 
 export const resolvedTheme = derived(
 	[themeMode, systemTheme],
-	([$themeMode, $systemTheme]): ResolvedTheme => ($themeMode === "system" ? $systemTheme : $themeMode)
+	([$themeMode, $systemTheme]): ResolvedTheme =>
+		$themeMode === "system" ? $systemTheme : $themeMode,
 );
 
 let themeSyncStarted = false;
@@ -69,10 +70,13 @@ export function startThemeSync(): () => void {
 		localStorage.setItem(STORAGE_KEY, value);
 	});
 
-	const resolvedUnsubscribe = derived([themeMode, resolvedTheme], ([$mode, $resolved]) => ({
-		mode: $mode,
-		resolved: $resolved
-	})).subscribe(({ mode, resolved }) => {
+	const resolvedUnsubscribe = derived(
+		[themeMode, resolvedTheme],
+		([$mode, $resolved]) => ({
+			mode: $mode,
+			resolved: $resolved,
+		}),
+	).subscribe(({ mode, resolved }) => {
 		applyTheme(mode, resolved);
 	});
 

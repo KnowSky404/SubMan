@@ -1,12 +1,12 @@
-import { browser } from '$app/environment';
-import { writable } from 'svelte/store';
-import type { AuthState } from '$lib/models';
+import { browser } from "$app/environment";
+import { writable } from "svelte/store";
+import type { AuthState } from "$lib/models";
 
-const STORAGE_KEY = 'subman:auth:v1';
+const STORAGE_KEY = "subman:auth:v1";
 
 export const defaultAuthState: AuthState = {
 	token: null,
-	lastLoginAt: null
+	lastLoginAt: null,
 };
 
 function loadInitialState(): AuthState {
@@ -39,7 +39,7 @@ export function setToken(token: string | null): void {
 	authState.update((state) => ({
 		...state,
 		token: token && token.length > 0 ? token : null,
-		lastLoginAt: token ? new Date().toISOString() : state.lastLoginAt
+		lastLoginAt: token ? new Date().toISOString() : state.lastLoginAt,
 	}));
 }
 

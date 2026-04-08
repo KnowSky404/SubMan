@@ -25,8 +25,9 @@ const zhCN: Record<string, string> = {
 	Dark: "深色",
 	GitHub: "GitHub",
 	English: "English",
-	"简体中文": "简体中文",
-	"Workspace Gist subscription hub for proxy nodes": "面向代理节点的 Workspace Gist 订阅中心",
+	简体中文: "简体中文",
+	"Workspace Gist subscription hub for proxy nodes":
+		"面向代理节点的 Workspace Gist 订阅中心",
 	"Manage nodes and subscriptions, build reusable aggregation rules, and publish stable subscription links from one GitHub Workspace Gist.":
 		"在一个 GitHub Workspace Gist 中管理节点和订阅、构建可复用聚合规则，并发布稳定订阅链接。",
 	"Connect Workspace": "连接工作区",
@@ -37,7 +38,8 @@ const zhCN: Record<string, string> = {
 	"Modern Workspace": "现代工作区",
 	"Subscription Hub": "订阅中心",
 	"Ready to simplify your workflow?": "准备简化你的工作流了吗？",
-	"Everything you need for seamless proxy subscription management": "覆盖代理订阅管理核心流程的一整套能力",
+	"Everything you need for seamless proxy subscription management":
+		"覆盖代理订阅管理核心流程的一整套能力",
 	"Manage nodes, build reusable aggregation rules, and publish stable links directly to your private GitHub Gist.":
 		"管理节点、构建可复用聚合规则，并直接向你的私有 GitHub Gist 发布稳定链接。",
 	"Connect your GitHub account and start managing your workspace in seconds.":
@@ -59,7 +61,8 @@ const zhCN: Record<string, string> = {
 	"Nodes & Subscriptions": "节点与订阅",
 	"Add single nodes or subscription URLs, tag them, and toggle availability.":
 		"新增单节点或订阅 URL，设置标签并切换可用状态。",
-	"Manage your proxy sources and connectivity settings": "管理你的代理来源与连通性设置",
+	"Manage your proxy sources and connectivity settings":
+		"管理你的代理来源与连通性设置",
 	"Add Node": "添加节点",
 	"New Node": "新建节点",
 	"New Subscription": "新建订阅",
@@ -104,45 +107,61 @@ const zhCN: Record<string, string> = {
 	"No subscriptions yet.": "暂无订阅。",
 	"No subscriptions found.": "暂无订阅。",
 	"No subscriptions match current filters.": "当前筛选条件下无匹配订阅。",
-	"A node with the same raw URI already exists: {name}": "已存在相同原始 URI 的节点：{name}",
-	"A subscription with the same URL already exists: {name}": "已存在相同 URL 的订阅：{name}",
+	"A node with the same raw URI already exists: {name}":
+		"已存在相同原始 URI 的节点：{name}",
+	"A subscription with the same URL already exists: {name}":
+		"已存在相同 URL 的订阅：{name}",
 	"Single Entry": "单条添加",
 	"Batch Import": "批量导入",
 	"Raw node URI (one per line)": "原始节点 URI（每行一个）",
-	"Subscription URL or Name = URL (one per line)": "订阅 URL 或 名称 = URL（每行一条）",
-	"Tags applied to all imported items (comma separated)": "应用到所有导入项的标签（逗号分隔）",
+	"Subscription URL or Name = URL (one per line)":
+		"订阅 URL 或 名称 = URL（每行一条）",
+	"Tags applied to all imported items (comma separated)":
+		"应用到所有导入项的标签（逗号分隔）",
 	"Batch import nodes": "批量导入节点",
 	"Batch import subscriptions": "批量导入订阅",
-	"One node URI per line. Names and protocol types are inferred automatically.": "每行一个节点 URI，名称和协议类型会自动推断。",
-	"One subscription per line. Use either a raw URL or Name = URL.": "每行一个订阅，可直接写 URL，或使用 名称 = URL 格式。",
+	"One node URI per line. Names and protocol types are inferred automatically.":
+		"每行一个节点 URI，名称和协议类型会自动推断。",
+	"One subscription per line. Use either a raw URL or Name = URL.":
+		"每行一个订阅，可直接写 URL，或使用 名称 = URL 格式。",
 	"Lines detected: {count}": "检测到行数：{count}",
-	"Existing or repeated raw URIs are skipped automatically during import.": "导入时会自动跳过已存在或重复的原始 URI。",
-	"Existing or repeated subscription URLs are skipped automatically during import.": "导入时会自动跳过已存在或重复的订阅 URL。",
+	"Existing or repeated raw URIs are skipped automatically during import.":
+		"导入时会自动跳过已存在或重复的原始 URI。",
+	"Existing or repeated subscription URLs are skipped automatically during import.":
+		"导入时会自动跳过已存在或重复的订阅 URL。",
 	"Imported Node {index}": "导入节点 {index}",
 	"Imported Subscription {index}": "导入订阅 {index}",
 	"No lines to import.": "没有可导入的内容。",
 	"No valid lines were imported.": "没有有效内容被导入。",
-	"Batch import complete: {imported} imported, {duplicates} duplicate, {invalid} invalid.": "批量导入完成：已导入 {imported} 条，跳过重复 {duplicates} 条，无效 {invalid} 条。",
+	"Batch import complete: {imported} imported, {duplicates} duplicate, {invalid} invalid.":
+		"批量导入完成：已导入 {imported} 条，跳过重复 {duplicates} 条，无效 {invalid} 条。",
 	"Import Preview": "导入预览",
 	"Preview import results before saving.": "在真正保存前先预览导入结果。",
-	"No batch preview yet. Paste lines to preview them here.": "还没有批量导入预览，把内容粘贴到左侧后会显示结果。",
-	"Importable": "可导入",
-	"Duplicates": "重复",
-	"Invalid": "无效",
+	"No batch preview yet. Paste lines to preview them here.":
+		"还没有批量导入预览，把内容粘贴到左侧后会显示结果。",
+	Importable: "可导入",
+	Duplicates: "重复",
+	Invalid: "无效",
 	"Duplicate of existing node: {name}": "与现有节点重复：{name}",
 	"Duplicate of existing subscription: {name}": "与现有订阅重复：{name}",
 	"Duplicate line in this batch.": "与本次批量导入中的其他行重复。",
 	"Invalid node URI.": "无效的节点 URI。",
 	"Expanded from base64 subscription content.": "已从 Base64 订阅内容中展开。",
-	"Pasted base64 subscription content is expanded into individual nodes automatically.": "直接粘贴 Base64 订阅内容时，会自动展开为单个节点。",
+	"Pasted base64 subscription content is expanded into individual nodes automatically.":
+		"直接粘贴 Base64 订阅内容时，会自动展开为单个节点。",
 	"Invalid subscription URL.": "无效的订阅 URL。",
 	"Line {line}": "第 {line} 行",
 	"Filter preview by name or detail": "按名称或明细筛选预览",
-	"Only visible importable items will be imported.": "最终只会导入当前预览中可见且可导入的项目。",
-	"No preview items match the current filters.": "当前筛选条件下没有匹配的预览项目。",
-	"Click preview to inspect included nodes.": "点击预览以查看该订阅包含的节点。",
-	"No detectable nodes found in this subscription.": "这个订阅里没有识别到可展示的节点。",
-	"Only visible selected importable items will be imported.": "最终只会导入当前可见且已勾选的可导入项目。",
+	"Only visible importable items will be imported.":
+		"最终只会导入当前预览中可见且可导入的项目。",
+	"No preview items match the current filters.":
+		"当前筛选条件下没有匹配的预览项目。",
+	"Click preview to inspect included nodes.":
+		"点击预览以查看该订阅包含的节点。",
+	"No detectable nodes found in this subscription.":
+		"这个订阅里没有识别到可展示的节点。",
+	"Only visible selected importable items will be imported.":
+		"最终只会导入当前可见且已勾选的可导入项目。",
 	"Select visible": "全选可见项",
 	"Clear visible selection": "清空可见选择",
 	"Selected importable items: {count}": "已选择可导入项：{count}",
@@ -154,7 +173,8 @@ const zhCN: Record<string, string> = {
 	"Close preview": "关闭预览",
 	"Last preview": "上次预览",
 	"Last preview: {time}": "上次预览：{time}",
-	"The existing item has been expanded for quick review.": "已自动展开现有条目，方便你快速检查。",
+	"The existing item has been expanded for quick review.":
+		"已自动展开现有条目，方便你快速检查。",
 	"Unsaved changes": "未保存更改",
 	"Editing draft": "正在编辑草稿",
 	"Changes apply only after you click Save.": "点击保存后更改才会生效。",
@@ -171,7 +191,7 @@ const zhCN: Record<string, string> = {
 	Updated: "更新时间",
 	Unavailable: "不可用",
 	"Are you sure you want to remove {name}?": "确认删除 {name} 吗？",
-	'Remove subscription "{name}"?': '确认移除订阅“{name}”？',
+	'Remove subscription "{name}"?': "确认移除订阅“{name}”？",
 	"Copied URL for {name}.": "已复制 {name} 的 URL。",
 	"Removed {name}.": "已移除 {name}。",
 	"Removed {name}": "已移除 {name}",
@@ -226,7 +246,8 @@ const zhCN: Record<string, string> = {
 	"Local data pushed to workspace.": "本地数据已推送到工作区。",
 	"Merged data saved to workspace.": "合并数据已保存到工作区。",
 	"Failed to resolve conflict.": "处理冲突失败。",
-	"Workspace gist linked (local data unchanged).": "Workspace Gist 已绑定（本地数据未变）。",
+	"Workspace gist linked (local data unchanged).":
+		"Workspace Gist 已绑定（本地数据未变）。",
 	"Token cleared. Local mode enabled.": "Token 已清除，已切换为本地模式。",
 	"Export ready.": "导出内容已生成。",
 	"Copied to clipboard.": "已复制到剪贴板。",
@@ -234,12 +255,15 @@ const zhCN: Record<string, string> = {
 	"Import complete.": "导入完成。",
 	"Import failed.": "导入失败。",
 	"Gist Workspace": "Gist 工作区",
-	"View published files inside your workspace gist.": "查看工作区 Gist 内已发布的文件。",
+	"View published files inside your workspace gist.":
+		"查看工作区 Gist 内已发布的文件。",
 	"Open Workspace": "打开工作区",
 	"Loading...": "加载中...",
 	Refresh: "刷新",
-	"Missing GitHub token. Configure workspace first.": "缺少 GitHub Token，请先配置工作区。",
-	"Workspace gist not set. Configure workspace first.": "未设置工作区 Gist，请先配置工作区。",
+	"Missing GitHub token. Configure workspace first.":
+		"缺少 GitHub Token，请先配置工作区。",
+	"Workspace gist not set. Configure workspace first.":
+		"未设置工作区 Gist，请先配置工作区。",
 	"Workspace gist refreshed.": "Workspace Gist 已刷新。",
 	"Workspace auto-refresh failed.": "Workspace 自动刷新失败。",
 	"Open workspace gist": "打开 Workspace Gist",
@@ -247,7 +271,8 @@ const zhCN: Record<string, string> = {
 	"Workspace gist URL unavailable.": "Workspace Gist URL 不可用。",
 	"Workspace gist URL copied.": "Workspace Gist URL 已复制。",
 	"Workspace Health": "工作区健康检查",
-	"Run a quick check for token access, gist binding, workspace config, and readable sync data.": "快速检查 Token 访问、Gist 绑定、工作区配置文件以及同步数据是否可读。",
+	"Run a quick check for token access, gist binding, workspace config, and readable sync data.":
+		"快速检查 Token 访问、Gist 绑定、工作区配置文件以及同步数据是否可读。",
 	"Run Health Check": "运行健康检查",
 	"Checking...": "检查中...",
 	"Workspace health check complete.": "工作区健康检查完成。",
@@ -257,7 +282,8 @@ const zhCN: Record<string, string> = {
 	"Workspace gist is bound to {id}.": "Workspace Gist 已绑定到 {id}。",
 	"Workspace gist is not bound yet.": "Workspace Gist 尚未绑定。",
 	"Workspace gist access": "Workspace Gist 访问",
-	"Workspace gist is reachable with {count} file(s).": "Workspace Gist 可访问，共有 {count} 个文件。",
+	"Workspace gist is reachable with {count} file(s).":
+		"Workspace Gist 可访问，共有 {count} 个文件。",
 	"Workspace config file": "工作区配置文件",
 	"Workspace config file {file} exists.": "工作区配置文件 {file} 已存在。",
 	"Workspace config file {file} is missing.": "工作区配置文件 {file} 缺失。",
@@ -268,22 +294,25 @@ const zhCN: Record<string, string> = {
 	"Repair Workspace Config": "修复 Workspace 配置",
 	"Repairing...": "修复中...",
 	"Workspace config repaired.": "Workspace 配置已修复。",
-	"Workspace config file was restored from the current local state.": "Workspace 配置文件已根据当前本地状态恢复。",
+	"Workspace config file was restored from the current local state.":
+		"Workspace 配置文件已根据当前本地状态恢复。",
 	"Workspace config repair failed.": "Workspace 配置修复失败。",
 	"Workspace repair unavailable.": "Workspace 修复当前不可用。",
-	"Healthy": "健康",
+	Healthy: "健康",
 	"Needs attention": "需要关注",
 	"Action needed": "需要处理",
 	"Last checked: {time}": "上次检查：{time}",
-	"Warning": "警告",
-	"Info": "信息",
+	Warning: "警告",
+	Info: "信息",
 	"Recent Workspace Activity": "最近工作区活动",
-	"Track recent workspace setup, sync, and repair actions on this device.": "查看这台设备上的最近工作区连接、同步和修复操作。",
+	"Track recent workspace setup, sync, and repair actions on this device.":
+		"查看这台设备上的最近工作区连接、同步和修复操作。",
 	"Clear history": "清空记录",
 	"Clear recent workspace activity log?": "清空最近的工作区活动记录吗？",
 	"Workspace activity log cleared.": "工作区活动记录已清空。",
 	"Last Auto Sync": "最近一次自动同步",
-	"See the latest background sync status from this browser session and the most recent saved result.": "查看当前浏览器会话中的最新后台同步状态，以及最近一次保存的结果。",
+	"See the latest background sync status from this browser session and the most recent saved result.":
+		"查看当前浏览器会话中的最新后台同步状态，以及最近一次保存的结果。",
 	"Last sync succeeded": "上次同步成功",
 	"Last sync failed": "上次同步失败",
 	"Sync in progress": "同步进行中",
@@ -295,20 +324,26 @@ const zhCN: Record<string, string> = {
 	"Last sync failed at {time}": "上次同步失败时间：{time}",
 	"No sync result yet.": "还没有同步结果。",
 	"Failure reason: {message}": "失败原因：{message}",
-	"Background sync updates this status automatically when local changes are pushed to the workspace gist.": "当本地改动被自动推送到 Workspace Gist 时，这里的状态会自动更新。",
+	"Background sync updates this status automatically when local changes are pushed to the workspace gist.":
+		"当本地改动被自动推送到 Workspace Gist 时，这里的状态会自动更新。",
 	"No recent workspace activity yet.": "暂时还没有最近的工作区活动。",
-	"Errors": "错误事件",
+	Errors: "错误事件",
 	"Sync Events": "同步事件",
-	"Repairs": "修复事件",
-	"Remote workspace state replaced the local view.": "已使用远端工作区状态替换当前本地视图。",
-	"Local state was uploaded to the workspace gist.": "本地状态已上传到 Workspace Gist。",
-	"Local and remote workspace states were merged and saved.": "本地与远端工作区状态已合并并保存。",
+	Repairs: "修复事件",
+	"Remote workspace state replaced the local view.":
+		"已使用远端工作区状态替换当前本地视图。",
+	"Local state was uploaded to the workspace gist.":
+		"本地状态已上传到 Workspace Gist。",
+	"Local and remote workspace states were merged and saved.":
+		"本地与远端工作区状态已合并并保存。",
 	"Sync Local State Now": "立即同步本地状态",
 	"Manual workspace sync complete.": "手动工作区同步完成。",
-	"Current local state was pushed to workspace gist {id}.": "当前本地状态已推送到 Workspace Gist {id}。",
+	"Current local state was pushed to workspace gist {id}.":
+		"当前本地状态已推送到 Workspace Gist {id}。",
 	"Manual workspace sync failed.": "手动工作区同步失败。",
-	"Workspace sync is disabled until a token is connected again.": "在重新连接 Token 之前，工作区同步已停用。",
-	"Error": "错误",
+	"Workspace sync is disabled until a token is connected again.":
+		"在重新连接 Token 之前，工作区同步已停用。",
+	Error: "错误",
 	"Failed to fetch workspace gist.": "获取 Workspace Gist 失败。",
 	"Raw link unavailable.": "原始链接不可用。",
 	"Link copied.": "链接已复制。",
@@ -334,10 +369,12 @@ const zhCN: Record<string, string> = {
 	"No files in workspace.": "工作区中暂无文件。",
 	"Workspace config": "工作区配置",
 	"Remote config matches current local state.": "远端配置与当前本地状态一致。",
-	"Remote config differs from current local state.": "远端配置与当前本地状态不一致。",
+	"Remote config differs from current local state.":
+		"远端配置与当前本地状态不一致。",
 	"Managed output": "受管理输出",
 	"Recent Publish Events": "最近发布事件",
-	"Latest file replacement activity for workspace outputs.": "查看工作区输出文件最近的替换与清理记录。",
+	"Latest file replacement activity for workspace outputs.":
+		"查看工作区输出文件最近的替换与清理记录。",
 	"No publish events match this filter.": "当前筛选条件下没有匹配的发布事件。",
 	"Auto cleaned": "已自动清理",
 	"Shared old file": "旧文件被共用",
@@ -361,7 +398,8 @@ const zhCN: Record<string, string> = {
 	"No nodes available.": "暂无可用节点。",
 	"No subscriptions available.": "暂无可用订阅。",
 	Rules: "规则",
-	"Edit names, remove tags, and prepare rename mappings.": "编辑名称、排除标签并准备重命名映射。",
+	"Edit names, remove tags, and prepare rename mappings.":
+		"编辑名称、排除标签并准备重命名映射。",
 	"New rule": "新建规则",
 	"Rule name": "规则名称",
 	"Exclude tags (comma separated)": "排除标签（逗号分隔）",
@@ -371,24 +409,34 @@ const zhCN: Record<string, string> = {
 	"Custom region flag map issues": "自定义地区旗帜映射问题",
 	"Import built-in template": "导入内置模板",
 	"Normalize and sort map": "规范化并排序映射表",
-	"Fix custom region flag map errors before normalizing.": "请先修复自定义地区旗帜映射错误，再进行规范化。",
-	"No custom region flag rules to normalize.": "没有可规范化的自定义地区旗帜规则。",
-	"Custom region flag map is already normalized.": "自定义地区旗帜映射表已经是规范化状态。",
+	"Fix custom region flag map errors before normalizing.":
+		"请先修复自定义地区旗帜映射错误，再进行规范化。",
+	"No custom region flag rules to normalize.":
+		"没有可规范化的自定义地区旗帜规则。",
+	"Custom region flag map is already normalized.":
+		"自定义地区旗帜映射表已经是规范化状态。",
 	"Custom region flag map normalized.": "已规范化自定义地区旗帜映射表。",
-	"Replace the current custom region flag map with the built-in template?": "用内置模板替换当前自定义地区旗帜映射表吗？",
+	"Replace the current custom region flag map with the built-in template?":
+		"用内置模板替换当前自定义地区旗帜映射表吗？",
 	"Built-in template imported.": "已导入内置模板。",
 	"Append missing built-in rules": "追加缺失的内置规则",
 	"Click to insert at cursor": "点击插入到当前光标位置",
-	"Insert": "插入",
+	Insert: "插入",
 	"Built-in rule inserted at cursor.": "已将内置规则插入到当前光标位置。",
-	"Built-in rule inserted. Browser kept open.": "已插入内置规则，映射浏览器保持打开。",
+	"Built-in rule inserted. Browser kept open.":
+		"已插入内置规则，映射浏览器保持打开。",
 	"Built-in rule replaced in custom map.": "已在自定义映射表中覆盖该内置规则。",
-	"Built-in rule replaced. Browser kept open.": "已覆盖该内置规则，映射浏览器保持打开。",
-	"Click to preview highlight. Ctrl/Cmd + click inserts or replaces without closing.": "单击仅高亮预览；按住 Ctrl/Cmd 点击可插入或覆盖且不关闭弹窗。",
-	"This code already exists and will be replaced": "该代码已存在，插入时会直接覆盖",
+	"Built-in rule replaced. Browser kept open.":
+		"已覆盖该内置规则，映射浏览器保持打开。",
+	"Click to preview highlight. Ctrl/Cmd + click inserts or replaces without closing.":
+		"单击仅高亮预览；按住 Ctrl/Cmd 点击可插入或覆盖且不关闭弹窗。",
+	"This code already exists and will be replaced":
+		"该代码已存在，插入时会直接覆盖",
 	"Double-click to replace": "双击覆盖",
-	"Ctrl/Cmd + click to insert without closing": "按住 Ctrl/Cmd 点击可插入且不关闭弹窗",
-	"Click to preview highlight. Ctrl/Cmd + click inserts without closing.": "单击仅高亮预览；按住 Ctrl/Cmd 点击可插入且不关闭弹窗。",
+	"Ctrl/Cmd + click to insert without closing":
+		"按住 Ctrl/Cmd 点击可插入且不关闭弹窗",
+	"Click to preview highlight. Ctrl/Cmd + click inserts without closing.":
+		"单击仅高亮预览；按住 Ctrl/Cmd 点击可插入且不关闭弹窗。",
 	"Click to preview highlight": "单击高亮预览",
 	"Already present": "已存在",
 	"Code already exists in custom map": "该代码已存在于自定义映射表中",
@@ -396,21 +444,29 @@ const zhCN: Record<string, string> = {
 	"Missing built-in rules appended.": "已追加缺失的内置规则。",
 	"All built-in rules are already present.": "所有内置规则都已存在。",
 	"Built-in template is already loaded.": "内置模板已导入。",
-	"Replace": "替换",
-	"Fix custom region flag map errors before previewing or saving.": "请先修复自定义地区旗帜映射错误，再预览或保存。",
-	"Line {line}: use FLAG_CODE = keyword1, keyword2": "第 {line} 行：请使用 FLAG_CODE = keyword1, keyword2 格式。",
-	"Line {line}: add at least one keyword after {code} =": "第 {line} 行：请在 {code} = 后至少填写一个关键词。",
+	Replace: "替换",
+	"Fix custom region flag map errors before previewing or saving.":
+		"请先修复自定义地区旗帜映射错误，再预览或保存。",
+	"Line {line}: use FLAG_CODE = keyword1, keyword2":
+		"第 {line} 行：请使用 FLAG_CODE = keyword1, keyword2 格式。",
+	"Line {line}: add at least one keyword after {code} =":
+		"第 {line} 行：请在 {code} = 后至少填写一个关键词。",
 	"Browse built-in region map": "查看内置地区映射表",
 	"Built-in region flag map": "内置地区旗帜映射表",
-	"Search built-in region rules by country code, city, or keyword.": "按国家代码、城市或关键词搜索内置地区规则。",
+	"Search built-in region rules by country code, city, or keyword.":
+		"按国家代码、城市或关键词搜索内置地区规则。",
 	"Search code or keyword": "搜索代码或关键词",
 	"Built-in rules: {count}": "内置规则：{count}",
-	"No built-in region rules match this search.": "没有匹配此搜索条件的内置地区规则。",
+	"No built-in region rules match this search.":
+		"没有匹配此搜索条件的内置地区规则。",
 	"Close built-in region map": "关闭内置地区映射表",
-	"Keywords": "关键词",
-	"Use one rule per line: FLAG_CODE = keyword1, keyword2. Custom rules are matched before the built-in region table.": "每行一条规则：FLAG_CODE = keyword1, keyword2。自定义规则会优先于内置地区识别表匹配。",
-	"Custom rules are matched before the built-in region table.": "自定义规则会优先于内置地区识别表匹配。",
-	"Detect country or region keywords like US, HK, JP, and SG in final node names and prepend the matching flag automatically.": "根据最终节点名称中的国家或地区关键词（如 US、HK、JP、SG）自动在名称前添加对应旗帜。",
+	Keywords: "关键词",
+	"Use one rule per line: FLAG_CODE = keyword1, keyword2. Custom rules are matched before the built-in region table.":
+		"每行一条规则：FLAG_CODE = keyword1, keyword2。自定义规则会优先于内置地区识别表匹配。",
+	"Custom rules are matched before the built-in region table.":
+		"自定义规则会优先于内置地区识别表匹配。",
+	"Detect country or region keywords like US, HK, JP, and SG in final node names and prepend the matching flag automatically.":
+		"根据最终节点名称中的国家或地区关键词（如 US、HK、JP、SG）自动在名称前添加对应旗帜。",
 	Protocols: "协议",
 	"Leave empty to include all protocols.": "留空则包含所有协议。",
 	Preview: "预览",
@@ -439,7 +495,8 @@ const zhCN: Record<string, string> = {
 	"Save Target": "保存目标",
 	"New Target": "新建目标",
 	"Delete Target": "删除目标",
-	"Using workspace gist: {id} (config file: {file})": "使用工作区 Gist：{id}（配置文件：{file}）",
+	"Using workspace gist: {id} (config file: {file})":
+		"使用工作区 Gist：{id}（配置文件：{file}）",
 	"No workspace gist selected. Publishing will create a new gist containing config and output files.":
 		"尚未选择工作区 Gist。发布时将新建一个包含配置和输出文件的 Gist。",
 	"Building...": "构建中...",
@@ -450,7 +507,8 @@ const zhCN: Record<string, string> = {
 	"Subscription link": "订阅链接",
 	"Stable Link": "稳定链接",
 	"Stable link help": "稳定链接说明",
-	"Keep the same file name to keep the stable link unchanged across republishes.": "保持相同文件名，重复发布时稳定链接就不会变化。",
+	"Keep the same file name to keep the stable link unchanged across republishes.":
+		"保持相同文件名，重复发布时稳定链接就不会变化。",
 	"Changing the file name will create a new stable link on next publish. The old workspace file stays until you delete it, and clients using the old link must be updated manually.":
 		"修改文件名会在下次发布时生成新的稳定链接。旧的工作区文件会保留，直到你手动删除；仍在使用旧链接的客户端也需要手动更新。",
 	"Current published file: {file}": "当前已发布文件：{file}",
@@ -463,33 +521,37 @@ const zhCN: Record<string, string> = {
 	"On next publish, SubMan will create a new stable link. The previous workspace file cannot be deleted automatically, so you may need to clean it up manually.":
 		"下次发布时，SubMan 会生成新的稳定链接。之前的工作区文件无法自动删除，因此你可能仍需要手动清理。",
 	'Publishing to "{next}" will create a new stable link. Current published file: {current}. Existing clients using the old link must be updated manually.':
-		'发布到“{next}”会生成新的稳定链接。当前已发布文件为：{current}。仍在使用旧链接的客户端需要手动更新。',
+		"发布到“{next}”会生成新的稳定链接。当前已发布文件为：{current}。仍在使用旧链接的客户端需要手动更新。",
 	'Publishing to "{next}" will create a new stable link and delete the previous workspace file "{current}" automatically. Existing clients using the old link must be updated manually.':
-		'发布到“{next}”会生成新的稳定链接，并自动删除之前的工作区文件“{current}”。仍在使用旧链接的客户端需要手动更新。',
+		"发布到“{next}”会生成新的稳定链接，并自动删除之前的工作区文件“{current}”。仍在使用旧链接的客户端需要手动更新。",
 	'Publishing to "{next}" will create a new stable link. The previous workspace file "{current}" is still used by another publish target, so it will be kept.':
-		'发布到“{next}”会生成新的稳定链接。之前的工作区文件“{current}”仍被其他发布目标使用，因此会被保留。',
+		"发布到“{next}”会生成新的稳定链接。之前的工作区文件“{current}”仍被其他发布目标使用，因此会被保留。",
 	'Publishing to "{next}" will create a new stable link. The previous file "{current}" belongs to a different workspace gist, so it cannot be deleted automatically.':
-		'发布到“{next}”会生成新的稳定链接。之前的文件“{current}”属于另一个工作区 gist，因此无法自动删除。',
+		"发布到“{next}”会生成新的稳定链接。之前的文件“{current}”属于另一个工作区 gist，因此无法自动删除。",
 	'Publishing to "{next}" will create a new stable link. The previous workspace file "{current}" cannot be deleted automatically, so you may need to clean it up manually.':
-		'发布到“{next}”会生成新的稳定链接。之前的工作区文件“{current}”无法自动删除，因此你可能仍需要手动清理。',
+		"发布到“{next}”会生成新的稳定链接。之前的工作区文件“{current}”无法自动删除，因此你可能仍需要手动清理。",
 	'Published to Gist successfully! Previous workspace file "{file}" was removed automatically.':
-		'已成功发布到 Gist，之前的工作区文件“{file}”已自动删除。',
+		"已成功发布到 Gist，之前的工作区文件“{file}”已自动删除。",
 	"Select a rule for this publish target.": "请为该发布目标选择规则。",
 	"File name is required.": "文件名不能为空。",
 	"SubMan aggregate": "SubMan 聚合",
 	"Publish target updated.": "发布目标已更新。",
 	"Publish target saved.": "发布目标已保存。",
 	"Failed to save publish target.": "保存发布目标失败。",
-	"Delete this publish target? This does not delete gist files.": "确认删除该发布目标？该操作不会删除 Gist 文件。",
+	"Delete this publish target? This does not delete gist files.":
+		"确认删除该发布目标？该操作不会删除 Gist 文件。",
 	"Publish target deleted.": "发布目标已删除。",
 	"Rule not found.": "未找到规则。",
 	'Delete rule "{name}"?\nThis will remove {count} publish target(s) bound to this rule.':
-		'确认删除规则“{name}”？\n这将删除绑定到此规则的 {count} 个发布目标。',
+		"确认删除规则“{name}”？\n这将删除绑定到此规则的 {count} 个发布目标。",
 	"Also delete {count} workspace output file(s)?\n{files}":
 		"是否同时删除 {count} 个工作区输出文件？\n{files}",
-	"Rule deleted. Removed {count} publish target(s).": "规则已删除，已移除 {count} 个发布目标。",
-	"{count} shared file(s) kept: {files}.": "已保留 {count} 个共享文件：{files}。",
-	"Deleted {count} workspace file(s): {files}.": "已删除 {count} 个工作区文件：{files}。",
+	"Rule deleted. Removed {count} publish target(s).":
+		"规则已删除，已移除 {count} 个发布目标。",
+	"{count} shared file(s) kept: {files}.":
+		"已保留 {count} 个共享文件：{files}。",
+	"Deleted {count} workspace file(s): {files}.":
+		"已删除 {count} 个工作区文件：{files}。",
 	"Failed to delete workspace files.": "删除工作区文件失败。",
 	"Workspace file cleanup failed: {message} Clean remaining files in /gists.":
 		"工作区文件清理失败：{message}。请在 /gists 清理剩余文件。",
@@ -509,7 +571,8 @@ const zhCN: Record<string, string> = {
 	"No output generated.": "未生成输出。",
 	"Missing GitHub token. Connect first.": "缺少 GitHub Token，请先连接。",
 	"Aggregation published.": "聚合已发布。",
-	"Aggregation published (raw link unavailable).": "聚合已发布（raw 链接不可用）。",
+	"Aggregation published (raw link unavailable).":
+		"聚合已发布（raw 链接不可用）。",
 	"Failed to publish aggregation.": "发布聚合失败。",
 	"Active Gist ID": "当前 Gist ID",
 	"Backup & Migration": "备份与迁移",
@@ -526,10 +589,13 @@ const zhCN: Record<string, string> = {
 	"Connect your GitHub token in Workspace settings to publish this aggregation.":
 		"请先在工作区设置中连接 GitHub Token，才能发布这个聚合。",
 	"Copy JSON": "复制 JSON",
-	"Create a single node or import a batch of raw URIs.": "新增单个节点，或批量导入原始 URI。",
-	"Create a single subscription or import a batch of URLs.": "新增单个订阅，或批量导入 URL 列表。",
+	"Create a single node or import a batch of raw URIs.":
+		"新增单个节点，或批量导入原始 URI。",
+	"Create a single subscription or import a batch of URLs.":
+		"新增单个订阅，或批量导入 URL 列表。",
 	"Define Aggregate Rule": "定义聚合规则",
-	"Delete all {count} files except config?": "确认删除除配置文件外的 {count} 个文件吗？",
+	"Delete all {count} files except config?":
+		"确认删除除配置文件外的 {count} 个文件吗？",
 	"Delete failed.": "删除失败。",
 	"Delete {filename} forever?": "确认永久删除 {filename} 吗？",
 	Disconnect: "断开连接",
@@ -539,7 +605,8 @@ const zhCN: Record<string, string> = {
 	"Failed to setup workspace.": "初始化工作区失败。",
 	"File Name": "文件名",
 	Files: "文件",
-	"Filter saved nodes and subscriptions by type, status, or keyword.": "按类型、状态或关键词筛选已保存的节点和订阅。",
+	"Filter saved nodes and subscriptions by type, status, or keyword.":
+		"按类型、状态或关键词筛选已保存的节点和订阅。",
 	Filtered: "已筛选",
 	"Get Token": "获取 Token",
 	"GitHub Personal Access Token": "GitHub Personal Access Token",
@@ -552,9 +619,12 @@ const zhCN: Record<string, string> = {
 	"Load Workspace": "加载工作区",
 	"Local State": "本地状态",
 	"Local data pushed.": "本地数据已推送。",
-	"Manage raw files directly in your GitHub Gist": "直接管理 GitHub Gist 里的原始文件",
-	"Manage saved node entries, raw URIs, and metadata.": "管理已保存的节点条目、原始 URI 和元数据。",
-	"Manage saved subscription sources and inspect included nodes.": "管理已保存的订阅源，并查看其中包含的节点。",
+	"Manage raw files directly in your GitHub Gist":
+		"直接管理 GitHub Gist 里的原始文件",
+	"Manage saved node entries, raw URIs, and metadata.":
+		"管理已保存的节点条目、原始 URI 和元数据。",
+	"Manage saved subscription sources and inspect included nodes.":
+		"管理已保存的订阅源，并查看其中包含的节点。",
 	"Managed Output": "受管输出",
 	"Merge Both States": "合并两边状态",
 	"Merged data saved.": "合并后的数据已保存。",
@@ -593,7 +663,8 @@ const zhCN: Record<string, string> = {
 	"Workspace Status": "工作区状态",
 	"Workspace cleaned.": "工作区已清理。",
 	"Workspace file inventory": "工作区文件清单",
-	"Workspace file missing. Local data seeded.": "工作区文件缺失，已写入本地数据作为初始内容。",
+	"Workspace file missing. Local data seeded.":
+		"工作区文件缺失，已写入本地数据作为初始内容。",
 	"Workspace files": "工作区文件",
 	"Workspace linked (Local only).": "工作区已绑定（仅本地）。",
 	"Workspace linked. No sync needed.": "工作区已绑定，无需同步。",
@@ -601,7 +672,7 @@ const zhCN: Record<string, string> = {
 	"Your local data and the cloud workspace don't match. Please choose how to resolve this.":
 		"你的本地数据与云端工作区不一致，请选择处理方式。",
 	"domestic, gaming...": "国内, 游戏...",
-	"{file} is protected.": "{file} 受保护。"
+	"{file} is protected.": "{file} 受保护。",
 };
 
 function normalizeLocale(value: string | null | undefined): Locale {
@@ -624,7 +695,10 @@ if (browser) {
 	});
 }
 
-function format(template: string, params?: Record<string, string | number>): string {
+function format(
+	template: string,
+	params?: Record<string, string | number>,
+): string {
 	if (!params) {
 		return template;
 	}

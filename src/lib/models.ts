@@ -1,14 +1,14 @@
 export type ProxyType =
-	| 'vless'
-	| 'vmess'
-	| 'trojan'
-	| 'ss'
-	| 'ssr'
-	| 'hysteria2'
-	| 'tuic'
-	| 'other';
+	| "vless"
+	| "vmess"
+	| "trojan"
+	| "ss"
+	| "ssr"
+	| "hysteria2"
+	| "tuic"
+	| "other";
 
-export type SourceType = 'single' | 'subscription';
+export type SourceType = "single" | "subscription";
 
 export type NodeTag = {
 	id: string;
@@ -54,10 +54,10 @@ export type AggregateRule = {
 };
 
 export type PublishTransitionOutcome =
-	| 'auto_deleted'
-	| 'kept_shared'
-	| 'kept_external'
-	| 'kept_manual';
+	| "auto_deleted"
+	| "kept_shared"
+	| "kept_external"
+	| "kept_manual";
 
 export type AggregatePublishTarget = {
 	id: string;

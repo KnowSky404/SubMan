@@ -1,91 +1,104 @@
 <script lang="ts">
-	import { onMount } from "svelte";
-	import { browser } from "$app/environment";
-	import type { GistMeta } from "$lib/models";
-	import { t } from "$lib/i18n";
-	import { appState } from "$lib/stores/app";
-	import { authState } from "$lib/stores/auth";
-	import { requestConfirm } from "$lib/stores/confirm";
-	import { showToast } from "$lib/stores/toast";
-	import { getGist, updateGist } from "$lib/gist";
-	import { nowIso } from "$lib/utils/time";
-	import { WORKSPACE_FILE } from "$lib/workspace";
-	import { cn } from "$lib/utils/cn";
-	import { 
-		FileJson, 
-		FileText, 
-		ExternalLink, 
-		Copy, 
-		Trash2, 
-		RefreshCw, 
-		ShieldCheck, 
-		Layers, 
-		FileCode,
-		Database,
-		CheckCircle2,
-		AlertCircle,
-		HardDrive,
-		Search,
-		X,
-		Info,
-		ChevronDown
-	} from "lucide-svelte";
-	import { fade, fly, slide } from "svelte/transition";
+import { onMount } from "svelte";
+import { browser } from "$app/environment";
+import type { GistMeta } from "$lib/models";
+import { t } from "$lib/i18n";
+import { appState } from "$lib/stores/app";
+import { authState } from "$lib/stores/auth";
+import { requestConfirm } from "$lib/stores/confirm";
+import { showToast } from "$lib/stores/toast";
+import { getGist, updateGist } from "$lib/gist";
+import { nowIso } from "$lib/utils/time";
+import { WORKSPACE_FILE } from "$lib/workspace";
+import { cn } from "$lib/utils/cn";
+import {
+	FileJson,
+	FileText,
+	ExternalLink,
+	Copy,
+	Trash2,
+	RefreshCw,
+	ShieldCheck,
+	Layers,
+	FileCode,
+	Database,
+	CheckCircle2,
+	AlertCircle,
+	HardDrive,
+	Search,
+	X,
+	Info,
+	ChevronDown,
+} from "lucide-svelte";
+import { fade, fly, slide } from "svelte/transition";
 
-	let workspace: GistMeta | null = null;
-	let loading = false;
-	let deleting = false;
-	
-	function setStatus(message: string, type: 'success' | 'info' | 'error' = 'success') {
-		showToast(message, type);
+let workspace: GistMeta | null = null;
+let loading = false;
+let deleting = false;
+
+function setStatus(
+	message: string,
+	type: "success" | "info" | "error" = "success",
+) {
+	showToast(message, type);
+}
+
+async function refreshWorkspace() {
+	const token = $authState.token;
+	const gistId = $appState.activeGistId;
+	if (!token || !gistId) return;
+
+	loading = true;
+	try {
+		workspace = await getGist(token, gistId);
+		setStatus($t("Refreshed"), "success");
+	} catch (err) {
+		setStatus($t("Failed to fetch"), "error");
+	} finally {
+		loading = false;
 	}
+}
 
-	async function refreshWorkspace() {
-		const token = $authState.token;
-		const gistId = $appState.activeGistId;
-		if (!token || !gistId) return;
+onMount(() => {
+	if ($authState.token && $appState.activeGistId) void refreshWorkspace();
+});
 
-		loading = true;
-		try {
-			workspace = await getGist(token, gistId);
-			setStatus($t("Refreshed"), 'success');
-		} catch (err) {
-			setStatus($t("Failed to fetch"), 'error');
-		} finally { loading = false; }
+async function copyLink(url?: string) {
+	if (!url) return;
+	try {
+		await navigator.clipboard.writeText(url);
+		setStatus($t("Copied to clipboard"));
+	} catch {
+		setStatus($t("Copy failed"), "error");
 	}
+}
 
-	onMount(() => { if ($authState.token && $appState.activeGistId) void refreshWorkspace(); });
+async function deleteFile(filename: string) {
+	const token = $authState.token;
+	const gistId = $appState.activeGistId;
+	if (!token || !gistId || filename === WORKSPACE_FILE) return;
 
-	async function copyLink(url?: string) {
-		if (!url) return;
-		try { 
-			await navigator.clipboard.writeText(url); 
-			setStatus($t("Copied to clipboard")); 
-		} catch { 
-			setStatus($t("Copy failed"), 'error'); 
-		}
-	}
+	const confirmed = await requestConfirm({
+		title: $t("Delete File"),
+		message: $t("Delete {filename} forever?", { filename }),
+		confirmText: $t("Delete"),
+		danger: true,
+	});
+	if (!confirmed) return;
 
-	async function deleteFile(filename: string) {
-		const token = $authState.token;
-		const gistId = $appState.activeGistId;
-		if (!token || !gistId || filename === WORKSPACE_FILE) return;
-
-		const confirmed = await requestConfirm({
-			title: $t("Delete File"),
-			message: $t("Delete {filename} forever?", { filename }),
-			confirmText: $t("Delete"),
-			danger: true
+	deleting = true;
+	try {
+		workspace = await updateGist(token, {
+			gistId,
+			files: { [filename]: null },
 		});
-		if (!confirmed) return;
-
-		deleting = true;
-		try {
-			workspace = await updateGist(token, { gistId, files: { [filename]: null } });
-			setStatus($t("Deleted file successfully"), 'success');
-		} catch (err) { setStatus($t("Delete failed"), 'error'); } 
-		finally { deleting = false; }
+		setStatus($t("Deleted file successfully"), "success");
+	} catch (err) {
+		setStatus($t("Delete failed"), "error");
+	} finally {
+		deleting = false;
 	}
+}
 </script>
 
 <div class="flex flex-col gap-6">

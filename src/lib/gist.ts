@@ -1,6 +1,6 @@
-import type { GistMeta } from '$lib/models';
+import type { GistMeta } from "$lib/models";
 
-const API_ROOT = 'https://api.github.com';
+const API_ROOT = "https://api.github.com";
 
 type GistApiResponse = {
 	id: string;
@@ -27,16 +27,20 @@ export function toStableGistRawUrl(rawUrl?: string | null): string | undefined {
 
 	try {
 		const url = new URL(rawUrl);
-		const segments = url.pathname.split('/').filter(Boolean);
-		const rawIndex = segments.indexOf('raw');
+		const segments = url.pathname.split("/").filter(Boolean);
+		const rawIndex = segments.indexOf("raw");
 
-		if (url.hostname !== 'gist.githubusercontent.com' || rawIndex < 0 || segments.length <= rawIndex + 2) {
+		if (
+			url.hostname !== "gist.githubusercontent.com" ||
+			rawIndex < 0 ||
+			segments.length <= rawIndex + 2
+		) {
 			return rawUrl;
 		}
 
-		url.pathname = `/${[...segments.slice(0, rawIndex + 1), ...segments.slice(rawIndex + 2)].join('/')}`;
-		url.search = '';
-		url.hash = '';
+		url.pathname = `/${[...segments.slice(0, rawIndex + 1), ...segments.slice(rawIndex + 2)].join("/")}`;
+		url.search = "";
+		url.hash = "";
 		return url.toString();
 	} catch {
 		return rawUrl;
@@ -53,8 +57,8 @@ function mapGist(response: GistApiResponse): GistMeta {
 			filename: file.filename,
 			language: file.language,
 			size: file.size,
-			rawUrl: toStableGistRawUrl(file.raw_url)
-		}))
+			rawUrl: toStableGistRawUrl(file.raw_url),
+		})),
 	};
 }
 
@@ -62,28 +66,31 @@ export async function listGists(token: string): Promise<GistMeta[]> {
 	const res = await fetch(`${API_ROOT}/gists`, {
 		headers: {
 			Authorization: `Bearer ${token}`,
-			Accept: 'application/vnd.github+json'
-		}
+			Accept: "application/vnd.github+json",
+		},
 	});
 
 	if (!res.ok) {
-		throw new Error('Failed to fetch gists');
+		throw new Error("Failed to fetch gists");
 	}
 
 	const data = (await res.json()) as GistApiResponse[];
 	return data.map(mapGist);
 }
 
-export async function getGist(token: string, gistId: string): Promise<GistMeta> {
+export async function getGist(
+	token: string,
+	gistId: string,
+): Promise<GistMeta> {
 	const res = await fetch(`${API_ROOT}/gists/${gistId}`, {
 		headers: {
 			Authorization: `Bearer ${token}`,
-			Accept: 'application/vnd.github+json'
-		}
+			Accept: "application/vnd.github+json",
+		},
 	});
 
 	if (!res.ok) {
-		throw new Error('Failed to fetch gist');
+		throw new Error("Failed to fetch gist");
 	}
 
 	const data = (await res.json()) as GistApiResponse;
@@ -93,21 +100,23 @@ export async function getGist(token: string, gistId: string): Promise<GistMeta> 
 export async function getGistFileContent(
 	token: string,
 	gistId: string,
-	filename: string
+	filename: string,
 ): Promise<string> {
 	const res = await fetch(`${API_ROOT}/gists/${gistId}`, {
 		headers: {
 			Authorization: `Bearer ${token}`,
-			Accept: 'application/vnd.github+json'
-		}
+			Accept: "application/vnd.github+json",
+		},
 	});
 
 	if (!res.ok) {
-		throw new Error('Failed to fetch gist content');
+		throw new Error("Failed to fetch gist content");
 	}
 
 	const data = (await res.json()) as GistApiResponse;
-	const file = Object.values(data.files).find((item) => item.filename === filename);
+	const file = Object.values(data.files).find(
+		(item) => item.filename === filename,
+	);
 
 	if (!file) {
 		throw new Error(`File not found in gist: ${filename}`);
@@ -118,18 +127,18 @@ export async function getGistFileContent(
 	}
 
 	if (!file.raw_url) {
-		throw new Error('Gist file content unavailable');
+		throw new Error("Gist file content unavailable");
 	}
 
 	const rawRes = await fetch(file.raw_url, {
 		headers: {
 			Authorization: `Bearer ${token}`,
-			Accept: 'text/plain'
-		}
+			Accept: "text/plain",
+		},
 	});
 
 	if (!rawRes.ok) {
-		throw new Error('Failed to fetch raw gist content');
+		throw new Error("Failed to fetch raw gist content");
 	}
 
 	return rawRes.text();
@@ -137,24 +146,28 @@ export async function getGistFileContent(
 
 export async function createGist(
 	token: string,
-	payload: { description: string; files: Record<string, { content: string }>; isPublic: boolean }
+	payload: {
+		description: string;
+		files: Record<string, { content: string }>;
+		isPublic: boolean;
+	},
 ): Promise<GistMeta> {
 	const res = await fetch(`${API_ROOT}/gists`, {
-		method: 'POST',
+		method: "POST",
 		headers: {
 			Authorization: `Bearer ${token}`,
-			Accept: 'application/vnd.github+json',
-			'Content-Type': 'application/json'
+			Accept: "application/vnd.github+json",
+			"Content-Type": "application/json",
 		},
 		body: JSON.stringify({
 			description: payload.description,
 			public: payload.isPublic,
-			files: payload.files
-		})
+			files: payload.files,
+		}),
 	});
 
 	if (!res.ok) {
-		throw new Error('Failed to create gist');
+		throw new Error("Failed to create gist");
 	}
 
 	const data = (await res.json()) as GistApiResponse;
@@ -167,23 +180,23 @@ export async function updateGist(
 		gistId: string;
 		description?: string;
 		files?: Record<string, { content: string } | null>;
-	}
+	},
 ): Promise<GistMeta> {
 	const res = await fetch(`${API_ROOT}/gists/${payload.gistId}`, {
-		method: 'PATCH',
+		method: "PATCH",
 		headers: {
 			Authorization: `Bearer ${token}`,
-			Accept: 'application/vnd.github+json',
-			'Content-Type': 'application/json'
+			Accept: "application/vnd.github+json",
+			"Content-Type": "application/json",
 		},
 		body: JSON.stringify({
 			description: payload.description,
-			files: payload.files
-		})
+			files: payload.files,
+		}),
 	});
 
 	if (!res.ok) {
-		throw new Error('Failed to update gist');
+		throw new Error("Failed to update gist");
 	}
 
 	const data = (await res.json()) as GistApiResponse;

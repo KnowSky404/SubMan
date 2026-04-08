@@ -23,14 +23,16 @@ const defaultState: ConfirmDialogState = {
 	message: "",
 	confirmText: "",
 	cancelText: "",
-	danger: false
+	danger: false,
 };
 
 export const confirmDialog = writable<ConfirmDialogState>(defaultState);
 
 let pendingResolver: ((value: boolean) => void) | null = null;
 
-export function requestConfirm(options: ConfirmDialogOptions): Promise<boolean> {
+export function requestConfirm(
+	options: ConfirmDialogOptions,
+): Promise<boolean> {
 	if (pendingResolver) {
 		pendingResolver(false);
 		pendingResolver = null;
@@ -42,7 +44,7 @@ export function requestConfirm(options: ConfirmDialogOptions): Promise<boolean> 
 		message: options.message,
 		confirmText: options.confirmText ?? "",
 		cancelText: options.cancelText ?? "",
-		danger: options.danger ?? false
+		danger: options.danger ?? false,
 	});
 
 	return new Promise((resolve) => {

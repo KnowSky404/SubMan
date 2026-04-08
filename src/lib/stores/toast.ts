@@ -1,6 +1,6 @@
-import { writable } from 'svelte/store';
+import { writable } from "svelte/store";
 
-export type ToastType = 'success' | 'info' | 'error';
+export type ToastType = "success" | "info" | "error";
 
 export interface Toast {
 	message: string;
@@ -12,10 +12,14 @@ export const toastStore = writable<Toast[]>([]);
 
 let nextId = 0;
 
-export function showToast(message: string, type: ToastType = 'success', duration = 3000) {
+export function showToast(
+	message: string,
+	type: ToastType = "success",
+	duration = 3000,
+) {
 	const id = nextId++;
 	toastStore.update((all) => [...all, { message, type, id }]);
-	
+
 	if (duration > 0) {
 		setTimeout(() => {
 			dismissToast(id);

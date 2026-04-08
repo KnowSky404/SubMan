@@ -1,178 +1,209 @@
 <script lang="ts">
-	import { browser } from "$app/environment";
-	import { onDestroy, onMount } from "svelte";
-	import { t } from "$lib/i18n";
-	import { appState, replaceState } from "$lib/stores/app";
-	import { authState, clearAuth, setToken } from "$lib/stores/auth";
-	import { exportState, exportSyncState, getSyncStateSignature, importState } from "$lib/serialization";
-	import { getGistFileContent, updateGist } from "$lib/gist";
-	import { ensureWorkspaceGist, WORKSPACE_FILE } from "$lib/workspace";
-	import { setSyncBaseline } from "$lib/sync";
-	import { requestConfirm } from "$lib/stores/confirm";
-	import { toastStore } from "$lib/stores/toast";
-	import { cn } from "$lib/utils/cn";
-	import { 
-		KeyRound, 
-		ShieldCheck, 
-		Database, 
-		RefreshCw, 
-		Download, 
-		Upload, 
-		Copy, 
-		CheckCircle2, 
-		AlertTriangle,
-		History,
-		ExternalLink,
-		X,
-		Trash2,
-		Save,
-		ArrowRightLeft,
-		Info,
-		Settings,
-		Github,
-		FileJson,
-		ArrowDown,
-		ArrowUp
-	} from "lucide-svelte";
-	import { fade, slide, fly } from "svelte/transition";
-	import type { AppState } from "$lib/models";
+import { browser } from "$app/environment";
+import { onDestroy, onMount } from "svelte";
+import { t } from "$lib/i18n";
+import { appState, replaceState } from "$lib/stores/app";
+import { authState, clearAuth, setToken } from "$lib/stores/auth";
+import {
+	exportState,
+	exportSyncState,
+	getSyncStateSignature,
+	importState,
+} from "$lib/serialization";
+import { getGistFileContent, updateGist } from "$lib/gist";
+import { ensureWorkspaceGist, WORKSPACE_FILE } from "$lib/workspace";
+import { setSyncBaseline } from "$lib/sync";
+import { requestConfirm } from "$lib/stores/confirm";
+import { toastStore } from "$lib/stores/toast";
+import { cn } from "$lib/utils/cn";
+import {
+	KeyRound,
+	ShieldCheck,
+	Database,
+	RefreshCw,
+	Download,
+	Upload,
+	Copy,
+	CheckCircle2,
+	AlertTriangle,
+	History,
+	ExternalLink,
+	X,
+	Trash2,
+	Save,
+	ArrowRightLeft,
+	Info,
+	Settings,
+	Github,
+	FileJson,
+	ArrowDown,
+	ArrowUp,
+} from "lucide-svelte";
+import { fade, slide, fly } from "svelte/transition";
+import type { AppState } from "$lib/models";
 
-	let tokenInput = "";
-	let payload = "";
-	let workspaceBusy = false;
+let tokenInput = "";
+let payload = "";
+let workspaceBusy = false;
 
-	// Conflict State
-	let conflict: {
-		gistId: string;
-		remoteState: AppState;
-		remoteSignature: string;
-		localSignature: string;
-	} | null = null;
+// Conflict State
+let conflict: {
+	gistId: string;
+	remoteState: AppState;
+	remoteSignature: string;
+	localSignature: string;
+} | null = null;
 
-	function setStatus(message: string, type: 'success' | 'info' | 'error' = 'success') {
-		toastStore.show(message, type);
-	}
+function setStatus(
+	message: string,
+	type: "success" | "info" | "error" = "success",
+) {
+	toastStore.show(message, type);
+}
 
-	async function handleTokenSave() {
-		const token = tokenInput.trim();
-		if (!token) return;
-		workspaceBusy = true;
-		conflict = null;
-		try {
-			setToken(token);
-			const localPayload = exportSyncState($appState);
-			const localSignature = getSyncStateSignature($appState);
-			const { gist, created } = await ensureWorkspaceGist(token, localPayload);
+async function handleTokenSave() {
+	const token = tokenInput.trim();
+	if (!token) return;
+	workspaceBusy = true;
+	conflict = null;
+	try {
+		setToken(token);
+		const localPayload = exportSyncState($appState);
+		const localSignature = getSyncStateSignature($appState);
+		const { gist, created } = await ensureWorkspaceGist(token, localPayload);
 
-			if (created) {
-				appState.update(s => ({ ...s, activeGistId: gist.id, lastUpdated: new Date().toISOString() }));
-				setSyncBaseline(localSignature);
-				setStatus($t("Workspace created and connected"), 'success');
-				tokenInput = "";
-				return;
-			}
-
-			// Existing Gist - Check for content
-			const remoteContent = await getGistFileContent(token, gist.id, WORKSPACE_FILE);
-			const remoteState = importState(remoteContent);
-			const remoteSignature = getSyncStateSignature(remoteState);
-
-			if (remoteSignature === localSignature) {
-				appState.update(s => ({ ...s, activeGistId: gist.id }));
-				setSyncBaseline(remoteSignature);
-				setStatus($t("Workspace connected (In Sync)"), 'success');
-				tokenInput = "";
-			} else {
-				// Conflict!
-				conflict = {
-					gistId: gist.id,
-					remoteState,
-					remoteSignature,
-					localSignature
-				};
-				setStatus($t("Sync conflict detected"), 'info');
-			}
-		} catch (err) {
-			setStatus(err instanceof Error ? err.message : $t("Connection failed"), 'error');
-		} finally { workspaceBusy = false; }
-	}
-
-	async function handleResolveConflict(action: 'local' | 'remote') {
-		if (!conflict || !$authState.token) return;
-		workspaceBusy = true;
-		try {
-			if (action === 'remote') {
-				replaceState(conflict.remoteState);
-				appState.update(s => ({ ...s, activeGistId: conflict!.gistId }));
-				setSyncBaseline(conflict.remoteSignature);
-				setStatus($t("Remote data loaded"), 'success');
-			} else {
-				const localPayload = exportSyncState($appState);
-				await updateGist($authState.token, {
-					gistId: conflict.gistId,
-					files: { [WORKSPACE_FILE]: { content: localPayload } }
-				});
-				appState.update(s => ({ ...s, activeGistId: conflict!.gistId }));
-				setSyncBaseline(conflict.localSignature);
-				setStatus($t("Local data pushed to Gist"), 'success');
-			}
-			conflict = null;
+		if (created) {
+			appState.update((s) => ({
+				...s,
+				activeGistId: gist.id,
+				lastUpdated: new Date().toISOString(),
+			}));
+			setSyncBaseline(localSignature);
+			setStatus($t("Workspace created and connected"), "success");
 			tokenInput = "";
-		} catch (err) {
-			setStatus($t("Resolution failed"), 'error');
-		} finally { workspaceBusy = false; }
+			return;
+		}
+
+		// Existing Gist - Check for content
+		const remoteContent = await getGistFileContent(
+			token,
+			gist.id,
+			WORKSPACE_FILE,
+		);
+		const remoteState = importState(remoteContent);
+		const remoteSignature = getSyncStateSignature(remoteState);
+
+		if (remoteSignature === localSignature) {
+			appState.update((s) => ({ ...s, activeGistId: gist.id }));
+			setSyncBaseline(remoteSignature);
+			setStatus($t("Workspace connected (In Sync)"), "success");
+			tokenInput = "";
+		} else {
+			// Conflict!
+			conflict = {
+				gistId: gist.id,
+				remoteState,
+				remoteSignature,
+				localSignature,
+			};
+			setStatus($t("Sync conflict detected"), "info");
+		}
+	} catch (err) {
+		setStatus(
+			err instanceof Error ? err.message : $t("Connection failed"),
+			"error",
+		);
+	} finally {
+		workspaceBusy = false;
 	}
+}
 
-	async function handleManualPull() {
-		const token = $authState.token;
-		const gistId = $appState.activeGistId;
-		if (!token || !gistId) return;
-		
-		workspaceBusy = true;
-		try {
-			const remoteContent = await getGistFileContent(token, gistId, WORKSPACE_FILE);
-			const remoteState = importState(remoteContent);
-			const remoteSignature = getSyncStateSignature(remoteState);
-			const localSignature = getSyncStateSignature($appState);
-
-			if (remoteSignature === localSignature) {
-				setStatus($t("Already in sync"), 'info');
-			} else {
-				const confirmed = await requestConfirm({
-					title: $t("Sync Update"),
-					message: $t("Remote data is different. Overwrite local with remote?"),
-					confirmText: $t("Pull Remote")
-				});
-				if (confirmed) {
-					replaceState(remoteState);
-					appState.update(s => ({ ...s, activeGistId: gistId }));
-					setSyncBaseline(remoteSignature);
-					setStatus($t("Pulled successfully"), 'success');
-				}
-			}
-		} catch (err) {
-			setStatus($t("Pull failed"), 'error');
-		} finally { workspaceBusy = false; }
-	}
-
-	function handleTokenClear() {
-		clearAuth();
-		appState.update(s => ({ ...s, activeGistId: null }));
-		setStatus($t("Logged out"), 'info');
+async function handleResolveConflict(action: "local" | "remote") {
+	if (!conflict || !$authState.token) return;
+	workspaceBusy = true;
+	try {
+		if (action === "remote") {
+			replaceState(conflict.remoteState);
+			appState.update((s) => ({ ...s, activeGistId: conflict!.gistId }));
+			setSyncBaseline(conflict.remoteSignature);
+			setStatus($t("Remote data loaded"), "success");
+		} else {
+			const localPayload = exportSyncState($appState);
+			await updateGist($authState.token, {
+				gistId: conflict.gistId,
+				files: { [WORKSPACE_FILE]: { content: localPayload } },
+			});
+			appState.update((s) => ({ ...s, activeGistId: conflict!.gistId }));
+			setSyncBaseline(conflict.localSignature);
+			setStatus($t("Local data pushed to Gist"), "success");
+		}
 		conflict = null;
+		tokenInput = "";
+	} catch (err) {
+		setStatus($t("Resolution failed"), "error");
+	} finally {
+		workspaceBusy = false;
 	}
+}
 
-	function handleExport() {
-		payload = exportState($appState);
-		setStatus($t("Config exported"), 'success');
-	}
+async function handleManualPull() {
+	const token = $authState.token;
+	const gistId = $appState.activeGistId;
+	if (!token || !gistId) return;
 
-	function handleImport() {
-		try {
-			replaceState(importState(payload));
-			setStatus($t("Config imported"), 'success');
-		} catch (err) { setStatus($t("Import failed"), 'error'); }
+	workspaceBusy = true;
+	try {
+		const remoteContent = await getGistFileContent(
+			token,
+			gistId,
+			WORKSPACE_FILE,
+		);
+		const remoteState = importState(remoteContent);
+		const remoteSignature = getSyncStateSignature(remoteState);
+		const localSignature = getSyncStateSignature($appState);
+
+		if (remoteSignature === localSignature) {
+			setStatus($t("Already in sync"), "info");
+		} else {
+			const confirmed = await requestConfirm({
+				title: $t("Sync Update"),
+				message: $t("Remote data is different. Overwrite local with remote?"),
+				confirmText: $t("Pull Remote"),
+			});
+			if (confirmed) {
+				replaceState(remoteState);
+				appState.update((s) => ({ ...s, activeGistId: gistId }));
+				setSyncBaseline(remoteSignature);
+				setStatus($t("Pulled successfully"), "success");
+			}
+		}
+	} catch (err) {
+		setStatus($t("Pull failed"), "error");
+	} finally {
+		workspaceBusy = false;
 	}
+}
+
+function handleTokenClear() {
+	clearAuth();
+	appState.update((s) => ({ ...s, activeGistId: null }));
+	setStatus($t("Logged out"), "info");
+	conflict = null;
+}
+
+function handleExport() {
+	payload = exportState($appState);
+	setStatus($t("Config exported"), "success");
+}
+
+function handleImport() {
+	try {
+		replaceState(importState(payload));
+		setStatus($t("Config imported"), "success");
+	} catch (err) {
+		setStatus($t("Import failed"), "error");
+	}
+}
 </script>
 
 <div class="flex flex-col gap-8">

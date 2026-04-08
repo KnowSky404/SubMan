@@ -1,17 +1,17 @@
-import { browser } from '$app/environment';
-import { get } from 'svelte/store';
-import { appState } from '$lib/stores/app';
-import { authState } from '$lib/stores/auth';
-import { updateGist } from '$lib/gist';
-import { exportSyncState, getSyncStateSignature } from '$lib/serialization';
+import { browser } from "$app/environment";
+import { get } from "svelte/store";
+import { appState } from "$lib/stores/app";
+import { authState } from "$lib/stores/auth";
+import { updateGist } from "$lib/gist";
+import { exportSyncState, getSyncStateSignature } from "$lib/serialization";
 
 const DEFAULT_DELAY = 1200;
-const BASELINE_KEY = 'subman:sync:baseline';
-const AUTO_SYNC_STATUS_KEY = 'subman:sync:last-status:v1';
-const AUTO_SYNC_STATUS_EVENT = 'subman:auto-sync-status';
+const BASELINE_KEY = "subman:sync:baseline";
+const AUTO_SYNC_STATUS_KEY = "subman:sync:last-status:v1";
+const AUTO_SYNC_STATUS_EVENT = "subman:auto-sync-status";
 
 export type AutoSyncStatus = {
-	status: 'idle' | 'syncing' | 'success' | 'error';
+	status: "idle" | "syncing" | "success" | "error";
 	gistId: string | null;
 	lastAttemptAt: string | null;
 	lastSuccessAt: string | null;
@@ -21,20 +21,20 @@ export type AutoSyncStatus = {
 };
 
 const defaultAutoSyncStatus: AutoSyncStatus = {
-	status: 'idle',
+	status: "idle",
 	gistId: null,
 	lastAttemptAt: null,
 	lastSuccessAt: null,
 	lastErrorAt: null,
 	lastErrorMessage: null,
-	lastSyncedFile: null
+	lastSyncedFile: null,
 };
 
 function readBaseline(): string {
 	if (!browser) {
-		return '';
+		return "";
 	}
-	return localStorage.getItem(BASELINE_KEY) ?? '';
+	return localStorage.getItem(BASELINE_KEY) ?? "";
 }
 
 function writeBaseline(baseline: string): void {
@@ -58,7 +58,7 @@ export function readAutoSyncStatus(): AutoSyncStatus {
 		const parsed = JSON.parse(raw) as Partial<AutoSyncStatus>;
 		return {
 			...defaultAutoSyncStatus,
-			...parsed
+			...parsed,
 		};
 	} catch {
 		return defaultAutoSyncStatus;
@@ -71,7 +71,9 @@ function writeAutoSyncStatus(next: AutoSyncStatus): void {
 	}
 
 	localStorage.setItem(AUTO_SYNC_STATUS_KEY, JSON.stringify(next));
-	window.dispatchEvent(new CustomEvent<AutoSyncStatus>(AUTO_SYNC_STATUS_EVENT, { detail: next }));
+	window.dispatchEvent(
+		new CustomEvent<AutoSyncStatus>(AUTO_SYNC_STATUS_EVENT, { detail: next }),
+	);
 }
 
 export function getAutoSyncStatusEventName(): string {
@@ -110,7 +112,7 @@ export function startAutoSync(delayMs: number = DEFAULT_DELAY): () => void {
 	function updateStatus(next: Partial<AutoSyncStatus>) {
 		lastStatus = {
 			...lastStatus,
-			...next
+			...next,
 		};
 		writeAutoSyncStatus(lastStatus);
 	}
@@ -139,37 +141,38 @@ export function startAutoSync(delayMs: number = DEFAULT_DELAY): () => void {
 		const payload = exportSyncState(latestState);
 		syncing = true;
 		const attemptedAt = new Date().toISOString();
-		const syncedFile = latestState.activeGistFile || 'subman.json';
+		const syncedFile = latestState.activeGistFile || "subman.json";
 		updateStatus({
-			status: 'syncing',
+			status: "syncing",
 			gistId: latestState.activeGistId,
 			lastAttemptAt: attemptedAt,
 			lastSyncedFile: syncedFile,
-			lastErrorMessage: null
+			lastErrorMessage: null,
 		});
 		try {
 			await updateGist(token, {
 				gistId: latestState.activeGistId,
 				files: {
-					[syncedFile]: { content: payload }
-				}
+					[syncedFile]: { content: payload },
+				},
 			});
 			lastSignature = signature;
 			writeBaseline(signature);
 			updateStatus({
-				status: 'success',
+				status: "success",
 				gistId: latestState.activeGistId,
 				lastSuccessAt: attemptedAt,
 				lastErrorMessage: null,
-				lastSyncedFile: syncedFile
+				lastSyncedFile: syncedFile,
 			});
 		} catch (err) {
 			updateStatus({
-				status: 'error',
+				status: "error",
 				gistId: latestState.activeGistId,
 				lastErrorAt: attemptedAt,
-				lastErrorMessage: err instanceof Error ? err.message : 'Auto sync failed',
-				lastSyncedFile: syncedFile
+				lastErrorMessage:
+					err instanceof Error ? err.message : "Auto sync failed",
+				lastSyncedFile: syncedFile,
 			});
 		} finally {
 			syncing = false;

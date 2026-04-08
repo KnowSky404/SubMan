@@ -1,76 +1,81 @@
 <script lang="ts">
-	import "../app.css";
-	import { onMount } from "svelte";
-	import { page } from "$app/stores";
-	import { fade, fly } from "svelte/transition";
-	import { t } from "$lib/i18n";
-	import { appState } from "$lib/stores/app";
-	import { authState } from "$lib/stores/auth";
-	import { startAutoSync } from "$lib/sync";
-	import { confirmDialog, resolveConfirm } from "$lib/stores/confirm";
-	import { startThemeSync, themeMode, type ThemeMode } from "$lib/stores/theme";
-	import { toastStore, dismissToast } from "$lib/stores/toast";
-	import { cn } from "$lib/utils/cn";
-	import {
-		LayoutDashboard,
-		Layers,
-		Network,
-		Zap,
-		Settings,
-		Github,
-		AlertTriangle,
-		MonitorCog,
-		SunMedium,
-		MoonStar,
-		Package,
-		Check,
-		RefreshCw,
-		AlertCircle,
-		ShieldCheck,
-		Database
-	} from "lucide-svelte";
+import "../app.css";
+import { onMount } from "svelte";
+import { page } from "$app/stores";
+import { fade, fly } from "svelte/transition";
+import { t } from "$lib/i18n";
+import { appState } from "$lib/stores/app";
+import { authState } from "$lib/stores/auth";
+import { startAutoSync } from "$lib/sync";
+import { confirmDialog, resolveConfirm } from "$lib/stores/confirm";
+import { startThemeSync, themeMode, type ThemeMode } from "$lib/stores/theme";
+import { toastStore, dismissToast } from "$lib/stores/toast";
+import { cn } from "$lib/utils/cn";
+import {
+	LayoutDashboard,
+	Layers,
+	Network,
+	Zap,
+	Settings,
+	Github,
+	AlertTriangle,
+	MonitorCog,
+	SunMedium,
+	MoonStar,
+	Package,
+	Check,
+	RefreshCw,
+	AlertCircle,
+	ShieldCheck,
+	Database,
+} from "lucide-svelte";
 
-	const PROJECT_GITHUB_URL = "https://github.com/KnowSky404/SubMan";
-	const PROJECT_OWNER = "KnowSky404";
-	const PROJECT_NAME = "SubMan";
+const PROJECT_GITHUB_URL = "https://github.com/KnowSky404/SubMan";
+const PROJECT_OWNER = "KnowSky404";
+const PROJECT_NAME = "SubMan";
 
-	const navItems = [
-		{ href: "/", label: "Overview", icon: LayoutDashboard },
-		{ href: "/nodes", label: "Nodes", icon: Network },
-		{ href: "/aggregate", label: "Aggregate", icon: Zap },
-		{ href: "/gists", label: "Gists", icon: Layers },
-		{ href: "/auth", label: "Settings", icon: Settings }
-	];
+const navItems = [
+	{ href: "/", label: "Overview", icon: LayoutDashboard },
+	{ href: "/nodes", label: "Nodes", icon: Network },
+	{ href: "/aggregate", label: "Aggregate", icon: Zap },
+	{ href: "/gists", label: "Gists", icon: Layers },
+	{ href: "/auth", label: "Settings", icon: Settings },
+];
 
-	const themeOptions: { value: ThemeMode; label: string; icon: typeof MonitorCog }[] = [
-		{ value: "system", label: "Auto", icon: MonitorCog },
-		{ value: "light", label: "Light", icon: SunMedium },
-		{ value: "dark", label: "Dark", icon: MoonStar }
-	];
+const themeOptions: {
+	value: ThemeMode;
+	label: string;
+	icon: typeof MonitorCog;
+}[] = [
+	{ value: "system", label: "Auto", icon: MonitorCog },
+	{ value: "light", label: "Light", icon: SunMedium },
+	{ value: "dark", label: "Dark", icon: MoonStar },
+];
 
-	$: pathname = $page.url.pathname;
-	$: activeThemeOption = themeOptions.find((option) => option.value === $themeMode) ?? themeOptions[0];
-	$: isWorkspaceConnected = Boolean($authState.token && $appState.activeGistId);
-	$: workspaceMetaText = isWorkspaceConnected
-		? $appState.activeGistId
-		: $t("Browser storage only");
+$: pathname = $page.url.pathname;
+$: activeThemeOption =
+	themeOptions.find((option) => option.value === $themeMode) ?? themeOptions[0];
+$: isWorkspaceConnected = Boolean($authState.token && $appState.activeGistId);
+$: workspaceMetaText = isWorkspaceConnected
+	? $appState.activeGistId
+	: $t("Browser storage only");
 
-	function isActive(href: string) {
-		return href === "/" ? pathname === "/" : pathname.startsWith(href);
-	}
+function isActive(href: string) {
+	return href === "/" ? pathname === "/" : pathname.startsWith(href);
+}
 
-	function handleThemeChange(nextTheme: ThemeMode) {
-		themeMode.set(nextTheme);
-	}
+function handleThemeChange(nextTheme: ThemeMode) {
+	themeMode.set(nextTheme);
+}
 
-	onMount(() => {
-		const stopAutoSync = startAutoSync();
-		const stopThemeSync = startThemeSync();
-		return () => {
-			stopAutoSync();
-			stopThemeSync();
-		};
-	});
+onMount(() => {
+	const stopAutoSync = startAutoSync();
+	const stopThemeSync = startThemeSync();
+	return () => {
+		stopAutoSync();
+		stopThemeSync();
+	};
+});
 </script>
 
 <div class="flex min-h-screen flex-col">

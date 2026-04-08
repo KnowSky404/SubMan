@@ -1,52 +1,54 @@
 <script lang="ts">
-	import { t } from "$lib/i18n";
-	import { appState } from "$lib/stores/app";
-	import { authState } from "$lib/stores/auth";
-	import { cn } from "$lib/utils/cn";
-	import {
-		Zap,
-		RefreshCw,
-		Layers,
-		Network,
-		ArrowRight,
-		ExternalLink,
-		CheckCircle2,
-		ShieldCheck,
-		Database,
-		FileCode2,
-		Link2,
-		Globe2
-	} from "lucide-svelte";
+import { t } from "$lib/i18n";
+import { appState } from "$lib/stores/app";
+import { authState } from "$lib/stores/auth";
+import { cn } from "$lib/utils/cn";
+import {
+	Zap,
+	RefreshCw,
+	Layers,
+	Network,
+	ArrowRight,
+	ExternalLink,
+	CheckCircle2,
+	ShieldCheck,
+	Database,
+	FileCode2,
+	Link2,
+	Globe2,
+} from "lucide-svelte";
 
-	$: stats = [
-		{
-			label: "Nodes",
-			count: $appState.nodes.length,
-			description: "Single proxy URIs stored in the current workspace.",
-			icon: Network
-		},
-		{
-			label: "Subscriptions",
-			count: $appState.subscriptions.length,
-			description: "Remote feeds that can be fetched and merged.",
-			icon: RefreshCw
-		},
-		{
-			label: "Rules",
-			count: $appState.aggregates.length,
-			description: "Selection and rewrite rules used for aggregation.",
-			icon: Layers
-		},
-		{
-			label: "Publish Targets",
-			count: $appState.publishTargets.length,
-			description: "Output files published back into the workspace gist.",
-			icon: Zap
-		}
-	];
+$: stats = [
+	{
+		label: "Nodes",
+		count: $appState.nodes.length,
+		description: "Single proxy URIs stored in the current workspace.",
+		icon: Network,
+	},
+	{
+		label: "Subscriptions",
+		count: $appState.subscriptions.length,
+		description: "Remote feeds that can be fetched and merged.",
+		icon: RefreshCw,
+	},
+	{
+		label: "Rules",
+		count: $appState.aggregates.length,
+		description: "Selection and rewrite rules used for aggregation.",
+		icon: Layers,
+	},
+	{
+		label: "Publish Targets",
+		count: $appState.publishTargets.length,
+		description: "Output files published back into the workspace gist.",
+		icon: Zap,
+	},
+];
 
-	$: isConnected = Boolean($authState.token && $appState.activeGistId);
-	$: publishTargetCount = $appState.publishTargets.filter((target) => target.lastPublishedUrl).length;
+$: isConnected = Boolean($authState.token && $appState.activeGistId);
+$: publishTargetCount = $appState.publishTargets.filter(
+	(target) => target.lastPublishedUrl,
+).length;
 </script>
 
 <div class="flex flex-col gap-6 pb-10">
