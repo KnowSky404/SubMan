@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "@primer/octicons/build/build.css";
 
 @theme {
 	--font-sans:

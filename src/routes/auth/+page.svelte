@@ -1,6 +1,4 @@
 <script lang="ts">
-import { browser } from "$app/environment";
-import { onDestroy, onMount } from "svelte";
 import { t } from "$lib/i18n";
 import { appState, replaceState } from "$lib/stores/app";
 import { authState, clearAuth, setToken } from "$lib/stores/auth";
@@ -16,30 +14,26 @@ import { setSyncBaseline } from "$lib/sync";
 import { requestConfirm } from "$lib/stores/confirm";
 import { toastStore } from "$lib/stores/toast";
 import { cn } from "$lib/utils/cn";
+import Octicon from "$lib/components/Octicon.svelte";
 import {
-	KeyRound,
-	ShieldCheck,
-	Database,
-	RefreshCw,
-	Download,
-	Upload,
-	Copy,
-	CheckCircle2,
-	AlertTriangle,
-	History,
-	ExternalLink,
-	X,
-	Trash2,
-	Save,
-	ArrowRightLeft,
-	Info,
-	Settings,
-	Github,
-	FileJson,
-	ArrowDown,
-	ArrowUp,
-} from "lucide-svelte";
-import { fade, slide, fly } from "svelte/transition";
+	alert,
+	arrowDown,
+	arrowUp,
+	checkCircle,
+	copy,
+	database,
+	download,
+	fileCode,
+	gear,
+	linkExternal,
+	markGithub,
+	save,
+	shieldCheck,
+	sync,
+	trash,
+	upload,
+} from "$lib/octicons";
+import { slide } from "svelte/transition";
 import type { AppState } from "$lib/models";
 
 let tokenInput = "";
@@ -209,7 +203,7 @@ function handleImport() {
 <div class="flex flex-col gap-8">
 	<div class="gh-page-header">
 		<div class="flex items-center gap-3">
-			<Settings class="h-6 w-6 text-fg-muted" />
+			<Octicon icon={gear} className="h-6 w-6 text-fg-muted" />
 			<div>
 				<h1 class="text-[2rem] font-semibold leading-tight">{$t("Settings")}</h1>
 				<p class="gh-page-subtitle">{$t("Manage GitHub workspace authentication, sync behavior, and local import or export.")}</p>
@@ -222,7 +216,7 @@ function handleImport() {
 		<section transition:slide>
 			<div class="gh-box border-orange-300 bg-orange-50 dark:bg-orange-900/10 dark:border-orange-800">
 				<div class="gh-box-header border-orange-200 bg-orange-100 dark:bg-orange-900/30 flex items-center gap-2">
-					<AlertTriangle class="h-4 w-4 text-orange-600" />
+					<Octicon icon={alert} className="h-4 w-4 text-orange-600" />
 					<span>{$t("Sync Conflict")}</span>
 				</div>
 				<div class="p-4 flex flex-col gap-4">
@@ -231,12 +225,12 @@ function handleImport() {
 					</p>
 					<div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
 						<button class="gh-btn flex flex-col items-center py-4 gap-2" on:click={() => handleResolveConflict('remote')}>
-							<ArrowDown class="h-5 w-5 text-accent-fg" />
+							<Octicon icon={arrowDown} className="h-5 w-5 text-accent-fg" />
 							<span class="font-bold">{$t("Use Remote Data")}</span>
 							<span class="text-[10px] text-fg-muted">{$t("Overwrite local with Gist data")}</span>
 						</button>
 						<button class="gh-btn flex flex-col items-center py-4 gap-2" on:click={() => handleResolveConflict('local')}>
-							<ArrowUp class="h-5 w-5 text-green-600" />
+							<Octicon icon={arrowUp} className="h-5 w-5 text-green-600" />
 							<span class="font-bold">{$t("Use Local Data")}</span>
 							<span class="text-[10px] text-fg-muted">{$t("Overwrite Gist with local browser data")}</span>
 						</button>
@@ -249,9 +243,9 @@ function handleImport() {
 	<!-- GitHub Connection -->
 	<section>
 		<div class="flex items-center justify-between mb-2">
-			<h2 class="text-lg font-bold flex items-center gap-2"><Github class="h-5 w-5" />{$t("GitHub Workspace")}</h2>
+			<h2 class="text-lg font-bold flex items-center gap-2"><Octicon icon={markGithub} className="h-5 w-5" />{$t("GitHub Workspace")}</h2>
 			{#if $authState.token}
-				<span class="State State--success"><CheckCircle2 class="h-3 w-3" />{$t("Connected")}</span>
+				<span class="State State--success"><Octicon icon={checkCircle} className="h-3 w-3" />{$t("Connected")}</span>
 			{:else}
 				<span class="State State--muted">{$t("Local Mode")}</span>
 			{/if}
@@ -270,19 +264,19 @@ function handleImport() {
 						<div class="flex flex-col sm:flex-row gap-2">
 							<input id="github-token" type="password" class="gh-input flex-1 font-mono" placeholder="ghp_xxxxxxxxxxxx" bind:value={tokenInput} />
 							<button type="button" class="gh-btn gh-btn-primary" on:click={handleTokenSave} disabled={workspaceBusy}>
-							{#if workspaceBusy}<RefreshCw class="h-4 w-4 animate-spin" />{:else}<Save class="h-4 w-4" />{/if}
+							{#if workspaceBusy}<Octicon icon={sync} className="h-4 w-4 animate-spin" />{:else}<Octicon icon={save} className="h-4 w-4" />{/if}
 							{$t("Connect")}
 							</button>
 						</div>
 					</div>
 					<a href="https://github.com/settings/tokens/new?description=SubMan&scopes=gist" target="_blank" class="text-xs text-accent-fg hover:underline flex items-center gap-1">
-						<ExternalLink class="h-3 w-3" /> {$t("Generate a new token on GitHub")}
+						<Octicon icon={linkExternal} className="h-3 w-3" /> {$t("Generate a new token on GitHub")}
 					</a>
 				{:else}
 					<div class="flex flex-col gap-3">
 						<div class="flex items-center justify-between p-3 rounded-md border border-border-default bg-canvas-subtle">
 							<div class="flex items-center gap-3">
-								<div class="h-8 w-8 flex items-center justify-center rounded-full bg-canvas-default border border-border-default"><ShieldCheck class="h-4 w-4 text-green-600" /></div>
+								<div class="h-8 w-8 flex items-center justify-center rounded-full bg-canvas-default border border-border-default"><Octicon icon={shieldCheck} className="h-4 w-4 text-green-600" /></div>
 								<div>
 									<p class="text-sm font-bold">{$t("Token Active")}</p>
 									<p class="text-xs text-fg-muted font-mono">{$appState.activeGistId || 'Searching...'}</p>
@@ -290,10 +284,10 @@ function handleImport() {
 							</div>
 							<div class="flex gap-2">
 								<button type="button" class="gh-btn gh-btn-sm" on:click={handleManualPull} disabled={workspaceBusy}>
-									<RefreshCw class={cn("h-3.5 w-3.5 mr-1", workspaceBusy && "animate-spin")} />
+									<Octicon icon={sync} className={cn("h-3.5 w-3.5 mr-1", workspaceBusy && "animate-spin")} />
 									{$t("Pull Now")}
 								</button>
-								<button type="button" class="gh-btn gh-btn-danger gh-btn-sm" on:click={handleTokenClear}><Trash2 class="h-3.5 w-3.5" />{$t("Disconnect")}</button>
+								<button type="button" class="gh-btn gh-btn-danger gh-btn-sm" on:click={handleTokenClear}><Octicon icon={trash} className="h-3.5 w-3.5" />{$t("Disconnect")}</button>
 							</div>
 						</div>
 						<p class="text-[10px] text-fg-muted">
@@ -307,7 +301,7 @@ function handleImport() {
 
 	<!-- Local Data Management -->
 	<section>
-		<div class="mb-2"><h2 class="text-lg font-bold flex items-center gap-2"><Database class="h-5 w-5" />{$t("Data Management")}</h2></div>
+		<div class="mb-2"><h2 class="text-lg font-bold flex items-center gap-2"><Octicon icon={database} className="h-5 w-5" />{$t("Data Management")}</h2></div>
 			<div class="gh-box">
 				<div class="gh-box-header">{$t("Import / Export")}</div>
 				<div class="p-4 bg-canvas-default flex flex-col gap-4">
@@ -315,9 +309,9 @@ function handleImport() {
 					<label class="gh-form-label" for="settings-payload">{$t("JSON payload")}</label>
 					<textarea id="settings-payload" class="gh-input gh-textarea font-mono text-xs h-32" placeholder="JSON data..." bind:value={payload}></textarea>
 					<div class="flex flex-wrap gap-2">
-						<button type="button" class="gh-btn flex-1" on:click={handleExport}><Upload class="h-4 w-4" />{$t("Export to JSON")}</button>
-						<button type="button" class="gh-btn flex-1" on:click={handleImport}><Download class="h-4 w-4" />{$t("Import from JSON")}</button>
-						<button type="button" class="gh-btn" on:click={() => { navigator.clipboard.writeText(payload); setStatus($t("Copied to clipboard")); }} disabled={!payload}><Copy class="h-4 w-4" /></button>
+						<button type="button" class="gh-btn flex-1" on:click={handleExport}><Octicon icon={upload} className="h-4 w-4" />{$t("Export to JSON")}</button>
+						<button type="button" class="gh-btn flex-1" on:click={handleImport}><Octicon icon={download} className="h-4 w-4" />{$t("Import from JSON")}</button>
+						<button type="button" class="gh-btn" on:click={() => { navigator.clipboard.writeText(payload); setStatus($t("Copied to clipboard")); }} disabled={!payload}><Octicon icon={copy} className="h-4 w-4" /></button>
 					</div>
 				</div>
 			</div>
@@ -325,13 +319,13 @@ function handleImport() {
 
 	<!-- About / Info -->
 	<section class="blankslate">
-		<FileJson class="h-10 w-10 text-fg-subtle mb-3" />
+		<Octicon icon={fileCode} className="mb-3 h-10 w-10 text-fg-subtle" />
 		<h3 class="text-lg font-bold">SubMan v0.1</h3>
 		<p class="text-fg-muted text-sm max-w-md">
 			{$t("All data is stored locally in your browser and synced to your private Gist. No third-party servers are involved.")}
 		</p>
 		<div class="mt-4 flex gap-4">
-			<a href="https://github.com/KnowSky404/SubMan" target="_blank" class="gh-btn"><Github class="h-4 w-4" />GitHub</a>
+			<a href="https://github.com/KnowSky404/SubMan" target="_blank" class="gh-btn"><Octicon icon={markGithub} className="h-4 w-4" />GitHub</a>
 		</div>
 	</section>
 </div>

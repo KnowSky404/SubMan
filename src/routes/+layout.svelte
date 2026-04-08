@@ -11,45 +11,46 @@ import { confirmDialog, resolveConfirm } from "$lib/stores/confirm";
 import { startThemeSync, themeMode, type ThemeMode } from "$lib/stores/theme";
 import { toastStore, dismissToast } from "$lib/stores/toast";
 import { cn } from "$lib/utils/cn";
+import Octicon from "$lib/components/Octicon.svelte";
 import {
-	LayoutDashboard,
-	Layers,
-	Network,
-	Zap,
-	Settings,
-	Github,
-	AlertTriangle,
-	MonitorCog,
-	SunMedium,
-	MoonStar,
-	Package,
-	Check,
-	RefreshCw,
-	AlertCircle,
-	ShieldCheck,
-	Database,
-} from "lucide-svelte";
+	alert,
+	browser,
+	check,
+	code,
+	database,
+	gear,
+	home,
+	markGithub,
+	moon,
+	packageIcon,
+	server,
+	shieldCheck,
+	sun,
+	sync,
+	workflow,
+	xCircleFill,
+} from "$lib/octicons";
 
 const PROJECT_GITHUB_URL = "https://github.com/KnowSky404/SubMan";
 const PROJECT_OWNER = "KnowSky404";
 const PROJECT_NAME = "SubMan";
 
 const navItems = [
-	{ href: "/", label: "Overview", icon: LayoutDashboard },
-	{ href: "/nodes", label: "Nodes", icon: Network },
-	{ href: "/aggregate", label: "Aggregate", icon: Zap },
-	{ href: "/gists", label: "Gists", icon: Layers },
-	{ href: "/auth", label: "Settings", icon: Settings },
+	{ href: "/", label: "Overview", icon: home },
+	{ href: "/nodes", label: "Nodes", icon: server },
+	{ href: "/aggregate", label: "Aggregate", icon: workflow },
+	{ href: "/gists", label: "Gists", icon: code },
+	{ href: "/auth", label: "Settings", icon: gear },
 ];
 
 const themeOptions: {
 	value: ThemeMode;
 	label: string;
-	icon: typeof MonitorCog;
+	icon: typeof browser;
 }[] = [
-	{ value: "system", label: "Auto", icon: MonitorCog },
-	{ value: "light", label: "Light", icon: SunMedium },
-	{ value: "dark", label: "Dark", icon: MoonStar },
+	{ value: "system", label: "Auto", icon: browser },
+	{ value: "light", label: "Light", icon: sun },
+	{ value: "dark", label: "Dark", icon: moon },
 ];
 
 $: pathname = $page.url.pathname;
@@ -83,7 +84,7 @@ onMount(() => {
 		<div class="app-header-inner">
 			<a href="/" class="app-brand">
 				<span class="app-brand-mark">
-					<Package class="h-4 w-4" />
+					<Octicon icon={packageIcon} className="h-4 w-4" />
 				</span>
 				<span>{PROJECT_NAME}</span>
 			</a>
@@ -92,17 +93,19 @@ onMount(() => {
 				<div class="hidden md:flex items-center">
 					<span class="app-header-chip">
 						{#if isWorkspaceConnected}
-							<ShieldCheck class="h-3.5 w-3.5" />
+							<Octicon icon={shieldCheck} className="h-3.5 w-3.5" />
 							{$t("Workspace connected")}
 						{:else}
-							<Database class="h-3.5 w-3.5" />
+							<Octicon icon={database} className="h-3.5 w-3.5" />
 							{$t("Local mode")}
 						{/if}
 					</span>
 				</div>
 
 				<div class="relative">
-					<svelte:component this={activeThemeOption.icon} class="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[color:var(--header-muted)]" />
+					<div class="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-[color:var(--header-muted)]">
+						<Octicon icon={activeThemeOption.icon} className="h-3.5 w-3.5" />
+					</div>
 					<select
 						class="gh-select-header w-28 pl-8"
 						value={$themeMode}
@@ -122,7 +125,7 @@ onMount(() => {
 					class="app-header-link"
 					aria-label={$t("Open project on GitHub")}
 				>
-					<Github class="h-4 w-4" />
+					<Octicon icon={markGithub} className="h-4 w-4" />
 				</a>
 			</div>
 		</div>
@@ -133,7 +136,7 @@ onMount(() => {
 			<div class="app-repo-meta">
 				<div class="flex min-w-0 flex-col gap-2">
 					<div class="app-repo-title">
-						<Package class="h-5 w-5 text-fg-muted" />
+						<Octicon icon={packageIcon} className="h-5 w-5 text-fg-muted" />
 						<a href={PROJECT_GITHUB_URL} target="_blank" rel="noreferrer" class="app-repo-title-owner">
 							{PROJECT_OWNER}
 						</a>
@@ -145,10 +148,10 @@ onMount(() => {
 					<div class="flex flex-wrap items-center gap-2 text-sm text-fg-muted">
 						<span class={cn("badge", isWorkspaceConnected ? "badge-success" : "")}>
 							{#if isWorkspaceConnected}
-								<ShieldCheck class="h-3 w-3" />
+								<Octicon icon={shieldCheck} className="h-3 w-3" />
 								{$t("Workspace")}
 							{:else}
-								<Database class="h-3 w-3" />
+								<Octicon icon={database} className="h-3 w-3" />
 								{$t("Local")}
 							{/if}
 						</span>
@@ -170,7 +173,7 @@ onMount(() => {
 						class={cn("gh-underlinenav-item", isActive(item.href) && "gh-underlinenav-item-active")}
 						aria-current={isActive(item.href) ? "page" : undefined}
 					>
-						<svelte:component this={item.icon} class="h-4 w-4" />
+						<Octicon icon={item.icon} className="h-4 w-4" />
 						<span>{$t(item.label)}</span>
 					</a>
 				{/each}
@@ -192,11 +195,11 @@ onMount(() => {
 			>
 				<div class="flex min-w-0 flex-1 items-center gap-3">
 					{#if toast.type === "success"}
-						<Check class="h-4 w-4 shrink-0 text-[color:var(--success-emphasis)]" />
+						<Octicon icon={check} className="h-4 w-4 shrink-0 text-[color:var(--success-emphasis)]" />
 					{:else if toast.type === "error"}
-						<AlertCircle class="h-4 w-4 shrink-0 text-[color:var(--danger-emphasis)]" />
+						<Octicon icon={xCircleFill} className="h-4 w-4 shrink-0 text-[color:var(--danger-emphasis)]" />
 					{:else}
-						<RefreshCw class="h-4 w-4 shrink-0 text-[color:var(--accent-emphasis)]" />
+						<Octicon icon={sync} className="h-4 w-4 shrink-0 text-[color:var(--accent-emphasis)]" />
 					{/if}
 					<span class="truncate text-sm font-medium">{toast.message}</span>
 				</div>
@@ -225,7 +228,7 @@ onMount(() => {
 				<div class="gh-box-header">
 					<span class="flex items-center gap-2">
 						{#if $confirmDialog.danger}
-							<AlertTriangle class="h-4 w-4 text-[color:var(--danger-emphasis)]" />
+							<Octicon icon={alert} className="h-4 w-4 text-[color:var(--danger-emphasis)]" />
 						{/if}
 						{$confirmDialog.title || $t("Confirm Action")}
 					</span>

@@ -3,45 +3,46 @@ import { t } from "$lib/i18n";
 import { appState } from "$lib/stores/app";
 import { authState } from "$lib/stores/auth";
 import { cn } from "$lib/utils/cn";
+import Octicon from "$lib/components/Octicon.svelte";
 import {
-	Zap,
-	RefreshCw,
-	Layers,
-	Network,
-	ArrowRight,
-	ExternalLink,
-	CheckCircle2,
-	ShieldCheck,
-	Database,
-	FileCode2,
-	Link2,
-	Globe2,
-} from "lucide-svelte";
+	arrowRight,
+	checkCircle,
+	code,
+	database,
+	globe,
+	link,
+	linkExternal,
+	project,
+	server,
+	shieldCheck,
+	sync,
+	zap,
+} from "$lib/octicons";
 
 $: stats = [
 	{
 		label: "Nodes",
 		count: $appState.nodes.length,
 		description: "Single proxy URIs stored in the current workspace.",
-		icon: Network,
+		icon: server,
 	},
 	{
 		label: "Subscriptions",
 		count: $appState.subscriptions.length,
 		description: "Remote feeds that can be fetched and merged.",
-		icon: RefreshCw,
+		icon: sync,
 	},
 	{
 		label: "Rules",
 		count: $appState.aggregates.length,
 		description: "Selection and rewrite rules used for aggregation.",
-		icon: Layers,
+		icon: project,
 	},
 	{
 		label: "Publish Targets",
 		count: $appState.publishTargets.length,
 		description: "Output files published back into the workspace gist.",
-		icon: Zap,
+		icon: zap,
 	},
 ];
 
@@ -63,11 +64,11 @@ $: publishTargetCount = $appState.publishTargets.filter(
 
 			<div class="flex flex-wrap items-center gap-2">
 				<a href="/gists" class="gh-btn">
-					<FileCode2 class="h-4 w-4" />
+					<Octicon icon={code} className="h-4 w-4" />
 					{$t("Browse Gist Files")}
 				</a>
 				<a href="https://github.com/KnowSky404/SubMan" target="_blank" rel="noreferrer" class="gh-btn">
-					<ExternalLink class="h-4 w-4" />
+					<Octicon icon={linkExternal} className="h-4 w-4" />
 					{$t("View on GitHub")}
 				</a>
 			</div>
@@ -84,7 +85,7 @@ $: publishTargetCount = $appState.publishTargets.filter(
 					{#each stats as stat}
 						<div class="flex gap-3 p-4">
 							<div class="mt-0.5 rounded-md border border-border-default bg-canvas-subtle p-2 text-fg-muted">
-								<svelte:component this={stat.icon} class="h-4 w-4" />
+								<Octicon icon={stat.icon} className="h-4 w-4" />
 							</div>
 							<div class="min-w-0 space-y-1">
 								<div class="flex items-center gap-2">
@@ -116,7 +117,7 @@ $: publishTargetCount = $appState.publishTargets.filter(
 						</div>
 						<a href="/nodes" class="gh-link inline-flex items-center gap-1 text-sm font-medium">
 							{$t("Open Nodes")}
-							<ArrowRight class="h-4 w-4" />
+							<Octicon icon={arrowRight} className="h-4 w-4" />
 						</a>
 					</div>
 
@@ -132,7 +133,7 @@ $: publishTargetCount = $appState.publishTargets.filter(
 						</div>
 						<a href="/aggregate" class="gh-link inline-flex items-center gap-1 text-sm font-medium">
 							{$t("Open Aggregate")}
-							<ArrowRight class="h-4 w-4" />
+							<Octicon icon={arrowRight} className="h-4 w-4" />
 						</a>
 					</div>
 
@@ -148,7 +149,7 @@ $: publishTargetCount = $appState.publishTargets.filter(
 						</div>
 						<a href="/gists" class="gh-link inline-flex items-center gap-1 text-sm font-medium">
 							{$t("Open Gists")}
-							<ArrowRight class="h-4 w-4" />
+							<Octicon icon={arrowRight} className="h-4 w-4" />
 						</a>
 					</div>
 				</div>
@@ -161,7 +162,7 @@ $: publishTargetCount = $appState.publishTargets.filter(
 				<div class="divide-y divide-border-default">
 					<div class="gh-box-row flex items-start gap-3">
 						<div class="rounded-md border border-border-default bg-canvas-subtle p-2 text-fg-muted">
-							<Link2 class="h-4 w-4" />
+							<Octicon icon={link} className="h-4 w-4" />
 						</div>
 						<div class="space-y-1">
 							<p class="text-sm font-semibold">{$t("Published links")}</p>
@@ -173,7 +174,7 @@ $: publishTargetCount = $appState.publishTargets.filter(
 
 					<div class="gh-box-row flex items-start gap-3">
 						<div class="rounded-md border border-border-default bg-canvas-subtle p-2 text-fg-muted">
-							<Globe2 class="h-4 w-4" />
+							<Octicon icon={globe} className="h-4 w-4" />
 						</div>
 						<div class="space-y-1">
 							<p class="text-sm font-semibold">{$t("Last local update")}</p>
@@ -235,9 +236,9 @@ $: publishTargetCount = $appState.publishTargets.filter(
 							)}
 						>
 							{#if isConnected}
-								<ShieldCheck class="h-4 w-4" />
+								<Octicon icon={shieldCheck} className="h-4 w-4" />
 							{:else}
-								<Database class="h-4 w-4" />
+								<Octicon icon={database} className="h-4 w-4" />
 							{/if}
 						</div>
 						<div class="space-y-1">
@@ -263,7 +264,7 @@ $: publishTargetCount = $appState.publishTargets.filter(
 							{isConnected ? $t("Manage Workspace") : $t("Connect GitHub")}
 						</a>
 						<a href="/aggregate" class="gh-btn w-full">
-							<CheckCircle2 class="h-4 w-4" />
+							<Octicon icon={checkCircle} className="h-4 w-4" />
 							{$t("Go to Publish")}
 						</a>
 					</div>

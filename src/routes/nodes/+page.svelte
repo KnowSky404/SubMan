@@ -1,43 +1,49 @@
 <script lang="ts">
-	import { t } from "$lib/i18n";
-	import {
-		appState,
-		removeNode,
-		removeSubscription,
-		upsertNode,
-		upsertSubscription
-	} from "$lib/stores/app";
-	import type { NodeItem, NodeTag, ProxyType, SubscriptionItem } from "$lib/models";
-	import { createId } from "$lib/utils/id";
-	import { nowIso } from "$lib/utils/time";
-	import { requestConfirm } from "$lib/stores/confirm";
-	import { cn } from "$lib/utils/cn";
-	import {
-		decodeBase64Utf8,
-		extractSubscriptionNodeLines,
-		inferNodeNameFromRaw,
-		inferNodeTypeFromRaw,
-		loadSubscriptionContent
-	} from "$lib/subscription";
-	import { showToast } from "$lib/stores/toast";
-	import {
-		Plus,
-		Search,
-		Trash2,
-		Copy,
-		Edit3,
-		Tag,
-		Network,
-		Link as LinkIcon,
-		Check,
-		AlertCircle,
-		X,
-		ExternalLink,
-		Save,
-		RefreshCw,
-		Eye
-	} from "lucide-svelte";
-	import { slide, fly } from "svelte/transition";
+import { t } from "$lib/i18n";
+import {
+	appState,
+	removeNode,
+	removeSubscription,
+	upsertNode,
+	upsertSubscription,
+} from "$lib/stores/app";
+import type {
+	NodeItem,
+	NodeTag,
+	ProxyType,
+	SubscriptionItem,
+} from "$lib/models";
+import { createId } from "$lib/utils/id";
+import { nowIso } from "$lib/utils/time";
+import { requestConfirm } from "$lib/stores/confirm";
+import { cn } from "$lib/utils/cn";
+import {
+	decodeBase64Utf8,
+	extractSubscriptionNodeLines,
+	inferNodeNameFromRaw,
+	inferNodeTypeFromRaw,
+	loadSubscriptionContent,
+} from "$lib/subscription";
+import { showToast } from "$lib/stores/toast";
+import Octicon from "$lib/components/Octicon.svelte";
+import {
+	alert,
+	check,
+	copy as copyIcon,
+	eye,
+	link,
+	linkExternal,
+	pencil,
+	plus,
+	save,
+	search,
+	server,
+	sync,
+	tag,
+	trash,
+	x,
+} from "$lib/octicons";
+import { slide, fly } from "svelte/transition";
 
 	let activeTab: "nodes" | "subscriptions" = "nodes";
 	let isAddModalOpen = false;
@@ -311,7 +317,7 @@
 		<div class="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
 		<div class="flex items-center gap-3">
 			<div class="flex h-10 w-10 items-center justify-center rounded-full bg-canvas-subtle border border-border-default">
-				<Network class="h-5 w-5 text-fg-muted" />
+				<Octicon icon={server} className="h-5 w-5 text-fg-muted" />
 			</div>
 			<div>
 				<h1 class="text-[2rem] font-semibold leading-tight">{$t("Nodes & Subscriptions")}</h1>
@@ -319,7 +325,7 @@
 			</div>
 		</div>
 		<button type="button" class="gh-btn gh-btn-primary" on:click={() => (isAddModalOpen = !isAddModalOpen)}>
-			<Plus class="h-4 w-4" />
+			<Octicon icon={plus} className="h-4 w-4" />
 			{$t("New Resource")}
 		</button>
 	</div>
@@ -333,7 +339,7 @@
 					<button type="button" class={cn("gh-tab", addMode === "single" && "gh-tab-active")} on:click={() => (addMode = "single")}>{$t("Single Entry")}</button>
 					<button type="button" class={cn("gh-tab", addMode === "batch" && "gh-tab-active")} on:click={() => (addMode = "batch")}>{$t("Batch Import")}</button>
 				</div>
-				<button type="button" class="gh-icon-button h-7 w-7" on:click={() => (isAddModalOpen = false)} aria-label={$t("Close add resource panel")}><X class="h-4 w-4" /></button>
+				<button type="button" class="gh-icon-button h-7 w-7" on:click={() => (isAddModalOpen = false)} aria-label={$t("Close add resource panel")}><Octicon icon={x} className="h-4 w-4" /></button>
 			</div>
 			<div class="p-4 bg-canvas-default flex flex-col gap-4">
 				{#if addMode === "single"}
@@ -396,18 +402,18 @@
 	<div class="flex flex-col sm:flex-row items-center justify-between gap-4">
 		<div class="gh-tabs w-full sm:w-auto">
 			<button type="button" class={cn("gh-tab", activeTab === "nodes" && "gh-tab-active")} on:click={() => { activeTab = "nodes"; expandedId = null; }}>
-				<Network class="h-4 w-4 inline mr-1" /> {$t("Nodes")}
+				<Octicon icon={server} className="mr-1 h-4 w-4" /> {$t("Nodes")}
 				<span class="ml-1 px-1.5 py-0.5 rounded-full bg-canvas-subtle border border-border-default text-[10px]">{ $appState.nodes.length }</span>
 			</button>
 			<button type="button" class={cn("gh-tab", activeTab === "subscriptions" && "gh-tab-active")} on:click={() => { activeTab = "subscriptions"; expandedId = null; }}>
-				<LinkIcon class="h-4 w-4 inline mr-1" /> {$t("Subscriptions")}
+				<Octicon icon={link} className="mr-1 h-4 w-4" /> {$t("Subscriptions")}
 				<span class="ml-1 px-1.5 py-0.5 rounded-full bg-canvas-subtle border border-border-default text-[10px]">{ $appState.subscriptions.length }</span>
 			</button>
 		</div>
 
 		<div class="flex items-center gap-2 w-full sm:w-auto">
 			<div class="relative flex-1 sm:w-64">
-				<Search class="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-fg-subtle" />
+				<Octicon icon={search} className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-fg-subtle" />
 				<label class="sr-only" for={addFormIds.filterQuery}>{$t("Filter resources")}</label>
 				<input id={addFormIds.filterQuery} class="gh-input pl-9 h-9" placeholder={$t("Filter resources...")} bind:value={searchQuery} />
 			</div>
@@ -430,7 +436,7 @@
 		{#if activeTab === "nodes"}
 				{#if filteredNodes.length === 0}
 					<div class="blankslate">
-						<Network class="h-10 w-10 text-fg-subtle mb-3" />
+						<Octicon icon={server} className="mb-3 h-10 w-10 text-fg-subtle" />
 						<h3 class="text-lg font-bold">{$t("No nodes found")}</h3>
 						<p class="text-fg-muted text-sm mb-4">{$t("Add a single node or import a batch to get started.")}</p>
 						<button type="button" class="gh-btn" on:click={() => (isAddModalOpen = true)}>{$t("Create node")}</button>
@@ -441,7 +447,7 @@
 							<div class="flex items-start justify-between gap-4">
 								<div class="flex items-start gap-3 min-w-0">
 									<button type="button" class={cn("mt-1 flex h-5 w-5 shrink-0 items-center justify-center rounded-md border", node.enabled ? "bg-accent-emphasis border-accent-emphasis text-white" : "border-border-default bg-canvas-default")} on:click={() => toggleEnabled(node.id, "node")} aria-label={$t(node.enabled ? "Disable node" : "Enable node")}>
-										{#if node.enabled}<Check class="h-3.5 w-3.5" />{/if}
+										{#if node.enabled}<Octicon icon={check} className="h-3.5 w-3.5" />{/if}
 									</button>
 									<div class="flex flex-col gap-1 min-w-0">
 										<div class="flex items-center gap-2">
@@ -449,19 +455,19 @@
 											<span class="px-1.5 py-0.5 rounded border border-border-default bg-canvas-subtle text-[10px] font-black uppercase tracking-tight text-fg-muted">{node.type}</span>
 										</div>
 										<code class="text-[11px] text-fg-muted truncate font-mono bg-canvas-subtle px-1 rounded">{node.raw}</code>
-									{#if node.tags.length > 0}
-										<div class="flex flex-wrap gap-1 mt-1">
-											{#each node.tags as tag}
-												<span class="badge"><Tag class="h-3 w-3 mr-1" />{tag.label}</span>
-											{/each}
-										</div>
-									{/if}
+										{#if node.tags.length > 0}
+											<div class="flex flex-wrap gap-1 mt-1">
+												{#each node.tags as tag}
+													<span class="badge"><Octicon icon={tag} className="mr-1 h-3 w-3" />{tag.label}</span>
+												{/each}
+											</div>
+										{/if}
 								</div>
 							</div>
 								<div class="flex items-center gap-1 shrink-0 opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100">
-									<button type="button" class="gh-btn gh-btn-sm" on:click={() => startEditNode(node)} aria-label={$t("Edit node")}><Edit3 class="h-3.5 w-3.5" /></button>
-									<button type="button" class="gh-btn gh-btn-sm" on:click={() => copy(node.raw)} aria-label={$t("Copy URI")}><Copy class="h-3.5 w-3.5" /></button>
-									<button type="button" class="gh-btn gh-btn-sm gh-btn-danger" on:click={() => remove(node.id, "node", node.name)} aria-label={$t("Delete node")}><Trash2 class="h-3.5 w-3.5" /></button>
+									<button type="button" class="gh-btn gh-btn-sm" on:click={() => startEditNode(node)} aria-label={$t("Edit node")}><Octicon icon={pencil} className="h-3.5 w-3.5" /></button>
+									<button type="button" class="gh-btn gh-btn-sm" on:click={() => copy(node.raw)} aria-label={$t("Copy URI")}><Octicon icon={copyIcon} className="h-3.5 w-3.5" /></button>
+									<button type="button" class="gh-btn gh-btn-sm gh-btn-danger" on:click={() => remove(node.id, "node", node.name)} aria-label={$t("Delete node")}><Octicon icon={trash} className="h-3.5 w-3.5" /></button>
 								</div>
 							</div>
 
@@ -491,7 +497,7 @@
 									</div>
 									<div class="flex justify-end gap-2">
 										<button type="button" class="gh-btn gh-btn-sm" on:click={() => (expandedId = null)}>{$t("Cancel")}</button>
-										<button type="button" class="gh-btn gh-btn-sm gh-btn-primary" on:click={() => saveEditNode(node.id)}><Save class="h-3 w-3 mr-1" />{$t("Save")}</button>
+										<button type="button" class="gh-btn gh-btn-sm gh-btn-primary" on:click={() => saveEditNode(node.id)}><Octicon icon={save} className="mr-1 h-3 w-3" />{$t("Save")}</button>
 									</div>
 								</div>
 							{/if}
@@ -501,7 +507,7 @@
 		{:else}
 				{#if filteredSubscriptions.length === 0}
 					<div class="blankslate">
-						<LinkIcon class="h-10 w-10 text-fg-subtle mb-3" />
+						<Octicon icon={link} className="mb-3 h-10 w-10 text-fg-subtle" />
 						<h3 class="text-lg font-bold">{$t("No subscriptions found")}</h3>
 						<p class="text-fg-muted text-sm mb-4">{$t("Subscribe to a link to auto-fetch nodes.")}</p>
 						<button type="button" class="gh-btn" on:click={() => (isAddModalOpen = true)}>{$t("Add subscription")}</button>
@@ -512,28 +518,28 @@
 							<div class="flex items-start justify-between gap-4">
 								<div class="flex items-start gap-3 min-w-0">
 									<button type="button" class={cn("mt-1 flex h-5 w-5 shrink-0 items-center justify-center rounded-md border", sub.enabled ? "bg-[color:var(--success-emphasis)] border-[color:var(--success-emphasis)] text-white" : "border-border-default bg-canvas-default")} on:click={() => toggleEnabled(sub.id, "sub")} aria-label={$t(sub.enabled ? "Disable subscription" : "Enable subscription")}>
-										{#if sub.enabled}<Check class="h-3.5 w-3.5" />{/if}
+										{#if sub.enabled}<Octicon icon={check} className="h-3.5 w-3.5" />{/if}
 									</button>
 									<div class="flex flex-col gap-1 min-w-0">
 										<button type="button" class="gh-link truncate text-left font-semibold" on:click={() => startEditSub(sub)}>{sub.name}</button>
 										<div class="flex items-center gap-2 text-[11px] text-fg-muted">
-											<ExternalLink class="h-3 w-3" />
+											<Octicon icon={linkExternal} className="h-3 w-3" />
 											<span class="truncate">{sub.url}</span>
-									</div>
-									{#if sub.tags.length > 0}
-										<div class="flex flex-wrap gap-1 mt-1">
-											{#each sub.tags as tag}
-												<span class="badge"><Tag class="h-3 w-3 mr-1" />{tag.label}</span>
-											{/each}
 										</div>
-									{/if}
+										{#if sub.tags.length > 0}
+											<div class="flex flex-wrap gap-1 mt-1">
+												{#each sub.tags as tag}
+													<span class="badge"><Octicon icon={tag} className="mr-1 h-3 w-3" />{tag.label}</span>
+												{/each}
+											</div>
+										{/if}
 								</div>
 							</div>
 								<div class="flex items-center gap-1 shrink-0 opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100">
-									<button type="button" class="gh-btn gh-btn-sm" on:click={() => openSubscriptionPreview(sub)} aria-label={$t("Preview nodes")}><Eye class="h-3.5 w-3.5" /></button>
-									<button type="button" class="gh-btn gh-btn-sm" on:click={() => startEditSub(sub)} aria-label={$t("Edit subscription")}><Edit3 class="h-3.5 w-3.5" /></button>
-									<button type="button" class="gh-btn gh-btn-sm" on:click={() => copy(sub.url)} aria-label={$t("Copy URL")}><Copy class="h-3.5 w-3.5" /></button>
-									<button type="button" class="gh-btn gh-btn-sm gh-btn-danger" on:click={() => remove(sub.id, "sub", sub.name)} aria-label={$t("Delete subscription")}><Trash2 class="h-3.5 w-3.5" /></button>
+									<button type="button" class="gh-btn gh-btn-sm" on:click={() => openSubscriptionPreview(sub)} aria-label={$t("Preview nodes")}><Octicon icon={eye} className="h-3.5 w-3.5" /></button>
+									<button type="button" class="gh-btn gh-btn-sm" on:click={() => startEditSub(sub)} aria-label={$t("Edit subscription")}><Octicon icon={pencil} className="h-3.5 w-3.5" /></button>
+									<button type="button" class="gh-btn gh-btn-sm" on:click={() => copy(sub.url)} aria-label={$t("Copy URL")}><Octicon icon={copyIcon} className="h-3.5 w-3.5" /></button>
+									<button type="button" class="gh-btn gh-btn-sm gh-btn-danger" on:click={() => remove(sub.id, "sub", sub.name)} aria-label={$t("Delete subscription")}><Octicon icon={trash} className="h-3.5 w-3.5" /></button>
 								</div>
 							</div>
 
@@ -556,7 +562,7 @@
 									</div>
 									<div class="flex justify-end gap-2">
 										<button type="button" class="gh-btn gh-btn-sm" on:click={() => (expandedId = null)}>{$t("Cancel")}</button>
-										<button type="button" class="gh-btn gh-btn-sm gh-btn-primary" on:click={() => saveEditSub(sub.id)}><Save class="h-3 w-3 mr-1" />{$t("Save")}</button>
+										<button type="button" class="gh-btn gh-btn-sm gh-btn-primary" on:click={() => saveEditSub(sub.id)}><Octicon icon={save} className="mr-1 h-3 w-3" />{$t("Save")}</button>
 									</div>
 								</div>
 							{/if}
@@ -576,25 +582,25 @@
 			<div class="relative w-full max-w-2xl gh-box shadow-2xl flex flex-col max-h-[80vh]" in:fly={{ y: 20 }}>
 				<div class="gh-box-header">
 					<div class="flex items-center gap-2">
-						<Eye class="h-4 w-4" />
+						<Octicon icon={eye} className="h-4 w-4" />
 						<span>{$t("Subscription Preview")}</span>
 						{#if sub}<span class="text-xs text-fg-muted font-normal">({sub.name})</span>{/if}
 					</div>
-					<button type="button" class="gh-icon-button h-7 w-7" on:click={closeSubscriptionPreview} aria-label={$t("Close subscription preview")}><X class="h-4 w-4" /></button>
+					<button type="button" class="gh-icon-button h-7 w-7" on:click={closeSubscriptionPreview} aria-label={$t("Close subscription preview")}><Octicon icon={x} className="h-4 w-4" /></button>
 				</div>
 			
 			<div class="p-4 bg-canvas-default overflow-y-auto flex-1">
-				{#if cache?.status === 'loading'}
-					<div class="flex flex-col items-center justify-center py-12 gap-3 text-fg-muted">
-						<RefreshCw class="h-8 w-8 animate-spin" />
-						<p>{$t("Fetching subscription content...")}</p>
-					</div>
-				{:else if cache?.status === 'error'}
-					<div class="p-4 rounded-md bg-red-50 border border-red-200 text-red-800 flex items-start gap-3">
-						<AlertCircle class="h-5 w-5 shrink-0 mt-0.5" />
-						<div>
-							<p class="font-bold">{$t("Failed to load subscription")}</p>
-							<p class="text-sm opacity-80">{cache.error}</p>
+					{#if cache?.status === 'loading'}
+						<div class="flex flex-col items-center justify-center py-12 gap-3 text-fg-muted">
+							<Octicon icon={sync} className="h-8 w-8 animate-spin" />
+							<p>{$t("Fetching subscription content...")}</p>
+						</div>
+					{:else if cache?.status === 'error'}
+						<div class="p-4 rounded-md bg-red-50 border border-red-200 text-red-800 flex items-start gap-3">
+							<Octicon icon={alert} className="mt-0.5 h-5 w-5 shrink-0" />
+							<div>
+								<p class="font-bold">{$t("Failed to load subscription")}</p>
+								<p class="text-sm opacity-80">{cache.error}</p>
 						</div>
 					</div>
 				{:else if cache?.status === 'ready'}
@@ -610,7 +616,7 @@
 											<span class="text-xs font-bold truncate">{node.name}</span>
 											<span class="px-1 py-0.5 rounded bg-canvas-default border border-border-default text-[9px] font-black uppercase text-fg-muted">{node.type}</span>
 										</div>
-										<button type="button" class="gh-btn gh-btn-sm opacity-100 sm:opacity-0 sm:group-hover/item:opacity-100" on:click={() => copy(node.raw)} aria-label={$t("Copy node URI")}><Copy class="h-3 w-3" /></button>
+										<button type="button" class="gh-btn gh-btn-sm opacity-100 sm:opacity-0 sm:group-hover/item:opacity-100" on:click={() => copy(node.raw)} aria-label={$t("Copy node URI")}><Octicon icon={copyIcon} className="h-3 w-3" /></button>
 									</div>
 									<code class="block mt-1 text-[10px] font-mono text-fg-muted truncate">{node.raw}</code>
 								</div>

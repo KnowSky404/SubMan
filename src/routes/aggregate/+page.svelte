@@ -1,52 +1,46 @@
 <script lang="ts">
-	import { t } from "$lib/i18n";
-	import {
-		appState,
-		removeAggregate,
-		removePublishTarget,
-		upsertAggregate,
-		upsertPublishTarget
-	} from "$lib/stores/app";
-	import { authState } from "$lib/stores/auth";
-	import { BUILT_IN_REGION_FLAG_RULES, buildAggregateOutput, regionCodeToFlagEmoji } from "$lib/aggregate";
-	import { createGist, toStableGistRawUrl, updateGist } from "$lib/gist";
-	import { exportSyncState } from "$lib/serialization";
-	import { WORKSPACE_FILE } from "$lib/workspace";
-	import { createId } from "$lib/utils/id";
-	import { nowIso } from "$lib/utils/time";
-	import { requestConfirm } from "$lib/stores/confirm";
-	import { showToast } from "$lib/stores/toast";
-	import { cn } from "$lib/utils/cn";
-	import { 
-		Zap, 
-		Plus, 
-		Save, 
-		Trash2, 
-		CloudUpload, 
-		Copy, 
-		Eye, 
-		Settings2, 
-		FileText, 
-		CheckCircle2, 
-		AlertCircle,
-		RefreshCw,
-		Globe,
-		ExternalLink,
-		Search,
-		Database,
-		X,
-		Info,
-		ChevronDown,
-		Filter,
-		SquareCheck,
-		Square,
-		ChevronUp,
-		ListFilter,
-		GripVertical,
-		Flag
-	} from "lucide-svelte";
-	import { fade, slide, fly } from "svelte/transition";
-	import { dndzone, type DndEvent } from "svelte-dnd-action";
+import { t } from "$lib/i18n";
+import {
+	appState,
+	removeAggregate,
+	removePublishTarget,
+	upsertAggregate,
+	upsertPublishTarget,
+} from "$lib/stores/app";
+import { authState } from "$lib/stores/auth";
+import {
+	BUILT_IN_REGION_FLAG_RULES,
+	buildAggregateOutput,
+	regionCodeToFlagEmoji,
+} from "$lib/aggregate";
+import { createGist, toStableGistRawUrl, updateGist } from "$lib/gist";
+import { exportSyncState } from "$lib/serialization";
+import { WORKSPACE_FILE } from "$lib/workspace";
+import { createId } from "$lib/utils/id";
+import { nowIso } from "$lib/utils/time";
+import { requestConfirm } from "$lib/stores/confirm";
+import { showToast } from "$lib/stores/toast";
+import { cn } from "$lib/utils/cn";
+import Octicon from "$lib/components/Octicon.svelte";
+import {
+	checkCircle,
+	checklist,
+	copy,
+	database,
+	eye,
+	fileCode,
+	globe,
+	search,
+	sliders,
+	sync,
+	trash,
+	upload,
+	workflow,
+	x,
+} from "$lib/octicons";
+import { GripVertical } from "lucide-svelte";
+import { fade, slide, fly } from "svelte/transition";
+import { dndzone, type DndEvent } from "svelte-dnd-action";
 
 	let ruleName = "";
 	let selectedNodeIds: string[] = [];
@@ -310,7 +304,7 @@
 <div class="flex flex-col gap-6">
 	<div class="gh-page-header">
 		<div class="flex items-center gap-3">
-			<Zap class="h-6 w-6 text-fg-muted" />
+			<Octicon icon={workflow} className="h-6 w-6 text-fg-muted" />
 			<div>
 				<h1 class="text-[2rem] font-semibold leading-tight">{$t("Aggregation Builder")}</h1>
 				<p class="gh-page-subtitle">{$t("Combine node sources, preview the result, and publish output files back into the workspace gist.")}</p>
@@ -324,7 +318,7 @@
 			<div class="gh-box shadow-sm !overflow-visible">
 				<div class="gh-box-header">
 					<div class="flex items-center gap-2">
-						<Settings2 class="h-4 w-4" />
+						<Octicon icon={sliders} className="h-4 w-4" />
 						<span>{$t("Rule Definition")}</span>
 					</div>
 					<select class="gh-select gh-select-sm w-48" value={editingRuleId} on:change={(e) => { const id = e.currentTarget.value; id ? loadRule($appState.aggregates.find(r => r.id === id)) : resetRuleForm(); }}>
@@ -369,14 +363,14 @@
 								<div class="absolute top-full left-0 mt-1 w-full min-w-[280px] gh-box shadow-xl z-[120] bg-canvas-default" transition:slide={{ duration: 150 }}>
 									<div class="p-2 border-b border-border-default bg-canvas-subtle">
 										<div class="relative">
-											<Search class="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-fg-subtle" />
+											<Octicon icon={search} className="absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-fg-subtle" />
 											<label class="sr-only" for={fieldIds.nodeSearch}>{$t("Filter nodes")}</label>
 											<input id={fieldIds.nodeSearch} class="gh-input pl-8 h-7 text-xs w-full" placeholder={$t("Filter nodes...")} bind:value={nodeSearchQuery} />
 										</div>
 									</div>
 									<div class="max-h-[400px] overflow-y-auto p-1 flex flex-col gap-0.5">
 										<button type="button" class="flex items-center gap-2 p-1.5 rounded hover:bg-canvas-subtle text-xs text-accent-fg font-semibold w-full text-left" on:click={selectAllNodes}>
-											<ListFilter class="h-3.5 w-3.5" /> {$t("Toggle All Visible")}
+											<Octicon icon={checklist} className="h-3.5 w-3.5" /> {$t("Toggle All Visible")}
 										</button>
 										<div class="border-t border-border-default my-1"></div>
 										{#each filteredNodesInRule as node}
@@ -414,14 +408,14 @@
 								<div class="absolute top-full left-0 mt-1 w-full min-w-[280px] gh-box shadow-xl z-[120] bg-canvas-default" transition:slide={{ duration: 150 }}>
 									<div class="p-2 border-b border-border-default bg-canvas-subtle">
 										<div class="relative">
-											<Search class="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-fg-subtle" />
+											<Octicon icon={search} className="absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-fg-subtle" />
 											<label class="sr-only" for={fieldIds.subSearch}>{$t("Filter subscriptions")}</label>
 											<input id={fieldIds.subSearch} class="gh-input pl-8 h-7 text-xs w-full" placeholder={$t("Filter subs...")} bind:value={subSearchQuery} />
 										</div>
 									</div>
 									<div class="max-h-[400px] overflow-y-auto p-1 flex flex-col gap-0.5">
 										<button type="button" class="flex items-center gap-2 p-1.5 rounded hover:bg-canvas-subtle text-xs text-accent-fg font-semibold w-full text-left" on:click={selectAllSubs}>
-											<ListFilter class="h-3.5 w-3.5" /> {$t("Toggle All Visible")}
+											<Octicon icon={checklist} className="h-3.5 w-3.5" /> {$t("Toggle All Visible")}
 										</button>
 										<div class="border-t border-border-default my-1"></div>
 										{#each filteredSubsInRule as sub}
@@ -469,7 +463,6 @@
 							<textarea class="gh-input gh-textarea h-20 text-xs font-mono" placeholder="e.g.\nHK\nSG" bind:value={sortPriority}></textarea>
 						</div>
 					</div>
-
 					<!-- Rename Rules -->
 					<div class="flex flex-col gap-1.5">
 						<label class="text-sm font-semibold">{$t("Rename Rules (old=new per line)")}</label>
@@ -482,8 +475,8 @@
 					<!-- Region Flags -->
 					<div class="flex flex-col gap-3">
 						<div class="flex items-center justify-between">
-							<label class="text-sm font-semibold flex items-center gap-2"><Flag class="h-4 w-4" />{$t("Region Flag Map")}</label>
-							<button class="text-xs text-accent-fg hover:underline" on:click={() => (showBuiltInRegionMap = true)}>{$t("Browse Icons")}</button>
+							<label class="text-sm font-semibold flex items-center gap-2"><Octicon icon={globe} className="h-4 w-4" />{$t("Region Flag Map")}</label>
+							<button type="button" class="text-xs text-accent-fg hover:underline" on:click={() => (showBuiltInRegionMap = true)}>{$t("Browse Icons")}</button>
 						</div>
 						<textarea class="gh-input gh-textarea font-mono text-xs h-32" placeholder="US = US, USA, America" bind:value={customRegionFlagMap}></textarea>
 						
@@ -498,13 +491,13 @@
 				</div>
 				<div class="p-4 bg-canvas-subtle border-t border-border-default flex justify-end gap-2">
 					{#if editingRuleId}
-						<button type="button" class="gh-btn gh-btn-danger" on:click={() => { removeAggregate(editingRuleId); resetRuleForm(); }} aria-label={$t("Delete current rule")}><Trash2 class="h-4 w-4" /></button>
+						<button type="button" class="gh-btn gh-btn-danger" on:click={() => { removeAggregate(editingRuleId); resetRuleForm(); }} aria-label={$t("Delete current rule")}><Octicon icon={trash} className="h-4 w-4" /></button>
 					{/if}
 					<button type="button" class="gh-btn" on:click={buildPreview} disabled={previewLoading}>
-						{#if previewLoading}<RefreshCw class="h-4 w-4 animate-spin mr-1" />{:else}<Eye class="h-4 w-4 mr-1" />{/if}
+						{#if previewLoading}<Octicon icon={sync} className="mr-1 h-4 w-4 animate-spin" />{:else}<Octicon icon={eye} className="mr-1 h-4 w-4" />{/if}
 						{$t("Preview Output")}
 					</button>
-					<button type="button" class="gh-btn gh-btn-primary px-8" on:click={saveRule}><Save class="h-4 w-4 mr-1" />{$t("Save Rule")}</button>
+					<button type="button" class="gh-btn gh-btn-primary px-8" on:click={saveRule}><Octicon icon={checkCircle} className="mr-1 h-4 w-4" />{$t("Save Rule")}</button>
 				</div>
 			</div>
 
@@ -512,11 +505,11 @@
 				<div class="gh-box shadow-sm" transition:slide>
 					<div class="gh-box-header">
 						<div class="flex items-center gap-2">
-							<FileText class="h-4 w-4" />
+							<Octicon icon={fileCode} className="h-4 w-4" />
 							<span>{$t("Preview Results")}</span>
 							<span class="badge ml-2">{previewEntries.length} {$t("Nodes")}</span>
 						</div>
-						<button type="button" class="gh-icon-button h-7 w-7" on:click={() => (previewEntries = [])} aria-label={$t("Close preview results")}><X class="h-4 w-4" /></button>
+						<button type="button" class="gh-icon-button h-7 w-7" on:click={() => (previewEntries = [])} aria-label={$t("Close preview results")}><Octicon icon={x} className="h-4 w-4" /></button>
 					</div>
 					<div 
 						class="p-2 bg-canvas-default max-h-96 overflow-y-auto flex flex-col gap-1"
@@ -533,7 +526,7 @@
 									<span class="px-1.5 py-0.5 rounded bg-canvas-subtle border border-border-default text-[9px] font-black uppercase text-fg-muted shrink-0">{entry.protocol}</span>
 									<span class="text-xs font-bold truncate">{entry.name}</span>
 								</div>
-								<button type="button" class="gh-btn gh-btn-sm opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity" on:click={() => copyLine(entry.line)} aria-label={$t("Copy preview line")}><Copy class="h-3.5 w-3.5" /></button>
+								<button type="button" class="gh-btn gh-btn-sm opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity" on:click={() => copyLine(entry.line)} aria-label={$t("Copy preview line")}><Octicon icon={copy} className="h-3.5 w-3.5" /></button>
 							</div>
 						{/each}
 					</div>
@@ -545,7 +538,7 @@
 		<div class="flex flex-col gap-6">
 				<div class="gh-box shadow-sm !overflow-visible">
 					<div class="gh-box-header text-sm">
-						<div class="flex items-center gap-2"><CloudUpload class="h-4 w-4" />{$t("Publish to Gist")}</div>
+						<div class="flex items-center gap-2"><Octicon icon={upload} className="h-4 w-4" />{$t("Publish to Gist")}</div>
 					</div>
 					<div class="p-4 bg-canvas-default flex flex-col gap-4">
 						<div class="flex flex-col gap-1.5">
@@ -576,26 +569,26 @@
 						<div class="flex flex-col gap-2 pt-2 border-t border-border-default">
 							<button type="button" class="gh-btn w-full" on:click={saveTarget}>{$t("Save Target Info")}</button>
 							<button type="button" class="gh-btn gh-btn-primary w-full py-3 h-auto" on:click={publish} disabled={publishing || !$authState.token}>
-								{#if publishing}<RefreshCw class="h-4 w-4 animate-spin" />{:else}<CloudUpload class="h-4 w-4" />{/if}
+								{#if publishing}<Octicon icon={sync} className="h-4 w-4 animate-spin" />{:else}<Octicon icon={upload} className="h-4 w-4" />{/if}
 								{$t("Publish Now")}
 							</button>
-					</div>
+						</div>
 
-					{#if publishUrl}
-						<div class="mt-2 p-3 rounded bg-green-50 dark:bg-green-950/20 border border-green-200 dark:border-green-800 flex flex-col gap-2" in:fade>
-							<div class="flex items-center justify-between text-green-800 dark:text-green-400 text-[10px] font-bold uppercase">
-								<span>{$t("Live Link")}</span>
-								<CheckCircle2 class="h-3 w-3" />
-							</div>
-							<code class="text-[10px] break-all font-mono text-green-900 dark:text-green-300 opacity-80">{publishUrl}</code>
-								<button type="button" class="gh-btn gh-btn-sm" on:click={async () => { 
-									try {
+						{#if publishUrl}
+							<div class="mt-2 p-3 rounded bg-green-50 dark:bg-green-950/20 border border-green-200 dark:border-green-900 flex flex-col gap-2" in:fade>
+								<div class="flex items-center justify-between text-green-800 dark:text-green-400 text-[10px] font-bold uppercase">
+									<span>{$t("Live Link")}</span>
+									<Octicon icon={checkCircle} className="h-3 w-3" />
+								</div>
+								<code class="text-[10px] break-all font-mono text-green-900 dark:text-green-300 opacity-80">{publishUrl}</code>
+									<button type="button" class="gh-btn gh-btn-sm" on:click={async () => { 
+										try {
 										await navigator.clipboard.writeText(publishUrl); 
 										showToast($t("Link copied to clipboard"), 'success'); 
 								} catch {
 									showToast($t("Copy failed"), 'error');
 								}
-							}}><Copy class="h-3 w-3" />{$t("Copy")}</button>
+							}}><Octicon icon={copy} className="h-3 w-3" />{$t("Copy")}</button>
 						</div>
 					{/if}
 				</div>
@@ -603,7 +596,7 @@
 
 			{#if !$authState.token}
 				<div class="blankslate p-4 py-6">
-					<Database class="h-8 w-8 text-fg-subtle mb-2" />
+					<Octicon icon={database} className="mb-2 h-8 w-8 text-fg-subtle" />
 					<p class="text-xs text-fg-muted mb-3 leading-relaxed">{$t("Connect GitHub to enable cloud sync and auto-publishing.")}</p>
 					<a href="/auth" class="gh-btn gh-btn-sm">{$t("Go to Settings")}</a>
 				</div>
@@ -613,24 +606,24 @@
 </div>
 
 <!-- Region Flags Browser Modal -->
-{#if showBuiltInRegionMap}
-	<div class="fixed inset-0 z-[150] flex items-center justify-center p-4">
-		<div class="fixed inset-0 bg-black/60 backdrop-blur-sm" on:click={() => (showBuiltInRegionMap = false)}></div>
-		<div class="relative w-full max-w-4xl gh-box shadow-2xl flex flex-col max-h-[85vh] bg-canvas-default" in:fly={{ y: 20 }}>
-			<div class="gh-box-header">
-				<div class="flex items-center gap-2">
-					<Flag class="h-4 w-4" />
-					<span>{$t("Built-in Region Flag Rules")}</span>
+	{#if showBuiltInRegionMap}
+		<div class="fixed inset-0 z-[150] flex items-center justify-center p-4">
+			<div class="fixed inset-0 bg-black/60 backdrop-blur-sm" on:click={() => (showBuiltInRegionMap = false)}></div>
+			<div class="relative w-full max-w-4xl gh-box shadow-2xl flex flex-col max-h-[85vh] bg-canvas-default" in:fly={{ y: 20 }}>
+				<div class="gh-box-header">
+					<div class="flex items-center gap-2">
+						<Octicon icon={globe} className="h-4 w-4" />
+						<span>{$t("Built-in Region Flag Rules")}</span>
+					</div>
+					<button type="button" class="hover:text-accent-fg" on:click={() => (showBuiltInRegionMap = false)}><Octicon icon={x} className="h-4 w-4" /></button>
 				</div>
-				<button class="hover:text-accent-fg" on:click={() => (showBuiltInRegionMap = false)}><X class="h-4 w-4" /></button>
-			</div>
-			
-			<div class="p-4 border-b border-border-default bg-canvas-subtle">
-				<div class="relative">
-					<Search class="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-fg-subtle" />
-					<input class="gh-input pl-9 h-10" placeholder={$t("Search code or keyword...")} bind:value={builtInRegionMapSearch} />
+				
+				<div class="p-4 border-b border-border-default bg-canvas-subtle">
+					<div class="relative">
+						<Octicon icon={search} className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-fg-subtle" />
+						<input class="gh-input pl-9 h-10" placeholder={$t("Search code or keyword...")} bind:value={builtInRegionMapSearch} />
+					</div>
 				</div>
-			</div>
 
 			<div class="flex-1 overflow-y-auto p-4">
 				<div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
