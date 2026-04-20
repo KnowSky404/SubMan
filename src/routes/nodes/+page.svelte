@@ -39,7 +39,7 @@ import {
 	search,
 	server,
 	sync,
-	tag,
+	tag as tagIcon,
 	trash,
 	x,
 } from "$lib/octicons";
@@ -508,8 +508,8 @@ import { slide, fly } from "svelte/transition";
 										<code class="gh-list-meta-code">{node.raw}</code>
 										{#if node.tags.length > 0}
 											<div class="flex flex-wrap gap-1">
-												{#each node.tags as tag}
-													<span class="badge"><Octicon icon={tag} className="mr-1 h-3 w-3" />{tag.label}</span>
+												{#each node.tags as nodeTag}
+													<span class="badge"><Octicon icon={tagIcon} className="mr-1 h-3 w-3" />{nodeTag.label}</span>
 												{/each}
 											</div>
 										{/if}
@@ -589,8 +589,8 @@ import { slide, fly } from "svelte/transition";
 										</div>
 										{#if sub.tags.length > 0}
 											<div class="flex flex-wrap gap-1">
-												{#each sub.tags as tag}
-													<span class="badge"><Octicon icon={tag} className="mr-1 h-3 w-3" />{tag.label}</span>
+												{#each sub.tags as subTag}
+													<span class="badge"><Octicon icon={tagIcon} className="mr-1 h-3 w-3" />{subTag.label}</span>
 												{/each}
 											</div>
 										{/if}
