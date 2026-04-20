@@ -14,7 +14,7 @@ import {
 	code,
 	copy,
 	database,
-	file,
+	file as fileIcon,
 	linkExternal,
 	repo,
 	shieldCheck,
@@ -187,22 +187,22 @@ async function deleteFile(filename: string) {
 						<span class="text-right">{$t("Size")}</span>
 						<span class="text-right">{$t("Actions")}</span>
 					</div>
-					{#each workspace.files as file}
+					{#each workspace.files as gistFile}
 						<div class="gh-box-row group">
 							<div class="flex flex-col gap-2 sm:grid sm:grid-cols-[minmax(0,1.6fr)_120px_96px_auto] sm:items-center sm:gap-4">
 								<div class="flex min-w-0 items-start gap-3">
-									{#if file.filename === WORKSPACE_FILE}
+									{#if gistFile.filename === WORKSPACE_FILE}
 										<Octicon icon={shieldCheck} className="mt-0.5 h-4 w-4 shrink-0 text-accent-fg" />
 									{:else}
-										<Octicon icon={file} className="mt-0.5 h-4 w-4 shrink-0 text-fg-muted" />
+										<Octicon icon={fileIcon} className="mt-0.5 h-4 w-4 shrink-0 text-fg-muted" />
 									{/if}
 									<div class="min-w-0 space-y-1">
 										<div class="flex items-center gap-2 min-w-0">
-											<span class="truncate text-sm font-semibold text-accent-fg hover:underline cursor-pointer">{file.filename}</span>
+											<span class="truncate text-sm font-semibold text-accent-fg hover:underline cursor-pointer">{gistFile.filename}</span>
 										</div>
 										<div class="gh-list-meta">
-											{#if file.rawUrl}
-												<span class="gh-list-meta-code">{file.rawUrl.replace(/^https?:\/\//, "")}</span>
+											{#if gistFile.rawUrl}
+												<span class="gh-list-meta-code">{gistFile.rawUrl.replace(/^https?:\/\//, "")}</span>
 											{:else}
 												<span>{$t("No raw URL")}</span>
 											{/if}
@@ -211,22 +211,22 @@ async function deleteFile(filename: string) {
 								</div>
 
 								<div class="sm:justify-self-start">
-									<span class={cn("badge", file.filename === WORKSPACE_FILE ? "badge-success" : "")}>
-										{file.filename === WORKSPACE_FILE ? $t("Config") : $t("Published")}
+									<span class={cn("badge", gistFile.filename === WORKSPACE_FILE ? "badge-success" : "")}>
+										{gistFile.filename === WORKSPACE_FILE ? $t("Config") : $t("Published")}
 									</span>
 								</div>
 
 								<div class="text-[11px] text-fg-subtle sm:text-right">
-									{file.size} bytes
+									{gistFile.size} bytes
 								</div>
 
 								<div class="flex items-center gap-1 opacity-100 transition-opacity sm:justify-self-end sm:opacity-0 sm:group-hover:opacity-100">
-									{#if file.rawUrl}
-										<button class="gh-btn gh-btn-sm" on:click={() => copyLink(file.rawUrl)} title={$t("Copy Raw URL")}><Octicon icon={copy} className="h-3.5 w-3.5" /></button>
-										<a href={file.rawUrl} target="_blank" class="gh-btn gh-btn-sm" title={$t("Open Raw")}><Octicon icon={linkExternal} className="h-3.5 w-3.5" /></a>
+									{#if gistFile.rawUrl}
+										<button class="gh-btn gh-btn-sm" on:click={() => copyLink(gistFile.rawUrl)} title={$t("Copy Raw URL")}><Octicon icon={copy} className="h-3.5 w-3.5" /></button>
+										<a href={gistFile.rawUrl} target="_blank" class="gh-btn gh-btn-sm" title={$t("Open Raw")}><Octicon icon={linkExternal} className="h-3.5 w-3.5" /></a>
 									{/if}
-									{#if file.filename !== WORKSPACE_FILE}
-										<button class="gh-btn gh-btn-sm gh-btn-danger" on:click={() => deleteFile(file.filename)} disabled={deleting} title={$t("Delete")}><Octicon icon={trash} className="h-3.5 w-3.5" /></button>
+									{#if gistFile.filename !== WORKSPACE_FILE}
+										<button class="gh-btn gh-btn-sm gh-btn-danger" on:click={() => deleteFile(gistFile.filename)} disabled={deleting} title={$t("Delete")}><Octicon icon={trash} className="h-3.5 w-3.5" /></button>
 									{/if}
 								</div>
 							</div>
