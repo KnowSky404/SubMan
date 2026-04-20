@@ -137,7 +137,7 @@ onMount(() => {
 	<div class="app-repo-shell">
 		<div class="app-repo-inner">
 			<div class="app-repo-meta">
-				<div class="flex min-w-0 flex-col gap-2">
+				<div class="app-repo-main">
 					<div class="app-repo-title">
 						<Octicon icon={packageIcon} className="h-5 w-5 text-fg-muted" />
 						<a href={PROJECT_GITHUB_URL} target="_blank" rel="noreferrer" class="app-repo-title-owner">
@@ -160,26 +160,31 @@ onMount(() => {
 						</span>
 						<span class="truncate font-mono text-xs">{workspaceMetaText}</span>
 					</div>
-					<div class="gh-page-meta">
-						<span class="gh-page-meta-item">
-							<Octicon icon={server} className="h-3.5 w-3.5" />
-							{$t("{count} nodes", { count: $appState.nodes.length })}
-						</span>
-						<span class="gh-page-meta-item">
-							<Octicon icon={workflow} className="h-3.5 w-3.5" />
-							{$t("{count} rules", { count: $appState.aggregates.length })}
-						</span>
-						<span class="gh-page-meta-item">
-							<Octicon icon={code} className="h-3.5 w-3.5" />
-							{$t("{count} live links", { count: livePublishCount })}
-						</span>
-					</div>
 				</div>
 
-				<div class="app-repo-tools">
-					<a href="/auth" class={cn("gh-btn", !isWorkspaceConnected && "gh-btn-primary")}>
-						{isWorkspaceConnected ? $t("Manage Workspace") : $t("Setup GitHub")}
-					</a>
+				<div class="app-repo-side">
+					<div class="app-repo-side-meta">
+						<div class="gh-page-meta">
+							<span class="gh-page-meta-item">
+								<Octicon icon={server} className="h-3.5 w-3.5" />
+								{$t("{count} nodes", { count: $appState.nodes.length })}
+							</span>
+							<span class="gh-page-meta-item">
+								<Octicon icon={workflow} className="h-3.5 w-3.5" />
+								{$t("{count} rules", { count: $appState.aggregates.length })}
+							</span>
+							<span class="gh-page-meta-item">
+								<Octicon icon={code} className="h-3.5 w-3.5" />
+								{$t("{count} live links", { count: livePublishCount })}
+							</span>
+						</div>
+					</div>
+
+					<div class="app-repo-tools app-repo-tools-stack">
+						<a href="/auth" class={cn("gh-btn", !isWorkspaceConnected && "gh-btn-primary")}>
+							{isWorkspaceConnected ? $t("Manage Workspace") : $t("Setup GitHub")}
+						</a>
+					</div>
 				</div>
 			</div>
 

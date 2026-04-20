@@ -15,3 +15,17 @@ test("header theme switcher keeps icon and select in separate layout slots", () 
 	expect(layoutSource).toContain('class="gh-select gh-select-header"');
 	expect(layoutSource).not.toContain("absolute inset-y-0 left-0");
 });
+
+test("repo header renders stats in a dedicated right rail", () => {
+	expect(layoutSource).toContain('<div class="app-repo-main">');
+	expect(layoutSource).toContain('<div class="app-repo-side">');
+	expect(layoutSource).toContain('<div class="app-repo-side-meta">');
+	expect(layoutSource).toContain('class="app-repo-tools app-repo-tools-stack"');
+
+	const rightRailIndex = layoutSource.indexOf('<div class="app-repo-side">');
+	const statsIndex = layoutSource.indexOf('<div class="gh-page-meta">');
+	const titleIndex = layoutSource.indexOf('<div class="app-repo-title">');
+
+	expect(rightRailIndex).toBeGreaterThan(titleIndex);
+	expect(statsIndex).toBeGreaterThan(rightRailIndex);
+});

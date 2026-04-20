@@ -323,7 +323,7 @@ pre {
 .app-header-inner,
 .app-repo-inner,
 .app-main-container {
-	@apply mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8;
+	@apply mx-auto w-full max-w-[92rem] px-4 sm:px-6 lg:px-8;
 }
 
 .app-header-inner {
@@ -403,7 +403,19 @@ pre {
 }
 
 .app-repo-meta {
-	@apply flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between;
+	@apply flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between;
+}
+
+.app-repo-main {
+	@apply flex min-w-0 flex-1 flex-col gap-2;
+}
+
+.app-repo-side {
+	@apply flex w-full flex-col gap-3 lg:w-auto lg:min-w-[18rem] lg:max-w-[24rem] lg:items-end;
+}
+
+.app-repo-side-meta {
+	@apply flex w-full justify-start lg:justify-end;
 }
 
 .app-repo-title {
@@ -420,6 +432,10 @@ pre {
 
 .app-repo-tools {
 	@apply flex flex-wrap items-center gap-2;
+}
+
+.app-repo-tools-stack {
+	@apply w-full justify-start lg:w-auto lg:justify-end;
 }
 
 .app-main-container {
