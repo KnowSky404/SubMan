@@ -12,7 +12,7 @@ import { getGistFileContent, updateGist } from "$lib/gist";
 import { ensureWorkspaceGist, WORKSPACE_FILE } from "$lib/workspace";
 import { setSyncBaseline } from "$lib/sync";
 import { requestConfirm } from "$lib/stores/confirm";
-import { toastStore } from "$lib/stores/toast";
+import { showToast } from "$lib/stores/toast";
 import { cn } from "$lib/utils/cn";
 import Octicon from "$lib/components/Octicon.svelte";
 import {
@@ -52,7 +52,7 @@ function setStatus(
 	message: string,
 	type: "success" | "info" | "error" = "success",
 ) {
-	toastStore.show(message, type);
+	showToast(message, type);
 }
 
 async function handleTokenSave() {
