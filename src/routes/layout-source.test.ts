@@ -9,5 +9,8 @@ const layoutSource = readFileSync(
 
 test("header theme switcher keeps shared select chrome and fixed flex width", () => {
 	expect(layoutSource).toContain('<div class="relative shrink-0">');
-	expect(layoutSource).toContain('class="gh-select gh-select-header w-28 pl-8"');
+	expect(layoutSource).toContain(
+		'class="pointer-events-none absolute inset-y-0 left-0 flex w-9 items-center justify-center text-[color:var(--header-muted)]"',
+	);
+	expect(layoutSource).toContain('class="gh-select gh-select-header w-32 pl-10"');
 });
