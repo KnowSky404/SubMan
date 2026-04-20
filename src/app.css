@@ -353,9 +353,11 @@ pre {
 }
 
 .gh-select-header {
-	@apply h-8 rounded-md border px-2.5 pr-8 text-xs font-medium outline-none transition-colors;
+	@apply h-8 cursor-pointer appearance-none rounded-md border bg-no-repeat px-2.5 pr-8 text-xs font-medium outline-none transition-colors;
 	border-color: rgba(240, 246, 252, 0.14);
 	background-color: rgba(240, 246, 252, 0.04);
+	background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' width='16' height='16'%3E%3Cpath fill='%23c9d1d9' d='M4.427 7.427l3.396 3.396a.25.25 0 0 0 .354 0l3.396-3.396A.25.25 0 0 0 11.396 7H4.604a.25.25 0 0 0-.177.427Z'/%3E%3C/svg%3E");
+	background-position: right 8px center;
 	color: var(--header-text);
 }
 
