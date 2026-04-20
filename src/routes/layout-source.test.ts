@@ -30,9 +30,10 @@ test("repo header renders stats in a dedicated right rail", () => {
 	expect(statsIndex).toBeGreaterThan(rightRailIndex);
 });
 
-test("primary navigation derives active state from SvelteKit app state", () => {
+test("primary navigation reads pathname directly from SvelteKit app state", () => {
 	expect(layoutSource).toContain('import { page } from "$app/state";');
-	expect(layoutSource).not.toContain('import { page } from "$app/stores";');
-	expect(layoutSource).toContain("$: pathname = page.url.pathname;");
-	expect(layoutSource).not.toContain("$: pathname = $page.url.pathname;");
+	expect(layoutSource).not.toContain("import { page } from \"$app/stores\";");
+	expect(layoutSource).not.toContain("$: pathname =");
+	expect(layoutSource).toContain('class={cn("gh-underlinenav-item", isActive(page.url.pathname, item.href) && "gh-underlinenav-item-active")}');
+	expect(layoutSource).toContain('aria-current={isActive(page.url.pathname, item.href) ? "page" : undefined}');
 });

@@ -53,7 +53,6 @@ const themeOptions: {
 	{ value: "dark", label: "Dark", icon: moon },
 ];
 
-$: pathname = page.url.pathname;
 $: activeThemeOption =
 	themeOptions.find((option) => option.value === $themeMode) ?? themeOptions[0];
 $: isWorkspaceConnected = Boolean($authState.token && $appState.activeGistId);
@@ -64,7 +63,7 @@ $: livePublishCount = $appState.publishTargets.filter(
 	(target) => target.lastPublishedUrl,
 ).length;
 
-function isActive(href: string) {
+function isActive(pathname: string, href: string) {
 	return href === "/" ? pathname === "/" : pathname.startsWith(href);
 }
 
@@ -192,8 +191,8 @@ onMount(() => {
 				{#each navItems as item}
 					<a
 						href={item.href}
-						class={cn("gh-underlinenav-item", isActive(item.href) && "gh-underlinenav-item-active")}
-						aria-current={isActive(item.href) ? "page" : undefined}
+						class={cn("gh-underlinenav-item", isActive(page.url.pathname, item.href) && "gh-underlinenav-item-active")}
+						aria-current={isActive(page.url.pathname, item.href) ? "page" : undefined}
 					>
 						<Octicon icon={item.icon} className="h-4 w-4" />
 						<span>{$t(item.label)}</span>
