@@ -105,12 +105,12 @@ onMount(() => {
 					</span>
 				</div>
 
-				<div class="relative shrink-0">
-					<div class="pointer-events-none absolute inset-y-0 left-0 flex w-9 items-center justify-center text-[color:var(--header-muted)]">
+				<div class="gh-select-header-shell shrink-0">
+					<span class="gh-select-header-icon" aria-hidden="true">
 						<Octicon icon={activeThemeOption.icon} className="h-3.5 w-3.5" />
-					</div>
+					</span>
 					<select
-						class="gh-select gh-select-header w-32 pl-10"
+						class="gh-select gh-select-header"
 						value={$themeMode}
 						on:change={(event) => handleThemeChange(event.currentTarget.value as ThemeMode)}
 						aria-label={$t("Theme")}

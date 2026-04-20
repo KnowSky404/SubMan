@@ -7,10 +7,11 @@ const layoutSource = readFileSync(
 	"utf8",
 );
 
-test("header theme switcher keeps shared select chrome and fixed flex width", () => {
-	expect(layoutSource).toContain('<div class="relative shrink-0">');
+test("header theme switcher keeps icon and select in separate layout slots", () => {
+	expect(layoutSource).toContain('<div class="gh-select-header-shell shrink-0">');
 	expect(layoutSource).toContain(
-		'class="pointer-events-none absolute inset-y-0 left-0 flex w-9 items-center justify-center text-[color:var(--header-muted)]"',
+		'<span class="gh-select-header-icon" aria-hidden="true">',
 	);
-	expect(layoutSource).toContain('class="gh-select gh-select-header w-32 pl-10"');
+	expect(layoutSource).toContain('class="gh-select gh-select-header"');
+	expect(layoutSource).not.toContain("absolute inset-y-0 left-0");
 });
