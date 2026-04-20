@@ -29,3 +29,10 @@ test("repo header renders stats in a dedicated right rail", () => {
 	expect(rightRailIndex).toBeGreaterThan(titleIndex);
 	expect(statsIndex).toBeGreaterThan(rightRailIndex);
 });
+
+test("primary navigation derives active state from SvelteKit app state", () => {
+	expect(layoutSource).toContain('import { page } from "$app/state";');
+	expect(layoutSource).not.toContain('import { page } from "$app/stores";');
+	expect(layoutSource).toContain("$: pathname = page.url.pathname;");
+	expect(layoutSource).not.toContain("$: pathname = $page.url.pathname;");
+});

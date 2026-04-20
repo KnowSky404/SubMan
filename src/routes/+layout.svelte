@@ -1,7 +1,7 @@
 <script lang="ts">
 import "../app.css";
 import { onMount } from "svelte";
-import { page } from "$app/stores";
+import { page } from "$app/state";
 import { fade, fly } from "svelte/transition";
 import { t } from "$lib/i18n";
 import { appState } from "$lib/stores/app";
@@ -53,7 +53,7 @@ const themeOptions: {
 	{ value: "dark", label: "Dark", icon: moon },
 ];
 
-$: pathname = $page.url.pathname;
+$: pathname = page.url.pathname;
 $: activeThemeOption =
 	themeOptions.find((option) => option.value === $themeMode) ?? themeOptions[0];
 $: isWorkspaceConnected = Boolean($authState.token && $appState.activeGistId);
