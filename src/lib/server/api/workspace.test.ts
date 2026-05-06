@@ -1,7 +1,8 @@
 import { describe, expect, it } from "bun:test";
+import type { AppState } from "../../models";
 import { readStateFromWorkspaceContent } from "./workspace";
 
-const defaultState = {
+const defaultState: AppState = {
 	nodes: [],
 	subscriptions: [],
 	aggregates: [],
@@ -12,7 +13,7 @@ const defaultState = {
 	lastUpdated: "2026-01-01T00:00:00.000Z",
 };
 
-function exportSyncState(state: typeof defaultState): string {
+function exportSyncState(state: AppState): string {
 	return JSON.stringify({
 		version: 1,
 		exportedAt: "2026-05-06T00:00:00.000Z",

@@ -1,11 +1,12 @@
 const BEARER_PREFIX = "Bearer ";
 
-function toBytes(value: string): Uint8Array {
-	return new TextEncoder().encode(value);
-}
-
 async function sha256(value: string): Promise<ArrayBuffer> {
-	return crypto.subtle.digest("SHA-256", toBytes(value));
+	const bytes = new TextEncoder().encode(value);
+	const source = bytes.buffer.slice(
+		bytes.byteOffset,
+		bytes.byteOffset + bytes.byteLength,
+	);
+	return crypto.subtle.digest("SHA-256", source);
 }
 
 function equalBytes(left: ArrayBuffer, right: ArrayBuffer): boolean {
