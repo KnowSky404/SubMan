@@ -71,24 +71,51 @@ bun run dev:cf
 
 ## Server API
 SubMan can expose owner-operated API endpoints for backend scripts such as
-`sing-box-vps`. The API uses Cloudflare Worker secrets:
+`sing-box-vps`. See the full API reference in
+[docs/api/server-api.md](docs/api/server-api.md).
+
+Usage flow:
+
+1. Create a GitHub token with `gist` permission.
+2. Create a long custom `SUBMAN_API_TOKEN` for scripts that call SubMan.
+3. Store both values as Cloudflare Worker secrets:
 
 ```bash
 bun wrangler secret put GITHUB_TOKEN
 bun wrangler secret put SUBMAN_API_TOKEN
 ```
 
-`GITHUB_TOKEN` needs GitHub `gist` permission and is only used by the Worker to
-read and write the workspace Gist. External scripts only need
-`SUBMAN_API_TOKEN`:
+4. Deploy SubMan:
 
 ```bash
-curl -X PUT "https://subman.example.com/api/nodes/by-key/vps-1-vless" \
+bun run build
+bun run deploy
+```
+
+5. Check API configuration:
+
+```bash
+curl -sS "https://subman.example.com/api/health"
+```
+
+An `ok: true` response means both `GITHUB_TOKEN` and `SUBMAN_API_TOKEN` are
+configured.
+
+6. Use `SUBMAN_API_TOKEN` from your backend script to sync a node:
+
+```bash
+curl -sS -X PUT "https://subman.example.com/api/nodes/by-key/vps-1-vless" \
   -H "Authorization: Bearer $SUBMAN_API_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"name":"vps-1 vless","type":"vless","raw":"vless://...","enabled":true,"tags":["sing-box-vps"]}'
 ```
 
+Scripts should prefer `PUT /api/nodes/by-key/:externalKey` because it is
+idempotent: repeated calls with the same `externalKey` update the existing node
+instead of creating duplicates.
+
+`GITHUB_TOKEN` stays in Cloudflare Secrets. External scripts do not need and
+should not hold the GitHub token.
 The first API version is intended for trusted backend scripts, so it does not
 enable broad browser CORS by default.
 

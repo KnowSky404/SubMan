@@ -70,22 +70,48 @@ bun run dev:cf
 ```
 
 ## Server API
-SubMan 可以为 `sing-box-vps` 这类后端脚本提供自用 API。API 使用 Cloudflare Worker Secrets：
+SubMan 可以为 `sing-box-vps` 这类后端脚本提供自用 API。完整接口文档见
+[docs/api/server-api.md](docs/api/server-api.md)。
+
+使用步骤：
+
+1. 准备一个带 GitHub `gist` 权限的 Token。
+2. 准备一个足够长的自定义 `SUBMAN_API_TOKEN`，供你的脚本调用 SubMan API。
+3. 在 Cloudflare Worker 中写入 Secrets：
 
 ```bash
 bun wrangler secret put GITHUB_TOKEN
 bun wrangler secret put SUBMAN_API_TOKEN
 ```
 
-`GITHUB_TOKEN` 需要 GitHub `gist` 权限，只在 Worker 服务端用于读写 Workspace Gist。外部脚本只需要使用 `SUBMAN_API_TOKEN`：
+4. 部署 SubMan：
 
 ```bash
-curl -X PUT "https://subman.example.com/api/nodes/by-key/vps-1-vless" \
+bun run build
+bun run deploy
+```
+
+5. 检查 API 配置状态：
+
+```bash
+curl -sS "https://subman.example.com/api/health"
+```
+
+返回 `ok: true` 表示 `GITHUB_TOKEN` 和 `SUBMAN_API_TOKEN` 都已配置。
+
+6. 在后端脚本中使用 `SUBMAN_API_TOKEN` 同步节点：
+
+```bash
+curl -sS -X PUT "https://subman.example.com/api/nodes/by-key/vps-1-vless" \
   -H "Authorization: Bearer $SUBMAN_API_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"name":"vps-1 vless","type":"vless","raw":"vless://...","enabled":true,"tags":["sing-box-vps"]}'
 ```
 
+推荐脚本使用 `PUT /api/nodes/by-key/:externalKey`，因为它是幂等接口：同一个
+`externalKey` 重复调用会更新已有节点，不会产生重复节点。
+
+`GITHUB_TOKEN` 只保存在 Cloudflare Secrets 中，外部脚本不需要也不应该持有 GitHub Token。
 第一版 API 面向可信后端脚本调用，不默认开放浏览器跨域访问。
 
 ## 技术栈
