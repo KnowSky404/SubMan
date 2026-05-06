@@ -69,6 +69,25 @@ bun run deploy
 bun run dev:cf
 ```
 
+## Server API
+SubMan 可以为 `sing-box-vps` 这类后端脚本提供自用 API。API 使用 Cloudflare Worker Secrets：
+
+```bash
+bun wrangler secret put GITHUB_TOKEN
+bun wrangler secret put SUBMAN_API_TOKEN
+```
+
+`GITHUB_TOKEN` 需要 GitHub `gist` 权限，只在 Worker 服务端用于读写 Workspace Gist。外部脚本只需要使用 `SUBMAN_API_TOKEN`：
+
+```bash
+curl -X PUT "https://subman.example.com/api/nodes/by-key/vps-1-vless" \
+  -H "Authorization: Bearer $SUBMAN_API_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"vps-1 vless","type":"vless","raw":"vless://...","enabled":true,"tags":["sing-box-vps"]}'
+```
+
+第一版 API 面向可信后端脚本调用，不默认开放浏览器跨域访问。
+
 ## 技术栈
 - SvelteKit + TypeScript
 - TailwindCSS v4

@@ -69,6 +69,29 @@ Local preview for Workers:
 bun run dev:cf
 ```
 
+## Server API
+SubMan can expose owner-operated API endpoints for backend scripts such as
+`sing-box-vps`. The API uses Cloudflare Worker secrets:
+
+```bash
+bun wrangler secret put GITHUB_TOKEN
+bun wrangler secret put SUBMAN_API_TOKEN
+```
+
+`GITHUB_TOKEN` needs GitHub `gist` permission and is only used by the Worker to
+read and write the workspace Gist. External scripts only need
+`SUBMAN_API_TOKEN`:
+
+```bash
+curl -X PUT "https://subman.example.com/api/nodes/by-key/vps-1-vless" \
+  -H "Authorization: Bearer $SUBMAN_API_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"vps-1 vless","type":"vless","raw":"vless://...","enabled":true,"tags":["sing-box-vps"]}'
+```
+
+The first API version is intended for trusted backend scripts, so it does not
+enable broad browser CORS by default.
+
 ## Stack
 - SvelteKit + TypeScript
 - TailwindCSS v4
