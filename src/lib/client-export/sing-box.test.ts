@@ -3,7 +3,9 @@ import {
 	createDefaultSingBoxClientProfile,
 	validateSingBoxClientProfile,
 } from "./profile";
+import { buildSingBoxClientConfig } from "./sing-box";
 import { parseProxyUriToSingBoxOutbound } from "./uri";
+import type { AggregateRule, NodeItem } from "$lib/models";
 
 describe("sing-box client export profile", () => {
 	it("creates a default profile for an aggregate rule", () => {
@@ -208,5 +210,88 @@ describe("sing-box proxy uri parsing", () => {
 
 		expect(result.outbound).toBeNull();
 		expect(result.warning).toContain("public key");
+	});
+});
+
+describe("sing-box client config export", () => {
+	const updatedAt = "2026-05-12T00:00:00.000Z";
+	const rule: AggregateRule = {
+		id: "rule-1",
+		name: "Export Rule",
+		nodeIds: ["node-1", "node-2"],
+		subscriptionIds: [],
+		excludeTagIds: [],
+		renameMap: {},
+		allowedTypes: [],
+		prependRegionFlags: false,
+		updatedAt,
+	};
+	const nodes: NodeItem[] = [
+		{
+			id: "node-1",
+			name: "HK VLESS",
+			type: "vless",
+			raw: "vless://00000000-0000-4000-8000-000000000001@example.com:443?security=tls&sni=example.com#HK%20VLESS",
+			tags: [],
+			enabled: true,
+			updatedAt,
+			source: "single",
+		},
+		{
+			id: "node-2",
+			name: "TUIC",
+			type: "tuic",
+			raw: "tuic://token@example.com:443#TUIC",
+			tags: [],
+			enabled: true,
+			updatedAt,
+			source: "single",
+		},
+	];
+
+	it("builds a runnable config from supported aggregate lines", async () => {
+		const profile = createDefaultSingBoxClientProfile("rule-1", updatedAt);
+		const result = await buildSingBoxClientConfig(profile, rule, nodes, []);
+
+		expect(result.errors).toEqual([]);
+		expect(result.totalLines).toBe(2);
+		expect(result.outbounds).toBe(1);
+		expect(result.skipped).toBe(1);
+		expect(result.warnings[0]).toContain("Unsupported protocol");
+
+		const config = result.config as {
+			inbounds: Array<Record<string, unknown>>;
+			outbounds: Array<Record<string, unknown>>;
+			route: { final: string };
+		};
+		expect(config.inbounds[0]).toMatchObject({
+			type: "mixed",
+			listen: "127.0.0.1",
+			listen_port: 2080,
+		});
+		expect(config.outbounds[0]).toMatchObject({
+			type: "selector",
+			tag: "proxy",
+			outbounds: ["auto", "HK VLESS", "direct", "block"],
+		});
+		expect(config.outbounds[1]).toMatchObject({
+			type: "urltest",
+			tag: "auto",
+			outbounds: ["HK VLESS"],
+		});
+		expect(config.route.final).toBe("proxy");
+		expect(JSON.parse(result.content)).toEqual(config);
+	});
+
+	it("returns a blocking error when every aggregate line is unsupported", async () => {
+		const profile = createDefaultSingBoxClientProfile("rule-1", updatedAt);
+		const unsupportedOnlyRule: AggregateRule = {
+			...rule,
+			nodeIds: ["node-2"],
+		};
+		const result = await buildSingBoxClientConfig(profile, unsupportedOnlyRule, nodes, []);
+
+		expect(result.errors).toEqual(["No supported outbounds can be generated"]);
+		expect(result.content).toBe("");
 	});
 });
