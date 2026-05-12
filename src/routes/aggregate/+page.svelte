@@ -40,6 +40,7 @@ import {
 } from "$lib/octicons";
 import { fade, slide, fly } from "svelte/transition";
 import { dndzone, type DndEvent } from "svelte-dnd-action";
+import type { AggregateRule, ProxyType } from "$lib/models";
 
 	let ruleName = "";
 	let selectedNodeIds: string[] = [];
@@ -62,7 +63,14 @@ import { dndzone, type DndEvent } from "svelte-dnd-action";
 	let showBuiltInRegionMap = false;
 	let builtInRegionMapSearch = "";
 
-	let previewEntries: { id: string; protocol: string; name: string }[] = [];
+	type PreviewEntry = {
+		id: string;
+		line: string;
+		protocol: string;
+		name: string;
+	};
+
+	let previewEntries: PreviewEntry[] = [];
 	let previewLoading = false;
 	
 	let selectedTargetId = "";
@@ -82,6 +90,13 @@ import { dndzone, type DndEvent } from "svelte-dnd-action";
 		nodeSearch: "aggregate-node-search",
 		subSearch: "aggregate-sub-search",
 		renameMap: "aggregate-rename-map",
+		allowedTypes: "aggregate-allowed-types",
+		sortMode: "aggregate-sort-mode",
+		sortPriority: "aggregate-sort-priority",
+		customRegionFlagMap: "aggregate-region-flag-map",
+		prependRegionFlags: "aggregate-prepend-region-flags",
+		publishTargetPublic: "aggregate-publish-target-public",
+		builtInRegionMapSearch: "aggregate-region-map-search",
 		targetSelect: "aggregate-target-select",
 		targetRule: "aggregate-target-rule",
 		targetFile: "aggregate-target-file"
@@ -132,12 +147,13 @@ import { dndzone, type DndEvent } from "svelte-dnd-action";
 	$: activeNodeCount = selectedNodeIds.filter(id => $appState.nodes.some(n => n.id === id)).length;
 	$: activeSubCount = selectedSubscriptionIds.filter(id => $appState.subscriptions.some(s => s.id === id)).length;
 
-	function loadRule(rule: any) {
+	function loadRule(rule: AggregateRule | undefined) {
+		if (!rule) return;
 		editingRuleId = rule.id;
 		ruleName = rule.name;
 		// Filter out any IDs that no longer exist in the global state
-		selectedNodeIds = (rule.nodeIds || []).filter(id => $appState.nodes.some(n => n.id === id));
-		selectedSubscriptionIds = (rule.subscriptionIds || []).filter(id => $appState.subscriptions.some(s => s.id === id));
+		selectedNodeIds = (rule.nodeIds || []).filter((id: string) => $appState.nodes.some(n => n.id === id));
+		selectedSubscriptionIds = (rule.subscriptionIds || []).filter((id: string) => $appState.subscriptions.some(s => s.id === id));
 		excludeTags = (rule.excludeTagIds || []).join(", ");
 		renameMap = rule.renameRules ? rule.renameRules.join("\n") : Object.entries(rule.renameMap || {}).map(([k, v]) => `${k}=${v}`).join("\n");
 		customRegionFlagMap = rule.customRegionFlagMap || "";
@@ -194,7 +210,7 @@ import { dndzone, type DndEvent } from "svelte-dnd-action";
 			excludeTagIds: excludeTags.split(",").map(t => t.trim()).filter(Boolean),
 			renameMap: {}, // Migrate to renameRules
 			renameRules,
-			customRegionFlagMap, allowedTypes: allowedTypes as any[], prependRegionFlags,
+			customRegionFlagMap, allowedTypes: allowedTypes as ProxyType[], prependRegionFlags,
 			sortMode: sortMode as any, sortPriority, updatedAt: nowIso()
 		});
 		editingRuleId = id;
@@ -292,11 +308,11 @@ import { dndzone, type DndEvent } from "svelte-dnd-action";
 		showBuiltInRegionMap = false;
 	}
 
-	function handlePreviewDndConsider(e: CustomEvent<DndEvent<{ id: string; protocol: string; name: string }>>) {
+	function handlePreviewDndConsider(e: CustomEvent<DndEvent<PreviewEntry>>) {
 		previewEntries = e.detail.items;
 	}
 
-	function handlePreviewDndFinalize(e: CustomEvent<DndEvent<{ id: string; protocol: string; name: string }>>) {
+	function handlePreviewDndFinalize(e: CustomEvent<DndEvent<PreviewEntry>>) {
 		previewEntries = e.detail.items;
 		// Update sortPriority with the actual order of names
 		sortPriority = previewEntries.map(entry => entry.name).join("\n");
@@ -454,10 +470,11 @@ import { dndzone, type DndEvent } from "svelte-dnd-action";
 
 					<!-- Allowed Types -->
 					<div class="flex flex-col gap-2">
-						<label class="text-sm font-semibold">{$t("Allowed Protocols")}</label>
-						<div class="flex flex-wrap gap-2">
+						<div id={fieldIds.allowedTypes} class="text-sm font-semibold">{$t("Allowed Protocols")}</div>
+						<div class="flex flex-wrap gap-2" role="group" aria-labelledby={fieldIds.allowedTypes}>
 							{#each protocolOptions as opt}
 								<button 
+									type="button"
 									class={cn("gh-btn gh-btn-sm", allowedTypes.includes(opt.id) ? "gh-btn-primary" : "bg-canvas-default")}
 									on:click={() => (allowedTypes = toggleSelection(allowedTypes, opt.id))}
 								>
@@ -471,8 +488,8 @@ import { dndzone, type DndEvent } from "svelte-dnd-action";
 					<!-- Sorting Configuration -->
 					<div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
 						<div class="flex flex-col gap-1.5">
-							<label class="text-sm font-semibold">{$t("Sort Mode")}</label>
-							<select class="gh-select" bind:value={sortMode}>
+							<label class="text-sm font-semibold" for={fieldIds.sortMode}>{$t("Sort Mode")}</label>
+							<select id={fieldIds.sortMode} class="gh-select" bind:value={sortMode}>
 								<option value="none">{$t("None (Original Order)")}</option>
 								<option value="name">{$t("Alphabetical (A-Z)")}</option>
 								<option value="type">{$t("By Protocol")}</option>
@@ -480,8 +497,8 @@ import { dndzone, type DndEvent } from "svelte-dnd-action";
 							</select>
 						</div>
 						<div class="flex flex-col gap-1.5">
-							<label class="text-sm font-semibold">{$t("Priority Keywords (per line)")}</label>
-							<textarea class="gh-input gh-textarea h-20 text-xs font-mono" placeholder="e.g.\nHK\nSG" bind:value={sortPriority}></textarea>
+							<label class="text-sm font-semibold" for={fieldIds.sortPriority}>{$t("Priority Keywords (per line)")}</label>
+							<textarea id={fieldIds.sortPriority} class="gh-input gh-textarea h-20 text-xs font-mono" placeholder="e.g.\nHK\nSG" bind:value={sortPriority}></textarea>
 						</div>
 					</div>
 
@@ -497,15 +514,15 @@ import { dndzone, type DndEvent } from "svelte-dnd-action";
 					<!-- Region Flags -->
 					<div class="flex flex-col gap-3">
 						<div class="flex items-center justify-between">
-							<label class="text-sm font-semibold flex items-center gap-2"><Octicon icon={globe} className="h-4 w-4" />{$t("Region Flag Map")}</label>
+							<label class="text-sm font-semibold flex items-center gap-2" for={fieldIds.customRegionFlagMap}><Octicon icon={globe} className="h-4 w-4" />{$t("Region Flag Map")}</label>
 							<button type="button" class="text-xs text-accent-fg hover:underline" on:click={() => (showBuiltInRegionMap = true)}>{$t("Browse Icons")}</button>
 						</div>
-						<textarea class="gh-input gh-textarea font-mono text-xs h-32" placeholder="US = US, USA, America" bind:value={customRegionFlagMap}></textarea>
+						<textarea id={fieldIds.customRegionFlagMap} class="gh-input gh-textarea font-mono text-xs h-32" placeholder="US = US, USA, America" bind:value={customRegionFlagMap}></textarea>
 						
 						<div class="flex items-center gap-2 p-2.5 rounded bg-canvas-subtle border border-border-default">
-							<input type="checkbox" class="rounded border-border-default" bind:checked={prependRegionFlags} />
+							<input id={fieldIds.prependRegionFlags} type="checkbox" class="rounded border-border-default" bind:checked={prependRegionFlags} />
 							<div class="flex flex-col">
-								<span class="text-xs font-bold">{$t("Auto-prepend Region Flags")}</span>
+								<label class="text-xs font-bold" for={fieldIds.prependRegionFlags}>{$t("Auto-prepend Region Flags")}</label>
 								<span class="text-[10px] text-fg-muted">{$t("Uses emoji flags based on country codes")}</span>
 							</div>
 						</div>
@@ -592,8 +609,8 @@ import { dndzone, type DndEvent } from "svelte-dnd-action";
 						</div>
 
 					<div class="flex items-center gap-2 p-2.5 rounded bg-canvas-subtle border border-border-default">
-						<input type="checkbox" class="rounded border-border-default" bind:checked={publishTargetPublic} />
-						<span class="text-xs font-bold">{$t("Public Gist")}</span>
+						<input id={fieldIds.publishTargetPublic} type="checkbox" class="rounded border-border-default" bind:checked={publishTargetPublic} />
+						<label class="text-xs font-bold" for={fieldIds.publishTargetPublic}>{$t("Public Gist")}</label>
 					</div>
 
 						<div class="flex flex-col gap-2 pt-2 border-t border-border-default">
@@ -613,6 +630,7 @@ import { dndzone, type DndEvent } from "svelte-dnd-action";
 								<code class="text-[10px] break-all font-mono text-green-900 dark:text-green-300 opacity-80">{publishUrl}</code>
 									<button type="button" class="gh-btn gh-btn-sm" on:click={async () => { 
 										try {
+										if (!publishUrl) return;
 										await navigator.clipboard.writeText(publishUrl); 
 										showToast($t("Link copied to clipboard"), 'success'); 
 								} catch {
@@ -638,7 +656,7 @@ import { dndzone, type DndEvent } from "svelte-dnd-action";
 <!-- Region Flags Browser Modal -->
 	{#if showBuiltInRegionMap}
 		<div class="fixed inset-0 z-[150] flex items-center justify-center p-4">
-			<div class="fixed inset-0 bg-black/60 backdrop-blur-sm" on:click={() => (showBuiltInRegionMap = false)}></div>
+			<button type="button" class="fixed inset-0 bg-black/60 backdrop-blur-sm" on:click={() => (showBuiltInRegionMap = false)} aria-label={$t("Close region flag rules")}></button>
 			<div class="relative w-full max-w-4xl gh-box shadow-2xl flex flex-col max-h-[85vh] bg-canvas-default" in:fly={{ y: 20 }}>
 				<div class="gh-box-header">
 					<div class="flex items-center gap-2">
@@ -651,7 +669,8 @@ import { dndzone, type DndEvent } from "svelte-dnd-action";
 				<div class="p-4 border-b border-border-default bg-canvas-subtle">
 					<div class="relative">
 						<Octicon icon={search} className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-fg-subtle" />
-						<input class="gh-input pl-9 h-10" placeholder={$t("Search code or keyword...")} bind:value={builtInRegionMapSearch} />
+						<label class="sr-only" for={fieldIds.builtInRegionMapSearch}>{$t("Search code or keyword")}</label>
+						<input id={fieldIds.builtInRegionMapSearch} class="gh-input pl-9 h-10" placeholder={$t("Search code or keyword...")} bind:value={builtInRegionMapSearch} />
 					</div>
 				</div>
 
@@ -675,7 +694,7 @@ import { dndzone, type DndEvent } from "svelte-dnd-action";
 			</div>
 			
 			<div class="p-3 bg-canvas-subtle border-t border-border-default flex justify-end">
-				<button class="gh-btn" on:click={() => (showBuiltInRegionMap = false)}>{$t("Close")}</button>
+				<button type="button" class="gh-btn" on:click={() => (showBuiltInRegionMap = false)}>{$t("Close")}</button>
 			</div>
 		</div>
 	</div>
