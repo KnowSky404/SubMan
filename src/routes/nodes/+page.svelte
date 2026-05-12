@@ -367,10 +367,6 @@ import { slide, fly } from "svelte/transition";
 				</div>
 			</div>
 
-			<button type="button" class="gh-btn gh-btn-primary" on:click={() => (isAddModalOpen = !isAddModalOpen)}>
-				<Octicon icon={plus} className="h-4 w-4" />
-				{$t("New Resource")}
-			</button>
 		</div>
 	</div>
 
@@ -443,31 +439,38 @@ import { slide, fly } from "svelte/transition";
 	{/if}
 
 	<!-- Filter Bar -->
-	<div class="flex flex-col sm:flex-row items-center justify-between gap-4">
-		<div class="gh-tabs w-full sm:w-auto">
-			<button type="button" class={cn("gh-tab", activeTab === "nodes" && "gh-tab-active")} on:click={() => { activeTab = "nodes"; expandedId = null; }}>
-				<Octicon icon={server} className="mr-1 h-4 w-4" /> {$t("Nodes")}
-				<span class="ml-1 px-1.5 py-0.5 rounded-full bg-canvas-subtle border border-border-default text-[10px]">{ $appState.nodes.length }</span>
-			</button>
-			<button type="button" class={cn("gh-tab", activeTab === "subscriptions" && "gh-tab-active")} on:click={() => { activeTab = "subscriptions"; expandedId = null; }}>
-				<Octicon icon={link} className="mr-1 h-4 w-4" /> {$t("Subscriptions")}
-				<span class="ml-1 px-1.5 py-0.5 rounded-full bg-canvas-subtle border border-border-default text-[10px]">{ $appState.subscriptions.length }</span>
-			</button>
-		</div>
+	<div class="gh-filter-bar">
+		<div class="gh-filter-controls">
+			<div class="gh-tabs w-full sm:w-auto">
+				<button type="button" class={cn("gh-tab", activeTab === "nodes" && "gh-tab-active")} on:click={() => { activeTab = "nodes"; expandedId = null; }}>
+					<Octicon icon={server} className="h-4 w-4" />
+					{$t("Nodes")}
+					<span class="gh-counter">{$appState.nodes.length}</span>
+				</button>
+				<button type="button" class={cn("gh-tab", activeTab === "subscriptions" && "gh-tab-active")} on:click={() => { activeTab = "subscriptions"; expandedId = null; }}>
+					<Octicon icon={link} className="h-4 w-4" />
+					{$t("Subscriptions")}
+					<span class="gh-counter">{$appState.subscriptions.length}</span>
+				</button>
+			</div>
 
-		<div class="flex items-center gap-2 w-full sm:w-auto">
-			<div class="relative flex-1 sm:w-64">
+			<div class="relative min-w-0 flex-1 sm:max-w-xs">
 				<Octicon icon={search} className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-fg-subtle" />
 				<label class="sr-only" for={addFormIds.filterQuery}>{$t("Filter resources")}</label>
-				<input id={addFormIds.filterQuery} class="gh-input pl-9 h-9" placeholder={$t("Filter resources...")} bind:value={searchQuery} />
+				<input id={addFormIds.filterQuery} class="gh-input h-8 pl-9" placeholder={$t("Filter resources...")} bind:value={searchQuery} />
 			</div>
 			<label class="sr-only" for={addFormIds.filterStatus}>{$t("Filter status")}</label>
-			<select id={addFormIds.filterStatus} class="gh-select w-32 h-9" bind:value={filterStatus}>
+			<select id={addFormIds.filterStatus} class="gh-select w-full sm:w-32" bind:value={filterStatus}>
 				<option value="all">{$t("All")}</option>
 				<option value="enabled">{$t("Enabled")}</option>
 				<option value="disabled">{$t("Disabled")}</option>
 			</select>
 		</div>
+
+		<button type="button" class="gh-btn gh-btn-primary shrink-0" on:click={() => (isAddModalOpen = !isAddModalOpen)}>
+			<Octicon icon={plus} className="h-4 w-4" />
+			{$t("New Resource")}
+		</button>
 	</div>
 
 	<!-- Content Box -->
@@ -500,17 +503,17 @@ import { slide, fly } from "svelte/transition";
 				</div>
 			{:else}
 				{#each filteredNodes as node (node.id)}
-					<div class={cn("gh-box-row group flex flex-col gap-0", !node.enabled && "opacity-60")}>
+					<div class={cn("gh-box-row group flex flex-col gap-0", !node.enabled && "opacity-70")}>
 							<div class="flex flex-col gap-3 sm:grid sm:grid-cols-[minmax(0,1.7fr)_140px_auto] sm:items-start sm:gap-4">
-								<div class="flex items-start gap-3 min-w-0">
-									<button type="button" class={cn("mt-1 flex h-5 w-5 shrink-0 items-center justify-center rounded-md border", node.enabled ? "bg-accent-emphasis border-accent-emphasis text-white" : "border-border-default bg-canvas-default")} on:click={() => toggleEnabled(node.id, "node")} aria-label={$t(node.enabled ? "Disable node" : "Enable node")}>
+								<div class="gh-row-main">
+									<button type="button" class={cn("mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded border", node.enabled ? "border-[color:var(--success-emphasis)] bg-[color:var(--success-emphasis)] text-white" : "border-border-default bg-canvas-default")} on:click={() => toggleEnabled(node.id, "node")} aria-label={$t(node.enabled ? "Disable node" : "Enable node")}>
 										{#if node.enabled}<Octicon icon={check} className="h-3.5 w-3.5" />{/if}
 									</button>
 									<div class="flex min-w-0 flex-col gap-1">
-										<div class="flex items-center gap-2">
-											<button type="button" class="gh-link truncate text-left font-semibold" on:click={() => startEditNode(node)}>{node.name}</button>
-											<span class="px-1.5 py-0.5 rounded border border-border-default bg-canvas-subtle text-[10px] font-black uppercase tracking-tight text-fg-muted">{node.type}</span>
-											<span class={cn("badge", node.enabled && "badge-success")}>
+										<div class="flex min-w-0 flex-wrap items-center gap-2">
+											<button type="button" class="gh-row-title" on:click={() => startEditNode(node)}>{node.name}</button>
+											<span class="gh-label">{node.type}</span>
+											<span class={cn("gh-label gh-label-muted", node.enabled && "badge-success")}>
 												{node.enabled ? $t("Enabled") : $t("Disabled")}
 											</span>
 										</div>
@@ -523,7 +526,7 @@ import { slide, fly } from "svelte/transition";
 										{#if node.tags.length > 0}
 											<div class="flex flex-wrap gap-1">
 												{#each node.tags as nodeTag}
-													<span class="badge"><Octicon icon={tagIcon} className="mr-1 h-3 w-3" />{nodeTag.label}</span>
+													<span class="gh-label gh-label-muted"><Octicon icon={tagIcon} className="h-3 w-3" />{nodeTag.label}</span>
 												{/each}
 											</div>
 										{/if}
@@ -535,10 +538,10 @@ import { slide, fly } from "svelte/transition";
 									<span>{$t(node.enabled ? "Enabled" : "Disabled")}</span>
 								</div>
 
-								<div class="flex shrink-0 items-center gap-1 opacity-100 transition-opacity sm:justify-self-end sm:opacity-0 sm:group-hover:opacity-100">
-									<button type="button" class="gh-btn gh-btn-sm" on:click={() => startEditNode(node)} aria-label={$t("Edit node")}><Octicon icon={pencil} className="h-3.5 w-3.5" /></button>
-									<button type="button" class="gh-btn gh-btn-sm" on:click={() => copy(node.raw)} aria-label={$t("Copy URI")}><Octicon icon={copyIcon} className="h-3.5 w-3.5" /></button>
-									<button type="button" class="gh-btn gh-btn-sm gh-btn-danger" on:click={() => remove(node.id, "node", node.name)} aria-label={$t("Delete node")}><Octicon icon={trash} className="h-3.5 w-3.5" /></button>
+								<div class="gh-row-actions gh-btn-group">
+									<button type="button" class="gh-btn gh-btn-sm" on:click={() => startEditNode(node)} aria-label={$t("Edit node")} title={$t("Edit node")}><Octicon icon={pencil} className="h-3.5 w-3.5" /></button>
+									<button type="button" class="gh-btn gh-btn-sm" on:click={() => copy(node.raw)} aria-label={$t("Copy URI")} title={$t("Copy URI")}><Octicon icon={copyIcon} className="h-3.5 w-3.5" /></button>
+									<button type="button" class="gh-btn gh-btn-sm gh-btn-danger" on:click={() => remove(node.id, "node", node.name)} aria-label={$t("Delete node")} title={$t("Delete node")}><Octicon icon={trash} className="h-3.5 w-3.5" /></button>
 								</div>
 							</div>
 
@@ -586,14 +589,19 @@ import { slide, fly } from "svelte/transition";
 				</div>
 			{:else}
 				{#each filteredSubscriptions as sub (sub.id)}
-					<div class={cn("gh-box-row group flex flex-col gap-0", !sub.enabled && "opacity-60")}>
+					<div class={cn("gh-box-row group flex flex-col gap-0", !sub.enabled && "opacity-70")}>
 							<div class="flex flex-col gap-3 sm:grid sm:grid-cols-[minmax(0,1.7fr)_140px_auto] sm:items-start sm:gap-4">
-								<div class="flex items-start gap-3 min-w-0">
-									<button type="button" class={cn("mt-1 flex h-5 w-5 shrink-0 items-center justify-center rounded-md border", sub.enabled ? "bg-[color:var(--success-emphasis)] border-[color:var(--success-emphasis)] text-white" : "border-border-default bg-canvas-default")} on:click={() => toggleEnabled(sub.id, "sub")} aria-label={$t(sub.enabled ? "Disable subscription" : "Enable subscription")}>
+								<div class="gh-row-main">
+									<button type="button" class={cn("mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded border", sub.enabled ? "border-[color:var(--success-emphasis)] bg-[color:var(--success-emphasis)] text-white" : "border-border-default bg-canvas-default")} on:click={() => toggleEnabled(sub.id, "sub")} aria-label={$t(sub.enabled ? "Disable subscription" : "Enable subscription")}>
 										{#if sub.enabled}<Octicon icon={check} className="h-3.5 w-3.5" />{/if}
 									</button>
 									<div class="flex min-w-0 flex-col gap-1">
-										<button type="button" class="gh-link truncate text-left font-semibold" on:click={() => startEditSub(sub)}>{sub.name}</button>
+										<div class="flex min-w-0 flex-wrap items-center gap-2">
+											<button type="button" class="gh-row-title" on:click={() => startEditSub(sub)}>{sub.name}</button>
+											<span class={cn("gh-label gh-label-muted", sub.enabled && "badge-success")}>
+												{sub.enabled ? $t("Enabled") : $t("Disabled")}
+											</span>
+										</div>
 										<div class="gh-list-meta">
 											<span>{$t("Updated {time}", { time: formatUpdatedAt(sub.updatedAt) })}</span>
 											<span>{$t("{count} tags", { count: sub.tags.length })}</span>
@@ -605,7 +613,7 @@ import { slide, fly } from "svelte/transition";
 										{#if sub.tags.length > 0}
 											<div class="flex flex-wrap gap-1">
 												{#each sub.tags as subTag}
-													<span class="badge"><Octicon icon={tagIcon} className="mr-1 h-3 w-3" />{subTag.label}</span>
+													<span class="gh-label gh-label-muted"><Octicon icon={tagIcon} className="h-3 w-3" />{subTag.label}</span>
 												{/each}
 											</div>
 										{/if}
@@ -613,16 +621,16 @@ import { slide, fly } from "svelte/transition";
 								</div>
 
 								<div class="gh-list-meta sm:block">
-									<span class={cn("badge", sub.enabled && "badge-success")}>
+									<span class={cn("gh-label gh-label-muted", sub.enabled && "badge-success")}>
 										{sub.enabled ? $t("Enabled") : $t("Disabled")}
 									</span>
 								</div>
 
-								<div class="flex shrink-0 items-center gap-1 opacity-100 transition-opacity sm:justify-self-end sm:opacity-0 sm:group-hover:opacity-100">
-									<button type="button" class="gh-btn gh-btn-sm" on:click={() => openSubscriptionPreview(sub)} aria-label={$t("Preview nodes")}><Octicon icon={eye} className="h-3.5 w-3.5" /></button>
-									<button type="button" class="gh-btn gh-btn-sm" on:click={() => startEditSub(sub)} aria-label={$t("Edit subscription")}><Octicon icon={pencil} className="h-3.5 w-3.5" /></button>
-									<button type="button" class="gh-btn gh-btn-sm" on:click={() => copy(sub.url)} aria-label={$t("Copy URL")}><Octicon icon={copyIcon} className="h-3.5 w-3.5" /></button>
-									<button type="button" class="gh-btn gh-btn-sm gh-btn-danger" on:click={() => remove(sub.id, "sub", sub.name)} aria-label={$t("Delete subscription")}><Octicon icon={trash} className="h-3.5 w-3.5" /></button>
+								<div class="gh-row-actions gh-btn-group">
+									<button type="button" class="gh-btn gh-btn-sm" on:click={() => openSubscriptionPreview(sub)} aria-label={$t("Preview nodes")} title={$t("Preview nodes")}><Octicon icon={eye} className="h-3.5 w-3.5" /></button>
+									<button type="button" class="gh-btn gh-btn-sm" on:click={() => startEditSub(sub)} aria-label={$t("Edit subscription")} title={$t("Edit subscription")}><Octicon icon={pencil} className="h-3.5 w-3.5" /></button>
+									<button type="button" class="gh-btn gh-btn-sm" on:click={() => copy(sub.url)} aria-label={$t("Copy URL")} title={$t("Copy URL")}><Octicon icon={copyIcon} className="h-3.5 w-3.5" /></button>
+									<button type="button" class="gh-btn gh-btn-sm gh-btn-danger" on:click={() => remove(sub.id, "sub", sub.name)} aria-label={$t("Delete subscription")} title={$t("Delete subscription")}><Octicon icon={trash} className="h-3.5 w-3.5" /></button>
 								</div>
 							</div>
 
