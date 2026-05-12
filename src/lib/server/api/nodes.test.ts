@@ -53,6 +53,17 @@ describe("parseNodePayload", () => {
 		});
 	});
 
+	it("accepts anytls node input", () => {
+		const parsed = parseNodePayload({
+			name: "anytls-1",
+			type: "anytls",
+			raw: "anytls://password@example.com:443?sni=example.com#AnyTLS",
+		});
+
+		expect(parsed.type).toBe("anytls");
+		expect(parsed.raw).toBe("anytls://password@example.com:443?sni=example.com#AnyTLS");
+	});
+
 	it("rejects missing required node fields", () => {
 		expect(() => parseNodePayload({ type: "vless", raw: "vless://example" })).toThrow(
 			"name is required",

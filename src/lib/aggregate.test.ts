@@ -1,6 +1,11 @@
 import { describe, it, expect } from 'bun:test';
 import { sortResultLines, buildAggregateOutput } from './aggregate';
 import type { AggregateRule, NodeItem } from './models';
+import {
+	extractSubscriptionNodeLines,
+	inferNodeTypeFromRaw,
+	normalizeSubscriptionContent
+} from './subscription';
 
 describe('sortResultLines', () => {
 	const lines = [
@@ -69,6 +74,65 @@ describe('sortResultLines', () => {
 		expect(sorted[0]).toContain('HK-01');
 		expect(sorted[1]).toContain('HK-02');
 		expect(sorted[2]).toContain('SG-01');
+	});
+});
+
+describe('AnyTLS support', () => {
+	it('infers anytls from anytls URI scheme', () => {
+		expect(inferNodeTypeFromRaw('anytls://password@example.com:443#AnyTLS')).toBe('anytls');
+	});
+
+	it('splits adjacent AnyTLS and VLESS nodes', () => {
+		const content = 'anytls://password@example.com:443#AnyTLSvless://uuid@example.com:443#VLESS';
+
+		expect(extractSubscriptionNodeLines(content)).toEqual([
+			'anytls://password@example.com:443#AnyTLS',
+			'vless://uuid@example.com:443#VLESS'
+		]);
+	});
+
+	it('keeps AnyTLS lines during subscription normalization', () => {
+		expect(normalizeSubscriptionContent('anytls://password@example.com:443?sni=example.com#AnyTLS\n')).toBe(
+			'anytls://password@example.com:443?sni=example.com#AnyTLS'
+		);
+	});
+
+	it('includes AnyTLS lines when allowedTypes contains anytls', async () => {
+		const anytlsNode: NodeItem = {
+			id: 'anytls-1',
+			name: 'AnyTLS HK',
+			type: 'anytls',
+			raw: 'anytls://password@example.com:443?sni=example.com#AnyTLS%20HK',
+			tags: [],
+			enabled: true,
+			updatedAt: '',
+			source: 'single'
+		};
+		const vlessNode: NodeItem = {
+			id: 'vless-1',
+			name: 'VLESS HK',
+			type: 'vless',
+			raw: 'vless://uuid@example.com:443#VLESS%20HK',
+			tags: [],
+			enabled: true,
+			updatedAt: '',
+			source: 'single'
+		};
+		const rule: AggregateRule = {
+			id: 'r1',
+			name: 'AnyTLS only',
+			nodeIds: ['anytls-1', 'vless-1'],
+			subscriptionIds: [],
+			excludeTagIds: [],
+			renameMap: {},
+			allowedTypes: ['anytls'],
+			prependRegionFlags: false,
+			updatedAt: ''
+		};
+
+		const result = await buildAggregateOutput(rule, [anytlsNode, vlessNode], []);
+
+		expect(result.content).toBe('anytls://password@example.com:443?sni=example.com#AnyTLS%20HK');
 	});
 });
 

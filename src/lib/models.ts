@@ -6,6 +6,7 @@ export type ProxyType =
 	| "ssr"
 	| "hysteria2"
 	| "tuic"
+	| "anytls"
 	| "other";
 
 export type SourceType = "single" | "subscription";

@@ -8,11 +8,12 @@ const KNOWN_PROXY_TYPES = new Set<ProxyType>([
 	"ssr",
 	"hysteria2",
 	"tuic",
+	"anytls",
 	"other",
 ]);
 
 const MULTI_NODE_SCHEME_REGEX =
-	/(vless|vmess|trojan|ssr?|hysteria2|hy2|tuic):\/\//gi;
+	/(vless|vmess|trojan|ssr?|hysteria2|hy2|tuic|anytls):\/\//gi;
 
 export function normalizeBase64(value: string): string | null {
 	const compact = value.trim().replace(/\s+/g, "");

@@ -105,6 +105,7 @@ Allowed `type` values:
 - `ssr`
 - `hysteria2`
 - `tuic`
+- `anytls`
 - `other`
 
 Allowed `source` values:

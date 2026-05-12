@@ -15,6 +15,7 @@ const PROXY_TYPES = new Set<ProxyType>([
 	"ssr",
 	"hysteria2",
 	"tuic",
+	"anytls",
 	"other",
 ]);
 

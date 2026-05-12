@@ -13,7 +13,7 @@ export type RegionFlagRule = {
 	keywords: string[];
 };
 
-const KNOWN_PROXY_TYPES = new Set(['vless', 'vmess', 'trojan', 'ss', 'ssr', 'hysteria2', 'tuic']);
+const KNOWN_PROXY_TYPES = new Set(['vless', 'vmess', 'trojan', 'ss', 'ssr', 'hysteria2', 'tuic', 'anytls']);
 const LEADING_FLAG_REGEX = /^(?:[\u{1F1E6}-\u{1F1FF}]{2})\s*/u;
 const CUSTOM_REGION_RULE_LINE_REGEX = /^([A-Za-z]{2})\s*=\s*(.+)$/;
 export const BUILT_IN_REGION_FLAG_RULES: RegionFlagRule[] = [

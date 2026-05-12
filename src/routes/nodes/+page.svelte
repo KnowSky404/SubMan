@@ -388,6 +388,7 @@ import { slide, fly } from "svelte/transition";
 								<select id={addFormIds.nodeType} class="gh-select" bind:value={nodeType}>
 									<option value="vless">VLESS</option><option value="vmess">VMess</option><option value="trojan">Trojan</option>
 									<option value="ss">SS</option><option value="ssr">SSR</option><option value="hysteria2">Hysteria2</option>
+									<option value="tuic">TUIC</option><option value="anytls">AnyTLS</option>
 								</select>
 							</div>
 						{/if}
@@ -541,6 +542,7 @@ import { slide, fly } from "svelte/transition";
 											<select id={`node-type-${node.id}`} class="gh-select" bind:value={nodeDrafts[node.id].type}>
 												<option value="vless">VLESS</option><option value="vmess">VMess</option><option value="trojan">Trojan</option>
 												<option value="ss">SS</option><option value="ssr">SSR</option><option value="hysteria2">Hysteria2</option>
+												<option value="tuic">TUIC</option><option value="anytls">AnyTLS</option>
 											</select>
 										</div>
 										<div class="md:col-span-2 flex flex-col gap-1.5">

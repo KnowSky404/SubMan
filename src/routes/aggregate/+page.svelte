@@ -94,7 +94,8 @@ import { dndzone, type DndEvent } from "svelte-dnd-action";
 		{ id: "ss", label: "Shadowsocks" },
 		{ id: "ssr", label: "SSR" },
 		{ id: "hysteria2", label: "Hysteria2" },
-		{ id: "tuic", label: "TUIC" }
+		{ id: "tuic", label: "TUIC" },
+		{ id: "anytls", label: "AnyTLS" }
 	];
 
 	function toggleSelection(list: string[], id: string) {
