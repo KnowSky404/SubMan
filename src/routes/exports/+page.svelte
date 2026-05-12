@@ -3,19 +3,17 @@ import { t } from "$lib/i18n";
 import { appState } from "$lib/stores/app";
 import Octicon from "$lib/components/Octicon.svelte";
 import { copy, download, fileCode, upload } from "$lib/octicons";
-import { buildSingBoxClientConfig } from "$lib/client-export/sing-box";
 
 let selectedRuleId = "";
 
 $: firstRule = $appState.aggregates[0] ?? null;
-$: if (!selectedRuleId && firstRule) {
-	selectedRuleId = firstRule.id;
+$: {
+	const selectedRuleExists = $appState.aggregates.some((rule) => rule.id === selectedRuleId);
+	if (firstRule && !selectedRuleExists) selectedRuleId = firstRule.id;
+	if (!firstRule) selectedRuleId = "";
 }
-$: selectedRule =
-	$appState.aggregates.find((rule) => rule.id === selectedRuleId) ?? firstRule;
+$: selectedRule = $appState.aggregates.find((rule) => rule.id === selectedRuleId) ?? null;
 $: profileCount = $appState.clientExports.length;
-
-const buildClientConfig = buildSingBoxClientConfig;
 </script>
 
 <svelte:head>
@@ -78,7 +76,3 @@ const buildClientConfig = buildSingBoxClientConfig;
 		</div>
 	</section>
 </div>
-
-{#if false}
-	{@const _unusedBuildReference = buildClientConfig}
-{/if}

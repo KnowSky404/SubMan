@@ -10,7 +10,6 @@ const exportsPageSource = readFileSync(
 test("exports page renders sing-box client source and action shell", () => {
 	expect(exportsPageSource).toContain("sing-box Client");
 	expect(exportsPageSource).toContain("Source Aggregate Rule");
-	expect(exportsPageSource).toContain("buildSingBoxClientConfig");
 	expect(exportsPageSource).toContain("clientExports");
 	expect(exportsPageSource).toContain("Copy");
 	expect(exportsPageSource).toContain("Download");
