@@ -190,42 +190,53 @@ async function publishPreview(): Promise<void> {
 		const now = nowIso();
 		const fileName =
 			normalizeExportFileName(selectedProfile.fileName) || "sing-box-client.json";
-		const nextProfile: ClientExportProfile = {
+		const generatedProfile: ClientExportProfile = {
 			...selectedProfile,
 			fileName,
 			lastGeneratedAt: now,
 			updatedAt: now,
 		};
-		const stateForSync = {
-			...$appState,
-			clientExports: $appState.clientExports.map((profile) =>
-				profile.id === nextProfile.id ? nextProfile : profile,
-			),
-		};
-		const files = {
+		const initialFiles = {
 			[fileName]: { content: result.content },
-			[WORKSPACE_FILE]: { content: exportSyncState(stateForSync) },
 		};
-		const response = $appState.activeGistId
+		const initialResponse = $appState.activeGistId
 			? await updateGist($authState.token, {
 					gistId: $appState.activeGistId,
-					files,
+					files: initialFiles,
 				})
 			: await createGist($authState.token, {
 					description: "SubMan client exports",
 					isPublic: false,
-					files,
+					files: initialFiles,
 				});
-		const fileMeta = response.files.find((file) => file.filename === fileName);
+		const fileMeta = initialResponse.files.find(
+			(file) => file.filename === fileName,
+		);
 		const lastPublishedUrl = toStableGistRawUrl(fileMeta?.rawUrl) ?? null;
-
-		upsertClientExport({
-			...nextProfile,
+		const finalProfile: ClientExportProfile = {
+			...generatedProfile,
 			lastPublishedAt: now,
 			lastPublishedUrl,
 			updatedAt: now,
+		};
+		const finalStateForSync = {
+			...$appState,
+			activeGistId: initialResponse.id,
+			clientExports: $appState.clientExports.map((profile) =>
+				profile.id === finalProfile.id ? finalProfile : profile,
+			),
+		};
+		const finalFiles = {
+			[fileName]: { content: result.content },
+			[WORKSPACE_FILE]: { content: exportSyncState(finalStateForSync) },
+		};
+
+		await updateGist($authState.token, {
+			gistId: initialResponse.id,
+			files: finalFiles,
 		});
-		appState.update((state) => ({ ...state, activeGistId: response.id }));
+		upsertClientExport(finalProfile);
+		appState.update((state) => ({ ...state, activeGistId: initialResponse.id }));
 		showToast($t("Published sing-box config"), "success");
 	} catch (error) {
 		showToast(
@@ -415,7 +426,7 @@ async function publishPreview(): Promise<void> {
 		<div class="gh-section-header">
 			<h2 class="text-sm font-semibold text-fg-default">{$t("Summary")}</h2>
 		</div>
-		<div class="grid gap-3 p-4 sm:grid-cols-3">
+		<div class="grid gap-3 p-4 sm:grid-cols-4">
 			<div>
 				<div class="text-xs text-fg-muted">{$t("Total Lines")}</div>
 				<div class="text-lg font-semibold text-fg-default">{totalLines}</div>
@@ -427,6 +438,12 @@ async function publishPreview(): Promise<void> {
 			<div>
 				<div class="text-xs text-fg-muted">{$t("Skipped")}</div>
 				<div class="text-lg font-semibold text-fg-default">{skippedCount}</div>
+			</div>
+			<div>
+				<div class="text-xs text-fg-muted">{$t("Warning Count")}</div>
+				<div class="text-lg font-semibold text-fg-default">
+					{previewWarnings.length}
+				</div>
 			</div>
 		</div>
 		{#if previewWarnings.length > 0 || previewErrors.length > 0}

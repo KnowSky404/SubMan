@@ -384,6 +384,7 @@ const zhCN: Record<string, string> = {
 	"Total Lines": "总行数",
 	Outbounds: "出站",
 	Skipped: "已跳过",
+	"Warning Count": "警告数",
 	Warnings: "警告",
 	"Select an Aggregate rule": "选择聚合规则",
 	"No workspace": "未绑定工作区",

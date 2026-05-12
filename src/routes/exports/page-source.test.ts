@@ -25,6 +25,7 @@ test("exports page implements sing-box client export behavior", () => {
 	expect(exportsPageSource).toContain("Total Lines");
 	expect(exportsPageSource).toContain("Outbounds");
 	expect(exportsPageSource).toContain("Skipped");
+	expect(exportsPageSource).toContain("Warning Count");
 	expect(exportsPageSource).toContain("Warnings");
 	expect(exportsPageSource).toContain("Errors");
 	expect(exportsPageSource).toContain("New profile");
