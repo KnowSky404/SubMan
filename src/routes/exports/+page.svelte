@@ -18,6 +18,7 @@ import { WORKSPACE_FILE } from "$lib/workspace";
 
 let selectedProfileId = "";
 let previewContent = "";
+let previewSignature = "";
 let previewWarnings: string[] = [];
 let previewErrors: string[] = [];
 let totalLines = 0;
@@ -52,8 +53,28 @@ $: selectedRule =
 	null;
 $: profileCount = $appState.clientExports.length;
 $: canCreateProfile = $appState.clientExports.length === 0 && !!firstRule;
+$: currentSignature = selectedProfile
+	? JSON.stringify({
+			profile: {
+				id: selectedProfile.id,
+				name: selectedProfile.name,
+				ruleId: selectedProfile.ruleId,
+				fileName: selectedProfile.fileName,
+				options: selectedProfile.options,
+				updatedAt: selectedProfile.updatedAt,
+			},
+			ruleId: selectedRule?.id ?? null,
+			lastUpdated: $appState.lastUpdated,
+		})
+	: "";
 $: publishDisabled =
-	!$authState.token || !selectedProfile || previewErrors.length > 0 || publishing;
+	!$authState.token ||
+	!selectedProfile ||
+	previewSignature !== currentSignature ||
+	!previewContent ||
+	outboundCount <= 0 ||
+	previewErrors.length > 0 ||
+	publishing;
 
 $: if (selectedProfile && syncedDraftProfileId !== selectedProfile.id) {
 	syncDraftFromProfile(selectedProfile);
@@ -108,6 +129,7 @@ function saveProfile(): void {
 async function refreshPreview(): Promise<string> {
 	if (!selectedProfile) {
 		previewContent = "";
+		previewSignature = "";
 		previewWarnings = [];
 		previewErrors = [$t("Create an export profile first")];
 		totalLines = 0;
@@ -116,6 +138,7 @@ async function refreshPreview(): Promise<string> {
 		return "";
 	}
 
+	const generatedSignature = currentSignature;
 	const result = await buildSingBoxClientConfig(
 		selectedProfile,
 		selectedRule,
@@ -129,6 +152,7 @@ async function refreshPreview(): Promise<string> {
 	totalLines = result.totalLines;
 	outboundCount = result.outbounds;
 	skippedCount = result.skipped;
+	previewSignature = generatedSignature;
 
 	return result.content;
 }
@@ -176,8 +200,9 @@ async function publishPreview(): Promise<void> {
 		totalLines = result.totalLines;
 		outboundCount = result.outbounds;
 		skippedCount = result.skipped;
+		previewSignature = currentSignature;
 
-		if (result.errors.length > 0 || !result.content) {
+		if (result.errors.length > 0 || !result.content || result.outbounds <= 0) {
 			showToast(
 				$t("Export failed: {error}", {
 					error: result.errors[0] ?? "No output generated.",

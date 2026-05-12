@@ -11,6 +11,8 @@ function buildSyncState(state: AppState): AppState {
 		aggregates: state.aggregates,
 		publishTargets: state.publishTargets,
 		clientExports: state.clientExports,
+		activeGistId: state.activeGistId,
+		activeGistFile: state.activeGistFile,
 		lastUpdated: state.lastUpdated,
 	};
 }

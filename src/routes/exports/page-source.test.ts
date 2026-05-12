@@ -35,3 +35,11 @@ test("exports page implements sing-box client export behavior", () => {
 	expect(exportsPageSource).toContain("Publish");
 	expect(exportsPageSource).toContain("Workspace");
 });
+
+test("exports page gates publish on current valid preview", () => {
+	expect(exportsPageSource).toContain("previewSignature");
+	expect(exportsPageSource).toContain("currentSignature");
+	expect(exportsPageSource).toContain("previewSignature !== currentSignature");
+	expect(exportsPageSource).toContain("!previewContent");
+	expect(exportsPageSource).toContain("outboundCount <= 0");
+});
