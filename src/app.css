@@ -138,13 +138,17 @@ pre {
 }
 
 .gh-btn {
-	@apply inline-flex items-center justify-center gap-2 rounded-md border border-border-default px-3 py-1.5 text-sm font-medium text-fg-default transition-colors disabled:cursor-not-allowed disabled:opacity-60;
+	@apply inline-flex h-8 items-center justify-center gap-2 rounded-md border border-border-default px-3 py-1.5 text-sm font-medium text-fg-default transition-colors disabled:cursor-not-allowed disabled:opacity-60;
 	background: linear-gradient(180deg, #f6f8fa 0%, #f3f4f6 100%);
 	box-shadow: var(--shadow-sm);
 }
 
 .gh-btn:hover {
 	background: #f3f4f6;
+}
+
+.gh-btn:active {
+	background: var(--canvas-inset);
 }
 
 :root[data-theme="dark"] .gh-btn {
@@ -163,6 +167,10 @@ pre {
 
 .gh-btn-primary:hover {
 	background: color-mix(in srgb, var(--success-emphasis) 88%, black);
+}
+
+.gh-btn-primary:active {
+	background: color-mix(in srgb, var(--success-emphasis) 80%, black);
 }
 
 .gh-btn-danger {
@@ -192,6 +200,26 @@ pre {
 
 .gh-btn-sm {
 	@apply px-2 py-1 text-xs;
+}
+
+.gh-btn-group {
+	@apply inline-flex items-center;
+}
+
+.gh-btn-group > .gh-btn {
+	@apply rounded-none;
+}
+
+.gh-btn-group > .gh-btn:first-child {
+	@apply rounded-l-md;
+}
+
+.gh-btn-group > .gh-btn:last-child {
+	@apply rounded-r-md;
+}
+
+.gh-btn-group > .gh-btn + .gh-btn {
+	margin-left: -1px;
 }
 
 .gh-icon-button {
@@ -279,6 +307,23 @@ pre {
 	color: var(--fg-default);
 }
 
+.gh-toolbar {
+	@apply flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between;
+}
+
+.gh-toolbar-group {
+	@apply flex min-w-0 flex-wrap items-center gap-2;
+}
+
+.gh-filter-bar {
+	@apply flex flex-col gap-3 rounded-md border border-border-default bg-canvas-default p-3 sm:flex-row sm:items-center sm:justify-between;
+	box-shadow: var(--shadow-sm);
+}
+
+.gh-filter-controls {
+	@apply flex min-w-0 flex-1 flex-col gap-2 sm:flex-row sm:items-center;
+}
+
 .gh-page-header {
 	@apply flex flex-col gap-2 border-b border-border-default pb-3;
 }
@@ -313,6 +358,83 @@ pre {
 
 .gh-list-meta-code {
 	@apply max-w-full truncate rounded bg-canvas-subtle px-1.5 py-0.5 font-mono text-[10px];
+}
+
+.gh-counter {
+	@apply inline-flex min-w-5 items-center justify-center rounded-full border border-border-default bg-canvas-subtle px-1.5 py-0.5 text-[11px] font-medium leading-none text-fg-muted;
+}
+
+.gh-label {
+	@apply inline-flex items-center gap-1 rounded-md border border-border-default bg-canvas-subtle px-1.5 py-0.5 text-[10px] font-semibold uppercase leading-none text-fg-muted;
+}
+
+.gh-label-muted {
+	@apply font-medium normal-case;
+}
+
+.gh-dropdown-menu {
+	@apply absolute z-[120] mt-1 overflow-hidden rounded-md border border-border-default bg-canvas-default shadow-[var(--shadow-medium)];
+}
+
+.gh-dropdown-header {
+	@apply border-b border-border-default bg-canvas-subtle p-2;
+}
+
+.gh-dropdown-body {
+	@apply max-h-[400px] overflow-y-auto p-1;
+}
+
+.gh-dropdown-item {
+	@apply flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs transition-colors;
+}
+
+.gh-dropdown-item:hover {
+	background: var(--canvas-subtle);
+}
+
+.gh-row-main {
+	@apply flex min-w-0 items-start gap-3;
+}
+
+.gh-row-title {
+	@apply min-w-0 truncate text-left text-sm font-semibold text-accent-fg;
+}
+
+.gh-row-title:hover {
+	@apply underline;
+}
+
+.gh-row-actions {
+	@apply flex shrink-0 items-center justify-start gap-0 sm:justify-self-end;
+}
+
+.gh-section {
+	@apply rounded-md border border-border-default bg-canvas-default;
+	box-shadow: var(--shadow-sm);
+}
+
+.gh-section-header {
+	@apply flex flex-col gap-2 border-b border-border-default bg-canvas-subtle px-4 py-3 sm:flex-row sm:items-center sm:justify-between;
+}
+
+.gh-section-title {
+	@apply flex items-center gap-2 text-sm font-semibold;
+}
+
+.gh-section-description {
+	@apply text-xs text-fg-muted;
+}
+
+.gh-section-body {
+	@apply flex flex-col gap-4 p-4;
+}
+
+.gh-section-footer {
+	@apply flex flex-col gap-2 border-t border-border-default bg-canvas-subtle p-4 sm:flex-row sm:items-center sm:justify-end;
+}
+
+.gh-checkbox-row {
+	@apply flex items-start gap-2 rounded-md border border-border-default bg-canvas-subtle p-2.5;
 }
 
 .app-header {
