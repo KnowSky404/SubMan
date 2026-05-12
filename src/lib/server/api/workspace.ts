@@ -51,6 +51,8 @@ function exportServerSyncState(state: AppState): string {
 				aggregates: state.aggregates,
 				publishTargets: state.publishTargets,
 				clientExports: state.clientExports,
+				activeGistId: state.activeGistId,
+				activeGistFile: state.activeGistFile,
 				lastUpdated: state.lastUpdated,
 			},
 		},

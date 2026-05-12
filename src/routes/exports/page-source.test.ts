@@ -43,3 +43,23 @@ test("exports page gates publish on current valid preview", () => {
 	expect(exportsPageSource).toContain("!previewContent");
 	expect(exportsPageSource).toContain("outboundCount <= 0");
 });
+
+test("exports page resyncs drafts when selected profile changes remotely", () => {
+	expect(exportsPageSource).toContain("syncedDraftProfileSignature");
+	expect(exportsPageSource).toContain("selectedProfile.updatedAt");
+});
+
+test("exports page validates listen port before saving", () => {
+	expect(exportsPageSource).toContain("Number(draftListenPort)");
+	expect(exportsPageSource).toContain("Number.isInteger(listenPort)");
+	expect(exportsPageSource).toContain(
+		'showToast($t("Listen port must be between 1 and 65535"), "error")',
+	);
+});
+
+test("exports page stores the exact published workspace snapshot locally", () => {
+	expect(exportsPageSource).toContain("finalAppState");
+	expect(exportsPageSource).toContain("lastUpdated: now");
+	expect(exportsPageSource).toContain("appState.set(finalAppState)");
+	expect(exportsPageSource).not.toContain("upsertClientExport(finalProfile)");
+});

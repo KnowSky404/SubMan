@@ -29,3 +29,24 @@ test("exportSyncState preserves active workspace gist identity", async () => {
 	expect(exported.data.activeGistId).toBe("gist-123");
 	expect(exported.data.activeGistFile).toBe("workspace/subman.json");
 });
+
+test("getSyncStateSignature ignores active workspace gist identity", async () => {
+	const [{ getSyncStateSignature }, { defaultState }] = await Promise.all([
+		import("$lib/serialization"),
+		import("$lib/stores/app"),
+	]);
+	const state: AppState = {
+		...defaultState,
+		activeGistId: "gist-123",
+		activeGistFile: "workspace/subman.json",
+		lastUpdated: "2026-05-12T00:00:00.000Z",
+	};
+
+	expect(getSyncStateSignature(state)).toBe(
+		getSyncStateSignature({
+			...state,
+			activeGistId: "gist-456",
+			activeGistFile: "alternate/subman.json",
+		}),
+	);
+});

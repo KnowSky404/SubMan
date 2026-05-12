@@ -30,11 +30,11 @@ let draftName = "";
 let draftFileName = "";
 let draftRuleId = "";
 let draftListenAddress = "";
-let draftListenPort = 2080;
+let draftListenPort = "2080";
 let draftSelectorTag = "";
 let draftUrlTestTag = "";
 let draftIncludeExperimental = true;
-let syncedDraftProfileId = "";
+let syncedDraftProfileSignature = "";
 
 $: firstProfile = $appState.clientExports[0] ?? null;
 $: firstRule = $appState.aggregates[0] ?? null;
@@ -76,17 +76,27 @@ $: publishDisabled =
 	previewErrors.length > 0 ||
 	publishing;
 
-$: if (selectedProfile && syncedDraftProfileId !== selectedProfile.id) {
+$: if (
+	selectedProfile &&
+	syncedDraftProfileSignature !== getProfileDraftSignature(selectedProfile)
+) {
 	syncDraftFromProfile(selectedProfile);
 }
 
+function getProfileDraftSignature(profile: ClientExportProfile): string {
+	return JSON.stringify({
+		id: profile.id,
+		updatedAt: profile.updatedAt,
+	});
+}
+
 function syncDraftFromProfile(profile: ClientExportProfile): void {
-	syncedDraftProfileId = profile.id;
+	syncedDraftProfileSignature = getProfileDraftSignature(profile);
 	draftName = profile.name;
 	draftFileName = profile.fileName;
 	draftRuleId = profile.ruleId;
 	draftListenAddress = profile.options.listenAddress;
-	draftListenPort = profile.options.listenPort;
+	draftListenPort = String(profile.options.listenPort);
 	draftSelectorTag = profile.options.selectorTag;
 	draftUrlTestTag = profile.options.urlTestTag;
 	draftIncludeExperimental = profile.options.includeExperimental;
@@ -104,6 +114,12 @@ function createProfile(): void {
 function saveProfile(): void {
 	if (!selectedProfile) return;
 
+	const listenPort = Number(draftListenPort);
+	if (!Number.isInteger(listenPort) || listenPort < 1 || listenPort > 65535) {
+		showToast($t("Listen port must be between 1 and 65535"), "error");
+		return;
+	}
+
 	const now = nowIso();
 	const nextProfile: ClientExportProfile = {
 		...selectedProfile,
@@ -113,7 +129,7 @@ function saveProfile(): void {
 		options: {
 			...selectedProfile.options,
 			listenAddress: draftListenAddress.trim(),
-			listenPort: Number(draftListenPort),
+			listenPort,
 			selectorTag: draftSelectorTag.trim(),
 			urlTestTag: draftUrlTestTag.trim(),
 			includeExperimental: draftIncludeExperimental,
@@ -244,24 +260,25 @@ async function publishPreview(): Promise<void> {
 			lastPublishedUrl,
 			updatedAt: now,
 		};
-		const finalStateForSync = {
+		const finalAppState = {
 			...$appState,
 			activeGistId: initialResponse.id,
+			activeGistFile: WORKSPACE_FILE,
+			lastUpdated: now,
 			clientExports: $appState.clientExports.map((profile) =>
 				profile.id === finalProfile.id ? finalProfile : profile,
 			),
 		};
 		const finalFiles = {
 			[fileName]: { content: result.content },
-			[WORKSPACE_FILE]: { content: exportSyncState(finalStateForSync) },
+			[WORKSPACE_FILE]: { content: exportSyncState(finalAppState) },
 		};
 
 		await updateGist($authState.token, {
 			gistId: initialResponse.id,
 			files: finalFiles,
 		});
-		upsertClientExport(finalProfile);
-		appState.update((state) => ({ ...state, activeGistId: initialResponse.id }));
+		appState.set(finalAppState);
 		showToast($t("Published sing-box config"), "success");
 	} catch (error) {
 		showToast(

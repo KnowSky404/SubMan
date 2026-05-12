@@ -17,10 +17,18 @@ function buildSyncState(state: AppState): AppState {
 	};
 }
 
+function buildComparableSyncState(state: AppState): AppState {
+	return {
+		...buildSyncState(state),
+		activeGistId: null,
+		activeGistFile: defaultState.activeGistFile,
+	};
+}
+
 export function getSyncStateSignature(state: AppState): string {
 	return JSON.stringify({
 		version: EXPORT_VERSION,
-		data: buildSyncState(state),
+		data: buildComparableSyncState(state),
 	});
 }
 
