@@ -116,6 +116,14 @@ export function inferNodeTypeFromRaw(raw: string): ProxyType {
 	return "other";
 }
 
+export function inferNodeTypeFromDraft(
+	raw: string,
+	fallbackType: ProxyType,
+): ProxyType {
+	const inferredType = inferNodeTypeFromRaw(raw);
+	return inferredType === "other" ? fallbackType : inferredType;
+}
+
 export function inferNodeNameFromRaw(
 	raw: string,
 	fallbackName: string,

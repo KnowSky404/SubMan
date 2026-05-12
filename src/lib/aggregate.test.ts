@@ -2,6 +2,7 @@ import { describe, it, expect } from 'bun:test';
 import { sortResultLines, buildAggregateOutput } from './aggregate';
 import type { AggregateRule, NodeItem } from './models';
 import {
+	inferNodeTypeFromDraft,
 	extractSubscriptionNodeLines,
 	inferNodeTypeFromRaw,
 	normalizeSubscriptionContent
@@ -133,6 +134,16 @@ describe('AnyTLS support', () => {
 		const result = await buildAggregateOutput(rule, [anytlsNode, vlessNode], []);
 
 		expect(result.content).toBe('anytls://password@example.com:443?sni=example.com#AnyTLS%20HK');
+	});
+});
+
+describe('single node protocol inference', () => {
+	it('uses the URI protocol when it is a known proxy type', () => {
+		expect(inferNodeTypeFromDraft('trojan://password@example.com:443#Trojan', 'vless')).toBe('trojan');
+	});
+
+	it('keeps the selected protocol when the URI protocol is unknown', () => {
+		expect(inferNodeTypeFromDraft('custom://example.com:443#Custom', 'ss')).toBe('ss');
 	});
 });
 

@@ -20,6 +20,7 @@ import { cn } from "$lib/utils/cn";
 import {
 	decodeBase64Utf8,
 	extractSubscriptionNodeLines,
+	inferNodeTypeFromDraft,
 	inferNodeNameFromRaw,
 	inferNodeTypeFromRaw,
 	loadSubscriptionContent,
@@ -126,12 +127,24 @@ import { slide, fly } from "svelte/transition";
 			minute: "2-digit",
 		}).format(new Date(value));
 
+	function updateSingleNodeRaw(value: string) {
+		nodeRaw = value;
+		nodeType = inferNodeTypeFromDraft(value, nodeType);
+	}
+
+	function updateNodeDraftRaw(id: string, value: string) {
+		const draft = nodeDrafts[id];
+		if (!draft) return;
+		draft.raw = value;
+		draft.type = inferNodeTypeFromDraft(value, draft.type);
+	}
+
 	function handleAdd() {
 		if (addMode === "single") {
 			if (activeTab === "nodes") {
 				if (!nodeName.trim() || !nodeRaw.trim()) return;
 				upsertNode({
-					id: createId("node"), name: nodeName.trim(), type: nodeType, raw: nodeRaw.trim(),
+					id: createId("node"), name: nodeName.trim(), type: inferNodeTypeFromDraft(nodeRaw, nodeType), raw: nodeRaw.trim(),
 					tags: parseTags(nodeTags), enabled: true, updatedAt: nowIso(), source: "single"
 				});
 				nodeName = ""; nodeRaw = ""; nodeTags = "";
@@ -221,7 +234,7 @@ import { slide, fly } from "svelte/transition";
 		upsertNode({
 			...original,
 			name: draft.name.trim(),
-			type: draft.type,
+			type: inferNodeTypeFromDraft(draft.raw, draft.type),
 			raw: draft.raw.trim(),
 			tags: parseTags(draft.tags),
 			updatedAt: nowIso()
@@ -395,7 +408,7 @@ import { slide, fly } from "svelte/transition";
 						<div class="md:col-span-2 flex flex-col gap-1.5">
 							<label class="gh-form-label" for={activeTab === "nodes" ? addFormIds.nodeRaw : addFormIds.subUrl}>{activeTab === "nodes" ? $t("Raw URI") : $t("URL")}</label>
 							{#if activeTab === "nodes"}
-								<textarea id={addFormIds.nodeRaw} class="gh-input gh-textarea font-mono" placeholder="vless://..." bind:value={nodeRaw}></textarea>
+								<textarea id={addFormIds.nodeRaw} class="gh-input gh-textarea font-mono" placeholder="vless://..." value={nodeRaw} on:input={(event) => updateSingleNodeRaw(event.currentTarget.value)}></textarea>
 							{:else}
 								<textarea id={addFormIds.subUrl} class="gh-input gh-textarea font-mono" placeholder="https://..." bind:value={subUrl}></textarea>
 							{/if}
@@ -547,7 +560,7 @@ import { slide, fly } from "svelte/transition";
 										</div>
 										<div class="md:col-span-2 flex flex-col gap-1.5">
 											<label class="gh-form-label text-xs uppercase tracking-wide" for={`node-raw-${node.id}`}>{$t("Raw URI")}</label>
-											<textarea id={`node-raw-${node.id}`} class="gh-input gh-textarea font-mono text-xs" bind:value={nodeDrafts[node.id].raw}></textarea>
+											<textarea id={`node-raw-${node.id}`} class="gh-input gh-textarea font-mono text-xs" value={nodeDrafts[node.id].raw} on:input={(event) => updateNodeDraftRaw(node.id, event.currentTarget.value)}></textarea>
 										</div>
 										<div class="md:col-span-2 flex flex-col gap-1.5">
 											<label class="gh-form-label text-xs uppercase tracking-wide" for={`node-tags-${node.id}`}>{$t("Tags")}</label>
