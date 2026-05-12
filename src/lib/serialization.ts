@@ -10,6 +10,7 @@ function buildSyncState(state: AppState): AppState {
 		subscriptions: state.subscriptions,
 		aggregates: state.aggregates,
 		publishTargets: state.publishTargets,
+		clientExports: state.clientExports,
 		lastUpdated: state.lastUpdated,
 	};
 }

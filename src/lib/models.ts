@@ -76,6 +76,32 @@ export type AggregatePublishTarget = {
 	updatedAt: string;
 };
 
+export type ClientExportType = "sing-box-client";
+
+export type SingBoxClientExportOptions = {
+	listenAddress: string;
+	listenPort: number;
+	inboundType: "mixed";
+	dnsMode: "conservative";
+	routeMode: "global-proxy";
+	includeExperimental: boolean;
+	selectorTag: string;
+	urlTestTag: string;
+};
+
+export type ClientExportProfile = {
+	id: string;
+	name: string;
+	type: ClientExportType;
+	ruleId: string;
+	fileName: string;
+	options: SingBoxClientExportOptions;
+	lastGeneratedAt: string | null;
+	lastPublishedAt: string | null;
+	lastPublishedUrl: string | null;
+	updatedAt: string;
+};
+
 export type GistFile = {
 	filename: string;
 	language: string | null;
@@ -96,6 +122,7 @@ export type AppState = {
 	subscriptions: SubscriptionItem[];
 	aggregates: AggregateRule[];
 	publishTargets: AggregatePublishTarget[];
+	clientExports: ClientExportProfile[];
 	gists: GistMeta[];
 	activeGistId: string | null;
 	activeGistFile: string;

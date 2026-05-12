@@ -7,6 +7,7 @@ const defaultState: AppState = {
 	subscriptions: [],
 	aggregates: [],
 	publishTargets: [],
+	clientExports: [],
 	gists: [],
 	activeGistId: null,
 	activeGistFile: "subman.json",

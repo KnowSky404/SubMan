@@ -24,6 +24,7 @@ function stateWith(nodes: NodeItem[] = []): AppState {
 			},
 		],
 		publishTargets: [],
+		clientExports: [],
 		gists: [],
 		activeGistId: "gist-1",
 		activeGistFile: "subman.json",

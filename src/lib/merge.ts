@@ -1,6 +1,7 @@
 import type {
 	AggregatePublishTarget,
 	AggregateRule,
+	ClientExportProfile,
 	NodeItem,
 	SubscriptionItem,
 } from "$lib/models";
@@ -43,18 +44,21 @@ export function mergeSyncState(
 		subscriptions: SubscriptionItem[];
 		aggregates: AggregateRule[];
 		publishTargets: AggregatePublishTarget[];
+		clientExports?: ClientExportProfile[];
 	},
 	remote: {
 		nodes: NodeItem[];
 		subscriptions: SubscriptionItem[];
 		aggregates: AggregateRule[];
 		publishTargets: AggregatePublishTarget[];
+		clientExports?: ClientExportProfile[];
 	},
 ): {
 	nodes: NodeItem[];
 	subscriptions: SubscriptionItem[];
 	aggregates: AggregateRule[];
 	publishTargets: AggregatePublishTarget[];
+	clientExports: ClientExportProfile[];
 } {
 	return {
 		nodes: mergeByUpdatedAt(local.nodes, remote.nodes),
@@ -63,6 +67,10 @@ export function mergeSyncState(
 		publishTargets: mergeByUpdatedAt(
 			local.publishTargets,
 			remote.publishTargets,
+		),
+		clientExports: mergeByUpdatedAt(
+			local.clientExports ?? [],
+			remote.clientExports ?? [],
 		),
 	};
 }
