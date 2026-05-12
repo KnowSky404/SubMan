@@ -75,6 +75,8 @@ export async function buildSingBoxClientConfig(
 	const reservedTags = new Set([
 		profile.options.selectorTag,
 		profile.options.urlTestTag,
+		"selector",
+		"urltest",
 		"direct",
 		"block",
 		"dns-out",

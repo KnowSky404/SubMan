@@ -264,21 +264,15 @@ describe("sing-box client config export", () => {
 			outbounds: Array<Record<string, unknown>>;
 			route: { final: string };
 		};
-		expect(config.inbounds[0]).toMatchObject({
-			type: "mixed",
-			listen: "127.0.0.1",
-			listen_port: 2080,
-		});
-		expect(config.outbounds[0]).toMatchObject({
-			type: "selector",
-			tag: "proxy",
-			outbounds: ["auto", "HK VLESS", "direct", "block"],
-		});
-		expect(config.outbounds[1]).toMatchObject({
-			type: "urltest",
-			tag: "auto",
-			outbounds: ["HK VLESS"],
-		});
+		expect(config.inbounds[0].type).toBe("mixed");
+		expect(config.inbounds[0].listen).toBe("127.0.0.1");
+		expect(config.inbounds[0].listen_port).toBe(2080);
+		expect(config.outbounds[0].type).toBe("selector");
+		expect(config.outbounds[0].tag).toBe("proxy");
+		expect(config.outbounds[0].outbounds).toEqual(["auto", "HK VLESS", "direct", "block"]);
+		expect(config.outbounds[1].type).toBe("urltest");
+		expect(config.outbounds[1].tag).toBe("auto");
+		expect(config.outbounds[1].outbounds).toEqual(["HK VLESS"]);
 		expect(config.route.final).toBe("proxy");
 		expect(JSON.parse(result.content)).toEqual(config);
 	});
@@ -293,5 +287,47 @@ describe("sing-box client config export", () => {
 
 		expect(result.errors).toEqual(["No supported outbounds can be generated"]);
 		expect(result.content).toBe("");
+	});
+
+	it("suffixes remote tags that collide with literal selector and urltest tags", async () => {
+		const profile = createDefaultSingBoxClientProfile("rule-1", updatedAt);
+		const collisionRule: AggregateRule = {
+			...rule,
+			nodeIds: ["selector-node", "urltest-node"],
+		};
+		const collisionNodes: NodeItem[] = [
+			{
+				id: "selector-node",
+				name: "selector",
+				type: "vless",
+				raw: "vless://00000000-0000-4000-8000-000000000001@example.com:443?security=tls&sni=example.com#selector",
+				tags: [],
+				enabled: true,
+				updatedAt,
+				source: "single",
+			},
+			{
+				id: "urltest-node",
+				name: "urltest",
+				type: "vless",
+				raw: "vless://00000000-0000-4000-8000-000000000002@example.net:443?security=tls&sni=example.net#urltest",
+				tags: [],
+				enabled: true,
+				updatedAt,
+				source: "single",
+			},
+		];
+		const result = await buildSingBoxClientConfig(profile, collisionRule, collisionNodes, []);
+
+		const config = result.config as {
+			outbounds: Array<Record<string, unknown>>;
+		};
+		const remoteTags = config.outbounds
+			.filter((outbound) => outbound.type === "vless")
+			.map((outbound) => outbound.tag);
+
+		expect(remoteTags).toEqual(["selector 2", "urltest 2"]);
+		expect(remoteTags).not.toContain("selector");
+		expect(remoteTags).not.toContain("urltest");
 	});
 });
