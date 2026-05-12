@@ -190,7 +190,7 @@ async function deleteFile(filename: string) {
 					{#each workspace.files as gistFile}
 						<div class="gh-box-row group">
 							<div class="flex flex-col gap-2 sm:grid sm:grid-cols-[minmax(0,1.6fr)_120px_96px_auto] sm:items-center sm:gap-4">
-								<div class="flex min-w-0 items-start gap-3">
+								<div class="gh-row-main">
 									{#if gistFile.filename === WORKSPACE_FILE}
 										<Octicon icon={shieldCheck} className="mt-0.5 h-4 w-4 shrink-0 text-accent-fg" />
 									{:else}
@@ -198,7 +198,7 @@ async function deleteFile(filename: string) {
 									{/if}
 									<div class="min-w-0 space-y-1">
 										<div class="flex items-center gap-2 min-w-0">
-											<span class="truncate text-sm font-semibold text-accent-fg hover:underline cursor-pointer">{gistFile.filename}</span>
+											<span class="gh-row-title cursor-pointer">{gistFile.filename}</span>
 										</div>
 										<div class="gh-list-meta">
 											{#if gistFile.rawUrl}
@@ -211,7 +211,7 @@ async function deleteFile(filename: string) {
 								</div>
 
 								<div class="sm:justify-self-start">
-									<span class={cn("badge", gistFile.filename === WORKSPACE_FILE ? "badge-success" : "")}>
+									<span class={cn("gh-label gh-label-muted", gistFile.filename === WORKSPACE_FILE ? "badge-success" : "")}>
 										{gistFile.filename === WORKSPACE_FILE ? $t("Config") : $t("Published")}
 									</span>
 								</div>
@@ -220,7 +220,7 @@ async function deleteFile(filename: string) {
 									{gistFile.size} bytes
 								</div>
 
-								<div class="flex items-center gap-1 opacity-100 transition-opacity sm:justify-self-end sm:opacity-0 sm:group-hover:opacity-100">
+								<div class="gh-row-actions gh-btn-group">
 									{#if gistFile.rawUrl}
 										<button class="gh-btn gh-btn-sm" on:click={() => copyLink(gistFile.rawUrl)} title={$t("Copy Raw URL")}><Octicon icon={copy} className="h-3.5 w-3.5" /></button>
 										<a href={gistFile.rawUrl} target="_blank" class="gh-btn gh-btn-sm" title={$t("Open Raw")}><Octicon icon={linkExternal} className="h-3.5 w-3.5" /></a>

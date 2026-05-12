@@ -262,78 +262,76 @@ function handleImport() {
 	{/if}
 
 	<!-- GitHub Connection -->
-	<section>
-		<div class="flex items-center justify-between mb-2">
-			<h2 class="text-lg font-bold flex items-center gap-2"><Octicon icon={markGithub} className="h-5 w-5" />{$t("GitHub Workspace")}</h2>
+	<section class="gh-section">
+		<div class="gh-section-header">
+			<div>
+				<h2 class="gh-section-title"><Octicon icon={markGithub} className="h-5 w-5" />{$t("GitHub Workspace")}</h2>
+				<p class="gh-section-description">{$t("Stores workspace data in a private gist. Requires a classic token with gist scope.")}</p>
+			</div>
 			{#if $authState.token}
 				<span class="State State--success"><Octicon icon={checkCircle} className="h-3 w-3" />{$t("Connected")}</span>
 			{:else}
 				<span class="State State--muted">{$t("Local Mode")}</span>
 			{/if}
 		</div>
-		
-			<div class="gh-box">
-				<div class="gh-box-header">{$t("Authentication")}</div>
-			<div class="flex flex-col gap-4 bg-canvas-default p-4">
-				<p class="text-sm text-fg-muted">
-					{$t("Stores workspace data in a private gist. Requires a classic token with gist scope.")}
-				</p>
-				
-				{#if !$authState.token}
-					<div class="flex flex-col gap-2">
-						<label class="gh-form-label" for="github-token">{$t("Personal access token")}</label>
-						<div class="flex flex-col sm:flex-row gap-2">
-							<input id="github-token" type="password" class="gh-input flex-1 font-mono" placeholder="ghp_xxxxxxxxxxxx" bind:value={tokenInput} />
-							<button type="button" class="gh-btn gh-btn-primary" on:click={handleTokenSave} disabled={workspaceBusy}>
-								{#if workspaceBusy}<Octicon icon={sync} className="h-4 w-4 animate-spin" />{:else}<Octicon icon={save} className="h-4 w-4" />{/if}
-								{$t("Connect")}
+		<div class="gh-section-body">
+			{#if !$authState.token}
+				<div class="flex flex-col gap-2">
+					<label class="gh-form-label" for="github-token">{$t("Personal access token")}</label>
+					<div class="flex flex-col gap-2 sm:flex-row">
+						<input id="github-token" type="password" class="gh-input flex-1 font-mono" placeholder="ghp_xxxxxxxxxxxx" bind:value={tokenInput} />
+						<button type="button" class="gh-btn gh-btn-primary" on:click={handleTokenSave} disabled={workspaceBusy}>
+							{#if workspaceBusy}<Octicon icon={sync} className="h-4 w-4 animate-spin" />{:else}<Octicon icon={save} className="h-4 w-4" />{/if}
+							{$t("Connect")}
+						</button>
+					</div>
+				</div>
+				<a href="https://github.com/settings/tokens/new?description=SubMan&scopes=gist" target="_blank" class="flex items-center gap-1 text-xs text-accent-fg hover:underline">
+					<Octicon icon={linkExternal} className="h-3 w-3" /> {$t("Generate a new token on GitHub")}
+				</a>
+			{:else}
+				<div class="flex flex-col gap-3">
+					<div class="flex flex-col gap-3 rounded-md border border-border-default bg-canvas-subtle p-3 sm:flex-row sm:items-center sm:justify-between">
+						<div class="flex min-w-0 items-center gap-3">
+							<div class="flex h-8 w-8 items-center justify-center rounded-full border border-border-default bg-canvas-default"><Octicon icon={shieldCheck} className="h-4 w-4 text-green-600" /></div>
+							<div class="min-w-0">
+								<p class="text-sm font-bold">{$t("Token Active")}</p>
+								<p class="truncate font-mono text-xs text-fg-muted">{$appState.activeGistId || 'Searching...'}</p>
+							</div>
+						</div>
+						<div class="gh-btn-group">
+							<button type="button" class="gh-btn gh-btn-sm" on:click={handleManualPull} disabled={workspaceBusy}>
+								<Octicon icon={sync} className={cn("h-3.5 w-3.5", workspaceBusy && "animate-spin")} />
+								{$t("Pull Now")}
 							</button>
+							<button type="button" class="gh-btn gh-btn-danger gh-btn-sm" on:click={handleTokenClear}><Octicon icon={trash} className="h-3.5 w-3.5" />{$t("Disconnect")}</button>
 						</div>
 					</div>
-					<a href="https://github.com/settings/tokens/new?description=SubMan&scopes=gist" target="_blank" class="text-xs text-accent-fg hover:underline flex items-center gap-1">
-						<Octicon icon={linkExternal} className="h-3 w-3" /> {$t("Generate a new token on GitHub")}
-					</a>
-				{:else}
-					<div class="flex flex-col gap-3">
-						<div class="flex items-center justify-between p-3 rounded-md border border-border-default bg-canvas-subtle">
-							<div class="flex items-center gap-3">
-								<div class="h-8 w-8 flex items-center justify-center rounded-full bg-canvas-default border border-border-default"><Octicon icon={shieldCheck} className="h-4 w-4 text-green-600" /></div>
-								<div>
-									<p class="text-sm font-bold">{$t("Token Active")}</p>
-									<p class="text-xs text-fg-muted font-mono">{$appState.activeGistId || 'Searching...'}</p>
-								</div>
-							</div>
-							<div class="flex gap-2">
-								<button type="button" class="gh-btn gh-btn-sm" on:click={handleManualPull} disabled={workspaceBusy}>
-									<Octicon icon={sync} className={cn("h-3.5 w-3.5 mr-1", workspaceBusy && "animate-spin")} />
-									{$t("Pull Now")}
-								</button>
-								<button type="button" class="gh-btn gh-btn-danger gh-btn-sm" on:click={handleTokenClear}><Octicon icon={trash} className="h-3.5 w-3.5" />{$t("Disconnect")}</button>
-							</div>
-						</div>
-						<p class="text-[11px] text-fg-muted">
-							{$t("Auto-sync is enabled for local changes.")}
-						</p>
-					</div>
-				{/if}
-			</div>
+					<p class="text-[11px] text-fg-muted">
+						{$t("Auto-sync is enabled for local changes.")}
+					</p>
+				</div>
+			{/if}
 		</div>
 	</section>
 
 	<!-- Local Data Management -->
-	<section>
-		<div class="mb-2"><h2 class="text-lg font-bold flex items-center gap-2"><Octicon icon={database} className="h-5 w-5" />{$t("Data Management")}</h2></div>
-		<div class="gh-box">
-			<div class="gh-box-header">{$t("Import / Export")}</div>
-			<div class="flex flex-col gap-4 bg-canvas-default p-4">
-				<p class="text-sm text-fg-muted">{$t("Backup or restore local state as JSON.")}</p>
-				<label class="gh-form-label" for="settings-payload">{$t("JSON payload")}</label>
-				<textarea id="settings-payload" class="gh-input gh-textarea h-32 font-mono text-xs" placeholder="JSON data..." bind:value={payload}></textarea>
-				<div class="flex flex-wrap gap-2">
-					<button type="button" class="gh-btn flex-1" on:click={handleExport}><Octicon icon={upload} className="h-4 w-4" />{$t("Export")}</button>
-					<button type="button" class="gh-btn flex-1" on:click={handleImport}><Octicon icon={download} className="h-4 w-4" />{$t("Import")}</button>
-					<button type="button" class="gh-btn" on:click={() => { navigator.clipboard.writeText(payload); setStatus($t("Copied to clipboard")); }} disabled={!payload}><Octicon icon={copy} className="h-4 w-4" /></button>
-				</div>
+	<section class="gh-section">
+		<div class="gh-section-header">
+			<div>
+				<h2 class="gh-section-title"><Octicon icon={database} className="h-5 w-5" />{$t("Data Management")}</h2>
+				<p class="gh-section-description">{$t("Backup or restore local state as JSON.")}</p>
+			</div>
+		</div>
+		<div class="gh-section-body">
+			<label class="gh-form-label" for="settings-payload">{$t("JSON payload")}</label>
+			<textarea id="settings-payload" class="gh-input gh-textarea h-32 font-mono text-xs" placeholder="JSON data..." bind:value={payload}></textarea>
+		</div>
+		<div class="gh-section-footer">
+			<div class="gh-btn-group">
+				<button type="button" class="gh-btn" on:click={handleExport}><Octicon icon={upload} className="h-4 w-4" />{$t("Export")}</button>
+				<button type="button" class="gh-btn" on:click={handleImport}><Octicon icon={download} className="h-4 w-4" />{$t("Import")}</button>
+				<button type="button" class="gh-btn" on:click={() => { navigator.clipboard.writeText(payload); setStatus($t("Copied to clipboard")); }} disabled={!payload} aria-label={$t("Copy")}><Octicon icon={copy} className="h-4 w-4" /></button>
 			</div>
 		</div>
 	</section>

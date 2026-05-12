@@ -13,3 +13,10 @@ test("gists page uses the octicon file asset instead of gist file loop data", ()
 	expect(gistsPageSource).not.toContain("<Octicon icon={file} ");
 	expect(gistsPageSource).not.toContain("<Octicon icon={file}>");
 });
+
+test("gists page uses github file list action primitives", () => {
+	expect(gistsPageSource).toContain("gh-row-main");
+	expect(gistsPageSource).toContain("gh-row-actions");
+	expect(gistsPageSource).toContain("gh-btn-group");
+	expect(gistsPageSource).toContain("gh-label");
+});
