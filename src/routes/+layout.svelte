@@ -166,20 +166,23 @@ onMount(() => {
 						<div class="gh-page-meta">
 							<span class="gh-page-meta-item">
 								<Octicon icon={server} className="h-3.5 w-3.5" />
-								{$t("{count} nodes", { count: $appState.nodes.length })}
+								<span class="gh-counter">{$appState.nodes.length}</span>
+								{$t("nodes")}
 							</span>
 							<span class="gh-page-meta-item">
 								<Octicon icon={workflow} className="h-3.5 w-3.5" />
-								{$t("{count} rules", { count: $appState.aggregates.length })}
+								<span class="gh-counter">{$appState.aggregates.length}</span>
+								{$t("rules")}
 							</span>
 							<span class="gh-page-meta-item">
 								<Octicon icon={code} className="h-3.5 w-3.5" />
-								{$t("{count} live links", { count: livePublishCount })}
+								<span class="gh-counter">{livePublishCount}</span>
+								{$t("live links")}
 							</span>
 						</div>
 					</div>
 
-					<div class="app-repo-tools app-repo-tools-stack">
+					<div class="app-repo-tools app-repo-tools-stack gh-toolbar-group">
 						<a href="/auth" class={cn("gh-btn", !isWorkspaceConnected && "gh-btn-primary")}>
 							{isWorkspaceConnected ? $t("Manage Workspace") : $t("Setup GitHub")}
 						</a>

@@ -20,7 +20,7 @@ test("repo header renders stats in a dedicated right rail", () => {
 	expect(layoutSource).toContain('<div class="app-repo-main">');
 	expect(layoutSource).toContain('<div class="app-repo-side">');
 	expect(layoutSource).toContain('<div class="app-repo-side-meta">');
-	expect(layoutSource).toContain('class="app-repo-tools app-repo-tools-stack"');
+	expect(layoutSource).toContain("app-repo-tools app-repo-tools-stack");
 
 	const rightRailIndex = layoutSource.indexOf('<div class="app-repo-side">');
 	const statsIndex = layoutSource.indexOf('<div class="gh-page-meta">');
@@ -36,4 +36,10 @@ test("primary navigation reads pathname directly from SvelteKit app state", () =
 	expect(layoutSource).not.toContain("$: pathname =");
 	expect(layoutSource).toContain('class={cn("gh-underlinenav-item", isActive(page.url.pathname, item.href) && "gh-underlinenav-item-active")}');
 	expect(layoutSource).toContain('aria-current={isActive(page.url.pathname, item.href) ? "page" : undefined}');
+});
+
+test("layout uses github action primitives in repository header", () => {
+	expect(layoutSource).toContain("gh-toolbar-group");
+	expect(layoutSource).toContain("gh-counter");
+	expect(layoutSource).toContain("gh-btn");
 });

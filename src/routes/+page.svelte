@@ -107,18 +107,18 @@ $: enabledSubscriptionCount = $appState.subscriptions.filter(
 			<section class="gh-box">
 				<div class="gh-box-header">
 					<span>{$t("At a glance")}</span>
-					<span class="badge">4</span>
+					<span class="gh-counter">4</span>
 				</div>
 				<div class="grid grid-cols-1 divide-y divide-border-default md:grid-cols-2 md:divide-x md:divide-y-0">
 					{#each stats as stat}
 						<div class="flex gap-3 p-3.5">
-							<div class="mt-0.5 rounded-md border border-border-default bg-canvas-subtle p-2 text-fg-muted">
+							<div class="mt-0.5 flex h-8 w-8 items-center justify-center rounded-md border border-border-default bg-canvas-subtle text-fg-muted">
 								<Octicon icon={stat.icon} className="h-4 w-4" />
 							</div>
 							<div class="min-w-0 space-y-1">
 								<div class="flex items-center gap-2">
 									<span class="text-sm font-semibold">{$t(stat.label)}</span>
-									<span class="badge">{stat.count}</span>
+									<span class="gh-counter">{stat.count}</span>
 								</div>
 								<p class="text-sm text-fg-muted">{stat.description}</p>
 							</div>
@@ -130,14 +130,14 @@ $: enabledSubscriptionCount = $appState.subscriptions.filter(
 			<section class="gh-box">
 				<div class="gh-box-header">
 					<span>{$t("Workflow")}</span>
-					<span class="badge">3 {$t("steps")}</span>
+					<span class="gh-label gh-label-muted">3 {$t("steps")}</span>
 				</div>
 
 				<div class="divide-y divide-border-default">
 					<div class="gh-box-row flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
 						<div class="space-y-1">
 							<div class="flex items-center gap-2">
-								<span class="badge">1</span>
+								<span class="gh-counter">1</span>
 								<h2 class="text-sm font-semibold">{$t("Collect sources")}</h2>
 							</div>
 							<p class="text-sm text-fg-muted">
@@ -153,7 +153,7 @@ $: enabledSubscriptionCount = $appState.subscriptions.filter(
 					<div class="gh-box-row flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
 						<div class="space-y-1">
 							<div class="flex items-center gap-2">
-								<span class="badge">2</span>
+								<span class="gh-counter">2</span>
 								<h2 class="text-sm font-semibold">{$t("Compose rules")}</h2>
 							</div>
 							<p class="text-sm text-fg-muted">
@@ -169,7 +169,7 @@ $: enabledSubscriptionCount = $appState.subscriptions.filter(
 					<div class="gh-box-row flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
 						<div class="space-y-1">
 							<div class="flex items-center gap-2">
-								<span class="badge">3</span>
+								<span class="gh-counter">3</span>
 								<h2 class="text-sm font-semibold">{$t("Publish output")}</h2>
 							</div>
 							<p class="text-sm text-fg-muted">
@@ -187,11 +187,11 @@ $: enabledSubscriptionCount = $appState.subscriptions.filter(
 			<section class="gh-box">
 				<div class="gh-box-header">
 					<span>{$t("Current state")}</span>
-					<span class="badge">{publishTargetCount}</span>
+					<span class="gh-counter">{publishTargetCount}</span>
 				</div>
 				<div class="divide-y divide-border-default">
 					<div class="gh-box-row flex items-start gap-3">
-						<div class="rounded-md border border-border-default bg-canvas-subtle p-2 text-fg-muted">
+						<div class="flex h-8 w-8 items-center justify-center rounded-md border border-border-default bg-canvas-subtle text-fg-muted">
 							<Octicon icon={link} className="h-4 w-4" />
 						</div>
 						<div class="space-y-1">
@@ -203,7 +203,7 @@ $: enabledSubscriptionCount = $appState.subscriptions.filter(
 					</div>
 
 					<div class="gh-box-row flex items-start gap-3">
-						<div class="rounded-md border border-border-default bg-canvas-subtle p-2 text-fg-muted">
+						<div class="flex h-8 w-8 items-center justify-center rounded-md border border-border-default bg-canvas-subtle text-fg-muted">
 							<Octicon icon={globe} className="h-4 w-4" />
 						</div>
 						<div class="space-y-1">
