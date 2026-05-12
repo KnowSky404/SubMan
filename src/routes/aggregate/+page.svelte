@@ -355,8 +355,8 @@ import type { AggregateRule, ProxyType } from "$lib/models";
 						<Octicon icon={sliders} className="h-4 w-4" />
 						<span>{$t("Rule Definition")}</span>
 					</div>
-					<div class="flex items-center gap-2">
-						<span class="badge">{$appState.aggregates.length}</span>
+					<div class="gh-toolbar-group">
+						<span class="gh-counter">{$appState.aggregates.length}</span>
 						<select class="gh-select gh-select-sm w-48" value={editingRuleId} on:change={(e) => { const id = e.currentTarget.value; id ? loadRule($appState.aggregates.find(r => r.id === id)) : resetRuleForm(); }}>
 							<option value="">+ {$t("New Rule")}</option>
 							{#each $appState.aggregates as rule}<option value={rule.id}>{rule.name}</option>{/each}
@@ -397,24 +397,24 @@ import type { AggregateRule, ProxyType } from "$lib/models";
 							
 							{#if showNodesMenu}
 								<button type="button" class="fixed inset-0 z-[110]" on:click={() => (showNodesMenu = false)} aria-label={$t("Close source nodes menu")}></button>
-								<div class="absolute top-full left-0 mt-1 w-full min-w-[280px] gh-box shadow-xl z-[120] bg-canvas-default" transition:slide={{ duration: 150 }}>
-									<div class="p-2 border-b border-border-default bg-canvas-subtle">
+								<div class="gh-dropdown-menu left-0 top-full w-full min-w-[280px]" transition:slide={{ duration: 150 }}>
+									<div class="gh-dropdown-header">
 										<div class="relative">
 											<Octicon icon={search} className="absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-fg-subtle" />
 											<label class="sr-only" for={fieldIds.nodeSearch}>{$t("Filter nodes")}</label>
 											<input id={fieldIds.nodeSearch} class="gh-input pl-8 h-7 text-xs w-full" placeholder={$t("Filter nodes...")} bind:value={nodeSearchQuery} />
 										</div>
 									</div>
-									<div class="max-h-[400px] overflow-y-auto p-1 flex flex-col gap-0.5">
-										<button type="button" class="flex items-center gap-2 p-1.5 rounded hover:bg-canvas-subtle text-xs text-accent-fg font-semibold w-full text-left" on:click={selectAllNodes}>
+									<div class="gh-dropdown-body flex flex-col gap-0.5">
+										<button type="button" class="gh-dropdown-item font-semibold text-accent-fg" on:click={selectAllNodes}>
 											<Octicon icon={checklist} className="h-3.5 w-3.5" /> {$t("Select visible")}
 										</button>
 										<div class="border-t border-border-default my-1"></div>
 										{#each filteredNodesInRule as node}
-											<label class="flex items-center gap-2 p-1.5 rounded hover:bg-canvas-subtle cursor-pointer text-xs transition-colors">
+											<label class="gh-dropdown-item">
 												<input type="checkbox" class="rounded border-border-default" checked={selectedNodeIds.includes(node.id)} on:change={() => (selectedNodeIds = toggleSelection(selectedNodeIds, node.id))} />
-												<span class="truncate flex-1">{node.name}</span>
-												<span class="text-[9px] uppercase font-black text-fg-subtle">{node.type}</span>
+												<span class="min-w-0 flex-1 truncate">{node.name}</span>
+												<span class="gh-label">{node.type}</span>
 											</label>
 										{/each}
 										{#if !filteredNodesInRule.length}<p class="text-[10px] text-fg-muted p-4 text-center italic">{$t("No nodes found")}</p>{/if}
@@ -442,23 +442,23 @@ import type { AggregateRule, ProxyType } from "$lib/models";
 
 							{#if showSubsMenu}
 								<button type="button" class="fixed inset-0 z-[110]" on:click={() => (showSubsMenu = false)} aria-label={$t("Close source subscriptions menu")}></button>
-								<div class="absolute top-full left-0 mt-1 w-full min-w-[280px] gh-box shadow-xl z-[120] bg-canvas-default" transition:slide={{ duration: 150 }}>
-									<div class="p-2 border-b border-border-default bg-canvas-subtle">
+								<div class="gh-dropdown-menu left-0 top-full w-full min-w-[280px]" transition:slide={{ duration: 150 }}>
+									<div class="gh-dropdown-header">
 										<div class="relative">
 											<Octicon icon={search} className="absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-fg-subtle" />
 											<label class="sr-only" for={fieldIds.subSearch}>{$t("Filter subscriptions")}</label>
 											<input id={fieldIds.subSearch} class="gh-input pl-8 h-7 text-xs w-full" placeholder={$t("Filter subs...")} bind:value={subSearchQuery} />
 										</div>
 									</div>
-									<div class="max-h-[400px] overflow-y-auto p-1 flex flex-col gap-0.5">
-										<button type="button" class="flex items-center gap-2 p-1.5 rounded hover:bg-canvas-subtle text-xs text-accent-fg font-semibold w-full text-left" on:click={selectAllSubs}>
+									<div class="gh-dropdown-body flex flex-col gap-0.5">
+										<button type="button" class="gh-dropdown-item font-semibold text-accent-fg" on:click={selectAllSubs}>
 											<Octicon icon={checklist} className="h-3.5 w-3.5" /> {$t("Select visible")}
 										</button>
 										<div class="border-t border-border-default my-1"></div>
 										{#each filteredSubsInRule as sub}
-											<label class="flex items-center gap-2 p-1.5 rounded hover:bg-canvas-subtle cursor-pointer text-xs transition-colors">
+											<label class="gh-dropdown-item">
 												<input type="checkbox" class="rounded border-border-default" checked={selectedSubscriptionIds.includes(sub.id)} on:change={() => (selectedSubscriptionIds = toggleSelection(selectedSubscriptionIds, sub.id))} />
-												<span class="truncate flex-1">{sub.name}</span>
+												<span class="min-w-0 flex-1 truncate">{sub.name}</span>
 											</label>
 										{/each}
 										{#if !filteredSubsInRule.length}<p class="text-[10px] text-fg-muted p-4 text-center italic">{$t("No subs found")}</p>{/if}
@@ -471,7 +471,7 @@ import type { AggregateRule, ProxyType } from "$lib/models";
 					<!-- Allowed Types -->
 					<div class="flex flex-col gap-2">
 						<div id={fieldIds.allowedTypes} class="text-sm font-semibold">{$t("Allowed Protocols")}</div>
-						<div class="flex flex-wrap gap-2" role="group" aria-labelledby={fieldIds.allowedTypes}>
+						<div class="gh-btn-group flex-wrap" role="group" aria-labelledby={fieldIds.allowedTypes}>
 							{#each protocolOptions as opt}
 								<button 
 									type="button"
@@ -519,7 +519,7 @@ import type { AggregateRule, ProxyType } from "$lib/models";
 						</div>
 						<textarea id={fieldIds.customRegionFlagMap} class="gh-input gh-textarea font-mono text-xs h-32" placeholder="US = US, USA, America" bind:value={customRegionFlagMap}></textarea>
 						
-						<div class="flex items-center gap-2 p-2.5 rounded bg-canvas-subtle border border-border-default">
+						<div class="gh-checkbox-row">
 							<input id={fieldIds.prependRegionFlags} type="checkbox" class="rounded border-border-default" bind:checked={prependRegionFlags} />
 							<div class="flex flex-col">
 								<label class="text-xs font-bold" for={fieldIds.prependRegionFlags}>{$t("Auto-prepend Region Flags")}</label>
@@ -528,15 +528,17 @@ import type { AggregateRule, ProxyType } from "$lib/models";
 						</div>
 					</div>
 				</div>
-				<div class="p-4 bg-canvas-subtle border-t border-border-default flex justify-end gap-2">
-					{#if editingRuleId}
-						<button type="button" class="gh-btn gh-btn-danger" on:click={() => { removeAggregate(editingRuleId); resetRuleForm(); }} aria-label={$t("Delete current rule")}><Octicon icon={trash} className="h-4 w-4" /></button>
-					{/if}
-					<button type="button" class="gh-btn" on:click={buildPreview} disabled={previewLoading}>
-						{#if previewLoading}<Octicon icon={sync} className="mr-1 h-4 w-4 animate-spin" />{:else}<Octicon icon={eye} className="mr-1 h-4 w-4" />{/if}
-						{$t("Preview")}
-					</button>
-					<button type="button" class="gh-btn gh-btn-primary px-8" on:click={saveRule}><Octicon icon={checkCircle} className="mr-1 h-4 w-4" />{$t("Save")}</button>
+				<div class="gh-section-footer">
+					<div class="gh-btn-group">
+						{#if editingRuleId}
+							<button type="button" class="gh-btn gh-btn-danger" on:click={() => { removeAggregate(editingRuleId); resetRuleForm(); }} aria-label={$t("Delete current rule")} title={$t("Delete current rule")}><Octicon icon={trash} className="h-4 w-4" /></button>
+						{/if}
+						<button type="button" class="gh-btn" on:click={buildPreview} disabled={previewLoading}>
+							{#if previewLoading}<Octicon icon={sync} className="mr-1 h-4 w-4 animate-spin" />{:else}<Octicon icon={eye} className="mr-1 h-4 w-4" />{/if}
+							{$t("Preview")}
+						</button>
+						<button type="button" class="gh-btn gh-btn-primary px-8" on:click={saveRule}><Octicon icon={checkCircle} className="mr-1 h-4 w-4" />{$t("Save")}</button>
+					</div>
 				</div>
 			</div>
 
@@ -569,7 +571,7 @@ import type { AggregateRule, ProxyType } from "$lib/models";
 											<span class="h-1 w-1 rounded-full bg-current"></span>
 										</div>
 									</div>
-									<span class="px-1.5 py-0.5 rounded bg-canvas-subtle border border-border-default text-[9px] font-black uppercase text-fg-muted shrink-0">{entry.protocol}</span>
+									<span class="gh-label shrink-0">{entry.protocol}</span>
 									<span class="text-xs font-bold truncate">{entry.name}</span>
 								</div>
 								<button type="button" class="gh-btn gh-btn-sm opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity" on:click={() => copyLine(entry.line)} aria-label={$t("Copy preview line")}><Octicon icon={copy} className="h-3.5 w-3.5" /></button>
@@ -608,7 +610,7 @@ import type { AggregateRule, ProxyType } from "$lib/models";
 							<input id={fieldIds.targetFile} class="gh-input font-mono" placeholder="nodes.txt" bind:value={publishTargetFile} />
 						</div>
 
-					<div class="flex items-center gap-2 p-2.5 rounded bg-canvas-subtle border border-border-default">
+					<div class="gh-checkbox-row">
 						<input id={fieldIds.publishTargetPublic} type="checkbox" class="rounded border-border-default" bind:checked={publishTargetPublic} />
 						<label class="text-xs font-bold" for={fieldIds.publishTargetPublic}>{$t("Public Gist")}</label>
 					</div>
