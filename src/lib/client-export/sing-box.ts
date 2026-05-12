@@ -79,7 +79,6 @@ export async function buildSingBoxClientConfig(
 		"urltest",
 		"direct",
 		"block",
-		"dns-out",
 	]);
 	const usedTags = new Set<string>(reservedTags);
 	const remoteOutbounds: SingBoxOutbound[] = [];
@@ -169,10 +168,6 @@ function buildConfig(
 			{
 				type: "block",
 				tag: "block",
-			},
-			{
-				type: "dns",
-				tag: "dns-out",
 			},
 		],
 		route: {

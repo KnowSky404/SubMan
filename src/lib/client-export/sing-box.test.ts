@@ -35,6 +35,34 @@ describe("sing-box client export profile", () => {
 			}).errors,
 		).toContain("Listen port must be between 1 and 65535");
 	});
+
+	it("blocks duplicate selector and URL test tags", () => {
+		const profile = createDefaultSingBoxClientProfile("rule-1", "2026-05-12T00:00:00.000Z");
+
+		expect(
+			validateSingBoxClientProfile({
+				...profile,
+				options: { ...profile.options, selectorTag: " auto ", urlTestTag: "auto" },
+			}).errors,
+		).toContain("Selector tag and URL test tag must be different");
+	});
+
+	it("blocks control tags that collide with fixed outbound tags", () => {
+		const profile = createDefaultSingBoxClientProfile("rule-1", "2026-05-12T00:00:00.000Z");
+
+		expect(
+			validateSingBoxClientProfile({
+				...profile,
+				options: { ...profile.options, selectorTag: "direct" },
+			}).errors,
+		).toContain("Control tags cannot use direct or block");
+		expect(
+			validateSingBoxClientProfile({
+				...profile,
+				options: { ...profile.options, urlTestTag: " block " },
+			}).errors,
+		).toContain("Control tags cannot use direct or block");
+	});
 });
 
 describe("sing-box proxy uri parsing", () => {
@@ -270,6 +298,8 @@ describe("sing-box client config export", () => {
 		expect(config.outbounds[0].type).toBe("selector");
 		expect(config.outbounds[0].tag).toBe("proxy");
 		expect(config.outbounds[0].outbounds).toEqual(["auto", "HK VLESS", "direct", "block"]);
+		expect(config.outbounds.some((outbound) => outbound.type === "dns")).toBe(false);
+		expect(config.outbounds.some((outbound) => outbound.tag === "dns-out")).toBe(false);
 		expect(config.outbounds[1].type).toBe("urltest");
 		expect(config.outbounds[1].tag).toBe("auto");
 		expect(config.outbounds[1].outbounds).toEqual(["HK VLESS"]);

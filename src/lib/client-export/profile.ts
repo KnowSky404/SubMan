@@ -42,6 +42,8 @@ export function validateSingBoxClientProfile(profile: ClientExportProfile): {
 } {
 	const errors: string[] = [];
 	const fileName = normalizeExportFileName(profile.fileName);
+	const selectorTag = profile.options.selectorTag.trim();
+	const urlTestTag = profile.options.urlTestTag.trim();
 
 	if (!profile.ruleId) {
 		errors.push("Select an Aggregate rule");
@@ -62,11 +64,17 @@ export function validateSingBoxClientProfile(profile: ClientExportProfile): {
 	if (!profile.options.listenAddress.trim()) {
 		errors.push("Listen address is required");
 	}
-	if (!profile.options.selectorTag.trim()) {
+	if (!selectorTag) {
 		errors.push("Selector tag is required");
 	}
-	if (!profile.options.urlTestTag.trim()) {
+	if (!urlTestTag) {
 		errors.push("URL test tag is required");
+	}
+	if (selectorTag && urlTestTag && selectorTag === urlTestTag) {
+		errors.push("Selector tag and URL test tag must be different");
+	}
+	if (selectorTag === "direct" || selectorTag === "block" || urlTestTag === "direct" || urlTestTag === "block") {
+		errors.push("Control tags cannot use direct or block");
 	}
 
 	return { errors };
