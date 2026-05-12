@@ -119,6 +119,16 @@ should not hold the GitHub token.
 The first API version is intended for trusted backend scripts, so it does not
 enable broad browser CORS by default.
 
+## AI / Agent Adaptation
+This repository includes project context and a skill for automation agents such
+as Codex and Hermes agents:
+
+- Agent Guide: [docs/agents/subman-agent-guide.md](docs/agents/subman-agent-guide.md)
+- Project Skill: [docs/agents/subman-skill/SKILL.md](docs/agents/subman-skill/SKILL.md)
+
+These documents cover the Workspace Gist, Cloudflare Workers deployment, Server
+API automation, key source paths, and development boundaries.
+
 ## Stack
 - SvelteKit + TypeScript
 - TailwindCSS v4

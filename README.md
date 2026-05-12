@@ -114,6 +114,14 @@ curl -sS -X PUT "https://subman.example.com/api/nodes/by-key/vps-1-vless" \
 `GITHUB_TOKEN` 只保存在 Cloudflare Secrets 中，外部脚本不需要也不应该持有 GitHub Token。
 第一版 API 面向可信后端脚本调用，不默认开放浏览器跨域访问。
 
+## AI / Agent 适配
+本仓库提供面向 Codex、Hermes agents 等自动化 agent 的项目上下文与 skill：
+
+- Agent Guide：[docs/agents/subman-agent-guide.md](docs/agents/subman-agent-guide.md)
+- Project Skill：[docs/agents/subman-skill/SKILL.md](docs/agents/subman-skill/SKILL.md)
+
+这些文档覆盖 Workspace Gist、Cloudflare Workers 部署、Server API 自动化调用、关键源码路径和开发边界。
+
 ## 技术栈
 - SvelteKit + TypeScript
 - TailwindCSS v4
