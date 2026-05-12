@@ -43,3 +43,13 @@ test("layout uses github action primitives in repository header", () => {
 	expect(layoutSource).toContain("gh-counter");
 	expect(layoutSource).toContain("gh-btn");
 });
+
+test("primary navigation includes exports between aggregate and gists", () => {
+	const aggregateIndex = layoutSource.indexOf('{ href: "/aggregate", label: "Aggregate"');
+	const exportsIndex = layoutSource.indexOf('{ href: "/exports", label: "Exports"');
+	const gistsIndex = layoutSource.indexOf('{ href: "/gists", label: "Gists"');
+
+	expect(aggregateIndex).toBeGreaterThan(-1);
+	expect(exportsIndex).toBeGreaterThan(aggregateIndex);
+	expect(gistsIndex).toBeGreaterThan(exportsIndex);
+});

@@ -18,6 +18,7 @@ import {
 	check,
 	code,
 	database,
+	fileCode,
 	gear,
 	home,
 	markGithub,
@@ -39,6 +40,7 @@ const navItems = [
 	{ href: "/", label: "Overview", icon: home },
 	{ href: "/nodes", label: "Nodes", icon: server },
 	{ href: "/aggregate", label: "Aggregate", icon: workflow },
+	{ href: "/exports", label: "Exports", icon: fileCode },
 	{ href: "/gists", label: "Gists", icon: code },
 	{ href: "/auth", label: "Settings", icon: gear },
 ];
