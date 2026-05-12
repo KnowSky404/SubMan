@@ -1,0 +1,92 @@
+# SubMan Server API Reference
+
+For full endpoint documentation, see `docs/api/server-api.md`. This file is the
+short agent-facing version for automation work.
+
+## Purpose
+
+The Server API is for owner-operated, trusted backend scripts. It runs inside the
+same SvelteKit app on Cloudflare Workers and writes to the same Workspace Gist as
+the browser UI.
+
+## Authentication
+
+All endpoints except `GET /api/health` require:
+
+```http
+Authorization: Bearer <SUBMAN_API_TOKEN>
+```
+
+`SUBMAN_API_TOKEN` is separate from the GitHub token. Backend scripts should not
+hold `GITHUB_TOKEN`.
+
+## Preferred Automation Endpoint
+
+Use this for VPS installers and repeatable node sync:
+
+```http
+PUT /api/nodes/by-key/:externalKey
+```
+
+It is idempotent. The API stores the external key as a tag label:
+
+```text
+external:<externalKey>
+```
+
+Choose stable keys such as `vps-1-vless`, `hostname-vless-reality`, or
+`server-id-protocol-port`.
+
+Example:
+
+```bash
+curl -fsS -X PUT "https://subman.example.com/api/nodes/by-key/vps-1-vless" \
+  -H "Authorization: Bearer ${SUBMAN_API_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"vps-1 vless","type":"vless","raw":"vless://...","enabled":true,"tags":["sing-box-vps"]}'
+```
+
+## Node Payload
+
+```json
+{
+  "name": "vps-1 vless",
+  "type": "vless",
+  "raw": "vless://...",
+  "enabled": true,
+  "tags": ["sing-box-vps", "auto"],
+  "source": "single"
+}
+```
+
+Rules:
+
+- `name`, `type`, and `raw` are required.
+- `enabled` defaults to `true`.
+- `source` defaults to `single`.
+- `tags` defaults to an empty array.
+- `tags` may be strings or `{ "id": "...", "label": "..." }` objects.
+
+Allowed `type` values:
+
+```text
+vless, vmess, trojan, ss, ssr, hysteria2, tuic, anytls, other
+```
+
+## Available Endpoints
+
+- `GET /api/health`: check Worker secret configuration.
+- `GET /api/nodes`: list nodes.
+- `POST /api/nodes`: create a new node every time.
+- `GET /api/nodes/:id`: get one node.
+- `PATCH /api/nodes/:id`: update one node.
+- `DELETE /api/nodes/:id`: delete one node and remove it from aggregate
+  `nodeIds`.
+- `PUT /api/nodes/by-key/:externalKey`: idempotent create/update by stable key.
+
+## Operational Constraints
+
+- This API is not designed for high-concurrency writes.
+- CORS is not broadly opened for arbitrary browser origins.
+- Rotate `SUBMAN_API_TOKEN` if a trusted script host is compromised.
+
