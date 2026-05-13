@@ -84,109 +84,84 @@ onMount(() => {
 </script>
 
 <div class="flex min-h-screen flex-col">
-	<header class="app-header sticky top-0 z-[100]">
-		<div class="app-header-inner">
-			<a href="/" class="app-brand">
-				<span class="app-brand-mark">
-					<Octicon icon={packageIcon} className="h-4 w-4" />
-				</span>
-				<span>{PROJECT_NAME}</span>
-			</a>
-
-			<div class="app-header-tools">
-				<div class="hidden md:flex items-center">
-					<span class="app-header-chip">
-						{#if isWorkspaceConnected}
-							<Octicon icon={shieldCheck} className="h-3.5 w-3.5" />
-							{$t("Workspace connected")}
-						{:else}
-							<Octicon icon={database} className="h-3.5 w-3.5" />
-							{$t("Local mode")}
-						{/if}
-					</span>
-				</div>
-
-				<div class="gh-select-header-shell shrink-0">
-					<span class="gh-select-header-icon" aria-hidden="true">
-						<Octicon icon={activeThemeOption.icon} className="h-3.5 w-3.5" />
-					</span>
-					<select
-						class="gh-select gh-select-header"
-						value={$themeMode}
-						on:change={(event) => handleThemeChange(event.currentTarget.value as ThemeMode)}
-						aria-label={$t("Theme")}
-					>
-						{#each themeOptions as option}
-							<option value={option.value}>{$t(option.label)}</option>
-						{/each}
-					</select>
-				</div>
-
-				<a
-					href={PROJECT_GITHUB_URL}
-					target="_blank"
-					rel="noreferrer"
-					class="app-header-link"
-					aria-label={$t("Open project on GitHub")}
-				>
-					<Octicon icon={markGithub} className="h-4 w-4" />
-				</a>
-			</div>
-		</div>
-	</header>
-
 	<div class="app-repo-shell">
 		<div class="app-repo-inner">
 			<div class="app-repo-meta">
 				<div class="app-repo-main">
-					<div class="app-repo-title">
-						<Octicon icon={packageIcon} className="h-5 w-5 text-fg-muted" />
-						<a href={PROJECT_GITHUB_URL} target="_blank" rel="noreferrer" class="app-repo-title-owner">
-							{PROJECT_OWNER}
-						</a>
-						<span class="text-fg-muted">/</span>
-						<span>{PROJECT_NAME}</span>
-						<span class="badge">Public</span>
-					</div>
+					<div class="app-repo-title-line">
+						<div class="app-repo-title">
+							<Octicon icon={packageIcon} className="h-4 w-4 text-fg-muted" />
+							<a href={PROJECT_GITHUB_URL} target="_blank" rel="noreferrer" class="app-repo-title-owner">
+								{PROJECT_OWNER}
+							</a>
+							<span class="text-fg-muted">/</span>
+							<span>{PROJECT_NAME}</span>
+							<span class="badge">Public</span>
+						</div>
 
-					<div class="flex flex-wrap items-center gap-2 text-sm text-fg-muted">
-						<span class={cn("badge", isWorkspaceConnected ? "badge-success" : "")}>
-							{#if isWorkspaceConnected}
-								<Octicon icon={shieldCheck} className="h-3 w-3" />
-								{$t("Workspace")}
-							{:else}
-								<Octicon icon={database} className="h-3 w-3" />
-								{$t("Local")}
-							{/if}
-						</span>
-						<span class="truncate font-mono text-xs">{workspaceMetaText}</span>
+						<div class="app-repo-status-line">
+							<span class={cn("badge", isWorkspaceConnected ? "badge-success" : "")}>
+								{#if isWorkspaceConnected}
+									<Octicon icon={shieldCheck} className="h-3 w-3" />
+									{$t("Workspace")}
+								{:else}
+									<Octicon icon={database} className="h-3 w-3" />
+									{$t("Local")}
+								{/if}
+							</span>
+							<span class="max-w-[18rem] truncate font-mono text-xs text-fg-muted">{workspaceMetaText}</span>
+						</div>
 					</div>
 				</div>
 
 				<div class="app-repo-side">
-					<div class="app-repo-side-meta">
-						<div class="gh-page-meta">
-							<span class="gh-page-meta-item">
-								<Octicon icon={server} className="h-3.5 w-3.5" />
-								<span class="gh-counter">{$appState.nodes.length}</span>
-								{$t("nodes")}
-							</span>
-							<span class="gh-page-meta-item">
-								<Octicon icon={workflow} className="h-3.5 w-3.5" />
-								<span class="gh-counter">{$appState.aggregates.length}</span>
-								{$t("rules")}
-							</span>
-							<span class="gh-page-meta-item">
-								<Octicon icon={code} className="h-3.5 w-3.5" />
-								<span class="gh-counter">{livePublishCount}</span>
-								{$t("live links")}
-							</span>
-						</div>
+					<div class="gh-page-meta">
+						<span class="gh-page-meta-item">
+							<Octicon icon={server} className="h-3.5 w-3.5" />
+							<span class="gh-counter">{$appState.nodes.length}</span>
+							{$t("nodes")}
+						</span>
+						<span class="gh-page-meta-item">
+							<Octicon icon={workflow} className="h-3.5 w-3.5" />
+							<span class="gh-counter">{$appState.aggregates.length}</span>
+							{$t("rules")}
+						</span>
+						<span class="gh-page-meta-item">
+							<Octicon icon={code} className="h-3.5 w-3.5" />
+							<span class="gh-counter">{livePublishCount}</span>
+							{$t("live links")}
+						</span>
 					</div>
 
-					<div class="app-repo-tools app-repo-tools-stack gh-toolbar-group">
+					<div class="app-repo-control-row">
 						<a href="/auth" class={cn("gh-btn", !isWorkspaceConnected && "gh-btn-primary")}>
 							{isWorkspaceConnected ? $t("Manage Workspace") : $t("Setup GitHub")}
+						</a>
+
+						<div class="gh-select-header-shell shrink-0">
+							<span class="gh-select-header-icon" aria-hidden="true">
+								<Octicon icon={activeThemeOption.icon} className="h-3.5 w-3.5" />
+							</span>
+							<select
+								class="gh-select gh-select-header"
+								value={$themeMode}
+								on:change={(event) => handleThemeChange(event.currentTarget.value as ThemeMode)}
+								aria-label={$t("Theme")}
+							>
+								{#each themeOptions as option}
+									<option value={option.value}>{$t(option.label)}</option>
+								{/each}
+							</select>
+						</div>
+
+						<a
+							href={PROJECT_GITHUB_URL}
+							target="_blank"
+							rel="noreferrer"
+							class="app-header-link"
+							aria-label={$t("Open project on GitHub")}
+						>
+							<Octicon icon={markGithub} className="h-4 w-4" />
 						</a>
 					</div>
 				</div>

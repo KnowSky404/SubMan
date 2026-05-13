@@ -87,8 +87,8 @@ html {
 body {
 	background: linear-gradient(
 		180deg,
-		var(--canvas-default) 0 96px,
-		var(--canvas-subtle) 96px 100%
+		var(--canvas-default) 0 72px,
+		var(--canvas-subtle) 72px 100%
 	);
 	color: var(--fg-default);
 	font-family: var(--font-sans);
@@ -437,51 +437,23 @@ pre {
 	@apply flex items-start gap-2 rounded-md border border-border-default bg-canvas-subtle p-2.5;
 }
 
-.app-header {
-	background: var(--header-bg);
-	border-bottom: 1px solid var(--header-border);
-}
-
-.app-header-inner,
 .app-repo-inner,
 .app-main-container {
 	@apply mx-auto w-full max-w-[92rem] px-4 sm:px-6 lg:px-8;
 }
 
-.app-header-inner {
-	@apply flex min-h-14 items-center justify-between gap-4;
-}
-
-.app-brand {
-	@apply inline-flex items-center gap-3 text-sm font-semibold;
-	color: var(--header-text);
-}
-
 .app-brand-mark {
-	@apply flex h-8 w-8 items-center justify-center rounded-md border;
-	border-color: rgba(240, 246, 252, 0.18);
-	background: rgba(240, 246, 252, 0.06);
-}
-
-.app-header-tools {
-	@apply flex items-center gap-2;
-}
-
-.app-header-chip {
-	@apply inline-flex items-center gap-2 rounded-md border px-2.5 py-1.5 text-xs font-medium;
-	border-color: rgba(240, 246, 252, 0.14);
-	color: var(--header-muted);
-	background: rgba(240, 246, 252, 0.04);
+	@apply flex h-8 w-8 items-center justify-center rounded-md border border-border-default bg-canvas-subtle text-fg-muted;
 }
 
 .gh-select-header-shell {
 	@apply inline-flex h-8 w-32 items-center overflow-hidden rounded-md border transition-colors;
-	border-color: rgba(240, 246, 252, 0.14);
-	background-color: rgba(240, 246, 252, 0.04);
+	border-color: var(--border-default);
+	background-color: var(--canvas-default);
 }
 
 .gh-select-header-shell:hover {
-	background-color: var(--header-hover);
+	background-color: var(--canvas-subtle);
 }
 
 .gh-select-header-shell:focus-within {
@@ -491,15 +463,19 @@ pre {
 
 .gh-select-header-icon {
 	@apply inline-flex h-full w-8 shrink-0 items-center justify-center;
-	color: var(--header-muted);
+	color: var(--fg-muted);
 }
 
 .gh-select-header {
 	@apply h-full min-w-0 flex-1 cursor-pointer appearance-none border-0 bg-transparent bg-no-repeat py-0 pl-1 pr-8 text-xs font-medium outline-none transition-colors;
-	background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' width='16' height='16'%3E%3Cpath fill='%23c9d1d9' d='M4.427 7.427l3.396 3.396a.25.25 0 0 0 .354 0l3.396-3.396A.25.25 0 0 0 11.396 7H4.604a.25.25 0 0 0-.177.427Z'/%3E%3C/svg%3E");
+	background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' width='16' height='16'%3E%3Cpath fill='%236e7781' d='M4.427 7.427l3.396 3.396a.25.25 0 0 0 .354 0l3.396-3.396A.25.25 0 0 0 11.396 7H4.604a.25.25 0 0 0-.177.427Z'/%3E%3C/svg%3E");
 	background-position: right 8px center;
 	box-shadow: none;
-	color: var(--header-text);
+	color: var(--fg-default);
+}
+
+:root[data-theme="dark"] .gh-select-header {
+	background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' width='16' height='16'%3E%3Cpath fill='%239da7b3' d='M4.427 7.427l3.396 3.396a.25.25 0 0 0 .354 0l3.396-3.396A.25.25 0 0 0 11.396 7H4.604a.25.25 0 0 0-.177.427Z'/%3E%3C/svg%3E");
 }
 
 .gh-select-header:focus,
@@ -508,12 +484,12 @@ pre {
 }
 
 .app-header-link {
-	@apply inline-flex h-8 w-8 items-center justify-center rounded-md text-[color:var(--header-muted)] transition-colors;
+	@apply inline-flex h-8 w-8 items-center justify-center rounded-md border border-border-default text-fg-muted transition-colors;
 }
 
 .app-header-link:hover {
-	background: var(--header-hover);
-	color: var(--header-text);
+	background: var(--canvas-subtle);
+	color: var(--fg-default);
 }
 
 .app-repo-shell {
@@ -521,27 +497,31 @@ pre {
 }
 
 .app-repo-inner {
-	@apply flex flex-col gap-4 py-4;
+	@apply flex flex-col gap-2 pt-3;
 }
 
 .app-repo-meta {
-	@apply flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between;
+	@apply flex flex-col gap-3 pb-2 lg:flex-row lg:items-center lg:justify-between;
 }
 
 .app-repo-main {
-	@apply flex min-w-0 flex-1 flex-col gap-2;
+	@apply flex min-w-0 flex-1 flex-col gap-1;
 }
 
 .app-repo-side {
-	@apply flex w-full flex-col gap-3 lg:w-auto lg:min-w-[18rem] lg:max-w-[24rem] lg:items-end;
-}
-
-.app-repo-side-meta {
-	@apply flex w-full justify-start lg:justify-end;
+	@apply flex w-full flex-col gap-2 lg:w-auto lg:items-end;
 }
 
 .app-repo-title {
-	@apply flex min-w-0 flex-wrap items-center gap-2 text-[1.5rem] font-semibold;
+	@apply flex min-w-0 flex-wrap items-center gap-2 text-lg font-semibold;
+}
+
+.app-repo-title-line {
+	@apply flex min-w-0 flex-col gap-1 sm:flex-row sm:items-center sm:gap-3;
+}
+
+.app-repo-status-line {
+	@apply flex min-w-0 flex-wrap items-center gap-2;
 }
 
 .app-repo-title-owner {
@@ -552,16 +532,12 @@ pre {
 	text-decoration: underline;
 }
 
-.app-repo-tools {
+.app-repo-control-row {
 	@apply flex flex-wrap items-center gap-2;
 }
 
-.app-repo-tools-stack {
-	@apply w-full justify-start lg:w-auto lg:justify-end;
-}
-
 .app-main-container {
-	@apply flex-1 py-6;
+	@apply flex-1 py-5;
 }
 
 .blankslate {
