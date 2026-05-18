@@ -267,21 +267,23 @@ pre {
 }
 
 .gh-underlinenav {
-	@apply flex items-center gap-1 overflow-x-auto border-b border-border-default;
+	@apply flex items-center gap-1 overflow-x-auto;
 }
 
 .gh-underlinenav-item {
-	@apply inline-flex items-center gap-2 rounded-t-md px-2 py-2 text-sm font-medium text-fg-muted transition-colors;
+	@apply inline-flex h-12 items-center gap-2 px-2 text-sm text-fg-default transition-colors;
 	border-bottom: 2px solid transparent;
 	white-space: nowrap;
 }
 
 .gh-underlinenav-item:hover {
 	color: var(--fg-default);
+	border-bottom-color: var(--border-muted);
 }
 
 .gh-underlinenav-item-active {
 	border-bottom-color: var(--border-accent);
+	font-weight: 600;
 	color: var(--fg-default);
 }
 
@@ -492,7 +494,6 @@ pre {
 }
 
 .app-repo-shell {
-	@apply border-b border-border-default;
 	background: var(--canvas-default);
 }
 
@@ -507,16 +508,37 @@ pre {
 }
 
 .app-repo-meta {
-	@apply mx-auto flex w-full max-w-[92rem] flex-col gap-3 px-4 py-3 sm:px-6 lg:flex-row lg:items-center lg:justify-between lg:px-8;
+	@apply mx-auto flex min-h-[4.5rem] w-full flex-col gap-3 px-4 py-3 sm:px-6 lg:flex-row lg:items-center lg:justify-between lg:px-8;
 }
 
 .app-repo-main {
 	@apply flex min-w-0 flex-1 items-center;
 }
 
-.app-repo-title {
-	@apply flex min-w-0 flex-wrap items-center gap-1.5 text-sm font-semibold;
+.app-site-title {
+	@apply flex min-w-0 items-center gap-3 text-base font-semibold;
 	color: var(--header-text);
+}
+
+.app-repo-masthead {
+	@apply w-full border-b border-border-muted bg-canvas-subtle;
+}
+
+.app-repo-masthead .app-repo-inner {
+	@apply py-4;
+}
+
+.app-repo-tabs {
+	@apply w-full border-b border-border-default bg-canvas-subtle;
+}
+
+.app-repo-tabs .app-repo-inner {
+	@apply overflow-x-auto;
+}
+
+.app-repo-title {
+	@apply flex min-w-0 flex-wrap items-center gap-1.5 text-xl leading-7;
+	color: var(--fg-default);
 }
 
 .app-repo-title-line {
@@ -529,7 +551,8 @@ pre {
 }
 
 .app-repo-title-owner {
-	color: var(--header-text);
+	color: var(--accent-fg);
+	font-weight: 400;
 }
 
 .app-repo-title-owner:hover {
@@ -537,13 +560,13 @@ pre {
 }
 
 .app-repo-title-separator {
-	color: var(--header-muted);
+	color: var(--fg-muted);
 }
 
 .app-repo-visibility {
-	@apply ml-1 inline-flex items-center rounded-full border px-1.5 py-0 text-[11px] font-medium leading-5;
-	border-color: var(--header-border);
-	color: var(--header-muted);
+	@apply ml-1 inline-flex items-center rounded-full border px-1.5 py-0 text-xs font-medium leading-5;
+	border-color: var(--border-default);
+	color: var(--fg-muted);
 }
 
 .app-repo-actions {

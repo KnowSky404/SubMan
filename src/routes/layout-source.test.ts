@@ -9,6 +9,9 @@ const layoutSource = readFileSync(
 
 test("compact repository header owns global controls", () => {
 	expect(layoutSource).not.toContain('<header class="app-header sticky top-0 z-[100]">');
+	expect(layoutSource).toContain('<div class="app-site-title">');
+	expect(layoutSource).toContain('<div class="app-repo-masthead">');
+	expect(layoutSource).toContain('<div class="app-repo-tabs">');
 	expect(layoutSource).toContain('<div class="app-repo-title-line">');
 	expect(layoutSource).toContain('<div class="app-repo-status-line">');
 	expect(layoutSource).toContain('<div class="app-repo-actions">');
@@ -31,9 +34,21 @@ test("repo header renders identity and stats in one compact row", () => {
 	expect(layoutSource).not.toContain('{$t("live links")}');
 
 	const actionsIndex = layoutSource.indexOf('<div class="app-repo-actions">');
-	const titleIndex = layoutSource.indexOf('<div class="app-repo-title-line">');
+	const siteTitleIndex = layoutSource.indexOf('<div class="app-site-title">');
 
-	expect(actionsIndex).toBeGreaterThan(titleIndex);
+	expect(actionsIndex).toBeGreaterThan(siteTitleIndex);
+});
+
+test("repository tabs are in a full-width band outside the centered content body", () => {
+	const mastheadIndex = layoutSource.indexOf('<div class="app-repo-masthead">');
+	const tabsIndex = layoutSource.indexOf('<div class="app-repo-tabs">');
+	const navIndex = layoutSource.indexOf('<nav class="gh-underlinenav"');
+	const mainIndex = layoutSource.indexOf('<main class="app-main-container">');
+
+	expect(mastheadIndex).toBeGreaterThan(-1);
+	expect(tabsIndex).toBeGreaterThan(mastheadIndex);
+	expect(navIndex).toBeGreaterThan(tabsIndex);
+	expect(mainIndex).toBeGreaterThan(navIndex);
 });
 
 test("primary navigation reads pathname directly from SvelteKit app state", () => {

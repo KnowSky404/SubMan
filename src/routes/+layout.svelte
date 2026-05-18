@@ -85,16 +85,9 @@ onMount(() => {
 		<div class="app-repo-topbar">
 			<div class="app-repo-meta">
 				<div class="app-repo-main">
-					<div class="app-repo-title-line">
-						<div class="app-repo-title">
-							<Octicon icon={markGithub} className="h-8 w-8 shrink-0" />
-							<a href={PROJECT_GITHUB_URL} target="_blank" rel="noreferrer" class="app-repo-title-owner">
-								{PROJECT_OWNER}
-							</a>
-							<span class="app-repo-title-separator">/</span>
-							<span>{PROJECT_NAME}</span>
-							<span class="app-repo-visibility">Public</span>
-						</div>
+					<div class="app-site-title">
+						<Octicon icon={markGithub} className="h-8 w-8 shrink-0" />
+						<span>SubMan</span>
 					</div>
 				</div>
 
@@ -145,19 +138,37 @@ onMount(() => {
 			</div>
 		</div>
 
-		<div class="app-repo-inner">
-			<nav class="gh-underlinenav" aria-label={$t("Primary")}>
-				{#each navItems as item}
-					<a
-						href={item.href}
-						class={cn("gh-underlinenav-item", isActive(page.url.pathname, item.href) && "gh-underlinenav-item-active")}
-						aria-current={isActive(page.url.pathname, item.href) ? "page" : undefined}
-					>
-						<Octicon icon={item.icon} className="h-4 w-4" />
-						<span>{$t(item.label)}</span>
-					</a>
-				{/each}
-			</nav>
+		<div class="app-repo-masthead">
+			<div class="app-repo-inner">
+				<div class="app-repo-title-line">
+					<div class="app-repo-title">
+						<Octicon icon={packageIcon} className="h-4 w-4 shrink-0 text-fg-muted" />
+						<a href={PROJECT_GITHUB_URL} target="_blank" rel="noreferrer" class="app-repo-title-owner">
+							{PROJECT_OWNER}
+						</a>
+						<span class="app-repo-title-separator">/</span>
+						<span>{PROJECT_NAME}</span>
+						<span class="app-repo-visibility">Public</span>
+					</div>
+				</div>
+			</div>
+		</div>
+
+		<div class="app-repo-tabs">
+			<div class="app-repo-inner">
+				<nav class="gh-underlinenav" aria-label={$t("Primary")}>
+					{#each navItems as item}
+						<a
+							href={item.href}
+							class={cn("gh-underlinenav-item", isActive(page.url.pathname, item.href) && "gh-underlinenav-item-active")}
+							aria-current={isActive(page.url.pathname, item.href) ? "page" : undefined}
+						>
+							<Octicon icon={item.icon} className="h-4 w-4" />
+							<span>{$t(item.label)}</span>
+						</a>
+					{/each}
+				</nav>
+			</div>
 		</div>
 	</div>
 
