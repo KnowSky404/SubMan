@@ -9,6 +9,7 @@ import {
 	importState,
 } from "$lib/serialization";
 import { getGistFileContent, updateGist } from "$lib/gist";
+import { mergeSyncState } from "$lib/merge";
 import { ensureWorkspaceGist, WORKSPACE_FILE } from "$lib/workspace";
 import { setSyncBaseline } from "$lib/sync";
 import { requestConfirm } from "$lib/stores/confirm";
@@ -112,16 +113,50 @@ async function handleTokenSave() {
 	}
 }
 
-async function handleResolveConflict(action: "local" | "remote") {
+function getConflictConfirmation(action: "local" | "remote" | "merge") {
+	if (action === "remote") {
+		return {
+			message: $t("Remote data is different. Overwrite local with remote?"),
+			confirmText: $t("Pull Remote"),
+		};
+	}
+	if (action === "local") {
+		return {
+			message: $t("Overwrite remote workspace data with current local state?"),
+			confirmText: $t("Push Local"),
+		};
+	}
+	return {
+		message: $t("Merge local and remote data, then save the merged state?"),
+		confirmText: $t("Merge & Save"),
+	};
+}
+
+function setLocalStateAndBaseline(nextState: AppState, gistId: string) {
+	const nextLocalState = { ...nextState, activeGistId: gistId };
+	replaceState(nextLocalState);
+	appState.update((state) => {
+		setSyncBaseline(getSyncStateSignature(state));
+		return state;
+	});
+}
+
+async function handleResolveConflict(action: "local" | "remote" | "merge") {
 	if (!conflict || !$authState.token) return;
+	const confirmation = getConflictConfirmation(action);
+	const confirmed = await requestConfirm({
+		title: $t("Sync Update"),
+		message: confirmation.message,
+		confirmText: confirmation.confirmText,
+	});
+	if (!confirmed) return;
+
 	workspaceBusy = true;
 	try {
 		if (action === "remote") {
-			replaceState(conflict.remoteState);
-			appState.update((s) => ({ ...s, activeGistId: conflict!.gistId }));
-			setSyncBaseline(conflict.remoteSignature);
+			setLocalStateAndBaseline(conflict.remoteState, conflict.gistId);
 			setStatus($t("Remote data loaded"), "success");
-		} else {
+		} else if (action === "local") {
 			const localPayload = exportSyncState($appState);
 			await updateGist($authState.token, {
 				gistId: conflict.gistId,
@@ -130,6 +165,19 @@ async function handleResolveConflict(action: "local" | "remote") {
 			appState.update((s) => ({ ...s, activeGistId: conflict!.gistId }));
 			setSyncBaseline(conflict.localSignature);
 			setStatus($t("Local data pushed to Gist"), "success");
+		} else {
+			const mergedState = {
+				...$appState,
+				...mergeSyncState($appState, conflict.remoteState),
+				activeGistId: conflict.gistId,
+			};
+			const mergedPayload = exportSyncState(mergedState);
+			await updateGist($authState.token, {
+				gistId: conflict.gistId,
+				files: { [WORKSPACE_FILE]: { content: mergedPayload } },
+			});
+			setLocalStateAndBaseline(mergedState, conflict.gistId);
+			setStatus($t("Merged data saved."), "success");
 		}
 		conflict = null;
 		tokenInput = "";
@@ -165,9 +213,7 @@ async function handleManualPull() {
 				confirmText: $t("Pull Remote"),
 			});
 			if (confirmed) {
-				replaceState(remoteState);
-				appState.update((s) => ({ ...s, activeGistId: gistId }));
-				setSyncBaseline(remoteSignature);
+				setLocalStateAndBaseline(remoteState, gistId);
 				setStatus($t("Pulled successfully"), "success");
 			}
 		}
@@ -273,11 +319,16 @@ function handleImport() {
 					<p class="text-sm text-orange-800 dark:text-orange-300">
 						{$t("Remote and local data differ. Choose which side becomes the source of truth.")}
 					</p>
-					<div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+					<div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
 						<button class="gh-btn flex flex-col items-center py-4 gap-2" on:click={() => handleResolveConflict('remote')}>
 							<Octicon icon={arrowDown} className="h-5 w-5 text-accent-fg" />
 							<span class="font-bold">{$t("Use Remote")}</span>
 							<span class="text-[10px] text-fg-muted">{$t("Replace local state")}</span>
+						</button>
+						<button class="gh-btn flex flex-col items-center py-4 gap-2" on:click={() => handleResolveConflict('merge')}>
+							<Octicon icon={sync} className="h-5 w-5 text-fg-muted" />
+							<span class="font-bold">{$t("Merge & Save")}</span>
+							<span class="text-[10px] text-fg-muted">{$t("Merge Both States")}</span>
 						</button>
 						<button class="gh-btn flex flex-col items-center py-4 gap-2" on:click={() => handleResolveConflict('local')}>
 							<Octicon icon={arrowUp} className="h-5 w-5 text-green-600" />

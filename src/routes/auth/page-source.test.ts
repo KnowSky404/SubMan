@@ -27,3 +27,14 @@ test("auth page exposes manual workspace push control", () => {
 	expect(authPageSource).toContain('$t("Push Now")');
 	expect(authPageSource).toContain('$t("Pushed successfully")');
 });
+
+test("auth conflict actions require confirmation before writing state", () => {
+	expect(authPageSource).toContain(
+		'async function handleResolveConflict(action: "local" | "remote" | "merge")',
+	);
+	expect(authPageSource).toContain('confirmText: $t("Pull Remote")');
+	expect(authPageSource).toContain('confirmText: $t("Push Local")');
+	expect(authPageSource).toContain('confirmText: $t("Merge & Save")');
+	expect(authPageSource).toContain("mergeSyncState($appState, conflict.remoteState)");
+	expect(authPageSource).toContain("handleResolveConflict('merge')");
+});

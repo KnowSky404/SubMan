@@ -216,6 +216,8 @@ const zhCN: Record<string, string> = {
 	"Push Local": "推送本地",
 	"Overwrite remote workspace data with current local state?":
 		"用当前本地状态覆盖远端工作区数据吗？",
+	"Merge local and remote data, then save the merged state?":
+		"合并本地和远端数据，然后保存合并后的状态吗？",
 	"Pushed successfully": "推送成功",
 	"Push failed": "推送失败",
 	"Workspace is linked. Choose if you want to sync now or keep local data as-is.":
