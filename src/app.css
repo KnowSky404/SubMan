@@ -447,35 +447,36 @@ pre {
 }
 
 .gh-select-header-shell {
-	@apply inline-flex h-8 w-32 items-center overflow-hidden rounded-md border transition-colors;
-	border-color: var(--border-default);
-	background-color: var(--canvas-default);
+	@apply inline-flex h-8 w-28 items-center overflow-hidden rounded-md border transition-colors;
+	border-color: var(--header-border);
+	background-color: transparent;
+	color: var(--header-text);
 }
 
 .gh-select-header-shell:hover {
-	background-color: var(--canvas-subtle);
+	background-color: var(--header-hover);
 }
 
 .gh-select-header-shell:focus-within {
-	border-color: var(--accent-emphasis);
-	box-shadow: 0 0 0 3px var(--accent-muted);
+	border-color: color-mix(in srgb, var(--header-text) 34%, transparent);
+	box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-emphasis) 45%, transparent);
 }
 
 .gh-select-header-icon {
 	@apply inline-flex h-full w-8 shrink-0 items-center justify-center;
-	color: var(--fg-muted);
+	color: var(--header-muted);
 }
 
 .gh-select-header {
 	@apply h-full min-w-0 flex-1 cursor-pointer appearance-none border-0 bg-transparent bg-no-repeat py-0 pl-1 pr-8 text-xs font-medium outline-none transition-colors;
-	background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' width='16' height='16'%3E%3Cpath fill='%236e7781' d='M4.427 7.427l3.396 3.396a.25.25 0 0 0 .354 0l3.396-3.396A.25.25 0 0 0 11.396 7H4.604a.25.25 0 0 0-.177.427Z'/%3E%3C/svg%3E");
+	background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' width='16' height='16'%3E%3Cpath fill='%23c9d1d9' d='M4.427 7.427l3.396 3.396a.25.25 0 0 0 .354 0l3.396-3.396A.25.25 0 0 0 11.396 7H4.604a.25.25 0 0 0-.177.427Z'/%3E%3C/svg%3E");
 	background-position: right 8px center;
 	box-shadow: none;
-	color: var(--fg-default);
+	color: var(--header-text);
 }
 
 :root[data-theme="dark"] .gh-select-header {
-	background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' width='16' height='16'%3E%3Cpath fill='%239da7b3' d='M4.427 7.427l3.396 3.396a.25.25 0 0 0 .354 0l3.396-3.396A.25.25 0 0 0 11.396 7H4.604a.25.25 0 0 0-.177.427Z'/%3E%3C/svg%3E");
+	background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' width='16' height='16'%3E%3Cpath fill='%239ba7b4' d='M4.427 7.427l3.396 3.396a.25.25 0 0 0 .354 0l3.396-3.396A.25.25 0 0 0 11.396 7H4.604a.25.25 0 0 0-.177.427Z'/%3E%3C/svg%3E");
 }
 
 .gh-select-header:focus,
@@ -484,56 +485,109 @@ pre {
 }
 
 .app-header-link {
-	@apply inline-flex h-8 w-8 items-center justify-center rounded-md border border-border-default text-fg-muted transition-colors;
+	@apply inline-flex h-8 w-8 items-center justify-center rounded-md border transition-colors;
+	border-color: var(--header-border);
+	color: var(--header-muted);
 }
 
 .app-header-link:hover {
-	background: var(--canvas-subtle);
-	color: var(--fg-default);
+	background: var(--header-hover);
+	color: var(--header-text);
 }
 
 .app-repo-shell {
-	@apply border-b border-border-default bg-canvas-default;
+	@apply border-b border-border-default;
+	background: var(--canvas-default);
 }
 
 .app-repo-inner {
-	@apply flex flex-col gap-2 pt-3;
+	@apply flex flex-col;
+}
+
+.app-repo-topbar {
+	@apply w-full;
+	background: var(--header-bg);
+	color: var(--header-text);
 }
 
 .app-repo-meta {
-	@apply flex flex-col gap-3 pb-2 lg:flex-row lg:items-center lg:justify-between;
+	@apply mx-auto flex w-full max-w-[92rem] flex-col gap-3 px-4 py-3 sm:px-6 lg:flex-row lg:items-center lg:justify-between lg:px-8;
 }
 
 .app-repo-main {
-	@apply flex min-w-0 flex-1 flex-col gap-1;
-}
-
-.app-repo-side {
-	@apply flex w-full flex-col gap-2 lg:w-auto lg:items-end;
+	@apply flex min-w-0 flex-1 items-center;
 }
 
 .app-repo-title {
-	@apply flex min-w-0 flex-wrap items-center gap-2 text-lg font-semibold;
+	@apply flex min-w-0 flex-wrap items-center gap-1.5 text-sm font-semibold;
+	color: var(--header-text);
 }
 
 .app-repo-title-line {
-	@apply flex min-w-0 flex-col gap-1 sm:flex-row sm:items-center sm:gap-3;
+	@apply flex min-w-0 items-center;
 }
 
 .app-repo-status-line {
-	@apply flex min-w-0 flex-wrap items-center gap-2;
+	@apply flex min-w-0 items-center gap-2;
+	color: var(--header-muted);
 }
 
 .app-repo-title-owner {
-	color: var(--accent-fg);
+	color: var(--header-text);
 }
 
 .app-repo-title-owner:hover {
 	text-decoration: underline;
 }
 
-.app-repo-control-row {
-	@apply flex flex-wrap items-center gap-2;
+.app-repo-title-separator {
+	color: var(--header-muted);
+}
+
+.app-repo-visibility {
+	@apply ml-1 inline-flex items-center rounded-full border px-1.5 py-0 text-[11px] font-medium leading-5;
+	border-color: var(--header-border);
+	color: var(--header-muted);
+}
+
+.app-repo-actions {
+	@apply flex min-w-0 flex-wrap items-center gap-2 lg:justify-end;
+}
+
+.app-repo-status {
+	@apply inline-flex h-8 items-center gap-1.5 rounded-md border px-2.5 text-xs font-medium;
+	border-color: var(--header-border);
+	background: transparent;
+	color: var(--header-muted);
+}
+
+.app-repo-status-connected {
+	color: #7ee787;
+}
+
+.app-repo-workspace-id {
+	@apply hidden max-w-[16rem] truncate font-mono text-xs sm:inline;
+	color: var(--header-muted);
+}
+
+.app-repo-action-button {
+	@apply inline-flex h-8 items-center justify-center rounded-md border px-3 text-xs font-medium transition-colors;
+	border-color: var(--header-border);
+	color: var(--header-text);
+}
+
+.app-repo-action-button:hover {
+	background: var(--header-hover);
+}
+
+.app-repo-action-button-primary {
+	border-color: color-mix(in srgb, var(--success-emphasis) 70%, black);
+	background: var(--success-emphasis);
+	color: #ffffff;
+}
+
+.app-repo-action-button-primary:hover {
+	background: color-mix(in srgb, var(--success-emphasis) 88%, black);
 }
 
 .app-main-container {

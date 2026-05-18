@@ -11,7 +11,7 @@ test("compact repository header owns global controls", () => {
 	expect(layoutSource).not.toContain('<header class="app-header sticky top-0 z-[100]">');
 	expect(layoutSource).toContain('<div class="app-repo-title-line">');
 	expect(layoutSource).toContain('<div class="app-repo-status-line">');
-	expect(layoutSource).toContain('<div class="app-repo-control-row">');
+	expect(layoutSource).toContain('<div class="app-repo-actions">');
 	expect(layoutSource).toContain('<div class="gh-select-header-shell shrink-0">');
 	expect(layoutSource).toContain(
 		'<span class="gh-select-header-icon" aria-hidden="true">',
@@ -22,16 +22,18 @@ test("compact repository header owns global controls", () => {
 
 test("repo header renders identity and stats in one compact row", () => {
 	expect(layoutSource).toContain('<div class="app-repo-main">');
-	expect(layoutSource).toContain('<div class="app-repo-side">');
+	expect(layoutSource).toContain('<div class="app-repo-actions">');
 	expect(layoutSource).not.toContain('<div class="app-repo-side-meta">');
 	expect(layoutSource).not.toContain("app-repo-tools app-repo-tools-stack");
+	expect(layoutSource).not.toContain('<div class="gh-page-meta">');
+	expect(layoutSource).not.toContain('{$t("nodes")}');
+	expect(layoutSource).not.toContain('{$t("rules")}');
+	expect(layoutSource).not.toContain('{$t("live links")}');
 
-	const rightRailIndex = layoutSource.indexOf('<div class="app-repo-side">');
-	const statsIndex = layoutSource.indexOf('<div class="gh-page-meta">');
+	const actionsIndex = layoutSource.indexOf('<div class="app-repo-actions">');
 	const titleIndex = layoutSource.indexOf('<div class="app-repo-title-line">');
 
-	expect(rightRailIndex).toBeGreaterThan(titleIndex);
-	expect(statsIndex).toBeGreaterThan(rightRailIndex);
+	expect(actionsIndex).toBeGreaterThan(titleIndex);
 });
 
 test("primary navigation reads pathname directly from SvelteKit app state", () => {
@@ -43,9 +45,9 @@ test("primary navigation reads pathname directly from SvelteKit app state", () =
 });
 
 test("layout uses github action primitives in repository header", () => {
-	expect(layoutSource).toContain("app-repo-control-row");
-	expect(layoutSource).toContain("gh-counter");
-	expect(layoutSource).toContain("gh-btn");
+	expect(layoutSource).toContain("app-repo-actions");
+	expect(layoutSource).toContain("app-repo-action-button");
+	expect(layoutSource).toContain("app-header-link");
 });
 
 test("primary navigation includes exports between aggregate and gists", () => {
