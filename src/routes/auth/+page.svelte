@@ -178,6 +178,35 @@ async function handleManualPull() {
 	}
 }
 
+async function handleManualPush() {
+	const token = $authState.token;
+	const gistId = $appState.activeGistId;
+	if (!token || !gistId) return;
+
+	const confirmed = await requestConfirm({
+		title: $t("Sync Update"),
+		message: $t("Overwrite remote workspace data with current local state?"),
+		confirmText: $t("Push Local"),
+	});
+	if (!confirmed) return;
+
+	workspaceBusy = true;
+	try {
+		const localPayload = exportSyncState($appState);
+		const localSignature = getSyncStateSignature($appState);
+		await updateGist(token, {
+			gistId,
+			files: { [WORKSPACE_FILE]: { content: localPayload } },
+		});
+		setSyncBaseline(localSignature);
+		setStatus($t("Pushed successfully"), "success");
+	} catch (err) {
+		setStatus($t("Push failed"), "error");
+	} finally {
+		workspaceBusy = false;
+	}
+}
+
 function handleTokenClear() {
 	clearAuth();
 	appState.update((s) => ({ ...s, activeGistId: null }));
@@ -303,6 +332,10 @@ function handleImport() {
 							<button type="button" class="gh-btn gh-btn-sm" on:click={handleManualPull} disabled={workspaceBusy}>
 								<Octicon icon={sync} className={cn("h-3.5 w-3.5", workspaceBusy && "animate-spin")} />
 								{$t("Pull Now")}
+							</button>
+							<button type="button" class="gh-btn gh-btn-sm" on:click={handleManualPush} disabled={workspaceBusy}>
+								<Octicon icon={upload} className="h-3.5 w-3.5" />
+								{$t("Push Now")}
 							</button>
 							<button type="button" class="gh-btn gh-btn-danger gh-btn-sm" on:click={handleTokenClear}><Octicon icon={trash} className="h-3.5 w-3.5" />{$t("Disconnect")}</button>
 						</div>

@@ -20,3 +20,10 @@ test("auth page uses github settings section primitives", () => {
 	expect(authPageSource).toContain("gh-section-body");
 	expect(authPageSource).toContain("gh-section-footer");
 });
+
+test("auth page exposes manual workspace push control", () => {
+	expect(authPageSource).toContain("async function handleManualPush()");
+	expect(authPageSource).toContain("on:click={handleManualPush}");
+	expect(authPageSource).toContain('$t("Push Now")');
+	expect(authPageSource).toContain('$t("Pushed successfully")');
+});

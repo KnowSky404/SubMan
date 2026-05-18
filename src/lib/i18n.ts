@@ -212,6 +212,12 @@ const zhCN: Record<string, string> = {
 	"Local only": "仅本地",
 	"Workspace gist: {id} (file: {file})": "工作区 Gist：{id}（文件：{file}）",
 	"Workspace Sync Options": "工作区同步选项",
+	"Push Now": "立即推送",
+	"Push Local": "推送本地",
+	"Overwrite remote workspace data with current local state?":
+		"用当前本地状态覆盖远端工作区数据吗？",
+	"Pushed successfully": "推送成功",
+	"Push failed": "推送失败",
 	"Workspace is linked. Choose if you want to sync now or keep local data as-is.":
 		"已绑定工作区。请选择立即同步，或保持本地数据不变。",
 	Local: "本地",
