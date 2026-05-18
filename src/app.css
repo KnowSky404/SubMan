@@ -85,11 +85,7 @@ html {
 }
 
 body {
-	background: linear-gradient(
-		180deg,
-		var(--canvas-default) 0 72px,
-		var(--canvas-subtle) 72px 100%
-	);
+	background: var(--canvas-subtle);
 	color: var(--fg-default);
 	font-family: var(--font-sans);
 	line-height: 1.5;
@@ -126,11 +122,11 @@ pre {
 }
 
 .gh-box-header {
-	@apply flex items-center justify-between gap-3 border-b border-border-default bg-canvas-subtle px-4 py-2.5 text-sm font-semibold;
+	@apply flex min-h-10 items-center justify-between gap-3 border-b border-border-default bg-canvas-subtle px-4 py-2 text-sm font-semibold;
 }
 
 .gh-box-row {
-	@apply border-b border-border-default px-4 py-2.5 last:border-b-0;
+	@apply border-b border-border-default px-4 py-3 last:border-b-0;
 }
 
 .gh-box-row:hover {
@@ -325,11 +321,11 @@ pre {
 }
 
 .gh-page-header {
-	@apply flex flex-col gap-2 border-b border-border-default pb-3;
+	@apply flex flex-col gap-2 border-b border-border-default pb-4;
 }
 
 .gh-page-title {
-	@apply text-[2rem] font-semibold leading-tight;
+	@apply text-2xl font-semibold leading-tight;
 }
 
 .gh-page-subtitle {
@@ -591,7 +587,96 @@ pre {
 }
 
 .app-main-container {
-	@apply flex-1 py-5;
+	@apply flex-1 py-6;
+}
+
+.repo-overview {
+	@apply flex flex-col gap-4 pb-10;
+}
+
+.repo-overview-header {
+	@apply flex flex-col gap-3 border-b border-border-default pb-4 lg:flex-row lg:items-end lg:justify-between;
+}
+
+.repo-overview-title {
+	@apply text-2xl font-semibold leading-tight;
+}
+
+.repo-overview-subtitle {
+	@apply max-w-3xl text-sm text-fg-muted;
+}
+
+.repo-overview-actions {
+	@apply flex flex-wrap items-center gap-2;
+}
+
+.repo-overview-layout {
+	@apply grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_296px];
+}
+
+.repo-overview-main,
+.repo-overview-sidebar {
+	@apply flex min-w-0 flex-col gap-4;
+}
+
+.repo-readme-header {
+	@apply flex min-h-10 items-center justify-between gap-3 border-b border-border-default bg-canvas-subtle px-4 py-2;
+}
+
+.repo-readme-title {
+	@apply flex min-w-0 items-center gap-2 text-sm font-semibold;
+}
+
+.repo-readme-body {
+	@apply p-4;
+}
+
+.repo-metric-grid {
+	@apply grid grid-cols-1 divide-y divide-border-default md:grid-cols-4 md:divide-x md:divide-y-0;
+}
+
+.repo-metric {
+	@apply flex min-w-0 flex-col gap-2 p-4;
+}
+
+.repo-metric-label {
+	@apply flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-fg-muted;
+}
+
+.repo-metric-value {
+	@apply text-2xl font-semibold leading-none text-fg-default;
+}
+
+.repo-metric-caption {
+	@apply text-xs text-fg-muted;
+}
+
+.repo-workflow-row {
+	@apply flex flex-col gap-2 px-4 py-3 sm:flex-row sm:items-center sm:justify-between;
+}
+
+.repo-workflow-copy {
+	@apply flex min-w-0 items-start gap-3;
+}
+
+.repo-workflow-index {
+	@apply mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-border-default bg-canvas-subtle text-[11px] font-medium text-fg-muted;
+}
+
+.repo-sidebar-section {
+	@apply border-b border-border-default px-4 py-4 last:border-b-0;
+}
+
+.repo-sidebar-title {
+	@apply mb-2 text-sm font-semibold;
+}
+
+.repo-sidebar-row {
+	@apply flex items-center justify-between gap-3 py-1 text-sm;
+}
+
+.repo-sidebar-row-label {
+	@apply min-w-0 text-fg-muted;
 }
 
 .blankslate {

@@ -9,6 +9,7 @@ import {
 	checkCircle,
 	code,
 	database,
+	fileCode,
 	globe,
 	link,
 	linkExternal,
@@ -56,93 +57,70 @@ $: enabledSubscriptionCount = $appState.subscriptions.filter(
 ).length;
 </script>
 
-<div class="flex flex-col gap-6 pb-10">
-	<section class="gh-page-header">
-		<div class="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-			<div class="space-y-2">
-				<h1 class="gh-page-title">{$t("Repository overview")}</h1>
-				<p class="gh-page-subtitle">
-					{$t("GitHub-backed nodes, rules, and published subscription files.")}
-				</p>
-				<div class="gh-page-meta">
-					<span class={cn("gh-page-meta-item", isConnected && "badge-success")}>
-						{#if isConnected}
-							<Octicon icon={shieldCheck} className="h-3.5 w-3.5" />
-							{$t("Workspace connected")}
-						{:else}
-							<Octicon icon={database} className="h-3.5 w-3.5" />
-							{$t("Local-only")}
-						{/if}
-					</span>
-					<span class="gh-page-meta-item">
-						<Octicon icon={server} className="h-3.5 w-3.5" />
-						{$t("{count} enabled nodes", { count: enabledNodeCount })}
-					</span>
-					<span class="gh-page-meta-item">
-						<Octicon icon={sync} className="h-3.5 w-3.5" />
-						{$t("{count} enabled subscriptions", { count: enabledSubscriptionCount })}
-					</span>
-					<span class="gh-page-meta-item">
-						<Octicon icon={link} className="h-3.5 w-3.5" />
-						{$t("{count} live links", { count: publishTargetCount })}
-					</span>
-				</div>
-			</div>
+<div class="repo-overview">
+	<section class="repo-overview-header">
+		<div class="space-y-1">
+			<h1 class="repo-overview-title">{$t("Repository overview")}</h1>
+			<p class="repo-overview-subtitle">
+				{$t("GitHub-backed nodes, rules, and published subscription files.")}
+			</p>
+		</div>
 
-			<div class="flex flex-wrap items-center gap-2">
-				<a href="/gists" class="gh-btn">
-					<Octicon icon={code} className="h-4 w-4" />
-					{$t("Browse Gist Files")}
-				</a>
-				<a href="https://github.com/KnowSky404/SubMan" target="_blank" rel="noreferrer" class="gh-btn">
-					<Octicon icon={linkExternal} className="h-4 w-4" />
-					{$t("View on GitHub")}
-				</a>
-			</div>
+		<div class="repo-overview-actions">
+			<a href="/gists" class="gh-btn">
+				<Octicon icon={code} className="h-4 w-4" />
+				{$t("Browse Gist Files")}
+			</a>
+			<a href="https://github.com/KnowSky404/SubMan" target="_blank" rel="noreferrer" class="gh-btn">
+				<Octicon icon={linkExternal} className="h-4 w-4" />
+				{$t("View on GitHub")}
+			</a>
 		</div>
 	</section>
 
-	<div class="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,2fr)_320px]">
-		<div class="flex flex-col gap-6">
+	<div class="repo-overview-layout">
+		<div class="repo-overview-main">
 			<section class="gh-box">
-				<div class="gh-box-header">
-					<span>{$t("At a glance")}</span>
-					<span class="gh-counter">4</span>
+				<div class="repo-readme-header">
+					<div class="repo-readme-title">
+						<Octicon icon={fileCode} className="h-4 w-4 text-fg-muted" />
+						<span>README</span>
+					</div>
+					<span class="gh-label gh-label-muted">{$t("At a glance")}</span>
 				</div>
-				<div class="grid grid-cols-1 divide-y divide-border-default md:grid-cols-2 md:divide-x md:divide-y-0">
+				<div class="repo-metric-grid">
 					{#each stats as stat}
-						<div class="flex gap-3 p-3.5">
-							<div class="mt-0.5 flex h-8 w-8 items-center justify-center rounded-md border border-border-default bg-canvas-subtle text-fg-muted">
+						<div class="repo-metric">
+							<div class="repo-metric-label">
 								<Octicon icon={stat.icon} className="h-4 w-4" />
+								<span>{$t(stat.label)}</span>
 							</div>
-							<div class="min-w-0 space-y-1">
-								<div class="flex items-center gap-2">
-									<span class="text-sm font-semibold">{$t(stat.label)}</span>
-									<span class="gh-counter">{stat.count}</span>
-								</div>
-								<p class="text-sm text-fg-muted">{stat.description}</p>
-							</div>
+							<div class="repo-metric-value">{stat.count}</div>
+							<p class="repo-metric-caption">{stat.description}</p>
 						</div>
 					{/each}
 				</div>
 			</section>
 
 			<section class="gh-box">
-				<div class="gh-box-header">
-					<span>{$t("Workflow")}</span>
+				<div class="repo-readme-header">
+					<div class="repo-readme-title">
+						<Octicon icon={project} className="h-4 w-4 text-fg-muted" />
+						<span>{$t("Workflow")}</span>
+					</div>
 					<span class="gh-label gh-label-muted">3 {$t("steps")}</span>
 				</div>
 
 				<div class="divide-y divide-border-default">
-					<div class="gh-box-row flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-						<div class="space-y-1">
-							<div class="flex items-center gap-2">
-								<span class="gh-counter">1</span>
+					<div class="repo-workflow-row">
+						<div class="repo-workflow-copy">
+							<span class="repo-workflow-index">1</span>
+							<div class="min-w-0 space-y-1">
 								<h2 class="text-sm font-semibold">{$t("Collect sources")}</h2>
+								<p class="text-sm text-fg-muted">
+									{$t("Add single URIs or upstream subscription URLs.")}
+								</p>
 							</div>
-							<p class="text-sm text-fg-muted">
-								{$t("Add single URIs or upstream subscription URLs.")}
-							</p>
 						</div>
 						<a href="/nodes" class="gh-link inline-flex items-center gap-1 text-sm font-medium">
 							{$t("Nodes")}
@@ -150,15 +128,15 @@ $: enabledSubscriptionCount = $appState.subscriptions.filter(
 						</a>
 					</div>
 
-					<div class="gh-box-row flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-						<div class="space-y-1">
-							<div class="flex items-center gap-2">
-								<span class="gh-counter">2</span>
+					<div class="repo-workflow-row">
+						<div class="repo-workflow-copy">
+							<span class="repo-workflow-index">2</span>
+							<div class="min-w-0 space-y-1">
 								<h2 class="text-sm font-semibold">{$t("Compose rules")}</h2>
+								<p class="text-sm text-fg-muted">
+									{$t("Filter, rename, and preview the output set.")}
+								</p>
 							</div>
-							<p class="text-sm text-fg-muted">
-								{$t("Filter, rename, and preview the output set.")}
-							</p>
 						</div>
 						<a href="/aggregate" class="gh-link inline-flex items-center gap-1 text-sm font-medium">
 							{$t("Aggregate")}
@@ -166,15 +144,15 @@ $: enabledSubscriptionCount = $appState.subscriptions.filter(
 						</a>
 					</div>
 
-					<div class="gh-box-row flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-						<div class="space-y-1">
-							<div class="flex items-center gap-2">
-								<span class="gh-counter">3</span>
+					<div class="repo-workflow-row">
+						<div class="repo-workflow-copy">
+							<span class="repo-workflow-index">3</span>
+							<div class="min-w-0 space-y-1">
 								<h2 class="text-sm font-semibold">{$t("Publish output")}</h2>
+								<p class="text-sm text-fg-muted">
+									{$t("Write files to the workspace gist and copy raw URLs.")}
+								</p>
 							</div>
-							<p class="text-sm text-fg-muted">
-								{$t("Write files to the workspace gist and copy raw URLs.")}
-							</p>
 						</div>
 						<a href="/gists" class="gh-link inline-flex items-center gap-1 text-sm font-medium">
 							{$t("Gists")}
@@ -185,8 +163,11 @@ $: enabledSubscriptionCount = $appState.subscriptions.filter(
 			</section>
 
 			<section class="gh-box">
-				<div class="gh-box-header">
-					<span>{$t("Current state")}</span>
+				<div class="repo-readme-header">
+					<div class="repo-readme-title">
+						<Octicon icon={globe} className="h-4 w-4 text-fg-muted" />
+						<span>{$t("Current state")}</span>
+					</div>
 					<span class="gh-counter">{publishTargetCount}</span>
 				</div>
 				<div class="divide-y divide-border-default">
@@ -217,45 +198,38 @@ $: enabledSubscriptionCount = $appState.subscriptions.filter(
 			</section>
 		</div>
 
-		<aside class="flex flex-col gap-6">
+		<aside class="repo-overview-sidebar">
 			<section class="gh-box">
-				<div class="gh-box-header">
-					<span>{$t("About")}</span>
-				</div>
-				<div class="space-y-3 p-4">
+				<div class="repo-sidebar-section">
+					<h2 class="repo-sidebar-title">{$t("About")}</h2>
 					<p class="text-[13px] text-fg-muted">
 						{$t("Browser-first subscription manager with gist-backed sync and publish.")}
 					</p>
+				</div>
 
-					<div class="space-y-2 text-sm">
-						<div class="flex items-center justify-between gap-3">
-							<span class="text-fg-muted">{$t("Workspace mode")}</span>
-							<span class={cn("badge", isConnected && "badge-success")}>
-								{isConnected ? $t("Connected") : $t("Local-only")}
-							</span>
-						</div>
-						<div class="flex items-center justify-between gap-3">
-							<span class="text-fg-muted">{$t("Output files")}</span>
-							<span class="font-medium">{$appState.publishTargets.length}</span>
-						</div>
-						<div class="flex items-center justify-between gap-3">
-							<span class="text-fg-muted">{$t("Rules ready")}</span>
-							<span class="font-medium">{$appState.aggregates.length}</span>
-						</div>
+				<div class="repo-sidebar-section">
+					<div class="repo-sidebar-row">
+						<span class="repo-sidebar-row-label">{$t("Workspace mode")}</span>
+						<span class={cn("badge", isConnected && "badge-success")}>
+							{isConnected ? $t("Connected") : $t("Local-only")}
+						</span>
+					</div>
+					<div class="repo-sidebar-row">
+						<span class="repo-sidebar-row-label">{$t("Enabled nodes")}</span>
+						<span class="font-medium">{enabledNodeCount}</span>
+					</div>
+					<div class="repo-sidebar-row">
+						<span class="repo-sidebar-row-label">{$t("Enabled subscriptions")}</span>
+						<span class="font-medium">{enabledSubscriptionCount}</span>
+					</div>
+					<div class="repo-sidebar-row">
+						<span class="repo-sidebar-row-label">{$t("Live links")}</span>
+						<span class="font-medium">{publishTargetCount}</span>
 					</div>
 				</div>
-			</section>
 
-			<section
-				class={cn(
-					"gh-box",
-					isConnected ? "border-[color:color-mix(in_srgb,var(--success-emphasis)_24%,var(--border-default))]" : ""
-				)}
-			>
-				<div class="gh-box-header">
-					<span>{$t("Workspace status")}</span>
-				</div>
-				<div class="space-y-3 p-4">
+				<div class="repo-sidebar-section">
+					<h2 class="repo-sidebar-title">{$t("Workspace status")}</h2>
 					<div class="flex items-start gap-3">
 						<div
 							class={cn(
@@ -288,7 +262,9 @@ $: enabledSubscriptionCount = $appState.subscriptions.filter(
 							</p>
 						</div>
 					</div>
+				</div>
 
+				<div class="repo-sidebar-section">
 					<div class="space-y-2">
 						<a href="/auth" class={cn("gh-btn w-full", !isConnected && "gh-btn-primary")}>
 							{isConnected ? $t("Manage Workspace") : $t("Connect GitHub")}
