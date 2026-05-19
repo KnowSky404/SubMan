@@ -11,8 +11,10 @@ test("compact repository header owns global controls", () => {
 	expect(layoutSource).not.toContain(
 		'<header class="app-header sticky top-0 z-[100]">',
 	);
-	expect(layoutSource).toContain('<div class="app-site-title">');
+	expect(layoutSource).not.toContain('<div class="app-repo-topbar">');
+	expect(layoutSource).not.toContain('<div class="app-site-title">');
 	expect(layoutSource).toContain('<div class="app-repo-masthead">');
+	expect(layoutSource).toContain('<div class="app-repo-meta">');
 	expect(layoutSource).toContain('<div class="app-repo-tabs">');
 	expect(layoutSource).toContain('<div class="app-repo-title-line">');
 	expect(layoutSource).toContain('<div class="app-repo-status-line">');
@@ -78,6 +80,20 @@ test("layout uses github action primitives in repository header", () => {
 	expect(layoutSource).toContain("app-repo-actions");
 	expect(layoutSource).toContain("app-repo-action-button");
 	expect(layoutSource).toContain("app-header-link");
+});
+
+test("repository identity and global actions share the same masthead row", () => {
+	const mastheadIndex = layoutSource.indexOf('<div class="app-repo-masthead">');
+	const metaIndex = layoutSource.indexOf('<div class="app-repo-meta">');
+	const titleIndex = layoutSource.indexOf('<div class="app-repo-title-line">');
+	const actionsIndex = layoutSource.indexOf('<div class="app-repo-actions">');
+	const tabsIndex = layoutSource.indexOf('<div class="app-repo-tabs">');
+
+	expect(mastheadIndex).toBeGreaterThan(-1);
+	expect(metaIndex).toBeGreaterThan(mastheadIndex);
+	expect(titleIndex).toBeGreaterThan(metaIndex);
+	expect(actionsIndex).toBeGreaterThan(titleIndex);
+	expect(tabsIndex).toBeGreaterThan(actionsIndex);
 });
 
 test("primary navigation includes exports between aggregate and gists", () => {

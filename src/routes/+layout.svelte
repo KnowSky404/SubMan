@@ -82,12 +82,19 @@ onMount(() => {
 
 <div class="flex min-h-screen flex-col">
 	<div class="app-repo-shell">
-		<div class="app-repo-topbar">
+		<div class="app-repo-masthead">
 			<div class="app-repo-meta">
 				<div class="app-repo-main">
-					<div class="app-site-title">
-						<Octicon icon={markGithub} className="h-8 w-8 shrink-0" />
-						<span>SubMan</span>
+					<div class="app-repo-title-line">
+						<div class="app-repo-title">
+							<Octicon icon={markGithub} className="h-5 w-5 shrink-0 text-fg-muted" />
+							<a href={PROJECT_GITHUB_URL} target="_blank" rel="noreferrer" class="app-repo-title-owner">
+								{PROJECT_OWNER}
+							</a>
+							<span class="app-repo-title-separator">/</span>
+							<span>{PROJECT_NAME}</span>
+							<span class="app-repo-visibility">Public</span>
+						</div>
 					</div>
 				</div>
 
@@ -134,22 +141,6 @@ onMount(() => {
 					>
 						<Octicon icon={packageIcon} className="h-4 w-4" />
 					</a>
-				</div>
-			</div>
-		</div>
-
-		<div class="app-repo-masthead">
-			<div class="app-repo-inner">
-				<div class="app-repo-title-line">
-					<div class="app-repo-title">
-						<Octicon icon={packageIcon} className="h-4 w-4 shrink-0 text-fg-muted" />
-						<a href={PROJECT_GITHUB_URL} target="_blank" rel="noreferrer" class="app-repo-title-owner">
-							{PROJECT_OWNER}
-						</a>
-						<span class="app-repo-title-separator">/</span>
-						<span>{PROJECT_NAME}</span>
-						<span class="app-repo-visibility">Public</span>
-					</div>
 				</div>
 			</div>
 
