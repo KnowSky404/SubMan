@@ -271,7 +271,7 @@ pre {
 }
 
 .gh-underlinenav-item {
-	@apply inline-flex h-12 items-center gap-2 px-2 text-sm text-fg-default transition-colors;
+	@apply inline-flex h-12 items-center gap-2 px-2.5 text-sm font-medium text-fg-default transition-colors;
 	border-bottom: 2px solid transparent;
 	white-space: nowrap;
 }
@@ -457,7 +457,8 @@ pre {
 
 .gh-select-header-shell:focus-within {
 	border-color: color-mix(in srgb, var(--header-text) 34%, transparent);
-	box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-emphasis) 45%, transparent);
+	box-shadow: 0 0 0 3px
+		color-mix(in srgb, var(--accent-emphasis) 45%, transparent);
 }
 
 .gh-select-header-icon {
@@ -521,19 +522,19 @@ pre {
 }
 
 .app-repo-masthead {
-	@apply w-full border-b border-border-muted bg-canvas-subtle;
-}
-
-.app-repo-masthead .app-repo-inner {
-	@apply py-4;
-}
-
-.app-repo-tabs {
 	@apply w-full border-b border-border-default bg-canvas-subtle;
 }
 
-.app-repo-tabs .app-repo-inner {
-	@apply overflow-x-auto;
+.app-repo-masthead .app-repo-inner {
+	@apply py-4 pb-3;
+}
+
+.app-repo-tabs {
+	@apply w-full overflow-x-auto;
+}
+
+.app-repo-tabs-track {
+	@apply min-w-max px-4 sm:px-6 lg:px-8;
 }
 
 .app-repo-title {

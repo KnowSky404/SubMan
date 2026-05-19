@@ -152,22 +152,22 @@ onMount(() => {
 					</div>
 				</div>
 			</div>
-		</div>
 
-		<div class="app-repo-tabs">
-			<div class="app-repo-inner">
-				<nav class="gh-underlinenav" aria-label={$t("Primary")}>
-					{#each navItems as item}
-						<a
-							href={item.href}
-							class={cn("gh-underlinenav-item", isActive(page.url.pathname, item.href) && "gh-underlinenav-item-active")}
-							aria-current={isActive(page.url.pathname, item.href) ? "page" : undefined}
-						>
-							<Octicon icon={item.icon} className="h-4 w-4" />
-							<span>{$t(item.label)}</span>
-						</a>
-					{/each}
-				</nav>
+			<div class="app-repo-tabs">
+				<div class="app-repo-tabs-track">
+					<nav class="gh-underlinenav" aria-label={$t("Primary")}>
+						{#each navItems as item}
+							<a
+								href={item.href}
+								class={cn("gh-underlinenav-item", isActive(page.url.pathname, item.href) && "gh-underlinenav-item-active")}
+								aria-current={isActive(page.url.pathname, item.href) ? "page" : undefined}
+							>
+								<Octicon icon={item.icon} className="h-4 w-4" />
+								<span>{$t(item.label)}</span>
+							</a>
+						{/each}
+					</nav>
+				</div>
 			</div>
 		</div>
 	</div>
