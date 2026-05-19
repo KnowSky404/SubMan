@@ -142,9 +142,9 @@ import { slide, fly } from "svelte/transition";
 	function handleAdd() {
 		if (addMode === "single") {
 			if (activeTab === "nodes") {
-				if (!nodeName.trim() || !nodeRaw.trim()) return;
+				if (!nodeRaw.trim()) return;
 				upsertNode({
-					id: createId("node"), name: nodeName.trim(), type: inferNodeTypeFromDraft(nodeRaw, nodeType), raw: nodeRaw.trim(),
+					id: createId("node"), name: nodeName.trim() || inferNodeNameFromRaw(nodeRaw.trim(), "Imported Node"), type: inferNodeTypeFromDraft(nodeRaw, nodeType), raw: nodeRaw.trim(),
 					tags: parseTags(nodeTags), enabled: true, updatedAt: nowIso(), source: "single"
 				});
 				nodeName = ""; nodeRaw = ""; nodeTags = "";

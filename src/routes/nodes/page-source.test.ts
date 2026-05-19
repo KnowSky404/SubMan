@@ -34,3 +34,11 @@ test("nodes page uses stable list row primitives", () => {
 	expect(nodesPageSource).toContain("gh-row-actions");
 	expect(nodesPageSource).toContain("gh-label");
 });
+
+test("single node add can derive the name from the raw URI", () => {
+	expect(nodesPageSource).toContain('if (!nodeRaw.trim()) return;');
+	expect(nodesPageSource).toContain(
+		'name: nodeName.trim() || inferNodeNameFromRaw(nodeRaw.trim(), "Imported Node")',
+	);
+	expect(nodesPageSource).not.toContain("if (!nodeName.trim() || !nodeRaw.trim()) return;");
+});
