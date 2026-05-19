@@ -166,6 +166,7 @@ import type { AggregateRule, ProxyType } from "$lib/models";
 	$: publishedTargetCount = $appState.publishTargets.filter(
 		(target) => target.lastPublishedUrl,
 	).length;
+	$: isWorkspaceConnected = Boolean($authState.token && $appState.activeGistId);
 
 	function resetRuleForm() {
 		editingRuleId = ""; ruleName = ""; selectedNodeIds = [];
@@ -617,10 +618,17 @@ import type { AggregateRule, ProxyType } from "$lib/models";
 
 						<div class="flex flex-col gap-2 pt-2 border-t border-border-default">
 							<button type="button" class="gh-btn w-full" on:click={saveTarget}>{$t("Save Target")}</button>
-							<button type="button" class="gh-btn gh-btn-primary w-full py-3 h-auto" on:click={publish} disabled={publishing || !$authState.token}>
-								{#if publishing}<Octicon icon={sync} className="h-4 w-4 animate-spin" />{:else}<Octicon icon={upload} className="h-4 w-4" />{/if}
-								{$t("Publish")}
-							</button>
+							{#if isWorkspaceConnected}
+								<button type="button" class="gh-btn gh-btn-primary w-full py-3 h-auto" on:click={publish} disabled={publishing || !isWorkspaceConnected}>
+									{#if publishing}<Octicon icon={sync} className="h-4 w-4 animate-spin" />{:else}<Octicon icon={upload} className="h-4 w-4" />{/if}
+									{$t("Publish")}
+								</button>
+							{:else}
+								<a href="/auth" class="gh-btn gh-btn-primary w-full py-3 h-auto">
+									<Octicon icon={database} className="h-4 w-4" />
+									{$t("Connect to Publish")}
+								</a>
+							{/if}
 						</div>
 
 						{#if publishUrl}

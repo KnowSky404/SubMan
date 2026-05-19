@@ -441,7 +441,7 @@ import { slide, fly } from "svelte/transition";
 	<!-- Filter Bar -->
 	<div class="gh-filter-bar">
 		<div class="gh-filter-controls">
-			<div class="gh-tabs w-full sm:w-auto">
+			<div class="nodes-filter-tabs gh-tabs w-full sm:w-auto">
 				<button type="button" class={cn("gh-tab", activeTab === "nodes" && "gh-tab-active")} on:click={() => { activeTab = "nodes"; expandedId = null; }}>
 					<Octicon icon={server} className="h-4 w-4" />
 					{$t("Nodes")}
@@ -454,20 +454,22 @@ import { slide, fly } from "svelte/transition";
 				</button>
 			</div>
 
-			<div class="relative min-w-0 flex-1 sm:max-w-xs">
+			<div class="nodes-filter-search relative min-w-0 flex-1">
 				<Octicon icon={search} className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-fg-subtle" />
 				<label class="sr-only" for={addFormIds.filterQuery}>{$t("Filter resources")}</label>
 				<input id={addFormIds.filterQuery} class="gh-input h-8 pl-9" placeholder={$t("Filter resources...")} bind:value={searchQuery} />
 			</div>
-			<label class="sr-only" for={addFormIds.filterStatus}>{$t("Filter status")}</label>
-			<select id={addFormIds.filterStatus} class="gh-select w-full sm:w-32" bind:value={filterStatus}>
-				<option value="all">{$t("All")}</option>
-				<option value="enabled">{$t("Enabled")}</option>
-				<option value="disabled">{$t("Disabled")}</option>
-			</select>
+			<div class="nodes-filter-status flex min-w-36 flex-col gap-1 sm:w-36">
+				<label class="sr-only" for={addFormIds.filterStatus}>{$t("Filter status")}</label>
+				<select id={addFormIds.filterStatus} class="gh-select w-full" bind:value={filterStatus}>
+					<option value="all">{$t("All")}</option>
+					<option value="enabled">{$t("Enabled")}</option>
+					<option value="disabled">{$t("Disabled")}</option>
+				</select>
+			</div>
 		</div>
 
-		<button type="button" class="gh-btn gh-btn-primary shrink-0" on:click={() => (isAddModalOpen = !isAddModalOpen)}>
+		<button type="button" class="nodes-filter-action gh-btn gh-btn-primary shrink-0" on:click={() => (isAddModalOpen = !isAddModalOpen)}>
 			<Octicon icon={plus} className="h-4 w-4" />
 			{$t("New Resource")}
 		</button>

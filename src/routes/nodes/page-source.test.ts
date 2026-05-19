@@ -21,6 +21,13 @@ test("nodes page uses a unified github-style filter bar", () => {
 	expect(nodesPageSource).toContain("gh-btn-group");
 });
 
+test("nodes filter bar separates search, status, and primary action controls", () => {
+	expect(nodesPageSource).toContain("nodes-filter-tabs");
+	expect(nodesPageSource).toContain("nodes-filter-search");
+	expect(nodesPageSource).toContain("nodes-filter-status");
+	expect(nodesPageSource).toContain("nodes-filter-action");
+});
+
 test("nodes page uses stable list row primitives", () => {
 	expect(nodesPageSource).toContain("gh-row-main");
 	expect(nodesPageSource).toContain("gh-row-title");

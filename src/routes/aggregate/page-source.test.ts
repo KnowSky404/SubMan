@@ -19,3 +19,10 @@ test("aggregate page uses section footer actions and grouped buttons", () => {
 	expect(aggregatePageSource).toContain("gh-btn-group");
 	expect(aggregatePageSource).toContain("gh-label");
 });
+
+test("aggregate publish action directs local-only users to workspace setup", () => {
+	expect(aggregatePageSource).toContain("isWorkspaceConnected");
+	expect(aggregatePageSource).toContain("Connect to Publish");
+	expect(aggregatePageSource).toContain('href="/auth"');
+	expect(aggregatePageSource).toContain('disabled={publishing || !isWorkspaceConnected}');
+});

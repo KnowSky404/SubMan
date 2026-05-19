@@ -351,7 +351,7 @@ function handleImport() {
 			{#if $authState.token}
 				<span class="State State--success"><Octicon icon={checkCircle} className="h-3 w-3" />{$t("Connected")}</span>
 			{:else}
-				<span class="State State--muted">{$t("Local Mode")}</span>
+				<span class="State State--muted State--inline">{$t("Local Mode")}</span>
 			{/if}
 		</div>
 		<div class="gh-section-body">

@@ -21,6 +21,11 @@ test("auth page uses github settings section primitives", () => {
 	expect(authPageSource).toContain("gh-section-footer");
 });
 
+test("auth local mode badge keeps intrinsic width on mobile", () => {
+	expect(authPageSource).toContain("State--inline");
+	expect(authPageSource).toContain('class="State State--muted State--inline"');
+});
+
 test("auth page exposes manual workspace push control", () => {
 	expect(authPageSource).toContain("async function handleManualPush()");
 	expect(authPageSource).toContain("on:click={handleManualPush}");

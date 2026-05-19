@@ -755,6 +755,11 @@ pre {
 	background: var(--fg-subtle);
 }
 
+.State--inline {
+	align-self: flex-start;
+	width: fit-content;
+}
+
 @media (max-width: 767px) {
 	body {
 		background: var(--canvas-subtle);
