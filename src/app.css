@@ -1,10 +1,12 @@
+@import url("https://cdn.jsdelivr.net/npm/fontsource-noto-sans-sc@4.0.0/latin.css");
+@import url("https://cdn.jsdelivr.net/npm/fontsource-noto-sans-sc@4.0.0/chinese-simplified.css");
 @import "tailwindcss";
 @import "@primer/octicons/build/build.css";
 
 @theme {
 	--font-sans:
-		-apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica,
-		Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
+		"Noto Sans SC", "Noto Sans", -apple-system, BlinkMacSystemFont, "Segoe UI",
+		Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
 	--font-mono:
 		ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono",
 		monospace;
@@ -93,6 +95,12 @@ html {
 	font-size: 14px;
 	background: var(--canvas-subtle);
 	-webkit-text-size-adjust: 100%;
+}
+
+@media (min-width: 1024px) {
+	html {
+		font-size: 15px;
+	}
 }
 
 body {
@@ -273,7 +281,9 @@ pre {
 .gh-select:focus-visible,
 .gh-select:focus {
 	border-color: var(--accent-emphasis);
-	box-shadow: inset 0 0 0 1px var(--accent-emphasis), 0 0 0 3px var(--control-focus-ring);
+	box-shadow:
+		inset 0 0 0 1px var(--accent-emphasis),
+		0 0 0 3px var(--control-focus-ring);
 }
 
 .gh-input:disabled,
@@ -387,6 +397,21 @@ input[type="checkbox"]:indeterminate {
 .gh-tab-active {
 	border-bottom-color: var(--border-accent);
 	color: var(--fg-default);
+}
+
+@media (min-width: 1024px) {
+	.gh-underlinenav-item,
+	.gh-tab {
+		font-size: 1rem;
+	}
+
+	.gh-underlinenav-item {
+		@apply h-13 px-3;
+	}
+
+	.gh-tab {
+		@apply px-3.5 py-2.5;
+	}
 }
 
 .gh-toolbar {
