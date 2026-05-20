@@ -7,12 +7,9 @@ import Octicon from "$lib/components/Octicon.svelte";
 import {
 	arrowRight,
 	checkCircle,
-	code,
 	database,
-	fileCode,
 	globe,
 	link,
-	linkExternal,
 	project,
 	server,
 	shieldCheck,
@@ -61,12 +58,12 @@ $: enabledSubscriptionCount = $appState.subscriptions.filter(
 	<div class="repo-overview-layout">
 		<div class="repo-overview-main">
 			<section class="gh-box">
-				<div class="repo-readme-header">
-					<div class="repo-readme-title">
-						<Octicon icon={fileCode} className="h-4 w-4 text-fg-muted" />
-						<span>README</span>
+				<div class="overview-panel-header">
+					<div class="overview-panel-title">
+						<Octicon icon={server} className="h-4 w-4 text-fg-muted" />
+						<span>{$t("Workspace activity")}</span>
 					</div>
-					<span class="gh-label gh-label-muted">{$t("At a glance")}</span>
+					<span class="gh-label gh-label-muted">4 {$t("items")}</span>
 				</div>
 				<div class="repo-metric-grid">
 					{#each stats as stat}
@@ -83,10 +80,10 @@ $: enabledSubscriptionCount = $appState.subscriptions.filter(
 			</section>
 
 			<section class="gh-box">
-				<div class="repo-readme-header">
-					<div class="repo-readme-title">
+				<div class="overview-panel-header">
+					<div class="overview-panel-title">
 						<Octicon icon={project} className="h-4 w-4 text-fg-muted" />
-						<span>{$t("Workflow")}</span>
+						<span>{$t("Next actions")}</span>
 					</div>
 					<span class="gh-label gh-label-muted">3 {$t("steps")}</span>
 				</div>
@@ -143,10 +140,10 @@ $: enabledSubscriptionCount = $appState.subscriptions.filter(
 			</section>
 
 			<section class="gh-box">
-				<div class="repo-readme-header">
-					<div class="repo-readme-title">
+				<div class="overview-panel-header">
+					<div class="overview-panel-title">
 						<Octicon icon={globe} className="h-4 w-4 text-fg-muted" />
-						<span>{$t("Current state")}</span>
+						<span>{$t("Publish status")}</span>
 					</div>
 					<span class="gh-counter">{publishTargetCount}</span>
 				</div>
@@ -181,13 +178,7 @@ $: enabledSubscriptionCount = $appState.subscriptions.filter(
 		<aside class="repo-overview-sidebar">
 			<section class="gh-box">
 				<div class="repo-sidebar-section">
-					<h2 class="repo-sidebar-title">{$t("About")}</h2>
-					<p class="text-[13px] text-fg-muted">
-						{$t("Browser-first subscription manager with gist-backed sync and publish.")}
-					</p>
-				</div>
-
-				<div class="repo-sidebar-section">
+					<h2 class="repo-sidebar-title">{$t("Status")}</h2>
 					<div class="repo-sidebar-row">
 						<span class="repo-sidebar-row-label">{$t("Workspace mode")}</span>
 						<span class={cn("badge", isConnected && "badge-success")}>
@@ -209,7 +200,7 @@ $: enabledSubscriptionCount = $appState.subscriptions.filter(
 				</div>
 
 				<div class="repo-sidebar-section">
-					<h2 class="repo-sidebar-title">{$t("Workspace status")}</h2>
+					<h2 class="repo-sidebar-title">{$t("Sync readiness")}</h2>
 					<div class="flex items-start gap-3">
 						<div
 							class={cn(

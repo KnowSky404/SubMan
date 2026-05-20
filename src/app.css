@@ -696,16 +696,12 @@ input[type="checkbox"]:indeterminate {
 	@apply flex min-w-0 flex-col gap-4;
 }
 
-.repo-readme-header {
+.overview-panel-header {
 	@apply flex min-h-10 items-center justify-between gap-3 border-b border-border-default bg-canvas-subtle px-4 py-2;
 }
 
-.repo-readme-title {
+.overview-panel-title {
 	@apply flex min-w-0 items-center gap-2 text-sm font-semibold;
-}
-
-.repo-readme-body {
-	@apply p-4;
 }
 
 .repo-metric-grid {
