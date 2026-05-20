@@ -28,7 +28,22 @@ test("aggregate rule count stays inline with the rule definition heading", () =>
 		'<span class="gh-counter">{$appState.aggregates.length}</span>\n\t\t\t\t\t</div>',
 	);
 	expect(aggregatePageSource).toContain(
-		'<div class="gh-toolbar-group min-w-0">',
+		'<div class="gh-toolbar-group min-w-0 relative">',
+	);
+});
+
+test("aggregate rule selector uses a github-style dropdown menu", () => {
+	expect(aggregatePageSource).not.toContain(
+		'<select class="gh-select gh-select-sm w-48" value={editingRuleId}',
+	);
+	expect(aggregatePageSource).toContain("let showRuleMenu = false;");
+	expect(aggregatePageSource).toContain("currentRulePickerLabel");
+	expect(aggregatePageSource).toContain('aria-haspopup="menu"');
+	expect(aggregatePageSource).toContain(
+		'class="gh-dropdown-menu right-0 top-full w-56"',
+	);
+	expect(aggregatePageSource).toContain(
+		"on:click={() => { resetRuleForm(); showRuleMenu = false; }}",
 	);
 });
 

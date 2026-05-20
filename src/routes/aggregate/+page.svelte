@@ -60,6 +60,7 @@ let sortMode: SortMode = "none";
 let sortPriority = "";
 
 // Menu State
+let showRuleMenu = false;
 let showNodesMenu = false;
 let showSubsMenu = false;
 let nodeSearchQuery = "";
@@ -169,6 +170,9 @@ $: activeNodeCount = selectedNodeIds.filter((id) =>
 $: activeSubCount = selectedSubscriptionIds.filter((id) =>
 	$appState.subscriptions.some((s) => s.id === id),
 ).length;
+$: currentRulePickerLabel =
+	$appState.aggregates.find((rule) => rule.id === editingRuleId)?.name ||
+	$t("New Rule");
 
 function loadRule(rule: AggregateRule | undefined) {
 	if (!rule) return;
@@ -449,11 +453,37 @@ function handlePreviewDndFinalize(e: CustomEvent<DndEvent<PreviewEntry>>) {
 						<span>{$t("Rule Definition")}</span>
 						<span class="gh-counter">{$appState.aggregates.length}</span>
 					</div>
-					<div class="gh-toolbar-group min-w-0">
-						<select class="gh-select gh-select-sm w-48" value={editingRuleId} on:change={(e) => { const id = e.currentTarget.value; id ? loadRule($appState.aggregates.find(r => r.id === id)) : resetRuleForm(); }}>
-							<option value="">+ {$t("New Rule")}</option>
-							{#each $appState.aggregates as rule}<option value={rule.id}>{rule.name}</option>{/each}
-						</select>
+					<div class="gh-toolbar-group min-w-0 relative">
+						<button
+							type="button"
+							class="gh-select gh-select-sm flex w-48 items-center justify-between text-left"
+							on:click={() => { showRuleMenu = !showRuleMenu; showNodesMenu = false; showSubsMenu = false; }}
+							aria-haspopup="menu"
+							aria-expanded={showRuleMenu}
+						>
+							<span class="min-w-0 truncate">{currentRulePickerLabel}</span>
+						</button>
+						{#if showRuleMenu}
+							<button type="button" class="fixed inset-0 z-[110]" on:click={() => (showRuleMenu = false)} aria-label={$t("Close rule menu")}></button>
+							<div class="gh-dropdown-menu right-0 top-full w-56" transition:slide={{ duration: 150 }}>
+								<div class="gh-dropdown-body flex flex-col gap-0.5">
+									<button type="button" class="gh-dropdown-item font-semibold text-accent-fg" on:click={() => { resetRuleForm(); showRuleMenu = false; }}>
+										+ {$t("New Rule")}
+									</button>
+									{#if $appState.aggregates.length}
+										<div class="border-t border-border-default my-1"></div>
+										{#each $appState.aggregates as rule}
+											<button type="button" class={cn("gh-dropdown-item", editingRuleId === rule.id ? "font-semibold text-fg-default" : "text-fg-default")} on:click={() => { loadRule(rule); showRuleMenu = false; }}>
+												<span class="min-w-0 flex-1 truncate">{rule.name}</span>
+												{#if editingRuleId === rule.id}
+													<span class="gh-label">{$t("Active")}</span>
+												{/if}
+											</button>
+										{/each}
+									{/if}
+								</div>
+							</div>
+						{/if}
 					</div>
 				</div>
 				<div class="p-4 bg-canvas-default flex flex-col gap-6">
