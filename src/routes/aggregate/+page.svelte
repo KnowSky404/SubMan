@@ -444,12 +444,12 @@ function handlePreviewDndFinalize(e: CustomEvent<DndEvent<PreviewEntry>>) {
 		<div class="lg:col-span-2 flex flex-col gap-6">
 			<div class="gh-box shadow-sm !overflow-visible">
 				<div class="gh-box-header">
-					<div class="flex items-center gap-2">
+					<div class="flex min-w-0 items-center gap-2">
 						<Octicon icon={sliders} className="h-4 w-4" />
 						<span>{$t("Rule Definition")}</span>
-					</div>
-					<div class="gh-toolbar-group">
 						<span class="gh-counter">{$appState.aggregates.length}</span>
+					</div>
+					<div class="gh-toolbar-group min-w-0">
 						<select class="gh-select gh-select-sm w-48" value={editingRuleId} on:change={(e) => { const id = e.currentTarget.value; id ? loadRule($appState.aggregates.find(r => r.id === id)) : resetRuleForm(); }}>
 							<option value="">+ {$t("New Rule")}</option>
 							{#each $appState.aggregates as rule}<option value={rule.id}>{rule.name}</option>{/each}
