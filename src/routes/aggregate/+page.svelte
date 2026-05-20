@@ -7,6 +7,7 @@ import {
 	type RegionFlagRule,
 	regionCodeToFlagEmoji,
 } from "$lib/aggregate";
+import GitHubSelect from "$lib/components/GitHubSelect.svelte";
 import Octicon from "$lib/components/Octicon.svelte";
 import { createGist, toStableGistRawUrl, updateGist } from "$lib/gist";
 import { t } from "$lib/i18n";
@@ -173,6 +174,23 @@ $: activeSubCount = selectedSubscriptionIds.filter((id) =>
 $: currentRulePickerLabel =
 	$appState.aggregates.find((rule) => rule.id === editingRuleId)?.name ||
 	$t("New Rule");
+$: sortModeOptions = [
+	{ value: "none", label: $t("None (Original Order)") },
+	{ value: "name", label: $t("Alphabetical (A-Z)") },
+	{ value: "type", label: $t("By Protocol") },
+	{ value: "region", label: $t("By Region") },
+];
+$: targetSelectOptions = [
+	{ value: "", label: `+ ${$t("New target")}` },
+	...$appState.publishTargets.map((target) => ({
+		value: target.id,
+		label: target.name,
+	})),
+];
+$: targetRuleOptions = $appState.aggregates.map((rule) => ({
+	value: rule.id,
+	label: rule.name,
+}));
 
 function loadRule(rule: AggregateRule | undefined) {
 	if (!rule) return;
@@ -612,12 +630,7 @@ function handlePreviewDndFinalize(e: CustomEvent<DndEvent<PreviewEntry>>) {
 					<div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
 						<div class="flex flex-col gap-1.5">
 							<label class="text-sm font-semibold" for={fieldIds.sortMode}>{$t("Sort Mode")}</label>
-							<select id={fieldIds.sortMode} class="gh-select" bind:value={sortMode}>
-								<option value="none">{$t("None (Original Order)")}</option>
-								<option value="name">{$t("Alphabetical (A-Z)")}</option>
-								<option value="type">{$t("By Protocol")}</option>
-								<option value="region">{$t("By Region")}</option>
-							</select>
+							<GitHubSelect id={fieldIds.sortMode} bind:value={sortMode} options={sortModeOptions} />
 						</div>
 						<div class="flex flex-col gap-1.5">
 							<label class="text-sm font-semibold" for={fieldIds.sortPriority}>{$t("Priority Keywords (per line)")}</label>
@@ -715,17 +728,12 @@ function handlePreviewDndFinalize(e: CustomEvent<DndEvent<PreviewEntry>>) {
 					<div class="p-4 bg-canvas-default flex flex-col gap-4">
 						<div class="flex flex-col gap-1.5">
 							<label class="gh-form-label text-xs uppercase tracking-wide" for={fieldIds.targetSelect}>{$t("Select Target")}</label>
-							<select id={fieldIds.targetSelect} class="gh-select w-full" value={selectedTargetId} on:change={(e) => { const id = e.currentTarget.value; const target = $appState.publishTargets.find(t => t.id === id); target ? loadPublishTarget(target) : resetTargetForm(); }}>
-								<option value="">+ {$t("New target")}</option>
-								{#each $appState.publishTargets as target}<option value={target.id}>{target.name}</option>{/each}
-							</select>
+							<GitHubSelect id={fieldIds.targetSelect} bind:value={selectedTargetId} options={targetSelectOptions} onValueChange={(id) => { const target = $appState.publishTargets.find(t => t.id === id); target ? loadPublishTarget(target) : resetTargetForm(); }} />
 						</div>
 
 						<div class="flex flex-col gap-1.5">
 							<label class="gh-form-label text-xs uppercase tracking-wide" for={fieldIds.targetRule}>{$t("Binding Rule")}</label>
-							<select id={fieldIds.targetRule} class="gh-select w-full" bind:value={publishTargetRuleId}>
-								{#each $appState.aggregates as rule}<option value={rule.id}>{rule.name}</option>{/each}
-							</select>
+							<GitHubSelect id={fieldIds.targetRule} bind:value={publishTargetRuleId} options={targetRuleOptions} placeholder={$t("Select an Aggregate rule")} />
 						</div>
 
 						<div class="flex flex-col gap-1.5">

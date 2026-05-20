@@ -4,6 +4,7 @@ import {
 	normalizeExportFileName,
 } from "$lib/client-export/profile";
 import { buildSingBoxClientConfig } from "$lib/client-export/sing-box";
+import GitHubSelect from "$lib/components/GitHubSelect.svelte";
 import Octicon from "$lib/components/Octicon.svelte";
 import { createGist, toStableGistRawUrl, updateGist } from "$lib/gist";
 import { t } from "$lib/i18n";
@@ -54,6 +55,14 @@ $: selectedRule =
 	null;
 $: profileCount = $appState.clientExports.length;
 $: canCreateProfile = $appState.clientExports.length === 0 && !!firstRule;
+$: profileOptions = $appState.clientExports.map((profile) => ({
+	value: profile.id,
+	label: profile.name,
+}));
+$: ruleOptions = $appState.aggregates.map((rule) => ({
+	value: rule.id,
+	label: rule.name,
+}));
 $: currentSignature = selectedProfile
 	? JSON.stringify({
 			profile: {
@@ -362,15 +371,11 @@ async function publishPreview(): Promise<void> {
 			{#if $appState.clientExports.length > 0}
 				<div class="max-w-xl space-y-2">
 					<label class="gh-label" for="exports-profile">{$t("Export Profile")}</label>
-					<select
+					<GitHubSelect
 						id="exports-profile"
-						class="gh-select w-full"
 						bind:value={selectedProfileId}
-					>
-						{#each $appState.clientExports as profile}
-							<option value={profile.id}>{profile.name}</option>
-						{/each}
-					</select>
+						options={profileOptions}
+					/>
 				</div>
 			{/if}
 
@@ -392,15 +397,12 @@ async function publishPreview(): Promise<void> {
 						<label class="gh-label" for="exports-source-rule">
 							{$t("Source Aggregate Rule")}
 						</label>
-						<select
+						<GitHubSelect
 							id="exports-source-rule"
-							class="gh-select w-full"
 							bind:value={draftRuleId}
-						>
-							{#each $appState.aggregates as rule}
-								<option value={rule.id}>{rule.name}</option>
-							{/each}
-						</select>
+							options={ruleOptions}
+							placeholder={$t("Select an Aggregate rule")}
+						/>
 					</div>
 					<div class="space-y-2">
 						<label class="gh-label" for="exports-listen-address">

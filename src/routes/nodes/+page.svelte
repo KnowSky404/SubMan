@@ -1,5 +1,6 @@
 <script lang="ts">
 import { fly, slide } from "svelte/transition";
+import GitHubSelect from "$lib/components/GitHubSelect.svelte";
 import Octicon from "$lib/components/Octicon.svelte";
 import { t } from "$lib/i18n";
 import type {
@@ -96,6 +97,21 @@ const addFormIds = {
 	filterQuery: "resource-filter-query",
 	filterStatus: "resource-filter-status",
 };
+const nodeTypeOptions = [
+	{ value: "vless", label: "VLESS" },
+	{ value: "vmess", label: "VMess" },
+	{ value: "trojan", label: "Trojan" },
+	{ value: "ss", label: "SS" },
+	{ value: "ssr", label: "SSR" },
+	{ value: "hysteria2", label: "Hysteria2" },
+	{ value: "tuic", label: "TUIC" },
+	{ value: "anytls", label: "AnyTLS" },
+];
+$: filterStatusOptions = [
+	{ value: "all", label: $t("All") },
+	{ value: "enabled", label: $t("Enabled") },
+	{ value: "disabled", label: $t("Disabled") },
+];
 
 function showToastNotify(
 	message: string,
@@ -444,11 +460,7 @@ async function copy(text: string) {
 						{#if activeTab === "nodes"}
 							<div class="flex flex-col gap-1.5">
 								<label class="gh-form-label" for={addFormIds.nodeType}>{$t("Protocol")}</label>
-								<select id={addFormIds.nodeType} class="gh-select" bind:value={nodeType}>
-									<option value="vless">VLESS</option><option value="vmess">VMess</option><option value="trojan">Trojan</option>
-									<option value="ss">SS</option><option value="ssr">SSR</option><option value="hysteria2">Hysteria2</option>
-									<option value="tuic">TUIC</option><option value="anytls">AnyTLS</option>
-								</select>
+								<GitHubSelect id={addFormIds.nodeType} bind:value={nodeType} options={nodeTypeOptions} />
 							</div>
 						{/if}
 						<div class="md:col-span-2 flex flex-col gap-1.5">
@@ -511,11 +523,7 @@ async function copy(text: string) {
 			</div>
 			<div class="nodes-filter-status flex min-w-36 flex-col gap-1 sm:w-36">
 				<label class="sr-only" for={addFormIds.filterStatus}>{$t("Filter status")}</label>
-				<select id={addFormIds.filterStatus} class="gh-select w-full" bind:value={filterStatus}>
-					<option value="all">{$t("All")}</option>
-					<option value="enabled">{$t("Enabled")}</option>
-					<option value="disabled">{$t("Disabled")}</option>
-				</select>
+				<GitHubSelect id={addFormIds.filterStatus} bind:value={filterStatus} options={filterStatusOptions} />
 			</div>
 		</div>
 
@@ -611,11 +619,7 @@ async function copy(text: string) {
 										</div>
 										<div class="flex flex-col gap-1.5">
 											<label class="gh-form-label text-xs uppercase tracking-wide" for={`node-type-${node.id}`}>{$t("Protocol")}</label>
-											<select id={`node-type-${node.id}`} class="gh-select" bind:value={nodeDrafts[node.id].type}>
-												<option value="vless">VLESS</option><option value="vmess">VMess</option><option value="trojan">Trojan</option>
-												<option value="ss">SS</option><option value="ssr">SSR</option><option value="hysteria2">Hysteria2</option>
-												<option value="tuic">TUIC</option><option value="anytls">AnyTLS</option>
-											</select>
+											<GitHubSelect id={`node-type-${node.id}`} bind:value={nodeDrafts[node.id].type} options={nodeTypeOptions} />
 										</div>
 										<div class="md:col-span-2 flex flex-col gap-1.5">
 											<label class="gh-form-label text-xs uppercase tracking-wide" for={`node-raw-${node.id}`}>{$t("Raw URI")}</label>

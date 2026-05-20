@@ -3,6 +3,7 @@ import "../app.css";
 import { onMount } from "svelte";
 import { fade, fly } from "svelte/transition";
 import { page } from "$app/state";
+import GitHubSelect from "$lib/components/GitHubSelect.svelte";
 import Octicon from "$lib/components/Octicon.svelte";
 import { t } from "$lib/i18n";
 import {
@@ -54,6 +55,10 @@ const themeOptions: {
 	{ value: "light", label: "Light", icon: sun },
 	{ value: "dark", label: "Dark", icon: moon },
 ];
+$: themeSelectOptions = themeOptions.map((option) => ({
+	value: option.value,
+	label: $t(option.label),
+}));
 
 $: activeThemeOption =
 	themeOptions.find((option) => option.value === $themeMode) ?? themeOptions[0];
@@ -120,16 +125,14 @@ onMount(() => {
 						<span class="gh-select-header-icon" aria-hidden="true">
 							<Octicon icon={activeThemeOption.icon} className="h-3.5 w-3.5" />
 						</span>
-						<select
-							class="gh-select gh-select-header"
+						<GitHubSelect
 							value={$themeMode}
-							on:change={(event) => handleThemeChange(event.currentTarget.value as ThemeMode)}
-							aria-label={$t("Theme")}
-						>
-							{#each themeOptions as option}
-								<option value={option.value}>{$t(option.label)}</option>
-							{/each}
-						</select>
+							options={themeSelectOptions}
+							ariaLabel={$t("Theme")}
+							buttonClass="gh-select gh-select-header"
+							menuClass="right-0 top-full w-36"
+							onValueChange={(value) => handleThemeChange(value as ThemeMode)}
+						/>
 					</div>
 
 					<a

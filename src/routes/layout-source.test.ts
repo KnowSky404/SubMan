@@ -25,7 +25,9 @@ test("compact repository header owns global controls", () => {
 	expect(layoutSource).toContain(
 		'<span class="gh-select-header-icon" aria-hidden="true">',
 	);
-	expect(layoutSource).toContain('class="gh-select gh-select-header"');
+	expect(layoutSource).toContain("GitHubSelect");
+	expect(layoutSource).toContain('buttonClass="gh-select gh-select-header"');
+	expect(layoutSource).toContain('menuClass="right-0 top-full w-36"');
 	expect(layoutSource).not.toContain("absolute inset-y-0 left-0");
 });
 
