@@ -7,10 +7,7 @@ import type {
 } from "$lib/models";
 import { inferNodeNameFromRaw } from "$lib/subscription";
 import { validateSingBoxClientProfile } from "./profile";
-import {
-	parseProxyUriToSingBoxOutbound,
-	type SingBoxOutbound,
-} from "./uri";
+import { parseProxyUriToSingBoxOutbound, type SingBoxOutbound } from "./uri";
 
 export type SingBoxClientBuildResult = {
 	content: string;

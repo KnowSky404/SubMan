@@ -172,7 +172,7 @@ export async function loadSubscriptionContent(
 	const text = await res.text();
 	if (looksLikeBase64(text)) {
 		const decoded = decodeBase64Utf8(text);
-		if (decoded && decoded.includes("://")) {
+		if (decoded?.includes("://")) {
 			return { content: decoded };
 		}
 	}

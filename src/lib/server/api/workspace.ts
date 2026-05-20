@@ -1,5 +1,10 @@
+import {
+	createGist,
+	getGistFileContent,
+	listGists,
+	updateGist,
+} from "../../gist";
 import type { AppState, GistMeta } from "../../models";
-import { createGist, getGistFileContent, listGists, updateGist } from "../../gist";
 
 const EXPORT_VERSION = 1;
 const WORKSPACE_DESCRIPTION = "SubMan-Data";
@@ -92,7 +97,11 @@ export async function loadWorkspaceState(
 ): Promise<WorkspaceState> {
 	const initialContent = exportServerSyncState(defaultState);
 	const { gist } = await ensureServerWorkspaceGist(githubToken, initialContent);
-	const content = await getGistFileContent(githubToken, gist.id, WORKSPACE_FILE);
+	const content = await getGistFileContent(
+		githubToken,
+		gist.id,
+		WORKSPACE_FILE,
+	);
 
 	return {
 		gist,

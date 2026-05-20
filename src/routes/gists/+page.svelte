@@ -1,15 +1,9 @@
 <script lang="ts">
 import { onMount } from "svelte";
-import type { GistMeta } from "$lib/models";
-import { t } from "$lib/i18n";
-import { appState } from "$lib/stores/app";
-import { authState } from "$lib/stores/auth";
-import { requestConfirm } from "$lib/stores/confirm";
-import { showToast } from "$lib/stores/toast";
-import { getGist, updateGist } from "$lib/gist";
-import { WORKSPACE_FILE } from "$lib/workspace";
-import { cn } from "$lib/utils/cn";
 import Octicon from "$lib/components/Octicon.svelte";
+import { getGist, updateGist } from "$lib/gist";
+import { t } from "$lib/i18n";
+import type { GistMeta } from "$lib/models";
 import {
 	code,
 	copy,
@@ -21,6 +15,12 @@ import {
 	sync,
 	trash,
 } from "$lib/octicons";
+import { appState } from "$lib/stores/app";
+import { authState } from "$lib/stores/auth";
+import { requestConfirm } from "$lib/stores/confirm";
+import { showToast } from "$lib/stores/toast";
+import { cn } from "$lib/utils/cn";
+import { WORKSPACE_FILE } from "$lib/workspace";
 
 let workspace: GistMeta | null = null;
 let loading = false;

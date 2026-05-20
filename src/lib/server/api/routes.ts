@@ -7,7 +7,12 @@ export async function requireApiAccess(
 	platform: App.Platform | undefined,
 ): Promise<string> {
 	const env = getServerApiEnv(platform);
-	if (!(await isAuthorized(request.headers.get("Authorization"), env.submanApiToken))) {
+	if (
+		!(await isAuthorized(
+			request.headers.get("Authorization"),
+			env.submanApiToken,
+		))
+	) {
 		throw new ApiError(401, "unauthorized", "Unauthorized");
 	}
 	if (!env.githubToken) {

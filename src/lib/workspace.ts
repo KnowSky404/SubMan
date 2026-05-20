@@ -1,5 +1,5 @@
-import type { GistMeta } from "$lib/models";
 import { createGist, listGists } from "$lib/gist";
+import type { GistMeta } from "$lib/models";
 
 export const WORKSPACE_DESCRIPTION = "SubMan-Data";
 export const WORKSPACE_FILE = "subman.json";

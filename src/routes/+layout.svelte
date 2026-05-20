@@ -1,17 +1,10 @@
 <script lang="ts">
 import "../app.css";
 import { onMount } from "svelte";
-import { page } from "$app/state";
 import { fade, fly } from "svelte/transition";
-import { t } from "$lib/i18n";
-import { appState } from "$lib/stores/app";
-import { authState } from "$lib/stores/auth";
-import { startAutoSync } from "$lib/sync";
-import { confirmDialog, resolveConfirm } from "$lib/stores/confirm";
-import { startThemeSync, themeMode, type ThemeMode } from "$lib/stores/theme";
-import { toastStore, dismissToast } from "$lib/stores/toast";
-import { cn } from "$lib/utils/cn";
+import { page } from "$app/state";
 import Octicon from "$lib/components/Octicon.svelte";
+import { t } from "$lib/i18n";
 import {
 	alert,
 	browser,
@@ -31,6 +24,13 @@ import {
 	workflow,
 	xCircleFill,
 } from "$lib/octicons";
+import { appState } from "$lib/stores/app";
+import { authState } from "$lib/stores/auth";
+import { confirmDialog, resolveConfirm } from "$lib/stores/confirm";
+import { startThemeSync, type ThemeMode, themeMode } from "$lib/stores/theme";
+import { dismissToast, toastStore } from "$lib/stores/toast";
+import { startAutoSync } from "$lib/sync";
+import { cn } from "$lib/utils/cn";
 
 const PROJECT_GITHUB_URL = "https://github.com/KnowSky404/SubMan";
 const PROJECT_OWNER = "KnowSky404";

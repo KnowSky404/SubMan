@@ -15,7 +15,9 @@ describe("getBearerToken", () => {
 
 describe("isAuthorized", () => {
 	it("accepts matching bearer tokens", async () => {
-		expect(await isAuthorized("Bearer subman-secret", "subman-secret")).toBe(true);
+		expect(await isAuthorized("Bearer subman-secret", "subman-secret")).toBe(
+			true,
+		);
 	});
 
 	it("rejects missing configured tokens and mismatched request tokens", async () => {

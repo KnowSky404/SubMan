@@ -1,9 +1,9 @@
 import { describe, expect, it } from "bun:test";
 import type { AppState, NodeItem } from "$lib/models";
 import {
-	EXTERNAL_KEY_TAG_PREFIX,
 	applyNodeDelete,
 	applyNodeUpsertByExternalKey,
+	EXTERNAL_KEY_TAG_PREFIX,
 	parseNodePayload,
 } from "./nodes";
 
@@ -62,16 +62,18 @@ describe("parseNodePayload", () => {
 		});
 
 		expect(parsed.type).toBe("anytls");
-		expect(parsed.raw).toBe("anytls://password@example.com:443?sni=example.com#AnyTLS");
+		expect(parsed.raw).toBe(
+			"anytls://password@example.com:443?sni=example.com#AnyTLS",
+		);
 	});
 
 	it("rejects missing required node fields", () => {
-		expect(() => parseNodePayload({ type: "vless", raw: "vless://example" })).toThrow(
-			"name is required",
-		);
-		expect(() => parseNodePayload({ name: "vps-1", raw: "vless://example" })).toThrow(
-			"type is required",
-		);
+		expect(() =>
+			parseNodePayload({ type: "vless", raw: "vless://example" }),
+		).toThrow("name is required");
+		expect(() =>
+			parseNodePayload({ name: "vps-1", raw: "vless://example" }),
+		).toThrow("type is required");
 		expect(() => parseNodePayload({ name: "vps-1", type: "vless" })).toThrow(
 			"raw is required",
 		);

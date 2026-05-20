@@ -1,32 +1,13 @@
 <script lang="ts">
+import { fly, slide } from "svelte/transition";
+import Octicon from "$lib/components/Octicon.svelte";
 import { t } from "$lib/i18n";
-import {
-	appState,
-	removeNode,
-	removeSubscription,
-	upsertNode,
-	upsertSubscription,
-} from "$lib/stores/app";
 import type {
 	NodeItem,
 	NodeTag,
 	ProxyType,
 	SubscriptionItem,
 } from "$lib/models";
-import { createId } from "$lib/utils/id";
-import { nowIso } from "$lib/utils/time";
-import { requestConfirm } from "$lib/stores/confirm";
-import { cn } from "$lib/utils/cn";
-import {
-	decodeBase64Utf8,
-	extractSubscriptionNodeLines,
-	inferNodeTypeFromDraft,
-	inferNodeNameFromRaw,
-	inferNodeTypeFromRaw,
-	loadSubscriptionContent,
-} from "$lib/subscription";
-import { showToast } from "$lib/stores/toast";
-import Octicon from "$lib/components/Octicon.svelte";
 import {
 	alert,
 	check,
@@ -44,296 +25,398 @@ import {
 	trash,
 	x,
 } from "$lib/octicons";
-import { slide, fly } from "svelte/transition";
+import {
+	appState,
+	removeNode,
+	removeSubscription,
+	upsertNode,
+	upsertSubscription,
+} from "$lib/stores/app";
+import { requestConfirm } from "$lib/stores/confirm";
+import { showToast } from "$lib/stores/toast";
+import {
+	decodeBase64Utf8,
+	extractSubscriptionNodeLines,
+	inferNodeNameFromRaw,
+	inferNodeTypeFromDraft,
+	inferNodeTypeFromRaw,
+	loadSubscriptionContent,
+} from "$lib/subscription";
+import { cn } from "$lib/utils/cn";
+import { createId } from "$lib/utils/id";
+import { nowIso } from "$lib/utils/time";
 
-	let activeTab: "nodes" | "subscriptions" = "nodes";
-	let isAddModalOpen = false;
-	let addMode: "single" | "batch" = "single";
+let activeTab: "nodes" | "subscriptions" = "nodes";
+let isAddModalOpen = false;
+let addMode: "single" | "batch" = "single";
 
-	// Add Form State
-	let nodeName = "";
-	let nodeType: ProxyType = "vless";
-	let nodeRaw = "";
-	let nodeTags = "";
-	let subName = "";
-	let subUrl = "";
-	let subTags = "";
-	let batchContent = "";
-	let batchTags = "";
+// Add Form State
+let nodeName = "";
+let nodeType: ProxyType = "vless";
+let nodeRaw = "";
+let nodeTags = "";
+let subName = "";
+let subUrl = "";
+let subTags = "";
+let batchContent = "";
+let batchTags = "";
 
-	// Filter & List State
-	let searchQuery = "";
-	let filterStatus: "all" | "enabled" | "disabled" = "all";
-	let expandedId: string | null = null;
-	
-	// Preview State
-	let previewSubscriptionId: string | null = null;
-	let subscriptionPreviewCache: Record<string, { status: 'loading' | 'ready' | 'error', nodes: any[], error: string | null }> = {};
+// Filter & List State
+let searchQuery = "";
+let filterStatus: "all" | "enabled" | "disabled" = "all";
+let expandedId: string | null = null;
 
-	// Edit State
-	let nodeDrafts: Record<string, { name: string; type: ProxyType; raw: string; tags: string }> = {};
-	let subDrafts: Record<string, { name: string; url: string; tags: string }> = {};
-	const addFormIds = {
-		nodeName: "node-name",
-		nodeType: "node-type",
-		nodeRaw: "node-raw",
-		nodeTags: "node-tags",
-		subName: "subscription-name",
-		subUrl: "subscription-url",
-		subTags: "subscription-tags",
-		batchContent: "batch-content",
-		batchTags: "batch-tags",
-		filterQuery: "resource-filter-query",
-		filterStatus: "resource-filter-status"
+// Preview State
+let previewSubscriptionId: string | null = null;
+let subscriptionPreviewCache: Record<
+	string,
+	{
+		status: "loading" | "ready" | "error";
+		nodes: Pick<NodeItem, "id" | "name" | "type" | "raw">[];
+		error: string | null;
+	}
+> = {};
+
+// Edit State
+let nodeDrafts: Record<
+	string,
+	{ name: string; type: ProxyType; raw: string; tags: string }
+> = {};
+let subDrafts: Record<string, { name: string; url: string; tags: string }> = {};
+const addFormIds = {
+	nodeName: "node-name",
+	nodeType: "node-type",
+	nodeRaw: "node-raw",
+	nodeTags: "node-tags",
+	subName: "subscription-name",
+	subUrl: "subscription-url",
+	subTags: "subscription-tags",
+	batchContent: "batch-content",
+	batchTags: "batch-tags",
+	filterQuery: "resource-filter-query",
+	filterStatus: "resource-filter-status",
+};
+
+function showToastNotify(
+	message: string,
+	type: "success" | "info" | "error" = "success",
+) {
+	showToast(message, type);
+}
+
+function parseTags(value: string): NodeTag[] {
+	return value
+		.split(",")
+		.map((t) => t.trim())
+		.filter(Boolean)
+		.map((label) => ({ id: createId("tag"), label }));
+}
+
+function stringifyTags(tags: NodeTag[]): string {
+	return tags.map((t) => t.label).join(", ");
+}
+
+$: filteredNodes = $appState.nodes
+	.filter((n) =>
+		filterStatus === "all"
+			? true
+			: filterStatus === "enabled"
+				? n.enabled
+				: !n.enabled,
+	)
+	.filter((n) => {
+		const q = searchQuery.toLowerCase();
+		return (
+			!q ||
+			n.name.toLowerCase().includes(q) ||
+			n.type.toLowerCase().includes(q) ||
+			n.tags.some((t) => t.label.toLowerCase().includes(q))
+		);
+	})
+	.sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
+
+$: filteredSubscriptions = $appState.subscriptions
+	.filter((s) =>
+		filterStatus === "all"
+			? true
+			: filterStatus === "enabled"
+				? s.enabled
+				: !s.enabled,
+	)
+	.filter((s) => {
+		const q = searchQuery.toLowerCase();
+		return (
+			!q ||
+			s.name.toLowerCase().includes(q) ||
+			s.url.toLowerCase().includes(q) ||
+			s.tags.some((t) => t.label.toLowerCase().includes(q))
+		);
+	})
+	.sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
+
+$: enabledNodeCount = $appState.nodes.filter((node) => node.enabled).length;
+$: enabledSubscriptionCount = $appState.subscriptions.filter(
+	(subscription) => subscription.enabled,
+).length;
+const formatUpdatedAt = (value: string) =>
+	new Intl.DateTimeFormat(undefined, {
+		month: "short",
+		day: "numeric",
+		hour: "2-digit",
+		minute: "2-digit",
+	}).format(new Date(value));
+
+function updateSingleNodeRaw(value: string) {
+	nodeRaw = value;
+	nodeType = inferNodeTypeFromDraft(value, nodeType);
+}
+
+function updateNodeDraftRaw(id: string, value: string) {
+	const draft = nodeDrafts[id];
+	if (!draft) return;
+	draft.raw = value;
+	draft.type = inferNodeTypeFromDraft(value, draft.type);
+}
+
+function handleAdd() {
+	if (addMode === "single") {
+		if (activeTab === "nodes") {
+			if (!nodeRaw.trim()) return;
+			upsertNode({
+				id: createId("node"),
+				name:
+					nodeName.trim() ||
+					inferNodeNameFromRaw(nodeRaw.trim(), "Imported Node"),
+				type: inferNodeTypeFromDraft(nodeRaw, nodeType),
+				raw: nodeRaw.trim(),
+				tags: parseTags(nodeTags),
+				enabled: true,
+				updatedAt: nowIso(),
+				source: "single",
+			});
+			nodeName = "";
+			nodeRaw = "";
+			nodeTags = "";
+		} else {
+			if (!subName.trim() || !subUrl.trim()) return;
+			upsertSubscription({
+				id: createId("sub"),
+				name: subName.trim(),
+				url: subUrl.trim(),
+				enabled: true,
+				tags: parseTags(subTags),
+				updatedAt: nowIso(),
+			});
+			subName = "";
+			subUrl = "";
+			subTags = "";
+		}
+		showToastNotify($t("Resource added"));
+	} else {
+		// Batch Import Logic
+		const lines = batchContent
+			.split("\n")
+			.map((l) => l.trim())
+			.filter(Boolean);
+		let count = 0;
+
+		if (activeTab === "nodes") {
+			for (const line of lines) {
+				const nodes = extractSubscriptionNodeLines(line);
+				for (const raw of nodes) {
+					upsertNode({
+						id: createId("node"),
+						name: inferNodeNameFromRaw(raw, `Imported Node ${count + 1}`),
+						type: inferNodeTypeFromRaw(raw),
+						raw,
+						tags: parseTags(batchTags),
+						enabled: true,
+						updatedAt: nowIso(),
+						source: "single",
+					});
+					count++;
+				}
+			}
+		} else {
+			for (const line of lines) {
+				// Support "Name = URL" or just "URL"
+				const parts = line.split("=").map((p) => p.trim());
+				let name = "";
+				let url = "";
+				if (parts.length >= 2) {
+					name = parts[0];
+					url = parts[1];
+				} else {
+					url = parts[0];
+					try {
+						name = new URL(url).hostname;
+					} catch {
+						name = `Sub ${count + 1}`;
+					}
+				}
+
+				if (url.includes("://")) {
+					upsertSubscription({
+						id: createId("sub"),
+						name,
+						url,
+						enabled: true,
+						tags: parseTags(batchTags),
+						updatedAt: nowIso(),
+					});
+					count++;
+				}
+			}
+		}
+		batchContent = "";
+		batchTags = "";
+		showToastNotify($t("Imported {count} items", { count }));
+	}
+	isAddModalOpen = false;
+}
+
+// Edit Logic
+function startEditNode(node: NodeItem) {
+	if (expandedId === node.id) {
+		expandedId = null;
+		return;
+	}
+	nodeDrafts[node.id] = {
+		name: node.name,
+		type: node.type,
+		raw: node.raw,
+		tags: stringifyTags(node.tags),
 	};
+	expandedId = node.id;
+}
 
-	function showToastNotify(message: string, type: "success" | "info" | "error" = "success") {
-		showToast(message, type);
-	}
+function saveEditNode(id: string) {
+	const draft = nodeDrafts[id];
+	const original = $appState.nodes.find((n) => n.id === id);
+	if (!draft || !original) return;
+	upsertNode({
+		...original,
+		name: draft.name.trim(),
+		type: inferNodeTypeFromDraft(draft.raw, draft.type),
+		raw: draft.raw.trim(),
+		tags: parseTags(draft.tags),
+		updatedAt: nowIso(),
+	});
+	expandedId = null;
+	showToastNotify($t("Node updated"));
+}
 
-	function parseTags(value: string): NodeTag[] {
-		return value.split(",").map(t => t.trim()).filter(Boolean).map(label => ({ id: createId("tag"), label }));
-	}
-
-	function stringifyTags(tags: NodeTag[]): string {
-		return tags.map(t => t.label).join(", ");
-	}
-
-	$: filteredNodes = $appState.nodes
-		.filter(n => (filterStatus === "all" ? true : filterStatus === "enabled" ? n.enabled : !n.enabled))
-		.filter(n => {
-			const q = searchQuery.toLowerCase();
-			return !q || n.name.toLowerCase().includes(q) || n.type.toLowerCase().includes(q) || n.tags.some(t => t.label.toLowerCase().includes(q));
-		})
-		.sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
-
-	$: filteredSubscriptions = $appState.subscriptions
-		.filter(s => (filterStatus === "all" ? true : filterStatus === "enabled" ? s.enabled : !s.enabled))
-		.filter(s => {
-			const q = searchQuery.toLowerCase();
-			return !q || s.name.toLowerCase().includes(q) || s.url.toLowerCase().includes(q) || s.tags.some(t => t.label.toLowerCase().includes(q));
-		})
-		.sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
-
-	$: enabledNodeCount = $appState.nodes.filter((node) => node.enabled).length;
-	$: enabledSubscriptionCount = $appState.subscriptions.filter(
-		(subscription) => subscription.enabled,
-	).length;
-	const formatUpdatedAt = (value: string) =>
-		new Intl.DateTimeFormat(undefined, {
-			month: "short",
-			day: "numeric",
-			hour: "2-digit",
-			minute: "2-digit",
-		}).format(new Date(value));
-
-	function updateSingleNodeRaw(value: string) {
-		nodeRaw = value;
-		nodeType = inferNodeTypeFromDraft(value, nodeType);
-	}
-
-	function updateNodeDraftRaw(id: string, value: string) {
-		const draft = nodeDrafts[id];
-		if (!draft) return;
-		draft.raw = value;
-		draft.type = inferNodeTypeFromDraft(value, draft.type);
-	}
-
-	function handleAdd() {
-		if (addMode === "single") {
-			if (activeTab === "nodes") {
-				if (!nodeRaw.trim()) return;
-				upsertNode({
-					id: createId("node"), name: nodeName.trim() || inferNodeNameFromRaw(nodeRaw.trim(), "Imported Node"), type: inferNodeTypeFromDraft(nodeRaw, nodeType), raw: nodeRaw.trim(),
-					tags: parseTags(nodeTags), enabled: true, updatedAt: nowIso(), source: "single"
-				});
-				nodeName = ""; nodeRaw = ""; nodeTags = "";
-			} else {
-				if (!subName.trim() || !subUrl.trim()) return;
-				upsertSubscription({
-					id: createId("sub"), name: subName.trim(), url: subUrl.trim(), enabled: true,
-					tags: parseTags(subTags), updatedAt: nowIso()
-				});
-				subName = ""; subUrl = ""; subTags = "";
-			}
-			showToastNotify($t("Resource added"));
-		} else {
-			// Batch Import Logic
-			const lines = batchContent.split("\n").map(l => l.trim()).filter(Boolean);
-			let count = 0;
-
-			if (activeTab === "nodes") {
-				for (const line of lines) {
-					const nodes = extractSubscriptionNodeLines(line);
-					for (const raw of nodes) {
-						upsertNode({
-							id: createId("node"),
-							name: inferNodeNameFromRaw(raw, `Imported Node ${count + 1}`),
-							type: inferNodeTypeFromRaw(raw),
-							raw,
-							tags: parseTags(batchTags),
-							enabled: true,
-							updatedAt: nowIso(),
-							source: "single"
-						});
-						count++;
-					}
-				}
-			} else {
-				for (const line of lines) {
-					// Support "Name = URL" or just "URL"
-					const parts = line.split("=").map(p => p.trim());
-					let name = "";
-					let url = "";
-					if (parts.length >= 2) {
-						name = parts[0];
-						url = parts[1];
-					} else {
-						url = parts[0];
-						try { name = new URL(url).hostname; } catch { name = `Sub ${count + 1}`; }
-					}
-					
-					if (url.includes("://")) {
-						upsertSubscription({
-							id: createId("sub"),
-							name,
-							url,
-							enabled: true,
-							tags: parseTags(batchTags),
-							updatedAt: nowIso()
-						});
-						count++;
-					}
-				}
-			}
-			batchContent = ""; batchTags = "";
-			showToastNotify($t("Imported {count} items", { count }));
-		}
-		isAddModalOpen = false;
-	}
-
-	// Edit Logic
-	function startEditNode(node: NodeItem) {
-		if (expandedId === node.id) {
-			expandedId = null;
-			return;
-		}
-		nodeDrafts[node.id] = {
-			name: node.name,
-			type: node.type,
-			raw: node.raw,
-			tags: stringifyTags(node.tags)
-		};
-		expandedId = node.id;
-	}
-
-	function saveEditNode(id: string) {
-		const draft = nodeDrafts[id];
-		const original = $appState.nodes.find(n => n.id === id);
-		if (!draft || !original) return;
-		upsertNode({
-			...original,
-			name: draft.name.trim(),
-			type: inferNodeTypeFromDraft(draft.raw, draft.type),
-			raw: draft.raw.trim(),
-			tags: parseTags(draft.tags),
-			updatedAt: nowIso()
-		});
+function startEditSub(sub: SubscriptionItem) {
+	if (expandedId === sub.id) {
 		expandedId = null;
-		showToastNotify($t("Node updated"));
+		return;
 	}
+	subDrafts[sub.id] = {
+		name: sub.name,
+		url: sub.url,
+		tags: stringifyTags(sub.tags),
+	};
+	expandedId = sub.id;
+}
 
-	function startEditSub(sub: SubscriptionItem) {
-		if (expandedId === sub.id) {
-			expandedId = null;
-			return;
-		}
-		subDrafts[sub.id] = {
-			name: sub.name,
-			url: sub.url,
-			tags: stringifyTags(sub.tags)
+function saveEditSub(id: string) {
+	const draft = subDrafts[id];
+	const original = $appState.subscriptions.find((s) => s.id === id);
+	if (!draft || !original) return;
+
+	upsertSubscription({
+		...original,
+		name: draft.name.trim(),
+		url: draft.url.trim(),
+		tags: parseTags(draft.tags),
+		updatedAt: nowIso(),
+	});
+	expandedId = null;
+	showToastNotify($t("Subscription updated"));
+}
+
+async function loadSubscriptionPreview(
+	subscription: SubscriptionItem,
+	force = false,
+) {
+	if (!force && subscriptionPreviewCache[subscription.id]?.status === "ready")
+		return;
+
+	subscriptionPreviewCache[subscription.id] = {
+		status: "loading",
+		nodes: [],
+		error: null,
+	};
+	try {
+		const { content, warning } = await loadSubscriptionContent(
+			subscription.url,
+		);
+		if (warning) throw new Error(warning);
+
+		const lines = extractSubscriptionNodeLines(content);
+		const nodes = lines.map((raw, idx) => ({
+			id: `preview-${idx}`,
+			name: inferNodeNameFromRaw(raw, `Node ${idx + 1}`),
+			type: inferNodeTypeFromRaw(raw),
+			raw,
+		}));
+
+		subscriptionPreviewCache[subscription.id] = {
+			status: "ready",
+			nodes,
+			error: null,
 		};
-		expandedId = sub.id;
+	} catch (err) {
+		subscriptionPreviewCache[subscription.id] = {
+			status: "error",
+			nodes: [],
+			error: err instanceof Error ? err.message : String(err),
+		};
 	}
+}
 
-	function saveEditSub(id: string) {
-		const draft = subDrafts[id];
-		const original = $appState.subscriptions.find(s => s.id === id);
-		if (!draft || !original) return;
+function openSubscriptionPreview(sub: SubscriptionItem) {
+	previewSubscriptionId = sub.id;
+	loadSubscriptionPreview(sub);
+}
 
-		upsertSubscription({
-			...original,
-			name: draft.name.trim(),
-			url: draft.url.trim(),
-			tags: parseTags(draft.tags),
-			updatedAt: nowIso()
-		});
-		expandedId = null;
-		showToastNotify($t("Subscription updated"));
+function closeSubscriptionPreview() {
+	previewSubscriptionId = null;
+}
+
+async function remove(id: string, type: "node" | "sub", name: string) {
+	const confirmed = await requestConfirm({
+		title: $t("Confirm Deletion"),
+		message: $t("Delete {name} forever?", { name }),
+		confirmText: $t("Delete"),
+		danger: true,
+	});
+	if (!confirmed) return;
+	if (type === "node") removeNode(id);
+	else removeSubscription(id);
+	showToastNotify($t("Deleted {name}"));
+}
+
+function toggleEnabled(id: string, type: "node" | "sub") {
+	if (type === "node") {
+		const node = $appState.nodes.find((n) => n.id === id);
+		if (node)
+			upsertNode({ ...node, enabled: !node.enabled, updatedAt: nowIso() });
+	} else {
+		const sub = $appState.subscriptions.find((s) => s.id === id);
+		if (sub)
+			upsertSubscription({
+				...sub,
+				enabled: !sub.enabled,
+				updatedAt: nowIso(),
+			});
 	}
+}
 
-	async function loadSubscriptionPreview(subscription: SubscriptionItem, force = false) {
-		if (!force && subscriptionPreviewCache[subscription.id]?.status === 'ready') return;
-		
-		subscriptionPreviewCache[subscription.id] = { status: 'loading', nodes: [], error: null };
-		try {
-			const { content, warning } = await loadSubscriptionContent(subscription.url);
-			if (warning) throw new Error(warning);
-			
-			const lines = extractSubscriptionNodeLines(content);
-			const nodes = lines.map((raw, idx) => ({
-				id: `preview-${idx}`,
-				name: inferNodeNameFromRaw(raw, `Node ${idx + 1}`),
-				type: inferNodeTypeFromRaw(raw),
-				raw
-			}));
-			
-			subscriptionPreviewCache[subscription.id] = { status: 'ready', nodes, error: null };
-		} catch (err) {
-			subscriptionPreviewCache[subscription.id] = { 
-				status: 'error', 
-				nodes: [], 
-				error: err instanceof Error ? err.message : String(err) 
-			};
-		}
-	}
-
-	function openSubscriptionPreview(sub: SubscriptionItem) {
-		previewSubscriptionId = sub.id;
-		loadSubscriptionPreview(sub);
-	}
-
-	function closeSubscriptionPreview() {
-		previewSubscriptionId = null;
-	}
-
-	async function remove(id: string, type: "node" | "sub", name: string) {
-		const confirmed = await requestConfirm({
-			title: $t("Confirm Deletion"),
-			message: $t("Delete {name} forever?", { name }),
-			confirmText: $t("Delete"),
-			danger: true
-		});
-		if (!confirmed) return;
-		if (type === "node") removeNode(id);
-		else removeSubscription(id);
-		showToastNotify($t("Deleted {name}"));
-	}
-
-	function toggleEnabled(id: string, type: "node" | "sub") {
-		if (type === "node") {
-			const node = $appState.nodes.find(n => n.id === id);
-			if (node) upsertNode({ ...node, enabled: !node.enabled, updatedAt: nowIso() });
-		} else {
-			const sub = $appState.subscriptions.find(s => s.id === id);
-			if (sub) upsertSubscription({ ...sub, enabled: !sub.enabled, updatedAt: nowIso() });
-		}
-	}
-
-	async function copy(text: string) {
-		await navigator.clipboard.writeText(text);
-		showToastNotify($t("Copied to clipboard"));
-	}
+async function copy(text: string) {
+	await navigator.clipboard.writeText(text);
+	showToastNotify($t("Copied to clipboard"));
+}
 </script>
 
 <div class="flex flex-col gap-6">

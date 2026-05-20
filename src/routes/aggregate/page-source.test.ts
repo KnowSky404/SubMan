@@ -24,5 +24,7 @@ test("aggregate publish action directs local-only users to workspace setup", () 
 	expect(aggregatePageSource).toContain("isWorkspaceConnected");
 	expect(aggregatePageSource).toContain("Connect to Publish");
 	expect(aggregatePageSource).toContain('href="/auth"');
-	expect(aggregatePageSource).toContain('disabled={publishing || !isWorkspaceConnected}');
+	expect(aggregatePageSource).toContain(
+		"disabled={publishing || !isWorkspaceConnected}",
+	);
 });

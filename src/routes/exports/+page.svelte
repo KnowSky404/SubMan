@@ -1,13 +1,13 @@
 <script lang="ts">
-import { t } from "$lib/i18n";
-import type { ClientExportProfile } from "$lib/models";
-import Octicon from "$lib/components/Octicon.svelte";
 import {
 	createDefaultSingBoxClientProfile,
 	normalizeExportFileName,
 } from "$lib/client-export/profile";
 import { buildSingBoxClientConfig } from "$lib/client-export/sing-box";
+import Octicon from "$lib/components/Octicon.svelte";
 import { createGist, toStableGistRawUrl, updateGist } from "$lib/gist";
+import { t } from "$lib/i18n";
+import type { ClientExportProfile } from "$lib/models";
 import { copy, download, fileCode, upload } from "$lib/octicons";
 import { exportSyncState } from "$lib/serialization";
 import { appState, upsertClientExport } from "$lib/stores/app";
@@ -42,7 +42,8 @@ $: {
 	const selectedProfileExists = $appState.clientExports.some(
 		(profile) => profile.id === selectedProfileId,
 	);
-	if (firstProfile && !selectedProfileExists) selectedProfileId = firstProfile.id;
+	if (firstProfile && !selectedProfileExists)
+		selectedProfileId = firstProfile.id;
 	if (!firstProfile) selectedProfileId = "";
 }
 $: selectedProfile =
@@ -186,7 +187,8 @@ async function downloadPreview(): Promise<void> {
 	if (!content) return;
 
 	const fileName = selectedProfile
-		? normalizeExportFileName(selectedProfile.fileName) || "sing-box-client.json"
+		? normalizeExportFileName(selectedProfile.fileName) ||
+			"sing-box-client.json"
 		: "sing-box-client.json";
 	const blob = new Blob([content], { type: "application/json" });
 	const url = URL.createObjectURL(blob);
@@ -230,7 +232,8 @@ async function publishPreview(): Promise<void> {
 
 		const now = nowIso();
 		const fileName =
-			normalizeExportFileName(selectedProfile.fileName) || "sing-box-client.json";
+			normalizeExportFileName(selectedProfile.fileName) ||
+			"sing-box-client.json";
 		const generatedProfile: ClientExportProfile = {
 			...selectedProfile,
 			fileName,

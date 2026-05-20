@@ -1,16 +1,16 @@
-import { browser } from '$app/environment';
-import { writable } from 'svelte/store';
+import { writable } from "svelte/store";
+import { browser } from "$app/environment";
 import type {
-	AppState,
 	AggregatePublishTarget,
 	AggregateRule,
+	AppState,
 	ClientExportProfile,
 	NodeItem,
-	SubscriptionItem
-} from '$lib/models';
-import { nowIso } from '$lib/utils/time';
+	SubscriptionItem,
+} from "$lib/models";
+import { nowIso } from "$lib/utils/time";
 
-const STORAGE_KEY = 'subman:state:v1';
+const STORAGE_KEY = "subman:state:v1";
 
 export const defaultState: AppState = {
 	nodes: [],
@@ -20,8 +20,8 @@ export const defaultState: AppState = {
 	clientExports: [],
 	gists: [],
 	activeGistId: null,
-	activeGistFile: 'subman.json',
-	lastUpdated: nowIso()
+	activeGistFile: "subman.json",
+	lastUpdated: nowIso(),
 };
 
 function loadInitialState(): AppState {
@@ -68,33 +68,43 @@ export function removeNode(nodeId: string): void {
 		nodes: state.nodes.filter((node) => node.id !== nodeId),
 		aggregates: state.aggregates.map((rule) => ({
 			...rule,
-			nodeIds: rule.nodeIds.filter((id) => id !== nodeId)
+			nodeIds: rule.nodeIds.filter((id) => id !== nodeId),
 		})),
-		lastUpdated: nowIso()
+		lastUpdated: nowIso(),
 	}));
 }
 
 export function upsertSubscription(subscription: SubscriptionItem): void {
 	appState.update((state) => {
-		const index = state.subscriptions.findIndex((item) => item.id === subscription.id);
+		const index = state.subscriptions.findIndex(
+			(item) => item.id === subscription.id,
+		);
 		if (index >= 0) {
 			const subscriptions = [...state.subscriptions];
 			subscriptions[index] = subscription;
 			return { ...state, subscriptions, lastUpdated: nowIso() };
 		}
-		return { ...state, subscriptions: [subscription, ...state.subscriptions], lastUpdated: nowIso() };
+		return {
+			...state,
+			subscriptions: [subscription, ...state.subscriptions],
+			lastUpdated: nowIso(),
+		};
 	});
 }
 
 export function removeSubscription(subscriptionId: string): void {
 	appState.update((state) => ({
 		...state,
-		subscriptions: state.subscriptions.filter((item) => item.id !== subscriptionId),
+		subscriptions: state.subscriptions.filter(
+			(item) => item.id !== subscriptionId,
+		),
 		aggregates: state.aggregates.map((rule) => ({
 			...rule,
-			subscriptionIds: rule.subscriptionIds.filter((id) => id !== subscriptionId)
+			subscriptionIds: rule.subscriptionIds.filter(
+				(id) => id !== subscriptionId,
+			),
 		})),
-		lastUpdated: nowIso()
+		lastUpdated: nowIso(),
 	}));
 }
 
@@ -106,7 +116,11 @@ export function upsertAggregate(rule: AggregateRule): void {
 			aggregates[index] = rule;
 			return { ...state, aggregates, lastUpdated: nowIso() };
 		}
-		return { ...state, aggregates: [rule, ...state.aggregates], lastUpdated: nowIso() };
+		return {
+			...state,
+			aggregates: [rule, ...state.aggregates],
+			lastUpdated: nowIso(),
+		};
 	});
 }
 
@@ -114,21 +128,31 @@ export function removeAggregate(ruleId: string): void {
 	appState.update((state) => ({
 		...state,
 		aggregates: state.aggregates.filter((item) => item.id !== ruleId),
-		publishTargets: state.publishTargets.filter((target) => target.ruleId !== ruleId),
-		clientExports: state.clientExports.filter((profile) => profile.ruleId !== ruleId),
-		lastUpdated: nowIso()
+		publishTargets: state.publishTargets.filter(
+			(target) => target.ruleId !== ruleId,
+		),
+		clientExports: state.clientExports.filter(
+			(profile) => profile.ruleId !== ruleId,
+		),
+		lastUpdated: nowIso(),
 	}));
 }
 
 export function upsertPublishTarget(target: AggregatePublishTarget): void {
 	appState.update((state) => {
-		const index = state.publishTargets.findIndex((item) => item.id === target.id);
+		const index = state.publishTargets.findIndex(
+			(item) => item.id === target.id,
+		);
 		if (index >= 0) {
 			const publishTargets = [...state.publishTargets];
 			publishTargets[index] = target;
 			return { ...state, publishTargets, lastUpdated: nowIso() };
 		}
-		return { ...state, publishTargets: [target, ...state.publishTargets], lastUpdated: nowIso() };
+		return {
+			...state,
+			publishTargets: [target, ...state.publishTargets],
+			lastUpdated: nowIso(),
+		};
 	});
 }
 
@@ -136,19 +160,25 @@ export function removePublishTarget(targetId: string): void {
 	appState.update((state) => ({
 		...state,
 		publishTargets: state.publishTargets.filter((item) => item.id !== targetId),
-		lastUpdated: nowIso()
+		lastUpdated: nowIso(),
 	}));
 }
 
 export function upsertClientExport(profile: ClientExportProfile): void {
 	appState.update((state) => {
-		const index = state.clientExports.findIndex((item) => item.id === profile.id);
+		const index = state.clientExports.findIndex(
+			(item) => item.id === profile.id,
+		);
 		if (index >= 0) {
 			const clientExports = [...state.clientExports];
 			clientExports[index] = profile;
 			return { ...state, clientExports, lastUpdated: nowIso() };
 		}
-		return { ...state, clientExports: [profile, ...state.clientExports], lastUpdated: nowIso() };
+		return {
+			...state,
+			clientExports: [profile, ...state.clientExports],
+			lastUpdated: nowIso(),
+		};
 	});
 }
 
@@ -156,7 +186,7 @@ export function removeClientExport(profileId: string): void {
 	appState.update((state) => ({
 		...state,
 		clientExports: state.clientExports.filter((item) => item.id !== profileId),
-		lastUpdated: nowIso()
+		lastUpdated: nowIso(),
 	}));
 }
 

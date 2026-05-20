@@ -16,7 +16,7 @@ export type NodeTag = {
 	label: string;
 };
 
-export type SortMode = 'none' | 'name' | 'type' | 'region';
+export type SortMode = "none" | "name" | "type" | "region";
 
 export type NodeItem = {
 	id: string;

@@ -1,27 +1,21 @@
 <script lang="ts">
-import { t } from "$lib/i18n";
-import {
-	appState,
-	removeAggregate,
-	removePublishTarget,
-	upsertAggregate,
-	upsertPublishTarget,
-} from "$lib/stores/app";
-import { authState } from "$lib/stores/auth";
+import { fade, fly, slide } from "svelte/transition";
+import { type DndEvent, dndzone } from "svelte-dnd-action";
 import {
 	BUILT_IN_REGION_FLAG_RULES,
 	buildAggregateOutput,
+	type RegionFlagRule,
 	regionCodeToFlagEmoji,
 } from "$lib/aggregate";
-import { createGist, toStableGistRawUrl, updateGist } from "$lib/gist";
-import { exportSyncState } from "$lib/serialization";
-import { WORKSPACE_FILE } from "$lib/workspace";
-import { createId } from "$lib/utils/id";
-import { nowIso } from "$lib/utils/time";
-import { requestConfirm } from "$lib/stores/confirm";
-import { showToast } from "$lib/stores/toast";
-import { cn } from "$lib/utils/cn";
 import Octicon from "$lib/components/Octicon.svelte";
+import { createGist, toStableGistRawUrl, updateGist } from "$lib/gist";
+import { t } from "$lib/i18n";
+import type {
+	AggregatePublishTarget,
+	AggregateRule,
+	ProxyType,
+	SortMode,
+} from "$lib/models";
 import {
 	checkCircle,
 	checklist,
@@ -38,288 +32,410 @@ import {
 	workflow,
 	x,
 } from "$lib/octicons";
-import { fade, slide, fly } from "svelte/transition";
-import { dndzone, type DndEvent } from "svelte-dnd-action";
-import type { AggregateRule, ProxyType } from "$lib/models";
+import { exportSyncState } from "$lib/serialization";
+import {
+	appState,
+	removeAggregate,
+	removePublishTarget,
+	upsertAggregate,
+	upsertPublishTarget,
+} from "$lib/stores/app";
+import { authState } from "$lib/stores/auth";
+import { requestConfirm } from "$lib/stores/confirm";
+import { showToast } from "$lib/stores/toast";
+import { cn } from "$lib/utils/cn";
+import { createId } from "$lib/utils/id";
+import { nowIso } from "$lib/utils/time";
+import { WORKSPACE_FILE } from "$lib/workspace";
 
-	let ruleName = "";
-	let selectedNodeIds: string[] = [];
-	let selectedSubscriptionIds: string[] = [];
-	let excludeTags = "";
-	let renameMap = "";
-	let customRegionFlagMap = "";
-	let allowedTypes: string[] = [];
-	let prependRegionFlags = true;
-	let sortMode: string = "none";
-	let sortPriority = "";
-	
-	// Menu State
-	let showNodesMenu = false;
-	let showSubsMenu = false;
-	let nodeSearchQuery = "";
-	let subSearchQuery = "";
-	
-	// Region Browser State
-	let showBuiltInRegionMap = false;
-	let builtInRegionMapSearch = "";
+let ruleName = "";
+let selectedNodeIds: string[] = [];
+let selectedSubscriptionIds: string[] = [];
+let excludeTags = "";
+let renameMap = "";
+let customRegionFlagMap = "";
+let allowedTypes: ProxyType[] = [];
+let prependRegionFlags = true;
+let sortMode: SortMode = "none";
+let sortPriority = "";
 
-	type PreviewEntry = {
-		id: string;
-		line: string;
-		protocol: string;
-		name: string;
-	};
+// Menu State
+let showNodesMenu = false;
+let showSubsMenu = false;
+let nodeSearchQuery = "";
+let subSearchQuery = "";
 
-	let previewEntries: PreviewEntry[] = [];
-	let previewLoading = false;
-	
-	let selectedTargetId = "";
-	let publishTargetName = "";
-	let publishTargetRuleId = "";
-	let publishTargetFile = "subman-aggregate.txt";
-	let publishTargetDescription = "SubMan aggregate";
-	let publishTargetPublic = false;
-	let publishUrl: string | null = null;
-	let publishing = false;
-	let editingRuleId = "";
-	const fieldIds = {
-		ruleName: "aggregate-rule-name",
-		excludeTags: "aggregate-exclude-tags",
-		nodesMenu: "aggregate-source-nodes",
-		subsMenu: "aggregate-source-subscriptions",
-		nodeSearch: "aggregate-node-search",
-		subSearch: "aggregate-sub-search",
-		renameMap: "aggregate-rename-map",
-		allowedTypes: "aggregate-allowed-types",
-		sortMode: "aggregate-sort-mode",
-		sortPriority: "aggregate-sort-priority",
-		customRegionFlagMap: "aggregate-region-flag-map",
-		prependRegionFlags: "aggregate-prepend-region-flags",
-		publishTargetPublic: "aggregate-publish-target-public",
-		builtInRegionMapSearch: "aggregate-region-map-search",
-		targetSelect: "aggregate-target-select",
-		targetRule: "aggregate-target-rule",
-		targetFile: "aggregate-target-file"
-	};
+// Region Browser State
+let showBuiltInRegionMap = false;
+let builtInRegionMapSearch = "";
 
-	const protocolOptions: { id: string; label: string }[] = [
-		{ id: "vless", label: "VLESS" },
-		{ id: "vmess", label: "VMess" },
-		{ id: "trojan", label: "Trojan" },
-		{ id: "ss", label: "Shadowsocks" },
-		{ id: "ssr", label: "SSR" },
-		{ id: "hysteria2", label: "Hysteria2" },
-		{ id: "tuic", label: "TUIC" },
-		{ id: "anytls", label: "AnyTLS" }
-	];
+type PreviewEntry = {
+	id: string;
+	line: string;
+	protocol: string;
+	name: string;
+};
 
-	function toggleSelection(list: string[], id: string) {
-		return list.includes(id) ? list.filter(item => item !== id) : [...list, id];
+let previewEntries: PreviewEntry[] = [];
+let previewLoading = false;
+
+let selectedTargetId = "";
+let publishTargetName = "";
+let publishTargetRuleId = "";
+let publishTargetFile = "subman-aggregate.txt";
+let publishTargetDescription = "SubMan aggregate";
+let publishTargetPublic = false;
+let publishUrl: string | null = null;
+let publishing = false;
+let editingRuleId = "";
+const fieldIds = {
+	ruleName: "aggregate-rule-name",
+	excludeTags: "aggregate-exclude-tags",
+	nodesMenu: "aggregate-source-nodes",
+	subsMenu: "aggregate-source-subscriptions",
+	nodeSearch: "aggregate-node-search",
+	subSearch: "aggregate-sub-search",
+	renameMap: "aggregate-rename-map",
+	allowedTypes: "aggregate-allowed-types",
+	sortMode: "aggregate-sort-mode",
+	sortPriority: "aggregate-sort-priority",
+	customRegionFlagMap: "aggregate-region-flag-map",
+	prependRegionFlags: "aggregate-prepend-region-flags",
+	publishTargetPublic: "aggregate-publish-target-public",
+	builtInRegionMapSearch: "aggregate-region-map-search",
+	targetSelect: "aggregate-target-select",
+	targetRule: "aggregate-target-rule",
+	targetFile: "aggregate-target-file",
+};
+
+const protocolOptions: { id: ProxyType; label: string }[] = [
+	{ id: "vless", label: "VLESS" },
+	{ id: "vmess", label: "VMess" },
+	{ id: "trojan", label: "Trojan" },
+	{ id: "ss", label: "Shadowsocks" },
+	{ id: "ssr", label: "SSR" },
+	{ id: "hysteria2", label: "Hysteria2" },
+	{ id: "tuic", label: "TUIC" },
+	{ id: "anytls", label: "AnyTLS" },
+];
+
+function toggleSelection<T extends string>(list: T[], id: T) {
+	return list.includes(id) ? list.filter((item) => item !== id) : [...list, id];
+}
+
+function selectAllNodes() {
+	const visibleIds = filteredNodesInRule.map((n) => n.id);
+	const allSelected = visibleIds.every((id) => selectedNodeIds.includes(id));
+	if (allSelected) {
+		selectedNodeIds = selectedNodeIds.filter((id) => !visibleIds.includes(id));
+	} else {
+		selectedNodeIds = Array.from(new Set([...selectedNodeIds, ...visibleIds]));
 	}
+}
 
-	function selectAllNodes() {
-		const visibleIds = filteredNodesInRule.map(n => n.id);
-		const allSelected = visibleIds.every(id => selectedNodeIds.includes(id));
-		if (allSelected) {
-			selectedNodeIds = selectedNodeIds.filter(id => !visibleIds.includes(id));
-		} else {
-			selectedNodeIds = Array.from(new Set([...selectedNodeIds, ...visibleIds]));
-		}
-	}
-
-	function selectAllSubs() {
-		const visibleIds = filteredSubsInRule.map(s => s.id);
-		const allSelected = visibleIds.every(id => selectedSubscriptionIds.includes(id));
-		if (allSelected) {
-			selectedSubscriptionIds = selectedSubscriptionIds.filter(id => !visibleIds.includes(id));
-		} else {
-			selectedSubscriptionIds = Array.from(new Set([...selectedSubscriptionIds, ...visibleIds]));
-		}
-	}
-
-	$: filteredNodesInRule = $appState.nodes.filter(n => n.name.toLowerCase().includes(nodeSearchQuery.toLowerCase()));
-	$: filteredSubsInRule = $appState.subscriptions.filter(s => s.name.toLowerCase().includes(subSearchQuery.toLowerCase()));
-	$: filteredRegionRules = BUILT_IN_REGION_FLAG_RULES.filter(r => 
-		r.code.toLowerCase().includes(builtInRegionMapSearch.toLowerCase()) || 
-		r.keywords.some(k => k.toLowerCase().includes(builtInRegionMapSearch.toLowerCase()))
+function selectAllSubs() {
+	const visibleIds = filteredSubsInRule.map((s) => s.id);
+	const allSelected = visibleIds.every((id) =>
+		selectedSubscriptionIds.includes(id),
 	);
-
-	$: activeNodeCount = selectedNodeIds.filter(id => $appState.nodes.some(n => n.id === id)).length;
-	$: activeSubCount = selectedSubscriptionIds.filter(id => $appState.subscriptions.some(s => s.id === id)).length;
-
-	function loadRule(rule: AggregateRule | undefined) {
-		if (!rule) return;
-		editingRuleId = rule.id;
-		ruleName = rule.name;
-		// Filter out any IDs that no longer exist in the global state
-		selectedNodeIds = (rule.nodeIds || []).filter((id: string) => $appState.nodes.some(n => n.id === id));
-		selectedSubscriptionIds = (rule.subscriptionIds || []).filter((id: string) => $appState.subscriptions.some(s => s.id === id));
-		excludeTags = (rule.excludeTagIds || []).join(", ");
-		renameMap = rule.renameRules ? rule.renameRules.join("\n") : Object.entries(rule.renameMap || {}).map(([k, v]) => `${k}=${v}`).join("\n");
-		customRegionFlagMap = rule.customRegionFlagMap || "";
-		allowedTypes = rule.allowedTypes || [];
-		prependRegionFlags = rule.prependRegionFlags ?? true;
-		sortMode = rule.sortMode || "none";
-		sortPriority = rule.sortPriority || "";
+	if (allSelected) {
+		selectedSubscriptionIds = selectedSubscriptionIds.filter(
+			(id) => !visibleIds.includes(id),
+		);
+	} else {
+		selectedSubscriptionIds = Array.from(
+			new Set([...selectedSubscriptionIds, ...visibleIds]),
+		);
 	}
+}
 
-	$: publishedTargetCount = $appState.publishTargets.filter(
-		(target) => target.lastPublishedUrl,
-	).length;
-	$: isWorkspaceConnected = Boolean($authState.token && $appState.activeGistId);
+$: filteredNodesInRule = $appState.nodes.filter((n) =>
+	n.name.toLowerCase().includes(nodeSearchQuery.toLowerCase()),
+);
+$: filteredSubsInRule = $appState.subscriptions.filter((s) =>
+	s.name.toLowerCase().includes(subSearchQuery.toLowerCase()),
+);
+$: filteredRegionRules = BUILT_IN_REGION_FLAG_RULES.filter(
+	(r) =>
+		r.code.toLowerCase().includes(builtInRegionMapSearch.toLowerCase()) ||
+		r.keywords.some((k) =>
+			k.toLowerCase().includes(builtInRegionMapSearch.toLowerCase()),
+		),
+);
 
-	function resetRuleForm() {
-		editingRuleId = ""; ruleName = ""; selectedNodeIds = [];
-		selectedSubscriptionIds = []; excludeTags = ""; renameMap = ""; 
-		customRegionFlagMap = ""; allowedTypes = []; prependRegionFlags = true;
-		sortMode = "none"; sortPriority = "";
-		previewEntries = [];
-	}
+$: activeNodeCount = selectedNodeIds.filter((id) =>
+	$appState.nodes.some((n) => n.id === id),
+).length;
+$: activeSubCount = selectedSubscriptionIds.filter((id) =>
+	$appState.subscriptions.some((s) => s.id === id),
+).length;
 
-	function loadPublishTarget(target: any) {
-		selectedTargetId = target.id;
-		publishTargetName = target.name;
-		publishTargetRuleId = target.ruleId;
-		publishTargetFile = target.fileName;
-		publishTargetDescription = target.description;
-		publishTargetPublic = target.isPublic;
-		publishUrl = target.lastPublishedUrl;
-	}
+function loadRule(rule: AggregateRule | undefined) {
+	if (!rule) return;
+	editingRuleId = rule.id;
+	ruleName = rule.name;
+	// Filter out any IDs that no longer exist in the global state
+	selectedNodeIds = (rule.nodeIds || []).filter((id: string) =>
+		$appState.nodes.some((n) => n.id === id),
+	);
+	selectedSubscriptionIds = (rule.subscriptionIds || []).filter((id: string) =>
+		$appState.subscriptions.some((s) => s.id === id),
+	);
+	excludeTags = (rule.excludeTagIds || []).join(", ");
+	renameMap = rule.renameRules
+		? rule.renameRules.join("\n")
+		: Object.entries(rule.renameMap || {})
+				.map(([k, v]) => `${k}=${v}`)
+				.join("\n");
+	customRegionFlagMap = rule.customRegionFlagMap || "";
+	allowedTypes = rule.allowedTypes || [];
+	prependRegionFlags = rule.prependRegionFlags ?? true;
+	sortMode = rule.sortMode || "none";
+	sortPriority = rule.sortPriority || "";
+}
 
-	function resetTargetForm() {
-		selectedTargetId = ""; publishTargetName = "";
-		publishTargetRuleId = $appState.aggregates[0]?.id || "";
-		publishTargetFile = "aggregate.txt";
-		publishTargetDescription = "SubMan aggregate";
-		publishTargetPublic = false;
-		publishUrl = null;
-	}
+$: publishedTargetCount = $appState.publishTargets.filter(
+	(target) => target.lastPublishedUrl,
+).length;
+$: isWorkspaceConnected = Boolean($authState.token && $appState.activeGistId);
 
-	async function saveRule() {
-		if (!ruleName.trim()) return;
-		const id = editingRuleId || createId("agg");
-		
-		// Ensure we only save IDs that actually exist in the global state
-		const finalNodeIds = selectedNodeIds.filter(id => $appState.nodes.some(n => n.id === id));
-		const finalSubIds = selectedSubscriptionIds.filter(id => $appState.subscriptions.some(s => s.id === id));
-		const renameRules = renameMap.split("\n").map(l => l.trim()).filter(Boolean);
+function resetRuleForm() {
+	editingRuleId = "";
+	ruleName = "";
+	selectedNodeIds = [];
+	selectedSubscriptionIds = [];
+	excludeTags = "";
+	renameMap = "";
+	customRegionFlagMap = "";
+	allowedTypes = [];
+	prependRegionFlags = true;
+	sortMode = "none";
+	sortPriority = "";
+	previewEntries = [];
+}
 
-		upsertAggregate({
-			id, name: ruleName.trim(), 
-			nodeIds: finalNodeIds, 
-			subscriptionIds: finalSubIds,
-			excludeTagIds: excludeTags.split(",").map(t => t.trim()).filter(Boolean),
-			renameMap: {}, // Migrate to renameRules
-			renameRules,
-			customRegionFlagMap, allowedTypes: allowedTypes as ProxyType[], prependRegionFlags,
-			sortMode: sortMode as any, sortPriority, updatedAt: nowIso()
-		});
-		editingRuleId = id;
-		showToast($t("Rule saved successfully"), 'success');
-	}
+function loadPublishTarget(target: AggregatePublishTarget) {
+	selectedTargetId = target.id;
+	publishTargetName = target.name;
+	publishTargetRuleId = target.ruleId;
+	publishTargetFile = target.fileName;
+	publishTargetDescription = target.description;
+	publishTargetPublic = target.isPublic;
+	publishUrl = target.lastPublishedUrl;
+}
 
-	async function saveTarget() {
-		if (!publishTargetFile.trim() || !publishTargetRuleId) return;
-		const id = selectedTargetId || createId("pub");
+function resetTargetForm() {
+	selectedTargetId = "";
+	publishTargetName = "";
+	publishTargetRuleId = $appState.aggregates[0]?.id || "";
+	publishTargetFile = "aggregate.txt";
+	publishTargetDescription = "SubMan aggregate";
+	publishTargetPublic = false;
+	publishUrl = null;
+}
+
+async function saveRule() {
+	if (!ruleName.trim()) return;
+	const id = editingRuleId || createId("agg");
+
+	// Ensure we only save IDs that actually exist in the global state
+	const finalNodeIds = selectedNodeIds.filter((id) =>
+		$appState.nodes.some((n) => n.id === id),
+	);
+	const finalSubIds = selectedSubscriptionIds.filter((id) =>
+		$appState.subscriptions.some((s) => s.id === id),
+	);
+	const renameRules = renameMap
+		.split("\n")
+		.map((l) => l.trim())
+		.filter(Boolean);
+
+	upsertAggregate({
+		id,
+		name: ruleName.trim(),
+		nodeIds: finalNodeIds,
+		subscriptionIds: finalSubIds,
+		excludeTagIds: excludeTags
+			.split(",")
+			.map((t) => t.trim())
+			.filter(Boolean),
+		renameMap: {}, // Migrate to renameRules
+		renameRules,
+		customRegionFlagMap,
+		allowedTypes,
+		prependRegionFlags,
+		sortMode,
+		sortPriority,
+		updatedAt: nowIso(),
+	});
+	editingRuleId = id;
+	showToast($t("Rule saved successfully"), "success");
+}
+
+async function saveTarget() {
+	if (!publishTargetFile.trim() || !publishTargetRuleId) return;
+	const id = selectedTargetId || createId("pub");
+	upsertPublishTarget({
+		id,
+		name: publishTargetName.trim() || publishTargetFile,
+		ruleId: publishTargetRuleId,
+		fileName: publishTargetFile.trim(),
+		description: publishTargetDescription.trim(),
+		isPublic: publishTargetPublic,
+		lastPublishedAt: null,
+		lastPublishedUrl: null,
+		lastPublishTransitionAt: null,
+		lastPublishTransitionFromFileName: null,
+		lastPublishTransitionToFileName: null,
+		lastPublishTransitionOutcome: null,
+		updatedAt: nowIso(),
+	});
+	selectedTargetId = id;
+	showToast($t("Publish target saved"), "success");
+}
+
+async function publish() {
+	if (!$authState.token || !selectedTargetId) return;
+	const target = $appState.publishTargets.find(
+		(t) => t.id === selectedTargetId,
+	);
+	const rule = $appState.aggregates.find((r) => r.id === target?.ruleId);
+	if (!target || !rule) return;
+
+	publishing = true;
+	try {
+		const result = await buildAggregateOutput(
+			rule,
+			$appState.nodes,
+			$appState.subscriptions,
+		);
+		const config = exportSyncState($appState);
+		const files = {
+			[target.fileName]: { content: result.content },
+			[WORKSPACE_FILE]: { content: config },
+		};
+		const response = $appState.activeGistId
+			? await updateGist($authState.token, {
+					gistId: $appState.activeGistId,
+					files,
+				})
+			: await createGist($authState.token, {
+					description: target.description,
+					isPublic: target.isPublic,
+					files,
+				});
+
+		const fileMeta = response.files.find((f) => f.filename === target.fileName);
+		publishUrl = toStableGistRawUrl(fileMeta?.rawUrl) || null;
+		appState.update((s) => ({ ...s, activeGistId: response.id }));
 		upsertPublishTarget({
-			id, name: publishTargetName.trim() || publishTargetFile,
-			ruleId: publishTargetRuleId, fileName: publishTargetFile.trim(),
-			description: publishTargetDescription.trim(), isPublic: publishTargetPublic,
-			updatedAt: nowIso()
-		} as any);
-		selectedTargetId = id;
-		showToast($t("Publish target saved"), 'success');
+			...target,
+			lastPublishedAt: nowIso(),
+			lastPublishedUrl: publishUrl,
+		});
+		showToast($t("Published successfully to GitHub Gist"), "success");
+	} catch (err) {
+		showToast(
+			$t("Publish failed: {error}", {
+				error: err instanceof Error ? err.message : String(err),
+			}),
+			"error",
+		);
+	} finally {
+		publishing = false;
 	}
+}
 
-	async function publish() {
-		if (!$authState.token || !selectedTargetId) return;
-		const target = $appState.publishTargets.find(t => t.id === selectedTargetId);
-		const rule = $appState.aggregates.find(r => r.id === target?.ruleId);
-		if (!target || !rule) return;
-
-		publishing = true;
-		try {
-			const result = await buildAggregateOutput(rule, $appState.nodes, $appState.subscriptions);
-			const config = exportSyncState($appState);
-			const files = { [target.fileName]: { content: result.content }, [WORKSPACE_FILE]: { content: config } };
-			const response = $appState.activeGistId 
-				? await updateGist($authState.token, { gistId: $appState.activeGistId, files })
-				: await createGist($authState.token, { description: target.description, isPublic: target.isPublic, files });
-			
-			const fileMeta = response.files.find(f => f.filename === target.fileName);
-			publishUrl = toStableGistRawUrl(fileMeta?.rawUrl) || null;
-			appState.update(s => ({ ...s, activeGistId: response.id }));
-			upsertPublishTarget({ ...target, lastPublishedAt: nowIso(), lastPublishedUrl: publishUrl } as any);
-			showToast($t("Published successfully to GitHub Gist"), 'success');
-		} catch (err) { 
-			showToast($t("Publish failed: {error}", { error: err instanceof Error ? err.message : String(err) }), 'error'); 
-		} finally { 
-			publishing = false; 
-		}
+async function buildPreview() {
+	if (!selectedNodeIds.length && !selectedSubscriptionIds.length) {
+		showToast($t("Select nodes or subs."), "error");
+		return;
 	}
-
-	async function buildPreview() {
-		if (!selectedNodeIds.length && !selectedSubscriptionIds.length) {
-			showToast($t("Select nodes or subs."), 'error');
-			return;
-		}
-		previewLoading = true;
-		try {
-			const renameRules = renameMap.split("\n").map(l => l.trim()).filter(Boolean);
-			const rule: any = {
-				id: "preview", name: ruleName || "Preview",
-				nodeIds: selectedNodeIds, subscriptionIds: selectedSubscriptionIds,
-				excludeTagIds: excludeTags.split(",").map(t => t.trim()).filter(Boolean),
-				renameMap: {},
-				renameRules,
-				customRegionFlagMap, allowedTypes, prependRegionFlags,
-				sortMode, sortPriority, updatedAt: nowIso()
-			};
-			const result = await buildAggregateOutput(rule, $appState.nodes, $appState.subscriptions);
-			const lines = result.content.split("\n").map(l => l.trim()).filter(Boolean);
-			previewEntries = lines.map((line, idx) => {
-				const schemeIdx = line.indexOf("://");
-				const protocol = schemeIdx > 0 ? line.slice(0, schemeIdx) : "unknown";
-				let name = "unnamed";
-				const hashIdx = line.lastIndexOf("#");
-				if (hashIdx > schemeIdx) {
-					try { name = decodeURIComponent(line.slice(hashIdx + 1)); } catch { name = line.slice(hashIdx + 1); }
+	previewLoading = true;
+	try {
+		const renameRules = renameMap
+			.split("\n")
+			.map((l) => l.trim())
+			.filter(Boolean);
+		const rule: AggregateRule = {
+			id: "preview",
+			name: ruleName || "Preview",
+			nodeIds: selectedNodeIds,
+			subscriptionIds: selectedSubscriptionIds,
+			excludeTagIds: excludeTags
+				.split(",")
+				.map((t) => t.trim())
+				.filter(Boolean),
+			renameMap: {},
+			renameRules,
+			customRegionFlagMap,
+			allowedTypes,
+			prependRegionFlags,
+			sortMode,
+			sortPriority,
+			updatedAt: nowIso(),
+		};
+		const result = await buildAggregateOutput(
+			rule,
+			$appState.nodes,
+			$appState.subscriptions,
+		);
+		const lines = result.content
+			.split("\n")
+			.map((l) => l.trim())
+			.filter(Boolean);
+		previewEntries = lines.map((line, idx) => {
+			const schemeIdx = line.indexOf("://");
+			const protocol = schemeIdx > 0 ? line.slice(0, schemeIdx) : "unknown";
+			let name = "unnamed";
+			const hashIdx = line.lastIndexOf("#");
+			if (hashIdx > schemeIdx) {
+				try {
+					name = decodeURIComponent(line.slice(hashIdx + 1));
+				} catch {
+					name = line.slice(hashIdx + 1);
 				}
-				return { id: `p-${idx}-${line}`, line, protocol, name };
-			});
-			if (previewEntries.length === 0) showToast($t("No nodes matched criteria"), 'info');
-			else showToast($t("Preview generated"), 'success');
-		} catch (err) {
-			showToast($t("Preview failed"), 'error');
-		} finally { previewLoading = false; }
+			}
+			return { id: `p-${idx}-${line}`, line, protocol, name };
+		});
+		if (previewEntries.length === 0)
+			showToast($t("No nodes matched criteria"), "info");
+		else showToast($t("Preview generated"), "success");
+	} catch (err) {
+		showToast($t("Preview failed"), "error");
+	} finally {
+		previewLoading = false;
 	}
+}
 
-	async function copyLine(line: string) {
-		try {
-			await navigator.clipboard.writeText(line);
-			showToast($t("Copied to clipboard"), 'success');
-		} catch {
-			showToast($t("Copy failed"), 'error');
-		}
+async function copyLine(line: string) {
+	try {
+		await navigator.clipboard.writeText(line);
+		showToast($t("Copied to clipboard"), "success");
+	} catch {
+		showToast($t("Copy failed"), "error");
 	}
+}
 
-	function insertRegionRule(rule: any) {
-		const line = `${rule.code} = ${rule.keywords.join(", ")}`;
-		customRegionFlagMap = customRegionFlagMap.trim() ? `${customRegionFlagMap}\n${line}` : line;
-		showBuiltInRegionMap = false;
-	}
+function insertRegionRule(rule: RegionFlagRule) {
+	const line = `${rule.code} = ${rule.keywords.join(", ")}`;
+	customRegionFlagMap = customRegionFlagMap.trim()
+		? `${customRegionFlagMap}\n${line}`
+		: line;
+	showBuiltInRegionMap = false;
+}
 
-	function handlePreviewDndConsider(e: CustomEvent<DndEvent<PreviewEntry>>) {
-		previewEntries = e.detail.items;
-	}
+function handlePreviewDndConsider(e: CustomEvent<DndEvent<PreviewEntry>>) {
+	previewEntries = e.detail.items;
+}
 
-	function handlePreviewDndFinalize(e: CustomEvent<DndEvent<PreviewEntry>>) {
-		previewEntries = e.detail.items;
-		// Update sortPriority with the actual order of names
-		sortPriority = previewEntries.map(entry => entry.name).join("\n");
-		// Auto-save the rule to make it permanent
-		saveRule();
-	}
+function handlePreviewDndFinalize(e: CustomEvent<DndEvent<PreviewEntry>>) {
+	previewEntries = e.detail.items;
+	// Update sortPriority with the actual order of names
+	sortPriority = previewEntries.map((entry) => entry.name).join("\n");
+	// Auto-save the rule to make it permanent
+	saveRule();
+}
 </script>
 
 <div class="flex flex-col gap-6">
@@ -569,7 +685,7 @@ import type { AggregateRule, ProxyType } from "$lib/models";
 					<div class="p-4 bg-canvas-default flex flex-col gap-4">
 						<div class="flex flex-col gap-1.5">
 							<label class="gh-form-label text-xs uppercase tracking-wide" for={fieldIds.targetSelect}>{$t("Select Target")}</label>
-							<select id={fieldIds.targetSelect} class="gh-select w-full" value={selectedTargetId} on:change={(e) => { const id = e.currentTarget.value; id ? loadPublishTarget($appState.publishTargets.find(t => t.id === id)) : resetTargetForm(); }}>
+							<select id={fieldIds.targetSelect} class="gh-select w-full" value={selectedTargetId} on:change={(e) => { const id = e.currentTarget.value; const target = $appState.publishTargets.find(t => t.id === id); target ? loadPublishTarget(target) : resetTargetForm(); }}>
 								<option value="">+ {$t("New target")}</option>
 								{#each $appState.publishTargets as target}<option value={target.id}>{target.name}</option>{/each}
 							</select>

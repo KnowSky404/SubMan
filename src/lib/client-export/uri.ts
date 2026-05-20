@@ -1,4 +1,7 @@
-export type SingBoxOutbound = Record<string, unknown> & { type: string; tag: string };
+export type SingBoxOutbound = Record<string, unknown> & {
+	type: string;
+	tag: string;
+};
 
 export type UriParseResult = {
 	outbound: SingBoxOutbound | null;
@@ -13,9 +16,19 @@ type ParsedUrl = {
 	protocol: string;
 };
 
-const SUPPORTED_PROTOCOLS = new Set(["vless", "vmess", "trojan", "ss", "hysteria2", "hy2"]);
+const SUPPORTED_PROTOCOLS = new Set([
+	"vless",
+	"vmess",
+	"trojan",
+	"ss",
+	"hysteria2",
+	"hy2",
+]);
 
-export function parseProxyUriToSingBoxOutbound(raw: string, fallbackTag: string): UriParseResult {
+export function parseProxyUriToSingBoxOutbound(
+	raw: string,
+	fallbackTag: string,
+): UriParseResult {
 	const protocol = raw.split(":", 1)[0]?.toLowerCase() ?? "";
 
 	if (!SUPPORTED_PROTOCOLS.has(protocol)) {
@@ -92,7 +105,11 @@ function parseVmess(raw: string, fallbackTag: string): UriParseResult {
 	}
 }
 
-function parseUrl(raw: string, fallbackTag: string, protocol: string): ParsedUrl | string {
+function parseUrl(
+	raw: string,
+	fallbackTag: string,
+	protocol: string,
+): ParsedUrl | string {
 	try {
 		const url = new URL(raw);
 		const server = url.hostname;
@@ -114,7 +131,10 @@ function parseUrl(raw: string, fallbackTag: string, protocol: string): ParsedUrl
 	}
 }
 
-function parseVless(parsed: ParsedUrl, fallbackTag: string): SingBoxOutbound | string {
+function parseVless(
+	parsed: ParsedUrl,
+	fallbackTag: string,
+): SingBoxOutbound | string {
 	const query = parsed.url.searchParams;
 	const security = query.get("security");
 	const serverName = query.get("sni") ?? undefined;
@@ -147,7 +167,10 @@ function parseVless(parsed: ParsedUrl, fallbackTag: string): SingBoxOutbound | s
 	return outbound;
 }
 
-function parseTrojan(parsed: ParsedUrl, fallbackTag: string): SingBoxOutbound | string {
+function parseTrojan(
+	parsed: ParsedUrl,
+	fallbackTag: string,
+): SingBoxOutbound | string {
 	const serverName = parsed.url.searchParams.get("sni") ?? undefined;
 	const password = decodeComponent(parsed.url.username);
 
@@ -166,10 +189,15 @@ function parseTrojan(parsed: ParsedUrl, fallbackTag: string): SingBoxOutbound | 
 	return outbound;
 }
 
-function parseShadowsocks(parsed: ParsedUrl, fallbackTag: string): SingBoxOutbound | string {
+function parseShadowsocks(
+	parsed: ParsedUrl,
+	fallbackTag: string,
+): SingBoxOutbound | string {
 	const username = decodeComponent(parsed.url.username);
 	const password = decodeComponent(parsed.url.password);
-	const credentials = password ? `${username}:${password}` : decodeBase64(username);
+	const credentials = password
+		? `${username}:${password}`
+		: decodeBase64(username);
 	const separatorIndex = credentials?.indexOf(":") ?? -1;
 
 	if (!credentials || separatorIndex <= 0) {
@@ -186,7 +214,10 @@ function parseShadowsocks(parsed: ParsedUrl, fallbackTag: string): SingBoxOutbou
 	};
 }
 
-function parseHysteria2(parsed: ParsedUrl, fallbackTag: string): SingBoxOutbound | string {
+function parseHysteria2(
+	parsed: ParsedUrl,
+	fallbackTag: string,
+): SingBoxOutbound | string {
 	const query = parsed.url.searchParams;
 	const serverName = query.get("sni") ?? undefined;
 	const obfs = query.get("obfs");
@@ -249,7 +280,10 @@ function parsePort(port: string): number | null {
 function decodeBase64(value: string): string | null {
 	try {
 		const normalized = value.replace(/-/g, "+").replace(/_/g, "/");
-		const padded = normalized.padEnd(normalized.length + ((4 - (normalized.length % 4)) % 4), "=");
+		const padded = normalized.padEnd(
+			normalized.length + ((4 - (normalized.length % 4)) % 4),
+			"=",
+		);
 		const bytes = Uint8Array.from(atob(padded), (char) => char.charCodeAt(0));
 		return new TextDecoder().decode(bytes);
 	} catch {

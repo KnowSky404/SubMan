@@ -1,21 +1,10 @@
 <script lang="ts">
-import { t } from "$lib/i18n";
-import { appState, replaceState } from "$lib/stores/app";
-import { authState, clearAuth, setToken } from "$lib/stores/auth";
-import {
-	exportState,
-	exportSyncState,
-	getSyncStateSignature,
-	importState,
-} from "$lib/serialization";
-import { getGistFileContent, updateGist } from "$lib/gist";
-import { mergeSyncState } from "$lib/merge";
-import { ensureWorkspaceGist, WORKSPACE_FILE } from "$lib/workspace";
-import { setSyncBaseline } from "$lib/sync";
-import { requestConfirm } from "$lib/stores/confirm";
-import { showToast } from "$lib/stores/toast";
-import { cn } from "$lib/utils/cn";
+import { slide } from "svelte/transition";
 import Octicon from "$lib/components/Octicon.svelte";
+import { getGistFileContent, updateGist } from "$lib/gist";
+import { t } from "$lib/i18n";
+import { mergeSyncState } from "$lib/merge";
+import type { AppState } from "$lib/models";
 import {
 	alert,
 	arrowDown,
@@ -32,8 +21,19 @@ import {
 	trash,
 	upload,
 } from "$lib/octicons";
-import { slide } from "svelte/transition";
-import type { AppState } from "$lib/models";
+import {
+	exportState,
+	exportSyncState,
+	getSyncStateSignature,
+	importState,
+} from "$lib/serialization";
+import { appState, replaceState } from "$lib/stores/app";
+import { authState, clearAuth, setToken } from "$lib/stores/auth";
+import { requestConfirm } from "$lib/stores/confirm";
+import { showToast } from "$lib/stores/toast";
+import { setSyncBaseline } from "$lib/sync";
+import { cn } from "$lib/utils/cn";
+import { ensureWorkspaceGist, WORKSPACE_FILE } from "$lib/workspace";
 
 let tokenInput = "";
 let payload = "";
@@ -151,30 +151,34 @@ async function handleResolveConflict(action: "local" | "remote" | "merge") {
 
 	workspaceBusy = true;
 	try {
+		const currentConflict = conflict;
 		if (action === "remote") {
-			setLocalStateAndBaseline(conflict.remoteState, conflict.gistId);
+			setLocalStateAndBaseline(
+				currentConflict.remoteState,
+				currentConflict.gistId,
+			);
 			setStatus($t("Remote data loaded"), "success");
 		} else if (action === "local") {
 			const localPayload = exportSyncState($appState);
 			await updateGist($authState.token, {
-				gistId: conflict.gistId,
+				gistId: currentConflict.gistId,
 				files: { [WORKSPACE_FILE]: { content: localPayload } },
 			});
-			appState.update((s) => ({ ...s, activeGistId: conflict!.gistId }));
-			setSyncBaseline(conflict.localSignature);
+			appState.update((s) => ({ ...s, activeGistId: currentConflict.gistId }));
+			setSyncBaseline(currentConflict.localSignature);
 			setStatus($t("Local data pushed to Gist"), "success");
 		} else {
 			const mergedState = {
 				...$appState,
-				...mergeSyncState($appState, conflict.remoteState),
-				activeGistId: conflict.gistId,
+				...mergeSyncState($appState, currentConflict.remoteState),
+				activeGistId: currentConflict.gistId,
 			};
 			const mergedPayload = exportSyncState(mergedState);
 			await updateGist($authState.token, {
-				gistId: conflict.gistId,
+				gistId: currentConflict.gistId,
 				files: { [WORKSPACE_FILE]: { content: mergedPayload } },
 			});
-			setLocalStateAndBaseline(mergedState, conflict.gistId);
+			setLocalStateAndBaseline(mergedState, currentConflict.gistId);
 			setStatus($t("Merged data saved."), "success");
 		}
 		conflict = null;

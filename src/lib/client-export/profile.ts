@@ -73,7 +73,12 @@ export function validateSingBoxClientProfile(profile: ClientExportProfile): {
 	if (selectorTag && urlTestTag && selectorTag === urlTestTag) {
 		errors.push("Selector tag and URL test tag must be different");
 	}
-	if (selectorTag === "direct" || selectorTag === "block" || urlTestTag === "direct" || urlTestTag === "block") {
+	if (
+		selectorTag === "direct" ||
+		selectorTag === "block" ||
+		urlTestTag === "direct" ||
+		urlTestTag === "block"
+	) {
 		errors.push("Control tags cannot use direct or block");
 	}
 

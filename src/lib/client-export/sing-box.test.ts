@@ -1,15 +1,18 @@
 import { describe, expect, it } from "bun:test";
+import type { AggregateRule, NodeItem } from "$lib/models";
 import {
 	createDefaultSingBoxClientProfile,
 	validateSingBoxClientProfile,
 } from "./profile";
 import { buildSingBoxClientConfig } from "./sing-box";
 import { parseProxyUriToSingBoxOutbound } from "./uri";
-import type { AggregateRule, NodeItem } from "$lib/models";
 
 describe("sing-box client export profile", () => {
 	it("creates a default profile for an aggregate rule", () => {
-		const profile = createDefaultSingBoxClientProfile("rule-1", "2026-05-12T00:00:00.000Z");
+		const profile = createDefaultSingBoxClientProfile(
+			"rule-1",
+			"2026-05-12T00:00:00.000Z",
+		);
 
 		expect(profile.name).toBe("sing-box Client");
 		expect(profile.type).toBe("sing-box-client");
@@ -23,11 +26,15 @@ describe("sing-box client export profile", () => {
 	});
 
 	it("blocks invalid listen ports and protected filenames", () => {
-		const profile = createDefaultSingBoxClientProfile("rule-1", "2026-05-12T00:00:00.000Z");
-
-		expect(validateSingBoxClientProfile({ ...profile, fileName: "subman.json" }).errors).toContain(
-			"Output filename cannot replace subman.json",
+		const profile = createDefaultSingBoxClientProfile(
+			"rule-1",
+			"2026-05-12T00:00:00.000Z",
 		);
+
+		expect(
+			validateSingBoxClientProfile({ ...profile, fileName: "subman.json" })
+				.errors,
+		).toContain("Output filename cannot replace subman.json");
 		expect(
 			validateSingBoxClientProfile({
 				...profile,
@@ -37,18 +44,28 @@ describe("sing-box client export profile", () => {
 	});
 
 	it("blocks duplicate selector and URL test tags", () => {
-		const profile = createDefaultSingBoxClientProfile("rule-1", "2026-05-12T00:00:00.000Z");
+		const profile = createDefaultSingBoxClientProfile(
+			"rule-1",
+			"2026-05-12T00:00:00.000Z",
+		);
 
 		expect(
 			validateSingBoxClientProfile({
 				...profile,
-				options: { ...profile.options, selectorTag: " auto ", urlTestTag: "auto" },
+				options: {
+					...profile.options,
+					selectorTag: " auto ",
+					urlTestTag: "auto",
+				},
 			}).errors,
 		).toContain("Selector tag and URL test tag must be different");
 	});
 
 	it("blocks control tags that collide with fixed outbound tags", () => {
-		const profile = createDefaultSingBoxClientProfile("rule-1", "2026-05-12T00:00:00.000Z");
+		const profile = createDefaultSingBoxClientProfile(
+			"rule-1",
+			"2026-05-12T00:00:00.000Z",
+		);
 
 		expect(
 			validateSingBoxClientProfile({
@@ -157,8 +174,13 @@ describe("sing-box proxy uri parsing", () => {
 			sni: "测试.example.com",
 			ps: "香港 VMess",
 		};
-		const encoded = btoa(String.fromCharCode(...new TextEncoder().encode(JSON.stringify(payload))));
-		const result = parseProxyUriToSingBoxOutbound(`vmess://${encoded}`, "fallback");
+		const encoded = btoa(
+			String.fromCharCode(...new TextEncoder().encode(JSON.stringify(payload))),
+		);
+		const result = parseProxyUriToSingBoxOutbound(
+			`vmess://${encoded}`,
+			"fallback",
+		);
 
 		expect(result.warning).toBeNull();
 		expect(result.outbound).toEqual({
@@ -200,7 +222,10 @@ describe("sing-box proxy uri parsing", () => {
 	});
 
 	it("returns a warning for unsupported protocols", () => {
-		const result = parseProxyUriToSingBoxOutbound("tuic://token@example.com:443#TUIC", "TUIC");
+		const result = parseProxyUriToSingBoxOutbound(
+			"tuic://token@example.com:443#TUIC",
+			"TUIC",
+		);
 
 		expect(result.outbound).toBeNull();
 		expect(result.warning).toContain("Unsupported protocol");
@@ -223,7 +248,10 @@ describe("sing-box proxy uri parsing", () => {
 		];
 
 		for (const testCase of cases) {
-			const result = parseProxyUriToSingBoxOutbound(testCase.raw, "Missing Credentials");
+			const result = parseProxyUriToSingBoxOutbound(
+				testCase.raw,
+				"Missing Credentials",
+			);
 
 			expect(result.outbound).toBeNull();
 			expect(result.warning).toContain(testCase.warning);
@@ -297,9 +325,18 @@ describe("sing-box client config export", () => {
 		expect(config.inbounds[0].listen_port).toBe(2080);
 		expect(config.outbounds[0].type).toBe("selector");
 		expect(config.outbounds[0].tag).toBe("proxy");
-		expect(config.outbounds[0].outbounds).toEqual(["auto", "HK VLESS", "direct", "block"]);
-		expect(config.outbounds.some((outbound) => outbound.type === "dns")).toBe(false);
-		expect(config.outbounds.some((outbound) => outbound.tag === "dns-out")).toBe(false);
+		expect(config.outbounds[0].outbounds).toEqual([
+			"auto",
+			"HK VLESS",
+			"direct",
+			"block",
+		]);
+		expect(config.outbounds.some((outbound) => outbound.type === "dns")).toBe(
+			false,
+		);
+		expect(
+			config.outbounds.some((outbound) => outbound.tag === "dns-out"),
+		).toBe(false);
 		expect(config.outbounds[1].type).toBe("urltest");
 		expect(config.outbounds[1].tag).toBe("auto");
 		expect(config.outbounds[1].outbounds).toEqual(["HK VLESS"]);
@@ -313,7 +350,12 @@ describe("sing-box client config export", () => {
 			...rule,
 			nodeIds: ["node-2"],
 		};
-		const result = await buildSingBoxClientConfig(profile, unsupportedOnlyRule, nodes, []);
+		const result = await buildSingBoxClientConfig(
+			profile,
+			unsupportedOnlyRule,
+			nodes,
+			[],
+		);
 
 		expect(result.errors).toEqual(["No supported outbounds can be generated"]);
 		expect(result.content).toBe("");
@@ -347,7 +389,12 @@ describe("sing-box client config export", () => {
 				source: "single",
 			},
 		];
-		const result = await buildSingBoxClientConfig(profile, collisionRule, collisionNodes, []);
+		const result = await buildSingBoxClientConfig(
+			profile,
+			collisionRule,
+			collisionNodes,
+			[],
+		);
 
 		const config = result.config as {
 			outbounds: Array<Record<string, unknown>>;

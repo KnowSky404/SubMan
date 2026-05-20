@@ -1,5 +1,5 @@
-import { browser } from "$app/environment";
 import { derived, writable } from "svelte/store";
+import { browser } from "$app/environment";
 
 export type Locale = "en" | "zh-CN";
 
@@ -371,13 +371,11 @@ const zhCN: Record<string, string> = {
 	Exports: "导出",
 	"sing-box Client": "sing-box 客户端",
 	"Source Aggregate Rule": "来源聚合规则",
-	"Create an Aggregate rule before exporting.":
-		"请先创建聚合规则再导出。",
+	"Create an Aggregate rule before exporting.": "请先创建聚合规则再导出。",
 	"Create an export profile first": "请先创建导出配置。",
 	"Copied sing-box config": "已复制 sing-box 配置。",
 	"Published sing-box config": "已发布 sing-box 配置。",
-	"Generate a preview to inspect config.json":
-		"生成预览以检查 config.json。",
+	"Generate a preview to inspect config.json": "生成预览以检查 config.json。",
 	"Export failed: {error}": "导出失败：{error}",
 	"Export Profile": "导出配置",
 	"New profile": "新建配置",

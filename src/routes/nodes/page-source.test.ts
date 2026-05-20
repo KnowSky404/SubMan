@@ -36,9 +36,11 @@ test("nodes page uses stable list row primitives", () => {
 });
 
 test("single node add can derive the name from the raw URI", () => {
-	expect(nodesPageSource).toContain('if (!nodeRaw.trim()) return;');
+	expect(nodesPageSource).toContain("if (!nodeRaw.trim()) return;");
 	expect(nodesPageSource).toContain(
-		'name: nodeName.trim() || inferNodeNameFromRaw(nodeRaw.trim(), "Imported Node")',
+		'name:\n\t\t\t\t\tnodeName.trim() ||\n\t\t\t\t\tinferNodeNameFromRaw(nodeRaw.trim(), "Imported Node")',
 	);
-	expect(nodesPageSource).not.toContain("if (!nodeName.trim() || !nodeRaw.trim()) return;");
+	expect(nodesPageSource).not.toContain(
+		"if (!nodeName.trim() || !nodeRaw.trim()) return;",
+	);
 });

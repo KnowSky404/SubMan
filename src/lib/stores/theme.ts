@@ -1,5 +1,5 @@
-import { browser } from "$app/environment";
 import { derived, readable, writable } from "svelte/store";
+import { browser } from "$app/environment";
 
 export type ThemeMode = "system" | "light" | "dark";
 export type ResolvedTheme = "light" | "dark";

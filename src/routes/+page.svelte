@@ -1,9 +1,6 @@
 <script lang="ts">
-import { t } from "$lib/i18n";
-import { appState } from "$lib/stores/app";
-import { authState } from "$lib/stores/auth";
-import { cn } from "$lib/utils/cn";
 import Octicon from "$lib/components/Octicon.svelte";
+import { t } from "$lib/i18n";
 import {
 	arrowRight,
 	checkCircle,
@@ -16,6 +13,9 @@ import {
 	sync,
 	zap,
 } from "$lib/octicons";
+import { appState } from "$lib/stores/app";
+import { authState } from "$lib/stores/auth";
+import { cn } from "$lib/utils/cn";
 
 $: stats = [
 	{
