@@ -7,14 +7,17 @@ const appCssSource = readFileSync(
 	"utf8",
 );
 
-test("global theme loads a stable remote font before local fallbacks", () => {
+test("global theme loads English-first remote fonts before local fallbacks", () => {
 	expect(appCssSource).toContain(
-		'@import url("https://cdn.jsdelivr.net/npm/fontsource-noto-sans-sc@4.0.0/latin.css");',
+		'@import url("https://cdn.jsdelivr.net/npm/@fontsource/roboto@5.2.10/latin.css");',
 	);
 	expect(appCssSource).toContain(
-		'@import url("https://cdn.jsdelivr.net/npm/fontsource-noto-sans-sc@4.0.0/chinese-simplified.css");',
+		'@import url("https://cdn.jsdelivr.net/npm/@fontsource/roboto-mono@5.2.9/latin.css");',
 	);
-	expect(appCssSource).toContain('"Noto Sans SC", "Noto Sans"');
+	expect(appCssSource).toContain('"Roboto", -apple-system');
+	expect(appCssSource).toContain('"Roboto Mono", ui-monospace');
+	expect(appCssSource).not.toContain("Noto Sans SC");
+	expect(appCssSource).not.toContain("chinese-simplified.css");
 	expect(appCssSource.indexOf("@import")).toBeLessThan(
 		appCssSource.indexOf("@theme"),
 	);
