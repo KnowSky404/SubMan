@@ -1,9 +1,8 @@
 <script lang="ts">
 import "../app.css";
 import { onMount } from "svelte";
-import { fade, fly } from "svelte/transition";
+import { fade, fly, slide } from "svelte/transition";
 import { page } from "$app/state";
-import GitHubSelect from "$lib/components/GitHubSelect.svelte";
 import Octicon from "$lib/components/Octicon.svelte";
 import { t } from "$lib/i18n";
 import {
@@ -55,17 +54,15 @@ const themeOptions: {
 	{ value: "light", label: "Light", icon: sun },
 	{ value: "dark", label: "Dark", icon: moon },
 ];
-$: themeSelectOptions = themeOptions.map((option) => ({
-	value: option.value,
-	label: $t(option.label),
-}));
 
 $: activeThemeOption =
 	themeOptions.find((option) => option.value === $themeMode) ?? themeOptions[0];
+$: activeThemeLabel = $t(activeThemeOption.label);
 $: isWorkspaceConnected = Boolean($authState.token && $appState.activeGistId);
 $: workspaceMetaText = isWorkspaceConnected
 	? $appState.activeGistId
 	: $t("Browser storage only");
+let themeMenuOpen = false;
 
 function isActive(pathname: string, href: string) {
 	return href === "/" ? pathname === "/" : pathname.startsWith(href);
@@ -73,6 +70,7 @@ function isActive(pathname: string, href: string) {
 
 function handleThemeChange(nextTheme: ThemeMode) {
 	themeMode.set(nextTheme);
+	themeMenuOpen = false;
 }
 
 onMount(() => {
@@ -121,18 +119,27 @@ onMount(() => {
 						{isWorkspaceConnected ? $t("Manage Workspace") : $t("Setup GitHub")}
 					</a>
 
-					<div class="gh-select-header-shell shrink-0">
-						<span class="gh-select-header-icon" aria-hidden="true">
-							<Octicon icon={activeThemeOption.icon} className="h-3.5 w-3.5" />
-						</span>
-						<GitHubSelect
-							value={$themeMode}
-							options={themeSelectOptions}
-							ariaLabel={$t("Theme")}
-							buttonClass="gh-select gh-select-header"
-							menuClass="right-0 top-full w-36"
-							onValueChange={(value) => handleThemeChange(value as ThemeMode)}
-						/>
+					<div class="theme-menu relative shrink-0">
+						<button type="button" class="theme-menu-button" on:click={() => (themeMenuOpen = !themeMenuOpen)} aria-haspopup="menu" aria-expanded={themeMenuOpen} aria-label={`${$t("Theme")}: ${activeThemeLabel}`}>
+							<Octicon icon={activeThemeOption.icon} className="h-4 w-4" />
+							<span class="sr-only">{$t("Theme")}: {activeThemeLabel}</span>
+						</button>
+						{#if themeMenuOpen}
+							<button type="button" class="fixed inset-0 z-[140]" on:click={() => (themeMenuOpen = false)} aria-label="Close menu"></button>
+							<div class="gh-dropdown-menu theme-menu-dropdown right-0 top-full w-40" transition:slide={{ duration: 150 }}>
+								<div class="gh-dropdown-body flex flex-col gap-0.5">
+									{#each themeOptions as option (option.value)}
+										<button type="button" class={cn("gh-dropdown-item", $themeMode === option.value ? "font-semibold text-fg-default" : "text-fg-default")} on:click={() => handleThemeChange(option.value)}>
+											<Octicon icon={option.icon} className="h-4 w-4 shrink-0 text-fg-muted" />
+											<span class="min-w-0 flex-1 truncate">{$t(option.label)}</span>
+											{#if $themeMode === option.value}
+												<span class="gh-label">{$t("Active")}</span>
+											{/if}
+										</button>
+									{/each}
+								</div>
+							</div>
+						{/if}
 					</div>
 
 					<a

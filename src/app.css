@@ -553,42 +553,31 @@ input[type="checkbox"]:indeterminate {
 	@apply flex h-8 w-8 items-center justify-center rounded-md border border-border-default bg-canvas-subtle text-fg-muted;
 }
 
-.gh-select-header-shell {
-	@apply inline-flex h-8 w-28 items-center overflow-hidden rounded-md border transition-colors;
+.theme-menu {
+	@apply z-[130];
+}
+
+.theme-menu-button {
+	@apply inline-flex h-8 w-8 items-center justify-center rounded-md border transition-colors;
 	border-color: var(--border-default);
 	background-color: var(--canvas-default);
+	color: var(--fg-muted);
+}
+
+.theme-menu-button:hover {
+	background-color: var(--canvas-subtle);
 	color: var(--fg-default);
 }
 
-.gh-select-header-shell:hover {
-	background-color: var(--canvas-subtle);
-}
-
-.gh-select-header-shell:focus-within {
+.theme-menu-button:focus,
+.theme-menu-button:focus-visible {
+	outline: none;
 	border-color: var(--accent-emphasis);
 	box-shadow: 0 0 0 3px var(--accent-muted);
 }
 
-.gh-select-header-icon {
-	@apply inline-flex h-full w-8 shrink-0 items-center justify-center;
-	color: var(--fg-muted);
-}
-
-.gh-select-header {
-	@apply h-full min-w-0 flex-1 cursor-pointer appearance-none border-0 bg-transparent bg-no-repeat py-0 pl-1 pr-8 text-xs font-medium outline-none transition-colors;
-	background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' width='16' height='16'%3E%3Cpath fill='%236e7781' d='M4.427 7.427l3.396 3.396a.25.25 0 0 0 .354 0l3.396-3.396A.25.25 0 0 0 11.396 7H4.604a.25.25 0 0 0-.177.427Z'/%3E%3C/svg%3E");
-	background-position: right 8px center;
-	box-shadow: none;
-	color: var(--fg-default);
-}
-
-:root[data-theme="dark"] .gh-select-header {
-	background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' width='16' height='16'%3E%3Cpath fill='%239ba7b4' d='M4.427 7.427l3.396 3.396a.25.25 0 0 0 .354 0l3.396-3.396A.25.25 0 0 0 11.396 7H4.604a.25.25 0 0 0-.177.427Z'/%3E%3C/svg%3E");
-}
-
-.gh-select-header:focus,
-.gh-select-header:focus-visible {
-	box-shadow: none;
+.theme-menu-dropdown {
+	@apply z-[150];
 }
 
 .app-header-link {
