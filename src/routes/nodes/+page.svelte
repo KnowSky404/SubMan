@@ -475,9 +475,13 @@ import { slide, fly } from "svelte/transition";
 					<div class={cn("gh-box-row group flex flex-col gap-0", !node.enabled && "opacity-70")}>
 							<div class="flex flex-col gap-3 sm:grid sm:grid-cols-[minmax(0,1.7fr)_140px_auto] sm:items-start sm:gap-4">
 								<div class="gh-row-main">
-									<button type="button" class={cn("mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded border", node.enabled ? "border-[color:var(--success-emphasis)] bg-[color:var(--success-emphasis)] text-white" : "border-border-default bg-canvas-default")} on:click={() => toggleEnabled(node.id, "node")} aria-label={$t(node.enabled ? "Disable node" : "Enable node")}>
-										{#if node.enabled}<Octicon icon={check} className="h-3.5 w-3.5" />{/if}
-									</button>
+									<input
+										type="checkbox"
+										class="mt-0.5"
+										checked={node.enabled}
+										on:change={() => toggleEnabled(node.id, "node")}
+										aria-label={$t(node.enabled ? "Disable node" : "Enable node")}
+									/>
 									<div class="flex min-w-0 flex-col gap-1">
 										<div class="flex min-w-0 flex-wrap items-center gap-2">
 											<button type="button" class="gh-row-title" on:click={() => startEditNode(node)}>{node.name}</button>
@@ -561,9 +565,13 @@ import { slide, fly } from "svelte/transition";
 					<div class={cn("gh-box-row group flex flex-col gap-0", !sub.enabled && "opacity-70")}>
 							<div class="flex flex-col gap-3 sm:grid sm:grid-cols-[minmax(0,1.7fr)_140px_auto] sm:items-start sm:gap-4">
 								<div class="gh-row-main">
-									<button type="button" class={cn("mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded border", sub.enabled ? "border-[color:var(--success-emphasis)] bg-[color:var(--success-emphasis)] text-white" : "border-border-default bg-canvas-default")} on:click={() => toggleEnabled(sub.id, "sub")} aria-label={$t(sub.enabled ? "Disable subscription" : "Enable subscription")}>
-										{#if sub.enabled}<Octicon icon={check} className="h-3.5 w-3.5" />{/if}
-									</button>
+									<input
+										type="checkbox"
+										class="mt-0.5"
+										checked={sub.enabled}
+										on:change={() => toggleEnabled(sub.id, "sub")}
+										aria-label={$t(sub.enabled ? "Disable subscription" : "Enable subscription")}
+									/>
 									<div class="flex min-w-0 flex-col gap-1">
 										<div class="flex min-w-0 flex-wrap items-center gap-2">
 											<button type="button" class="gh-row-title" on:click={() => startEditSub(sub)}>{sub.name}</button>
