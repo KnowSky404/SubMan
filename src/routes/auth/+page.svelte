@@ -24,8 +24,6 @@ import {
 	copy,
 	database,
 	download,
-	fileCode,
-	gear,
 	linkExternal,
 	markGithub,
 	save,
@@ -389,15 +387,4 @@ function handleImport() {
 		</div>
 	</section>
 
-	<!-- About / Info -->
-	<section class="blankslate">
-		<Octicon icon={fileCode} className="mb-3 h-10 w-10 text-fg-subtle" />
-		<h3 class="text-lg font-bold">SubMan v0.1</h3>
-		<p class="max-w-md text-sm text-fg-muted">
-			{$t("Browser-first state, optional gist sync, no third-party backend.")}
-		</p>
-		<div class="mt-4 flex gap-4">
-			<a href="https://github.com/KnowSky404/SubMan" target="_blank" class="gh-btn"><Octicon icon={markGithub} className="h-4 w-4" />GitHub</a>
-		</div>
-	</section>
 </div>

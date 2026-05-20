@@ -136,7 +136,13 @@ async function deleteFile(filename: string) {
 						<Octicon icon={code} className="h-4 w-4" />
 						<span>{$t("Repository Files")}</span>
 					</div>
-					<span class="badge">{workspaceFileCount}</span>
+					<div class="flex items-center gap-2">
+						<span class="badge">{workspaceFileCount}</span>
+						<button type="button" class="gh-btn gh-btn-sm" on:click={refreshWorkspace} disabled={loading}>
+							<Octicon icon={sync} className={cn("h-3.5 w-3.5", loading && "animate-spin")} />
+							{$t("Refresh")}
+						</button>
+					</div>
 				</div>
 
 				{#if !workspace}

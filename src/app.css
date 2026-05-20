@@ -687,22 +687,6 @@ input[type="checkbox"]:indeterminate {
 	@apply flex flex-col gap-4 pb-10;
 }
 
-.repo-overview-header {
-	@apply flex flex-col gap-3 border-b border-border-default pb-4 lg:flex-row lg:items-end lg:justify-between;
-}
-
-.repo-overview-title {
-	@apply text-2xl font-semibold leading-tight;
-}
-
-.repo-overview-subtitle {
-	@apply max-w-3xl text-sm text-fg-muted;
-}
-
-.repo-overview-actions {
-	@apply flex flex-wrap items-center gap-2;
-}
-
 .repo-overview-layout {
 	@apply grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_296px];
 }
