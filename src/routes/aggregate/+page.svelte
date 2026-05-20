@@ -323,30 +323,6 @@ import type { AggregateRule, ProxyType } from "$lib/models";
 </script>
 
 <div class="flex flex-col gap-6">
-	<div class="gh-page-header">
-		<div class="flex items-center gap-3">
-			<Octicon icon={workflow} className="h-6 w-6 text-fg-muted" />
-			<div>
-				<h1 class="text-[2rem] font-semibold leading-tight">{$t("Aggregation Builder")}</h1>
-				<p class="gh-page-subtitle">{$t("Combine sources, preview the result, and publish output files.")}</p>
-				<div class="gh-page-meta">
-					<span class="gh-page-meta-item">
-						<Octicon icon={workflow} className="h-3.5 w-3.5" />
-						{$t("{count} rules", { count: $appState.aggregates.length })}
-					</span>
-					<span class="gh-page-meta-item">
-						<Octicon icon={upload} className="h-3.5 w-3.5" />
-						{$t("{count} targets", { count: $appState.publishTargets.length })}
-					</span>
-					<span class="gh-page-meta-item">
-						<Octicon icon={checkCircle} className="h-3.5 w-3.5" />
-						{$t("{count} live links", { count: publishedTargetCount })}
-					</span>
-				</div>
-			</div>
-		</div>
-	</div>
-
 	<div class="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
 		<!-- Main Rule Editor -->
 		<div class="lg:col-span-2 flex flex-col gap-6">

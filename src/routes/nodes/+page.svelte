@@ -337,39 +337,6 @@ import { slide, fly } from "svelte/transition";
 </script>
 
 <div class="flex flex-col gap-6">
-	<div class="gh-page-header">
-		<div class="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-			<div class="flex items-center gap-3">
-				<div class="flex h-9 w-9 items-center justify-center rounded-md bg-canvas-subtle border border-border-default">
-					<Octicon icon={server} className="h-4 w-4 text-fg-muted" />
-				</div>
-				<div>
-					<h1 class="text-[2rem] font-semibold leading-tight">{$t("Nodes & Subscriptions")}</h1>
-					<p class="gh-page-subtitle">{$t("Store single URIs and upstream feeds.")}</p>
-					<div class="gh-page-meta">
-						<span class="gh-page-meta-item">
-							<Octicon icon={server} className="h-3.5 w-3.5" />
-							{$t("{count} nodes", { count: $appState.nodes.length })}
-						</span>
-						<span class="gh-page-meta-item">
-							<Octicon icon={check} className="h-3.5 w-3.5" />
-							{$t("{count} enabled", { count: enabledNodeCount })}
-						</span>
-						<span class="gh-page-meta-item">
-							<Octicon icon={link} className="h-3.5 w-3.5" />
-							{$t("{count} subscriptions", { count: $appState.subscriptions.length })}
-						</span>
-						<span class="gh-page-meta-item">
-							<Octicon icon={sync} className="h-3.5 w-3.5" />
-							{$t("{count} enabled feeds", { count: enabledSubscriptionCount })}
-						</span>
-					</div>
-				</div>
-			</div>
-
-		</div>
-	</div>
-
 	<!-- Add Modal / Embedded Form -->
 	{#if isAddModalOpen}
 		<div class="gh-box" transition:slide>

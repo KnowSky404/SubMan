@@ -276,37 +276,6 @@ function handleImport() {
 </script>
 
 <div class="flex flex-col gap-8">
-	<div class="gh-page-header">
-		<div class="flex items-center gap-3">
-			<Octicon icon={gear} className="h-6 w-6 text-fg-muted" />
-			<div>
-				<h1 class="text-[2rem] font-semibold leading-tight">{$t("Settings")}</h1>
-				<p class="gh-page-subtitle">{$t("Workspace auth, sync, and local import or export.")}</p>
-				<div class="gh-page-meta">
-					<span class={cn("gh-page-meta-item", $authState.token && "badge-success")}>
-						{#if $authState.token}
-							<Octicon icon={shieldCheck} className="h-3.5 w-3.5" />
-							{$t("Connected")}
-						{:else}
-							<Octicon icon={database} className="h-3.5 w-3.5" />
-							{$t("Local mode")}
-						{/if}
-					</span>
-					<span class="gh-page-meta-item">
-						<Octicon icon={sync} className="h-3.5 w-3.5" />
-						{$t($authState.token ? "Auto-sync available" : "Manual local state")}
-					</span>
-					{#if $appState.activeGistId}
-						<span class="gh-page-meta-item">
-							<Octicon icon={markGithub} className="h-3.5 w-3.5" />
-							<span class="gh-page-meta-item-code">{$appState.activeGistId}</span>
-						</span>
-					{/if}
-				</div>
-			</div>
-		</div>
-	</div>
-
 	<!-- Conflict Resolution UI -->
 	{#if conflict}
 		<section transition:slide>

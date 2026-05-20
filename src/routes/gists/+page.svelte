@@ -102,42 +102,6 @@ async function deleteFile(filename: string) {
 </script>
 
 <div class="flex flex-col gap-6">
-	<div class="gh-page-header">
-		<div class="flex items-center justify-between gap-4">
-			<div class="flex items-center gap-3">
-				<Octicon icon={repo} className="h-6 w-6 text-fg-muted" />
-				<div>
-					<h1 class="text-[2rem] font-semibold leading-tight">{$t("Gist Files")}</h1>
-					<p class="gh-page-subtitle">{$t("Inspect the active workspace gist and copy raw file URLs.")}</p>
-					<div class="gh-page-meta">
-						<span class="gh-page-meta-item">
-							<Octicon icon={repo} className="h-3.5 w-3.5" />
-							{$t("{count} files", { count: workspaceFileCount })}
-						</span>
-						{#if workspaceUpdatedText}
-							<span class="gh-page-meta-item">
-								<Octicon icon={sync} className="h-3.5 w-3.5" />
-								{$t("Updated {time}", { time: workspaceUpdatedText })}
-							</span>
-						{/if}
-						{#if $appState.activeGistId}
-							<span class="gh-page-meta-item">
-								<Octicon icon={shieldCheck} className="h-3.5 w-3.5" />
-								<span class="gh-page-meta-item-code">{$appState.activeGistId}</span>
-							</span>
-						{/if}
-					</div>
-				</div>
-			</div>
-			<div class="flex items-center gap-2">
-				<button type="button" class="gh-btn" on:click={refreshWorkspace} disabled={loading}>
-					<Octicon icon={sync} className={cn("h-4 w-4", loading && "animate-spin")} />
-					{$t("Refresh")}
-				</button>
-			</div>
-		</div>
-	</div>
-
 	<div class="grid grid-cols-1 lg:grid-cols-4 gap-8">
 		<!-- Workspace Info -->
 		<div class="lg:col-span-1 flex flex-col gap-6">

@@ -58,26 +58,6 @@ $: enabledSubscriptionCount = $appState.subscriptions.filter(
 </script>
 
 <div class="repo-overview">
-	<section class="repo-overview-header">
-		<div class="space-y-1">
-			<h1 class="repo-overview-title">{$t("Repository overview")}</h1>
-			<p class="repo-overview-subtitle">
-				{$t("GitHub-backed nodes, rules, and published subscription files.")}
-			</p>
-		</div>
-
-		<div class="repo-overview-actions">
-			<a href="/gists" class="gh-btn">
-				<Octicon icon={code} className="h-4 w-4" />
-				{$t("Browse Gist Files")}
-			</a>
-			<a href="https://github.com/KnowSky404/SubMan" target="_blank" rel="noreferrer" class="gh-btn">
-				<Octicon icon={linkExternal} className="h-4 w-4" />
-				{$t("View on GitHub")}
-			</a>
-		</div>
-	</section>
-
 	<div class="repo-overview-layout">
 		<div class="repo-overview-main">
 			<section class="gh-box">
