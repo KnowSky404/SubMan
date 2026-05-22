@@ -460,10 +460,36 @@ function handlePreviewDndFinalize(e: CustomEvent<DndEvent<PreviewEntry>>) {
 }
 </script>
 
-<div class="flex flex-col gap-6">
-	<div class="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
+<div class="gh-page">
+	<header class="gh-page-header">
+		<div class="gh-page-heading">
+			<h1 class="gh-page-title">{$t("Aggregate")}</h1>
+			<p class="gh-page-subtitle">
+				{$t("Build source selection, filtering, rename, sorting, preview, and publish rules.")}
+			</p>
+			<div class="gh-page-meta">
+				<span class="gh-page-meta-item">{$t("{count} rules", { count: $appState.aggregates.length })}</span>
+				<span class="gh-page-meta-item">{$t("{count} targets", { count: $appState.publishTargets.length })}</span>
+				<span class={cn("gh-page-meta-item", isWorkspaceConnected && "badge-success")}>
+					{isWorkspaceConnected ? $t("Workspace connected") : $t("Local-only")}
+				</span>
+			</div>
+		</div>
+		<div class="gh-page-actions">
+			<button type="button" class="gh-btn" on:click={buildPreview} disabled={previewLoading}>
+				{#if previewLoading}<Octicon icon={sync} className="h-4 w-4 animate-spin" />{:else}<Octicon icon={eye} className="h-4 w-4" />{/if}
+				{$t("Preview")}
+			</button>
+			<button type="button" class="gh-btn gh-btn-primary" on:click={saveRule}>
+				<Octicon icon={checkCircle} className="h-4 w-4" />
+				{$t("Save Rule")}
+			</button>
+		</div>
+	</header>
+
+	<div class="gh-layout-sidebar lg:grid-cols-[minmax(0,1fr)_340px]">
 		<!-- Main Rule Editor -->
-		<div class="lg:col-span-2 flex flex-col gap-6">
+		<div class="gh-layout-main">
 			<div class="gh-box shadow-sm !overflow-visible">
 				<div class="gh-box-header">
 					<div class="flex min-w-0 items-center gap-2">
@@ -504,7 +530,7 @@ function handlePreviewDndFinalize(e: CustomEvent<DndEvent<PreviewEntry>>) {
 						{/if}
 					</div>
 				</div>
-				<div class="p-4 bg-canvas-default flex flex-col gap-6">
+				<div class="gh-section-body gap-6">
 					<!-- Basics -->
 					<div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
 						<div class="flex flex-col gap-1.5">
@@ -623,17 +649,17 @@ function handlePreviewDndFinalize(e: CustomEvent<DndEvent<PreviewEntry>>) {
 								</button>
 							{/each}
 						</div>
-						<p class="text-[10px] text-fg-muted italic">{$t("Leave empty to allow all protocols.")}</p>
+						<p class="gh-form-caption">{$t("Leave empty to allow all protocols.")}</p>
 					</div>
 
 					<!-- Sorting Configuration -->
 					<div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
 						<div class="flex flex-col gap-1.5">
-							<label class="text-sm font-semibold" for={fieldIds.sortMode}>{$t("Sort Mode")}</label>
+							<label class="gh-form-label" for={fieldIds.sortMode}>{$t("Sort Mode")}</label>
 							<GitHubSelect id={fieldIds.sortMode} bind:value={sortMode} options={sortModeOptions} />
 						</div>
 						<div class="flex flex-col gap-1.5">
-							<label class="text-sm font-semibold" for={fieldIds.sortPriority}>{$t("Priority Keywords (per line)")}</label>
+							<label class="gh-form-label" for={fieldIds.sortPriority}>{$t("Priority Keywords (per line)")}</label>
 							<textarea id={fieldIds.sortPriority} class="gh-input gh-textarea h-20 text-xs font-mono" placeholder="e.g.\nHK\nSG" bind:value={sortPriority}></textarea>
 						</div>
 					</div>
@@ -642,7 +668,7 @@ function handlePreviewDndFinalize(e: CustomEvent<DndEvent<PreviewEntry>>) {
 					<div class="flex flex-col gap-1.5">
 						<label class="gh-form-label" for={fieldIds.renameMap}>{$t("Rename Rules")}</label>
 						<textarea id={fieldIds.renameMap} class="gh-input gh-textarea font-mono text-xs" placeholder="Old Name = New Name" bind:value={renameMap}></textarea>
-						<p class="text-[10px] text-fg-muted italic">
+						<p class="gh-form-caption">
 							{$t("Supports Regex: /pattern/flags = replacement (e.g. /^HK-(.*)/ = Hong Kong $1)")}
 						</p>
 					</div>
@@ -650,16 +676,16 @@ function handlePreviewDndFinalize(e: CustomEvent<DndEvent<PreviewEntry>>) {
 					<!-- Region Flags -->
 					<div class="flex flex-col gap-3">
 						<div class="flex items-center justify-between">
-							<label class="text-sm font-semibold flex items-center gap-2" for={fieldIds.customRegionFlagMap}><Octicon icon={globe} className="h-4 w-4" />{$t("Region Flag Map")}</label>
-							<button type="button" class="text-xs text-accent-fg hover:underline" on:click={() => (showBuiltInRegionMap = true)}>{$t("Browse Icons")}</button>
+							<label class="gh-form-label flex items-center gap-2" for={fieldIds.customRegionFlagMap}><Octicon icon={globe} className="h-4 w-4" />{$t("Region Flag Map")}</label>
+							<button type="button" class="gh-link text-xs" on:click={() => (showBuiltInRegionMap = true)}>{$t("Browse Icons")}</button>
 						</div>
 						<textarea id={fieldIds.customRegionFlagMap} class="gh-input gh-textarea font-mono text-xs h-32" placeholder="US = US, USA, America" bind:value={customRegionFlagMap}></textarea>
 						
 						<div class="gh-checkbox-row">
 							<input id={fieldIds.prependRegionFlags} type="checkbox" class="rounded border-border-default" bind:checked={prependRegionFlags} />
 							<div class="flex flex-col">
-								<label class="text-xs font-bold" for={fieldIds.prependRegionFlags}>{$t("Auto-prepend Region Flags")}</label>
-								<span class="text-[10px] text-fg-muted">{$t("Uses emoji flags based on country codes")}</span>
+								<label class="text-sm font-medium" for={fieldIds.prependRegionFlags}>{$t("Auto-prepend Region Flags")}</label>
+								<span class="gh-form-caption">{$t("Uses emoji flags based on country codes")}</span>
 							</div>
 						</div>
 					</div>
@@ -689,13 +715,13 @@ function handlePreviewDndFinalize(e: CustomEvent<DndEvent<PreviewEntry>>) {
 						<button type="button" class="gh-icon-button h-7 w-7" on:click={() => (previewEntries = [])} aria-label={$t("Close preview results")}><Octicon icon={x} className="h-4 w-4" /></button>
 					</div>
 					<div 
-						class="p-2 bg-canvas-default max-h-96 overflow-y-auto flex flex-col gap-1"
+						class="flex max-h-96 flex-col gap-1 overflow-y-auto bg-canvas-default p-2"
 						use:dndzone={{ items: previewEntries, flipDurationMs: 200, dragDisabled: false }}
 						on:consider={handlePreviewDndConsider}
 						on:finalize={handlePreviewDndFinalize}
 					>
 						{#each previewEntries as entry (entry.id)}
-							<div class="flex items-center justify-between p-2 rounded hover:bg-canvas-subtle transition-colors group cursor-grab active:cursor-grabbing bg-canvas-default border border-transparent hover:border-border-default">
+							<div class="group flex cursor-grab items-center justify-between rounded-md border border-transparent bg-canvas-default p-2 transition-colors hover:border-border-default hover:bg-canvas-subtle active:cursor-grabbing">
 								<div class="flex items-center gap-3 min-w-0">
 									<div class="text-fg-subtle shrink-0">
 										<div class="grid grid-cols-2 gap-px opacity-50" aria-hidden="true">
@@ -719,31 +745,31 @@ function handlePreviewDndFinalize(e: CustomEvent<DndEvent<PreviewEntry>>) {
 		</div>
 
 		<!-- Sidebar: Publish Settings -->
-		<div class="flex flex-col gap-6">
+		<aside class="gh-layout-aside">
 				<div class="gh-box shadow-sm !overflow-visible">
 					<div class="gh-box-header text-sm">
 						<div class="flex items-center gap-2"><Octicon icon={upload} className="h-4 w-4" />{$t("Publish to Gist")}</div>
 						<span class="badge">{$appState.publishTargets.length}</span>
 					</div>
-					<div class="p-4 bg-canvas-default flex flex-col gap-4">
+					<div class="gh-section-body">
 						<div class="flex flex-col gap-1.5">
-							<label class="gh-form-label text-xs uppercase tracking-wide" for={fieldIds.targetSelect}>{$t("Select Target")}</label>
+							<label class="gh-form-label" for={fieldIds.targetSelect}>{$t("Select Target")}</label>
 							<GitHubSelect id={fieldIds.targetSelect} bind:value={selectedTargetId} options={targetSelectOptions} onValueChange={(id) => { const target = $appState.publishTargets.find(t => t.id === id); target ? loadPublishTarget(target) : resetTargetForm(); }} />
 						</div>
 
 						<div class="flex flex-col gap-1.5">
-							<label class="gh-form-label text-xs uppercase tracking-wide" for={fieldIds.targetRule}>{$t("Binding Rule")}</label>
+							<label class="gh-form-label" for={fieldIds.targetRule}>{$t("Binding Rule")}</label>
 							<GitHubSelect id={fieldIds.targetRule} bind:value={publishTargetRuleId} options={targetRuleOptions} placeholder={$t("Select an Aggregate rule")} />
 						</div>
 
 						<div class="flex flex-col gap-1.5">
-							<label class="gh-form-label text-xs uppercase tracking-wide" for={fieldIds.targetFile}>{$t("Output File")}</label>
+							<label class="gh-form-label" for={fieldIds.targetFile}>{$t("Output File")}</label>
 							<input id={fieldIds.targetFile} class="gh-input font-mono" placeholder="nodes.txt" bind:value={publishTargetFile} />
 						</div>
 
 					<div class="gh-checkbox-row">
 						<input id={fieldIds.publishTargetPublic} type="checkbox" class="rounded border-border-default" bind:checked={publishTargetPublic} />
-						<label class="text-xs font-bold" for={fieldIds.publishTargetPublic}>{$t("Public Gist")}</label>
+						<label class="text-sm font-medium" for={fieldIds.publishTargetPublic}>{$t("Public Gist")}</label>
 					</div>
 
 						<div class="flex flex-col gap-2 pt-2 border-t border-border-default">
@@ -762,12 +788,12 @@ function handlePreviewDndFinalize(e: CustomEvent<DndEvent<PreviewEntry>>) {
 						</div>
 
 						{#if publishUrl}
-							<div class="mt-2 p-3 rounded bg-green-50 dark:bg-green-950/20 border border-green-200 dark:border-green-900 flex flex-col gap-2" in:fade>
-								<div class="flex items-center justify-between text-green-800 dark:text-green-400 text-[10px] font-bold uppercase">
+							<div class="gh-alert gh-alert-success mt-2 flex-col gap-2" in:fade>
+								<div class="flex items-center justify-between text-xs font-semibold text-[color:var(--success-emphasis)]">
 									<span>{$t("Live Link")}</span>
 									<Octicon icon={checkCircle} className="h-3 w-3" />
 								</div>
-								<code class="text-[10px] break-all font-mono text-green-900 dark:text-green-300 opacity-80">{publishUrl}</code>
+								<code class="gh-code-block break-all">{publishUrl}</code>
 									<button type="button" class="gh-btn gh-btn-sm" on:click={async () => { 
 										try {
 										if (!publishUrl) return;
@@ -789,24 +815,24 @@ function handlePreviewDndFinalize(e: CustomEvent<DndEvent<PreviewEntry>>) {
 					<a href="/auth" class="gh-btn gh-btn-sm">{$t("Go to Settings")}</a>
 				</div>
 			{/if}
-		</div>
+		</aside>
 	</div>
 </div>
 
 <!-- Region Flags Browser Modal -->
-	{#if showBuiltInRegionMap}
-		<div class="fixed inset-0 z-[150] flex items-center justify-center p-4">
-			<button type="button" class="fixed inset-0 bg-black/60 backdrop-blur-sm" on:click={() => (showBuiltInRegionMap = false)} aria-label={$t("Close region flag rules")}></button>
-			<div class="relative w-full max-w-4xl gh-box shadow-2xl flex flex-col max-h-[85vh] bg-canvas-default" in:fly={{ y: 20 }}>
+{#if showBuiltInRegionMap}
+	<div class="fixed inset-0 z-[150] flex items-center justify-center p-4">
+		<button type="button" class="fixed inset-0 bg-black/60 backdrop-blur-sm" on:click={() => (showBuiltInRegionMap = false)} aria-label={$t("Close region flag rules")}></button>
+		<div class="gh-box relative flex max-h-[85vh] w-full max-w-4xl flex-col bg-canvas-default shadow-[var(--shadow-medium)]" in:fly={{ y: 20 }}>
 				<div class="gh-box-header">
 					<div class="flex items-center gap-2">
 						<Octicon icon={globe} className="h-4 w-4" />
 						<span>{$t("Built-in Region Flag Rules")}</span>
 					</div>
-					<button type="button" class="hover:text-accent-fg" on:click={() => (showBuiltInRegionMap = false)}><Octicon icon={x} className="h-4 w-4" /></button>
+					<button type="button" class="gh-icon-button h-7 w-7" on:click={() => (showBuiltInRegionMap = false)} aria-label={$t("Close region flag rules")}><Octicon icon={x} className="h-4 w-4" /></button>
 				</div>
 				
-				<div class="p-4 border-b border-border-default bg-canvas-subtle">
+				<div class="border-b border-border-default bg-canvas-subtle p-4">
 					<div class="relative">
 						<Octicon icon={search} className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-fg-subtle" />
 						<label class="sr-only" for={fieldIds.builtInRegionMapSearch}>{$t("Search code or keyword")}</label>
@@ -818,7 +844,7 @@ function handlePreviewDndFinalize(e: CustomEvent<DndEvent<PreviewEntry>>) {
 				<div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
 					{#each filteredRegionRules as rule}
 						<button 
-							class="p-3 rounded-lg border border-border-default bg-canvas-subtle hover:border-accent-emphasis hover:bg-canvas-default text-left flex flex-col gap-2 transition-all group"
+							class="group flex flex-col gap-2 rounded-md border border-border-default bg-canvas-subtle p-3 text-left transition-colors hover:border-accent-emphasis hover:bg-canvas-default"
 							on:click={() => insertRegionRule(rule)}
 						>
 							<div class="flex items-center gap-3">
@@ -833,7 +859,7 @@ function handlePreviewDndFinalize(e: CustomEvent<DndEvent<PreviewEntry>>) {
 				</div>
 			</div>
 			
-			<div class="p-3 bg-canvas-subtle border-t border-border-default flex justify-end">
+			<div class="gh-section-footer">
 				<button type="button" class="gh-btn" on:click={() => (showBuiltInRegionMap = false)}>{$t("Close")}</button>
 			</div>
 		</div>
