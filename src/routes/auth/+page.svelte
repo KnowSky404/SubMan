@@ -277,36 +277,51 @@ function handleImport() {
 }
 </script>
 
-<div class="flex flex-col gap-8">
+<div class="gh-page">
+	<header class="gh-page-header">
+		<div class="gh-page-heading">
+			<h1 class="gh-page-title">{$t("Settings")}</h1>
+			<p class="gh-page-subtitle">
+				{$t("Connect a GitHub Gist workspace, resolve sync conflicts, and import or export local JSON state.")}
+			</p>
+			<div class="gh-page-meta">
+				<span class={cn("gh-page-meta-item", $authState.token && "badge-success")}>
+					{$authState.token ? $t("Token active") : $t("Local mode")}
+				</span>
+				{#if $appState.activeGistId}
+					<span class="gh-page-meta-item font-mono">{$appState.activeGistId}</span>
+				{/if}
+			</div>
+		</div>
+	</header>
+
 	<!-- Conflict Resolution UI -->
 	{#if conflict}
-		<section transition:slide>
-			<div class="gh-box border-orange-300 bg-orange-50 dark:bg-orange-900/10 dark:border-orange-800">
-				<div class="gh-box-header border-orange-200 bg-orange-100 dark:bg-orange-900/30 flex items-center gap-2">
-					<Octicon icon={alert} className="h-4 w-4 text-orange-600" />
-					<span>{$t("Sync Conflict")}</span>
-				</div>
-				<div class="p-4 flex flex-col gap-4">
-					<p class="text-sm text-orange-800 dark:text-orange-300">
+		<section class="gh-alert gh-alert-attention" transition:slide>
+			<Octicon icon={alert} className="mt-0.5 h-4 w-4 shrink-0 text-[color:var(--attention-emphasis)]" />
+			<div class="min-w-0 flex-1 space-y-3">
+				<div>
+					<h2 class="text-sm font-semibold">{$t("Sync Conflict")}</h2>
+					<p class="text-sm text-fg-muted">
 						{$t("Remote and local data differ. Choose which side becomes the source of truth.")}
 					</p>
-					<div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
-						<button class="gh-btn flex flex-col items-center py-4 gap-2" on:click={() => handleResolveConflict('remote')}>
-							<Octicon icon={arrowDown} className="h-5 w-5 text-accent-fg" />
-							<span class="font-bold">{$t("Use Remote")}</span>
-							<span class="text-[10px] text-fg-muted">{$t("Replace local state")}</span>
-						</button>
-						<button class="gh-btn flex flex-col items-center py-4 gap-2" on:click={() => handleResolveConflict('merge')}>
-							<Octicon icon={sync} className="h-5 w-5 text-fg-muted" />
-							<span class="font-bold">{$t("Merge & Save")}</span>
-							<span class="text-[10px] text-fg-muted">{$t("Merge Both States")}</span>
-						</button>
-						<button class="gh-btn flex flex-col items-center py-4 gap-2" on:click={() => handleResolveConflict('local')}>
-							<Octicon icon={arrowUp} className="h-5 w-5 text-green-600" />
-							<span class="font-bold">{$t("Use Local")}</span>
-							<span class="text-[10px] text-fg-muted">{$t("Replace gist state")}</span>
-						</button>
-					</div>
+				</div>
+				<div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
+					<button class="gh-btn flex h-auto flex-col items-center gap-2 py-4" on:click={() => handleResolveConflict('remote')}>
+						<Octicon icon={arrowDown} className="h-5 w-5 text-accent-fg" />
+						<span class="font-semibold">{$t("Use Remote")}</span>
+						<span class="gh-form-caption">{$t("Replace local state")}</span>
+					</button>
+					<button class="gh-btn flex h-auto flex-col items-center gap-2 py-4" on:click={() => handleResolveConflict('merge')}>
+						<Octicon icon={sync} className="h-5 w-5 text-fg-muted" />
+						<span class="font-semibold">{$t("Merge & Save")}</span>
+						<span class="gh-form-caption">{$t("Merge Both States")}</span>
+					</button>
+					<button class="gh-btn flex h-auto flex-col items-center gap-2 py-4" on:click={() => handleResolveConflict('local')}>
+						<Octicon icon={arrowUp} className="h-5 w-5 text-[color:var(--success-emphasis)]" />
+						<span class="font-semibold">{$t("Use Local")}</span>
+						<span class="gh-form-caption">{$t("Replace gist state")}</span>
+					</button>
 				</div>
 			</div>
 		</section>
@@ -337,16 +352,16 @@ function handleImport() {
 						</button>
 					</div>
 				</div>
-				<a href="https://github.com/settings/tokens/new?description=SubMan&scopes=gist" target="_blank" class="flex items-center gap-1 text-xs text-accent-fg hover:underline">
+				<a href="https://github.com/settings/tokens/new?description=SubMan&scopes=gist" target="_blank" class="gh-link flex items-center gap-1 text-xs">
 					<Octicon icon={linkExternal} className="h-3 w-3" /> {$t("Generate a new token on GitHub")}
 				</a>
 			{:else}
 				<div class="flex flex-col gap-3">
 					<div class="flex flex-col gap-3 rounded-md border border-border-default bg-canvas-subtle p-3 sm:flex-row sm:items-center sm:justify-between">
 						<div class="flex min-w-0 items-center gap-3">
-							<div class="flex h-8 w-8 items-center justify-center rounded-full border border-border-default bg-canvas-default"><Octicon icon={shieldCheck} className="h-4 w-4 text-green-600" /></div>
+							<div class="flex h-8 w-8 items-center justify-center rounded-md border border-border-default bg-canvas-default"><Octicon icon={shieldCheck} className="h-4 w-4 text-[color:var(--success-emphasis)]" /></div>
 							<div class="min-w-0">
-								<p class="text-sm font-bold">{$t("Token Active")}</p>
+								<p class="text-sm font-semibold">{$t("Token Active")}</p>
 								<p class="truncate font-mono text-xs text-fg-muted">{$appState.activeGistId || 'Searching...'}</p>
 							</div>
 						</div>
@@ -362,7 +377,7 @@ function handleImport() {
 							<button type="button" class="gh-btn gh-btn-danger gh-btn-sm" on:click={handleTokenClear}><Octicon icon={trash} className="h-3.5 w-3.5" />{$t("Disconnect")}</button>
 						</div>
 					</div>
-					<p class="text-[11px] text-fg-muted">
+					<p class="gh-form-caption">
 						{$t("Auto-sync is enabled for local changes.")}
 					</p>
 				</div>
