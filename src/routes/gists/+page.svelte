@@ -101,35 +101,31 @@ async function deleteFile(filename: string) {
 }
 </script>
 
-<div class="flex flex-col gap-6">
-	<div class="grid grid-cols-1 lg:grid-cols-4 gap-8">
-		<!-- Workspace Info -->
-		<div class="lg:col-span-1 flex flex-col gap-6">
-			<div class="gh-box">
-				<div class="gh-box-header text-xs">
-					<span>{$t("Active Gist")}</span>
-					{#if $appState.activeGistId}
-						<span class="badge">1</span>
-					{/if}
-				</div>
-				<div class="p-4 bg-canvas-default flex flex-col gap-3">
-					{#if $appState.activeGistId}
-						<code class="text-[10px] font-mono break-all bg-canvas-subtle p-2 rounded border border-border-default">{$appState.activeGistId}</code>
-						<a href={`https://gist.github.com/${$appState.activeGistId}`} target="_blank" class="gh-btn gh-btn-sm w-full"><Octicon icon={linkExternal} className="h-3 w-3" />{$t("View on GitHub")}</a>
-					{:else}
-						<p class="text-xs text-fg-muted italic">{$t("No active gist")}</p>
-					{/if}
-				</div>
-			</div>
-
-			<div class="blankslate p-4 py-6">
-				<Octicon icon={database} className="mb-2 h-8 w-8 text-fg-subtle" />
-				<p class="text-xs text-fg-muted">{$t("Published files are written back into this gist.")}</p>
+<div class="gh-page">
+	<header class="gh-page-header">
+		<div class="gh-page-heading">
+			<h1 class="gh-page-title">{$t("Gists")}</h1>
+			<p class="gh-page-subtitle">
+				{$t("Inspect workspace files, copy raw links, and manage published outputs in the active gist.")}
+			</p>
+			<div class="gh-page-meta">
+				<span class="gh-page-meta-item">{$t("{count} files", { count: workspaceFileCount })}</span>
+				{#if workspaceUpdatedText}
+					<span class="gh-page-meta-item">{$t("Updated {time}", { time: workspaceUpdatedText })}</span>
+				{/if}
 			</div>
 		</div>
+		<div class="gh-page-actions">
+			<button type="button" class="gh-btn gh-btn-primary" on:click={refreshWorkspace} disabled={loading}>
+				<Octicon icon={sync} className={cn("h-4 w-4", loading && "animate-spin")} />
+				{$t("Refresh")}
+			</button>
+		</div>
+	</header>
 
+	<div class="gh-layout-sidebar lg:grid-cols-[minmax(0,1fr)_296px]">
 		<!-- File List -->
-		<div class="lg:col-span-3 flex flex-col gap-4">
+		<div class="gh-layout-main">
 			<div class="gh-box shadow-sm">
 				<div class="gh-box-header">
 					<div class="flex items-center gap-2">
@@ -205,5 +201,30 @@ async function deleteFile(filename: string) {
 				{/if}
 			</div>
 		</div>
+
+		<!-- Workspace Info -->
+		<aside class="gh-layout-aside">
+			<div class="gh-box">
+				<div class="gh-box-header text-xs">
+					<span>{$t("Active Gist")}</span>
+					{#if $appState.activeGistId}
+						<span class="badge">1</span>
+					{/if}
+				</div>
+				<div class="gh-section-body">
+					{#if $appState.activeGistId}
+						<code class="gh-code-block break-all">{$appState.activeGistId}</code>
+						<a href={`https://gist.github.com/${$appState.activeGistId}`} target="_blank" class="gh-btn gh-btn-sm w-full"><Octicon icon={linkExternal} className="h-3 w-3" />{$t("View on GitHub")}</a>
+					{:else}
+						<p class="gh-form-caption">{$t("No active gist")}</p>
+					{/if}
+				</div>
+			</div>
+
+			<div class="blankslate p-4 py-6">
+				<Octicon icon={database} className="mb-2 h-8 w-8 text-fg-subtle" />
+				<p class="text-xs text-fg-muted">{$t("Published files are written back into this gist.")}</p>
+			</div>
+		</aside>
 	</div>
 </div>
