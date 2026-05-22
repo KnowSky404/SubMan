@@ -86,7 +86,8 @@ test("primary navigation reads pathname directly from SvelteKit app state", () =
 
 test("layout uses github action primitives in repository header", () => {
 	expect(layoutSource).toContain("app-repo-actions");
-	expect(layoutSource).toContain("app-repo-action-button");
+	expect(layoutSource).toContain("gh-btn gh-btn-sm");
+	expect(layoutSource).not.toContain("app-repo-action-button");
 	expect(layoutSource).toContain("app-header-link");
 });
 
