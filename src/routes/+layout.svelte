@@ -96,7 +96,7 @@ onMount(() => {
 							</a>
 							<span class="app-repo-title-separator">/</span>
 							<span>{PROJECT_NAME}</span>
-							<span class="app-repo-visibility">Public</span>
+							<span class="gh-label gh-label-muted ml-1">Public</span>
 						</div>
 					</div>
 				</div>
@@ -115,7 +115,7 @@ onMount(() => {
 						<span class="app-repo-workspace-id">{workspaceMetaText}</span>
 					</div>
 
-					<a href="/auth" class={cn("app-repo-action-button", !isWorkspaceConnected && "app-repo-action-button-primary")}>
+					<a href="/auth" class={cn("gh-btn gh-btn-sm", !isWorkspaceConnected && "gh-btn-primary")}>
 						{isWorkspaceConnected ? $t("Manage Workspace") : $t("Setup GitHub")}
 					</a>
 

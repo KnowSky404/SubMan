@@ -54,12 +54,33 @@ $: enabledSubscriptionCount = $appState.subscriptions.filter(
 ).length;
 </script>
 
-<div class="repo-overview">
-	<div class="repo-overview-layout">
-		<div class="repo-overview-main">
+<div class="gh-page">
+	<header class="gh-page-header">
+		<div class="gh-page-heading">
+			<h1 class="gh-page-title">{$t("Overview")}</h1>
+			<p class="gh-page-subtitle">
+				{$t("Manage proxy sources, aggregate rules, client exports, and workspace publishing from one gist-backed workbench.")}
+			</p>
+			<div class="gh-page-meta">
+				<span class={cn("gh-page-meta-item", isConnected && "badge-success")}>
+					{isConnected ? $t("Workspace connected") : $t("Local-only")}
+				</span>
+				<span class="gh-page-meta-item">{$t("{count} live links", { count: publishTargetCount })}</span>
+			</div>
+		</div>
+		<div class="gh-page-actions">
+			<a href="/nodes" class="gh-btn gh-btn-primary">
+				<Octicon icon={server} className="h-4 w-4" />
+				{$t("Manage Sources")}
+			</a>
+		</div>
+	</header>
+
+	<div class="gh-layout-sidebar xl:grid-cols-[minmax(0,1fr)_296px]">
+		<div class="gh-layout-main">
 			<section class="gh-box">
-				<div class="overview-panel-header">
-					<div class="overview-panel-title">
+				<div class="gh-box-header">
+					<div class="gh-section-title">
 						<Octicon icon={server} className="h-4 w-4 text-fg-muted" />
 						<span>{$t("Workspace activity")}</span>
 					</div>
@@ -80,8 +101,8 @@ $: enabledSubscriptionCount = $appState.subscriptions.filter(
 			</section>
 
 			<section class="gh-box">
-				<div class="overview-panel-header">
-					<div class="overview-panel-title">
+				<div class="gh-box-header">
+					<div class="gh-section-title">
 						<Octicon icon={project} className="h-4 w-4 text-fg-muted" />
 						<span>{$t("Next actions")}</span>
 					</div>
@@ -140,8 +161,8 @@ $: enabledSubscriptionCount = $appState.subscriptions.filter(
 			</section>
 
 			<section class="gh-box">
-				<div class="overview-panel-header">
-					<div class="overview-panel-title">
+				<div class="gh-box-header">
+					<div class="gh-section-title">
 						<Octicon icon={globe} className="h-4 w-4 text-fg-muted" />
 						<span>{$t("Publish status")}</span>
 					</div>
@@ -175,7 +196,7 @@ $: enabledSubscriptionCount = $appState.subscriptions.filter(
 			</section>
 		</div>
 
-		<aside class="repo-overview-sidebar">
+		<aside class="gh-layout-aside">
 			<section class="gh-box">
 				<div class="repo-sidebar-section">
 					<h2 class="repo-sidebar-title">{$t("Status")}</h2>
