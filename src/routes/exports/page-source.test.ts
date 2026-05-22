@@ -36,6 +36,18 @@ test("exports page implements sing-box client export behavior", () => {
 	expect(exportsPageSource).toContain("Workspace");
 });
 
+test("exports page exposes profile management actions", () => {
+	expect(exportsPageSource).toContain("Profiles");
+	expect(exportsPageSource).toContain("removeClientExport");
+	expect(exportsPageSource).toContain("requestConfirm");
+	expect(exportsPageSource).toContain("deleteProfile");
+	expect(exportsPageSource).toContain("Delete Profile");
+	expect(exportsPageSource).toContain("Delete export profile");
+	expect(exportsPageSource).not.toContain(
+		"$appState.clientExports.length === 0 && !!firstRule",
+	);
+});
+
 test("exports page gates publish on current valid preview", () => {
 	expect(exportsPageSource).toContain("previewSignature");
 	expect(exportsPageSource).toContain("currentSignature");

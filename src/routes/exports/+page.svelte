@@ -9,11 +9,17 @@ import Octicon from "$lib/components/Octicon.svelte";
 import { createGist, toStableGistRawUrl, updateGist } from "$lib/gist";
 import { t } from "$lib/i18n";
 import type { ClientExportProfile } from "$lib/models";
-import { copy, download, fileCode, upload } from "$lib/octicons";
+import { copy, download, fileCode, trash, upload } from "$lib/octicons";
 import { exportSyncState } from "$lib/serialization";
-import { appState, upsertClientExport } from "$lib/stores/app";
+import {
+	appState,
+	removeClientExport,
+	upsertClientExport,
+} from "$lib/stores/app";
 import { authState } from "$lib/stores/auth";
+import { requestConfirm } from "$lib/stores/confirm";
 import { showToast } from "$lib/stores/toast";
+import { cn } from "$lib/utils/cn";
 import { nowIso } from "$lib/utils/time";
 import { WORKSPACE_FILE } from "$lib/workspace";
 
@@ -54,11 +60,7 @@ $: selectedRule =
 	$appState.aggregates.find((rule) => rule.id === selectedProfile?.ruleId) ??
 	null;
 $: profileCount = $appState.clientExports.length;
-$: canCreateProfile = $appState.clientExports.length === 0 && !!firstRule;
-$: profileOptions = $appState.clientExports.map((profile) => ({
-	value: profile.id,
-	label: profile.name,
-}));
+$: canCreateProfile = !!firstRule;
 $: ruleOptions = $appState.aggregates.map((rule) => ({
 	value: rule.id,
 	label: rule.name,
@@ -112,6 +114,29 @@ function syncDraftFromProfile(profile: ClientExportProfile): void {
 	draftIncludeExperimental = profile.options.includeExperimental;
 }
 
+function clearPreview(): void {
+	previewContent = "";
+	previewSignature = "";
+	previewWarnings = [];
+	previewErrors = [];
+	totalLines = 0;
+	outboundCount = 0;
+	skippedCount = 0;
+}
+
+function getProfileRuleName(profile: ClientExportProfile): string {
+	return (
+		$appState.aggregates.find((rule) => rule.id === profile.ruleId)?.name ||
+		$t("Missing Aggregate rule")
+	);
+}
+
+function selectProfile(profileId: string): void {
+	if (selectedProfileId === profileId) return;
+	selectedProfileId = profileId;
+	clearPreview();
+}
+
 function createProfile(): void {
 	if (!firstRule) return;
 
@@ -119,6 +144,7 @@ function createProfile(): void {
 	upsertClientExport(profile);
 	selectedProfileId = profile.id;
 	syncDraftFromProfile(profile);
+	clearPreview();
 }
 
 function saveProfile(): void {
@@ -150,17 +176,30 @@ function saveProfile(): void {
 	upsertClientExport(nextProfile);
 	selectedProfileId = nextProfile.id;
 	syncDraftFromProfile(nextProfile);
+	clearPreview();
+}
+
+async function deleteProfile(profile: ClientExportProfile): Promise<void> {
+	const confirmed = await requestConfirm({
+		title: $t("Delete Profile"),
+		message: $t("Delete export profile {name}?", { name: profile.name }),
+		confirmText: $t("Delete"),
+		danger: true,
+	});
+	if (!confirmed) return;
+
+	removeClientExport(profile.id);
+	if (selectedProfileId === profile.id) {
+		selectedProfileId = "";
+	}
+	clearPreview();
+	showToast($t("Deleted export profile"), "success");
 }
 
 async function refreshPreview(): Promise<string> {
 	if (!selectedProfile) {
-		previewContent = "";
-		previewSignature = "";
-		previewWarnings = [];
+		clearPreview();
 		previewErrors = [$t("Create an export profile first")];
-		totalLines = 0;
-		outboundCount = 0;
-		skippedCount = 0;
 		return "";
 	}
 
@@ -361,13 +400,48 @@ async function publishPreview(): Promise<void> {
 					{/if}
 
 					{#if $appState.clientExports.length > 0}
-						<div class="max-w-xl space-y-2">
-							<label class="gh-form-label" for="exports-profile">{$t("Export Profile")}</label>
-							<GitHubSelect
-								id="exports-profile"
-								bind:value={selectedProfileId}
-								options={profileOptions}
-							/>
+						<div class="overflow-hidden rounded-md border border-border-default">
+							<div class="gh-list-header hidden sm:grid sm:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_auto]">
+								<span>{$t("Profiles")}</span>
+								<span>{$t("Source Aggregate Rule")}</span>
+								<span class="text-right">{$t("Actions")}</span>
+							</div>
+							{#each $appState.clientExports as profile}
+								<div
+									class={cn(
+										"gh-box-row group",
+										profile.id === selectedProfileId && "bg-accent-subtle",
+									)}
+								>
+									<div class="flex flex-col gap-3 sm:grid sm:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_auto] sm:items-center sm:gap-4">
+										<button
+											type="button"
+											class="gh-row-main min-w-0 text-left"
+											on:click={() => selectProfile(profile.id)}
+										>
+											<Octicon icon={fileCode} className="mt-0.5 h-4 w-4 shrink-0 text-fg-muted" />
+											<span class="min-w-0 space-y-1">
+												<span class="gh-row-title block truncate">{profile.name}</span>
+												<span class="gh-list-meta-code block truncate">{profile.fileName}</span>
+											</span>
+										</button>
+										<div class="min-w-0 text-sm text-fg-muted">
+											{getProfileRuleName(profile)}
+										</div>
+										<div class="flex justify-end">
+											<button
+												type="button"
+												class="gh-btn gh-btn-sm gh-btn-danger"
+												on:click={() => deleteProfile(profile)}
+												aria-label={$t("Delete export profile")}
+											>
+												<Octicon icon={trash} className="h-3.5 w-3.5" />
+												{$t("Delete")}
+											</button>
+										</div>
+									</div>
+								</div>
+							{/each}
 						</div>
 					{/if}
 
