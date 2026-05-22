@@ -435,10 +435,30 @@ async function copy(text: string) {
 }
 </script>
 
-<div class="flex flex-col gap-6">
+<div class="gh-page">
+	<header class="gh-page-header">
+		<div class="gh-page-heading">
+			<h1 class="gh-page-title">{$t("Nodes")}</h1>
+			<p class="gh-page-subtitle">
+				{$t("Manage single proxy URIs and upstream subscriptions used by aggregate rules.")}
+			</p>
+			<div class="gh-page-meta">
+				<span class="gh-page-meta-item">{$t("{count} nodes", { count: $appState.nodes.length })}</span>
+				<span class="gh-page-meta-item">{$t("{count} subscriptions", { count: $appState.subscriptions.length })}</span>
+				<span class="gh-page-meta-item">{$t("{count} enabled", { count: enabledNodeCount + enabledSubscriptionCount })}</span>
+			</div>
+		</div>
+		<div class="gh-page-actions">
+			<button type="button" class="gh-btn gh-btn-primary" on:click={() => (isAddModalOpen = !isAddModalOpen)}>
+				<Octicon icon={plus} className="h-4 w-4" />
+				{$t("New Resource")}
+			</button>
+		</div>
+	</header>
+
 	<!-- Add Modal / Embedded Form -->
 	{#if isAddModalOpen}
-		<div class="gh-box" transition:slide>
+		<div class="gh-box !overflow-visible" transition:slide>
 			<div class="gh-box-header">
 				<div class="flex items-center gap-4">
 					<button type="button" class={cn("gh-tab", addMode === "single" && "gh-tab-active")} on:click={() => (addMode = "single")}>{$t("Single Entry")}</button>
@@ -446,7 +466,7 @@ async function copy(text: string) {
 				</div>
 				<button type="button" class="gh-icon-button h-7 w-7" on:click={() => (isAddModalOpen = false)} aria-label={$t("Close add resource panel")}><Octicon icon={x} className="h-4 w-4" /></button>
 			</div>
-			<div class="p-4 bg-canvas-default flex flex-col gap-4">
+			<div class="gh-section-body">
 				{#if addMode === "single"}
 					<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
 						<div class="flex flex-col gap-1.5">
@@ -493,7 +513,7 @@ async function copy(text: string) {
 					</div>
 				{/if}
 			</div>
-			<div class="p-4 bg-canvas-subtle border-t border-border-default flex justify-end gap-2">
+			<div class="gh-section-footer">
 				<button type="button" class="gh-btn" on:click={() => (isAddModalOpen = false)}>{$t("Cancel")}</button>
 				<button type="button" class="gh-btn gh-btn-primary px-6" on:click={handleAdd}>{$t("Save Resource")}</button>
 			</div>
@@ -526,8 +546,7 @@ async function copy(text: string) {
 				<GitHubSelect id={addFormIds.filterStatus} bind:value={filterStatus} options={filterStatusOptions} />
 			</div>
 		</div>
-
-		<button type="button" class="nodes-filter-action gh-btn gh-btn-primary shrink-0" on:click={() => (isAddModalOpen = !isAddModalOpen)}>
+		<button type="button" class="nodes-filter-action gh-btn shrink-0" on:click={() => (isAddModalOpen = !isAddModalOpen)}>
 			<Octicon icon={plus} className="h-4 w-4" />
 			{$t("New Resource")}
 		</button>
@@ -611,22 +630,22 @@ async function copy(text: string) {
 
 							<!-- Inline Editor for Node -->
 							{#if expandedId === node.id && nodeDrafts[node.id]}
-								<div class="mt-4 p-4 border border-border-default rounded-md bg-canvas-subtle flex flex-col gap-4" transition:slide>
+								<div class="gh-inset-panel mt-4 flex flex-col gap-4" transition:slide>
 									<div class="grid grid-cols-1 md:grid-cols-2 gap-3">
 										<div class="flex flex-col gap-1.5">
-											<label class="gh-form-label text-xs uppercase tracking-wide" for={`node-name-${node.id}`}>{$t("Name")}</label>
+											<label class="gh-form-label" for={`node-name-${node.id}`}>{$t("Name")}</label>
 											<input id={`node-name-${node.id}`} class="gh-input" bind:value={nodeDrafts[node.id].name} />
 										</div>
 										<div class="flex flex-col gap-1.5">
-											<label class="gh-form-label text-xs uppercase tracking-wide" for={`node-type-${node.id}`}>{$t("Protocol")}</label>
+											<label class="gh-form-label" for={`node-type-${node.id}`}>{$t("Protocol")}</label>
 											<GitHubSelect id={`node-type-${node.id}`} bind:value={nodeDrafts[node.id].type} options={nodeTypeOptions} />
 										</div>
 										<div class="md:col-span-2 flex flex-col gap-1.5">
-											<label class="gh-form-label text-xs uppercase tracking-wide" for={`node-raw-${node.id}`}>{$t("Raw URI")}</label>
+											<label class="gh-form-label" for={`node-raw-${node.id}`}>{$t("Raw URI")}</label>
 											<textarea id={`node-raw-${node.id}`} class="gh-input gh-textarea font-mono text-xs" value={nodeDrafts[node.id].raw} on:input={(event) => updateNodeDraftRaw(node.id, event.currentTarget.value)}></textarea>
 										</div>
 										<div class="md:col-span-2 flex flex-col gap-1.5">
-											<label class="gh-form-label text-xs uppercase tracking-wide" for={`node-tags-${node.id}`}>{$t("Tags")}</label>
+											<label class="gh-form-label" for={`node-tags-${node.id}`}>{$t("Tags")}</label>
 											<input id={`node-tags-${node.id}`} class="gh-input" bind:value={nodeDrafts[node.id].tags} />
 										</div>
 									</div>
@@ -700,18 +719,18 @@ async function copy(text: string) {
 
 						<!-- Inline Editor for Subscription -->
 						{#if expandedId === sub.id && subDrafts[sub.id]}
-								<div class="mt-4 p-4 border border-border-default rounded-md bg-canvas-subtle flex flex-col gap-4" transition:slide>
+								<div class="gh-inset-panel mt-4 flex flex-col gap-4" transition:slide>
 									<div class="flex flex-col gap-3">
 										<div class="flex flex-col gap-1.5">
-											<label class="gh-form-label text-xs uppercase tracking-wide" for={`sub-name-${sub.id}`}>{$t("Name")}</label>
+											<label class="gh-form-label" for={`sub-name-${sub.id}`}>{$t("Name")}</label>
 											<input id={`sub-name-${sub.id}`} class="gh-input" bind:value={subDrafts[sub.id].name} />
 										</div>
 										<div class="flex flex-col gap-1.5">
-											<label class="gh-form-label text-xs uppercase tracking-wide" for={`sub-url-${sub.id}`}>{$t("URL")}</label>
+											<label class="gh-form-label" for={`sub-url-${sub.id}`}>{$t("URL")}</label>
 											<input id={`sub-url-${sub.id}`} class="gh-input font-mono" bind:value={subDrafts[sub.id].url} />
 										</div>
 										<div class="flex flex-col gap-1.5">
-											<label class="gh-form-label text-xs uppercase tracking-wide" for={`sub-tags-${sub.id}`}>{$t("Tags")}</label>
+											<label class="gh-form-label" for={`sub-tags-${sub.id}`}>{$t("Tags")}</label>
 											<input id={`sub-tags-${sub.id}`} class="gh-input" bind:value={subDrafts[sub.id].tags} />
 										</div>
 									</div>
@@ -729,60 +748,60 @@ async function copy(text: string) {
 </div>
 
 <!-- Subscription Preview Modal -->
-	{#if previewSubscriptionId}
-		{@const sub = $appState.subscriptions.find(s => s.id === previewSubscriptionId)}
-		{@const cache = subscriptionPreviewCache[previewSubscriptionId]}
-		<div class="fixed inset-0 z-[150] flex items-center justify-center p-4">
-			<button type="button" class="fixed inset-0 bg-black/50 backdrop-blur-sm" on:click={closeSubscriptionPreview} aria-label={$t("Close subscription preview")}></button>
-			<div class="relative w-full max-w-2xl gh-box shadow-2xl flex flex-col max-h-[80vh]" in:fly={{ y: 20 }}>
-				<div class="gh-box-header">
-					<div class="flex items-center gap-2">
-						<Octicon icon={eye} className="h-4 w-4" />
-						<span>{$t("Subscription Preview")}</span>
-						{#if sub}<span class="text-xs text-fg-muted font-normal">({sub.name})</span>{/if}
-					</div>
-					<button type="button" class="gh-icon-button h-7 w-7" on:click={closeSubscriptionPreview} aria-label={$t("Close subscription preview")}><Octicon icon={x} className="h-4 w-4" /></button>
+{#if previewSubscriptionId}
+	{@const sub = $appState.subscriptions.find(s => s.id === previewSubscriptionId)}
+	{@const cache = subscriptionPreviewCache[previewSubscriptionId]}
+	<div class="fixed inset-0 z-[150] flex items-center justify-center p-4">
+		<button type="button" class="fixed inset-0 bg-black/50 backdrop-blur-sm" on:click={closeSubscriptionPreview} aria-label={$t("Close subscription preview")}></button>
+		<div class="gh-box relative flex max-h-[80vh] w-full max-w-2xl flex-col shadow-[var(--shadow-medium)]" in:fly={{ y: 20 }}>
+			<div class="gh-box-header">
+				<div class="flex min-w-0 items-center gap-2">
+					<Octicon icon={eye} className="h-4 w-4" />
+					<span>{$t("Subscription Preview")}</span>
+					{#if sub}<span class="truncate text-xs font-normal text-fg-muted">({sub.name})</span>{/if}
 				</div>
-			
-			<div class="p-4 bg-canvas-default overflow-y-auto flex-1">
-					{#if cache?.status === 'loading'}
-						<div class="flex flex-col items-center justify-center py-12 gap-3 text-fg-muted">
-							<Octicon icon={sync} className="h-8 w-8 animate-spin" />
-							<p>{$t("Fetching subscription content...")}</p>
-						</div>
-					{:else if cache?.status === 'error'}
-						<div class="p-4 rounded-md bg-red-50 border border-red-200 text-red-800 flex items-start gap-3">
-							<Octicon icon={alert} className="mt-0.5 h-5 w-5 shrink-0" />
-							<div>
-								<p class="font-bold">{$t("Failed to load subscription")}</p>
-								<p class="text-sm opacity-80">{cache.error}</p>
+				<button type="button" class="gh-icon-button h-7 w-7" on:click={closeSubscriptionPreview} aria-label={$t("Close subscription preview")}><Octicon icon={x} className="h-4 w-4" /></button>
+			</div>
+
+			<div class="gh-section-body flex-1 overflow-y-auto">
+				{#if cache?.status === 'loading'}
+					<div class="flex flex-col items-center justify-center gap-3 py-12 text-fg-muted">
+						<Octicon icon={sync} className="h-8 w-8 animate-spin" />
+						<p>{$t("Fetching subscription content...")}</p>
+					</div>
+				{:else if cache?.status === 'error'}
+					<div class="gh-alert gh-alert-danger">
+						<Octicon icon={alert} className="mt-0.5 h-5 w-5 shrink-0 text-[color:var(--danger-emphasis)]" />
+						<div class="min-w-0">
+							<p class="font-semibold">{$t("Failed to load subscription")}</p>
+							<p class="text-sm text-fg-muted">{cache.error}</p>
 						</div>
 					</div>
 				{:else if cache?.status === 'ready'}
 					<div class="flex flex-col gap-2">
-							<div class="flex items-center justify-between mb-2">
-								<span class="text-xs font-bold text-fg-muted uppercase">{$t("Nodes Found")} ({cache.nodes.length})</span>
-								<button type="button" class="text-xs text-accent-fg hover:underline" on:click={() => sub && loadSubscriptionPreview(sub, true)}>{$t("Refresh")}</button>
-							</div>
-							{#each cache.nodes as node}
-								<div class="p-2 border border-border-default rounded hover:bg-canvas-subtle transition-colors group/item">
-									<div class="flex items-center justify-between gap-4">
-										<div class="flex items-center gap-2 min-w-0">
-											<span class="text-xs font-bold truncate">{node.name}</span>
-											<span class="px-1 py-0.5 rounded bg-canvas-default border border-border-default text-[9px] font-black uppercase text-fg-muted">{node.type}</span>
-										</div>
-										<button type="button" class="gh-btn gh-btn-sm opacity-100 sm:opacity-0 sm:group-hover/item:opacity-100" on:click={() => copy(node.raw)} aria-label={$t("Copy node URI")}><Octicon icon={copyIcon} className="h-3 w-3" /></button>
+						<div class="mb-2 flex items-center justify-between">
+							<span class="gh-form-caption">{$t("Nodes Found")} ({cache.nodes.length})</span>
+							<button type="button" class="gh-link text-xs" on:click={() => sub && loadSubscriptionPreview(sub, true)}>{$t("Refresh")}</button>
+						</div>
+						{#each cache.nodes as node}
+							<div class="group/item rounded-md border border-border-default bg-canvas-default p-2 transition-colors hover:bg-canvas-subtle">
+								<div class="flex items-center justify-between gap-4">
+									<div class="flex min-w-0 items-center gap-2">
+										<span class="truncate text-xs font-semibold">{node.name}</span>
+										<span class="gh-label shrink-0">{node.type}</span>
 									</div>
-									<code class="block mt-1 text-[10px] font-mono text-fg-muted truncate">{node.raw}</code>
+									<button type="button" class="gh-btn gh-btn-sm opacity-100 transition-opacity sm:opacity-0 sm:group-hover/item:opacity-100" on:click={() => copy(node.raw)} aria-label={$t("Copy node URI")}><Octicon icon={copyIcon} className="h-3 w-3" /></button>
 								</div>
+								<code class="gh-list-meta-code mt-1 block">{node.raw}</code>
+							</div>
 						{/each}
 					</div>
 				{/if}
-				</div>
-				
-				<div class="p-3 bg-canvas-subtle border-t border-border-default flex justify-end">
-					<button type="button" class="gh-btn" on:click={closeSubscriptionPreview}>{$t("Close")}</button>
-				</div>
+			</div>
+
+			<div class="gh-section-footer">
+				<button type="button" class="gh-btn" on:click={closeSubscriptionPreview}>{$t("Close")}</button>
 			</div>
 		</div>
+	</div>
 {/if}
