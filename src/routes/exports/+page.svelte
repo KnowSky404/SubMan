@@ -309,224 +309,218 @@ async function publishPreview(): Promise<void> {
 	<title>{$t("Exports")} - SubMan</title>
 </svelte:head>
 
-<div class="space-y-6">
-	<section class="gh-box overflow-hidden">
-		<div class="gh-section-header">
-			<div class="flex min-w-0 items-center gap-3">
-				<span class="app-brand-mark">
-					<Octicon icon={fileCode} className="h-4 w-4" />
-				</span>
-				<div class="min-w-0">
-					<h1 class="truncate text-base font-semibold text-fg-default">
-						{$t("sing-box Client")}
-					</h1>
-					<p class="text-sm text-fg-muted">
-						<span class="gh-counter">{profileCount}</span>
-						{$t("profiles")}
-					</p>
-				</div>
-			</div>
-			<div class="gh-toolbar-group">
-				<button
-					class="gh-btn"
-					type="button"
-					on:click={copyPreview}
-					disabled={!selectedProfile}
-				>
-					<Octicon icon={copy} className="h-4 w-4" />
-					{$t("Copy")}
-				</button>
-				<button
-					class="gh-btn"
-					type="button"
-					on:click={downloadPreview}
-					disabled={!selectedProfile}
-				>
-					<Octicon icon={download} className="h-4 w-4" />
-					{$t("Download")}
-				</button>
-				<button
-					class="gh-btn gh-btn-primary"
-					type="button"
-					on:click={publishPreview}
-					disabled={publishDisabled}
-				>
-					<Octicon icon={upload} className="h-4 w-4" />
-					{publishing ? $t("Publishing...") : $t("Publish")}
-				</button>
+<div class="gh-page">
+	<header class="gh-page-header">
+		<div class="gh-page-heading">
+			<h1 class="gh-page-title">{$t("Exports")}</h1>
+			<p class="gh-page-subtitle">
+				{$t("Generate, inspect, download, copy, and publish sing-box client configuration profiles.")}
+			</p>
+			<div class="gh-page-meta">
+				<span class="gh-page-meta-item">{$t("{count} profiles", { count: profileCount })}</span>
+				<span class="gh-page-meta-item">{$t("{count} outbounds", { count: outboundCount })}</span>
+				<span class="gh-page-meta-item">{$t("{count} warnings", { count: previewWarnings.length })}</span>
 			</div>
 		</div>
-
-		<div class="space-y-4 p-4">
-			{#if $appState.aggregates.length === 0}
-				<p class="text-sm text-fg-muted">
-					{$t("Create an Aggregate rule before exporting.")}
-				</p>
-			{:else if canCreateProfile}
-				<button class="gh-btn gh-btn-primary" type="button" on:click={createProfile}>
-					{$t("New profile")}
-				</button>
-			{/if}
-
-			{#if $appState.clientExports.length > 0}
-				<div class="max-w-xl space-y-2">
-					<label class="gh-label" for="exports-profile">{$t("Export Profile")}</label>
-					<GitHubSelect
-						id="exports-profile"
-						bind:value={selectedProfileId}
-						options={profileOptions}
-					/>
-				</div>
-			{/if}
-
-			{#if selectedProfile}
-				<div class="grid gap-4 md:grid-cols-2">
-					<div class="space-y-2">
-						<label class="gh-label" for="exports-name">{$t("Name")}</label>
-						<input id="exports-name" class="gh-input" bind:value={draftName} />
-					</div>
-					<div class="space-y-2">
-						<label class="gh-label" for="exports-file-name">{$t("File Name")}</label>
-						<input
-							id="exports-file-name"
-							class="gh-input font-mono"
-							bind:value={draftFileName}
-						/>
-					</div>
-					<div class="space-y-2">
-						<label class="gh-label" for="exports-source-rule">
-							{$t("Source Aggregate Rule")}
-						</label>
-						<GitHubSelect
-							id="exports-source-rule"
-							bind:value={draftRuleId}
-							options={ruleOptions}
-							placeholder={$t("Select an Aggregate rule")}
-						/>
-					</div>
-					<div class="space-y-2">
-						<label class="gh-label" for="exports-listen-address">
-							{$t("Listen Address")}
-						</label>
-						<input
-							id="exports-listen-address"
-							class="gh-input font-mono"
-							bind:value={draftListenAddress}
-						/>
-					</div>
-					<div class="space-y-2">
-						<label class="gh-label" for="exports-listen-port">
-							{$t("Listen Port")}
-						</label>
-						<input
-							id="exports-listen-port"
-							class="gh-input"
-							type="number"
-							min="1"
-							max="65535"
-							bind:value={draftListenPort}
-						/>
-					</div>
-					<div class="space-y-2">
-						<label class="gh-label" for="exports-selector-tag">
-							{$t("Selector Tag")}
-						</label>
-						<input
-							id="exports-selector-tag"
-							class="gh-input font-mono"
-							bind:value={draftSelectorTag}
-						/>
-					</div>
-					<div class="space-y-2">
-						<label class="gh-label" for="exports-url-test-tag">
-							{$t("URL Test Tag")}
-						</label>
-						<input
-							id="exports-url-test-tag"
-							class="gh-input font-mono"
-							bind:value={draftUrlTestTag}
-						/>
-					</div>
-					<label class="gh-checkbox-row mt-6">
-						<input type="checkbox" bind:checked={draftIncludeExperimental} />
-						<span>{$t("Include Experimental")}</span>
-					</label>
-				</div>
-
-				<div class="flex flex-wrap items-center gap-2">
-					<button class="gh-btn gh-btn-primary" type="button" on:click={saveProfile}>
-						{$t("Save")}
-					</button>
-					<button class="gh-btn" type="button" on:click={refreshPreview}>
-						{$t("Generate Preview")}
-					</button>
-					<span class="badge">{$t("Workspace")}</span>
-					<span class="text-sm text-fg-muted">
-						{selectedRule ? selectedRule.name : $t("Select an Aggregate rule")}
-					</span>
-				</div>
-			{/if}
+		<div class="gh-page-actions">
+			<button class="gh-btn" type="button" on:click={copyPreview} disabled={!selectedProfile}>
+				<Octicon icon={copy} className="h-4 w-4" />
+				{$t("Copy")}
+			</button>
+			<button class="gh-btn" type="button" on:click={downloadPreview} disabled={!selectedProfile}>
+				<Octicon icon={download} className="h-4 w-4" />
+				{$t("Download")}
+			</button>
+			<button class="gh-btn gh-btn-primary" type="button" on:click={publishPreview} disabled={publishDisabled}>
+				<Octicon icon={upload} className="h-4 w-4" />
+				{publishing ? $t("Publishing...") : $t("Publish")}
+			</button>
 		</div>
-	</section>
+	</header>
 
-	<section class="gh-box overflow-hidden">
-		<div class="gh-section-header">
-			<h2 class="text-sm font-semibold text-fg-default">{$t("Summary")}</h2>
-		</div>
-		<div class="grid gap-3 p-4 sm:grid-cols-4">
-			<div>
-				<div class="text-xs text-fg-muted">{$t("Total Lines")}</div>
-				<div class="text-lg font-semibold text-fg-default">{totalLines}</div>
-			</div>
-			<div>
-				<div class="text-xs text-fg-muted">{$t("Outbounds")}</div>
-				<div class="text-lg font-semibold text-fg-default">{outboundCount}</div>
-			</div>
-			<div>
-				<div class="text-xs text-fg-muted">{$t("Skipped")}</div>
-				<div class="text-lg font-semibold text-fg-default">{skippedCount}</div>
-			</div>
-			<div>
-				<div class="text-xs text-fg-muted">{$t("Warning Count")}</div>
-				<div class="text-lg font-semibold text-fg-default">
-					{previewWarnings.length}
+	<div class="gh-layout-sidebar lg:grid-cols-[minmax(0,1fr)_360px]">
+		<div class="gh-layout-main">
+			<section class="gh-box !overflow-visible">
+				<div class="gh-box-header">
+					<div class="gh-section-title">
+						<Octicon icon={fileCode} className="h-4 w-4" />
+						<span>{$t("sing-box Client")}</span>
+					</div>
+					<span class="gh-counter">{profileCount}</span>
 				</div>
-			</div>
+
+				<div class="gh-section-body">
+					{#if $appState.aggregates.length === 0}
+						<div class="gh-alert gh-alert-attention">
+							<span>{$t("Create an Aggregate rule before exporting.")}</span>
+						</div>
+					{:else if canCreateProfile}
+						<button class="gh-btn gh-btn-primary self-start" type="button" on:click={createProfile}>
+							{$t("New profile")}
+						</button>
+					{/if}
+
+					{#if $appState.clientExports.length > 0}
+						<div class="max-w-xl space-y-2">
+							<label class="gh-form-label" for="exports-profile">{$t("Export Profile")}</label>
+							<GitHubSelect
+								id="exports-profile"
+								bind:value={selectedProfileId}
+								options={profileOptions}
+							/>
+						</div>
+					{/if}
+
+					{#if selectedProfile}
+						<div class="grid gap-4 md:grid-cols-2">
+							<div class="space-y-2">
+								<label class="gh-form-label" for="exports-name">{$t("Name")}</label>
+								<input id="exports-name" class="gh-input" bind:value={draftName} />
+							</div>
+							<div class="space-y-2">
+								<label class="gh-form-label" for="exports-file-name">{$t("File Name")}</label>
+								<input
+									id="exports-file-name"
+									class="gh-input font-mono"
+									bind:value={draftFileName}
+								/>
+							</div>
+							<div class="space-y-2">
+								<label class="gh-form-label" for="exports-source-rule">
+									{$t("Source Aggregate Rule")}
+								</label>
+								<GitHubSelect
+									id="exports-source-rule"
+									bind:value={draftRuleId}
+									options={ruleOptions}
+									placeholder={$t("Select an Aggregate rule")}
+								/>
+							</div>
+							<div class="space-y-2">
+								<label class="gh-form-label" for="exports-listen-address">
+									{$t("Listen Address")}
+								</label>
+								<input
+									id="exports-listen-address"
+									class="gh-input font-mono"
+									bind:value={draftListenAddress}
+								/>
+							</div>
+							<div class="space-y-2">
+								<label class="gh-form-label" for="exports-listen-port">
+									{$t("Listen Port")}
+								</label>
+								<input
+									id="exports-listen-port"
+									class="gh-input"
+									type="number"
+									min="1"
+									max="65535"
+									bind:value={draftListenPort}
+								/>
+							</div>
+							<div class="space-y-2">
+								<label class="gh-form-label" for="exports-selector-tag">
+									{$t("Selector Tag")}
+								</label>
+								<input
+									id="exports-selector-tag"
+									class="gh-input font-mono"
+									bind:value={draftSelectorTag}
+								/>
+							</div>
+							<div class="space-y-2">
+								<label class="gh-form-label" for="exports-url-test-tag">
+									{$t("URL Test Tag")}
+								</label>
+								<input
+									id="exports-url-test-tag"
+									class="gh-input font-mono"
+									bind:value={draftUrlTestTag}
+								/>
+							</div>
+							<label class="gh-checkbox-row md:mt-7">
+								<input type="checkbox" bind:checked={draftIncludeExperimental} />
+								<span class="text-sm font-medium">{$t("Include Experimental")}</span>
+							</label>
+						</div>
+					{/if}
+				</div>
+
+				{#if selectedProfile}
+					<div class="gh-section-footer">
+						<button class="gh-btn gh-btn-primary" type="button" on:click={saveProfile}>
+							{$t("Save")}
+						</button>
+						<button class="gh-btn" type="button" on:click={refreshPreview}>
+							{$t("Generate Preview")}
+						</button>
+						<span class="badge">{$t("Workspace")}</span>
+						<span class="text-sm text-fg-muted">
+							{selectedRule ? selectedRule.name : $t("Select an Aggregate rule")}
+						</span>
+					</div>
+				{/if}
+			</section>
+
+			<section class="gh-box overflow-hidden">
+				<div class="gh-box-header">
+					<h2 class="gh-section-title">{$t("Preview")}</h2>
+				</div>
+				<pre class="max-h-[36rem] overflow-auto p-4 font-mono text-xs text-fg-default">{previewContent || $t("Generate a preview to inspect config.json")}</pre>
+			</section>
 		</div>
-		{#if previewWarnings.length > 0 || previewErrors.length > 0}
-			<div class="border-t border-border-default p-4">
-				{#if previewWarnings.length > 0}
-					<div class="mb-3">
-						<h3 class="mb-2 text-xs font-semibold uppercase text-fg-muted">
-							{$t("Warnings")}
-						</h3>
-						<ul class="space-y-1 text-sm text-attention-fg">
+
+		<aside class="gh-layout-aside">
+			<section class="gh-box overflow-hidden">
+				<div class="gh-box-header">
+					<h2 class="gh-section-title">{$t("Summary")}</h2>
+				</div>
+				<div class="grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-1">
+					<div>
+						<div class="text-xs text-fg-muted">{$t("Total Lines")}</div>
+						<div class="text-lg font-semibold text-fg-default">{totalLines}</div>
+					</div>
+					<div>
+						<div class="text-xs text-fg-muted">{$t("Outbounds")}</div>
+						<div class="text-lg font-semibold text-fg-default">{outboundCount}</div>
+					</div>
+					<div>
+						<div class="text-xs text-fg-muted">{$t("Skipped")}</div>
+						<div class="text-lg font-semibold text-fg-default">{skippedCount}</div>
+					</div>
+					<div>
+						<div class="text-xs text-fg-muted">{$t("Warning Count")}</div>
+						<div class="text-lg font-semibold text-fg-default">{previewWarnings.length}</div>
+					</div>
+				</div>
+			</section>
+
+			{#if previewWarnings.length > 0}
+				<div class="gh-alert gh-alert-attention">
+					<div class="min-w-0 space-y-2">
+						<h3 class="text-sm font-semibold">{$t("Warnings")}</h3>
+						<ul class="space-y-1 text-sm text-fg-muted">
 							{#each previewWarnings as warning}
 								<li>{warning}</li>
 							{/each}
 						</ul>
 					</div>
-				{/if}
-				{#if previewErrors.length > 0}
-					<div>
-						<h3 class="mb-2 text-xs font-semibold uppercase text-danger-fg">
-							{$t("Errors")}
-						</h3>
-						<ul class="space-y-1 text-sm text-danger-fg">
+				</div>
+			{/if}
+
+			{#if previewErrors.length > 0}
+				<div class="gh-alert gh-alert-danger">
+					<div class="min-w-0 space-y-2">
+						<h3 class="text-sm font-semibold">{$t("Errors")}</h3>
+						<ul class="space-y-1 text-sm text-fg-muted">
 							{#each previewErrors as error}
 								<li>{error}</li>
 							{/each}
 						</ul>
 					</div>
-				{/if}
-			</div>
-		{/if}
-	</section>
-
-	<section class="gh-box overflow-hidden">
-		<div class="gh-section-header">
-			<h2 class="text-sm font-semibold text-fg-default">{$t("Preview")}</h2>
-		</div>
-		<pre class="max-h-[36rem] overflow-auto p-4 text-xs text-fg-default">{previewContent || $t("Generate a preview to inspect config.json")}</pre>
-	</section>
+				</div>
+			{/if}
+		</aside>
+	</div>
 </div>
