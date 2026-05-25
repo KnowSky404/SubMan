@@ -1,6 +1,7 @@
 import type { GistMeta } from "$lib/models";
 
 const API_ROOT = "https://api.github.com";
+const USER_AGENT = "SubMan";
 
 type GistApiResponse = {
 	id: string;
@@ -35,6 +36,18 @@ async function githubErrorMessage(
 	}
 
 	return `${fallback}: ${res.status} ${res.statusText}${detail ? ` - ${detail}` : ""}`;
+}
+
+function githubHeaders(
+	token: string,
+	headers: Record<string, string> = {},
+): HeadersInit {
+	return {
+		Authorization: `Bearer ${token}`,
+		Accept: "application/vnd.github+json",
+		"User-Agent": USER_AGENT,
+		...headers,
+	};
 }
 
 export function toStableGistRawUrl(rawUrl?: string | null): string | undefined {
@@ -81,10 +94,7 @@ function mapGist(response: GistApiResponse): GistMeta {
 
 export async function listGists(token: string): Promise<GistMeta[]> {
 	const res = await fetch(`${API_ROOT}/gists`, {
-		headers: {
-			Authorization: `Bearer ${token}`,
-			Accept: "application/vnd.github+json",
-		},
+		headers: githubHeaders(token),
 	});
 
 	if (!res.ok) {
@@ -100,10 +110,7 @@ export async function getGist(
 	gistId: string,
 ): Promise<GistMeta> {
 	const res = await fetch(`${API_ROOT}/gists/${gistId}`, {
-		headers: {
-			Authorization: `Bearer ${token}`,
-			Accept: "application/vnd.github+json",
-		},
+		headers: githubHeaders(token),
 	});
 
 	if (!res.ok) {
@@ -120,10 +127,7 @@ export async function getGistFileContent(
 	filename: string,
 ): Promise<string> {
 	const res = await fetch(`${API_ROOT}/gists/${gistId}`, {
-		headers: {
-			Authorization: `Bearer ${token}`,
-			Accept: "application/vnd.github+json",
-		},
+		headers: githubHeaders(token),
 	});
 
 	if (!res.ok) {
@@ -150,10 +154,7 @@ export async function getGistFileContent(
 	}
 
 	const rawRes = await fetch(file.raw_url, {
-		headers: {
-			Authorization: `Bearer ${token}`,
-			Accept: "text/plain",
-		},
+		headers: githubHeaders(token, { Accept: "text/plain" }),
 	});
 
 	if (!rawRes.ok) {
@@ -175,11 +176,7 @@ export async function createGist(
 ): Promise<GistMeta> {
 	const res = await fetch(`${API_ROOT}/gists`, {
 		method: "POST",
-		headers: {
-			Authorization: `Bearer ${token}`,
-			Accept: "application/vnd.github+json",
-			"Content-Type": "application/json",
-		},
+		headers: githubHeaders(token, { "Content-Type": "application/json" }),
 		body: JSON.stringify({
 			description: payload.description,
 			public: payload.isPublic,
@@ -205,11 +202,7 @@ export async function updateGist(
 ): Promise<GistMeta> {
 	const res = await fetch(`${API_ROOT}/gists/${payload.gistId}`, {
 		method: "PATCH",
-		headers: {
-			Authorization: `Bearer ${token}`,
-			Accept: "application/vnd.github+json",
-			"Content-Type": "application/json",
-		},
+		headers: githubHeaders(token, { "Content-Type": "application/json" }),
 		body: JSON.stringify({
 			description: payload.description,
 			files: payload.files,
