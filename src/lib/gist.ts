@@ -20,6 +20,23 @@ type GistApiResponse = {
 	>;
 };
 
+async function githubErrorMessage(
+	res: Response,
+	fallback: string,
+): Promise<string> {
+	const body = await res.text().catch(() => "");
+	let detail = body.slice(0, 300);
+
+	try {
+		const parsed = JSON.parse(body) as { message?: string };
+		detail = parsed.message ?? detail;
+	} catch {
+		// Use the plain response body snippet when GitHub does not return JSON.
+	}
+
+	return `${fallback}: ${res.status} ${res.statusText}${detail ? ` - ${detail}` : ""}`;
+}
+
 export function toStableGistRawUrl(rawUrl?: string | null): string | undefined {
 	if (!rawUrl) {
 		return undefined;
@@ -71,7 +88,7 @@ export async function listGists(token: string): Promise<GistMeta[]> {
 	});
 
 	if (!res.ok) {
-		throw new Error("Failed to fetch gists");
+		throw new Error(await githubErrorMessage(res, "Failed to fetch gists"));
 	}
 
 	const data = (await res.json()) as GistApiResponse[];
@@ -90,7 +107,7 @@ export async function getGist(
 	});
 
 	if (!res.ok) {
-		throw new Error("Failed to fetch gist");
+		throw new Error(await githubErrorMessage(res, "Failed to fetch gist"));
 	}
 
 	const data = (await res.json()) as GistApiResponse;
@@ -110,7 +127,9 @@ export async function getGistFileContent(
 	});
 
 	if (!res.ok) {
-		throw new Error("Failed to fetch gist content");
+		throw new Error(
+			await githubErrorMessage(res, "Failed to fetch gist content"),
+		);
 	}
 
 	const data = (await res.json()) as GistApiResponse;
@@ -138,7 +157,9 @@ export async function getGistFileContent(
 	});
 
 	if (!rawRes.ok) {
-		throw new Error("Failed to fetch raw gist content");
+		throw new Error(
+			await githubErrorMessage(rawRes, "Failed to fetch raw gist content"),
+		);
 	}
 
 	return rawRes.text();
@@ -167,7 +188,7 @@ export async function createGist(
 	});
 
 	if (!res.ok) {
-		throw new Error("Failed to create gist");
+		throw new Error(await githubErrorMessage(res, "Failed to create gist"));
 	}
 
 	const data = (await res.json()) as GistApiResponse;
@@ -196,7 +217,7 @@ export async function updateGist(
 	});
 
 	if (!res.ok) {
-		throw new Error("Failed to update gist");
+		throw new Error(await githubErrorMessage(res, "Failed to update gist"));
 	}
 
 	const data = (await res.json()) as GistApiResponse;
