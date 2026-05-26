@@ -62,6 +62,9 @@ curl -fsS -X PUT "https://subman.example.com/api/nodes/by-key/vps-1-vless" \
 Rules:
 
 - `name`, `type`, and `raw` are required.
+- Duplicate names are automatically saved with a timestamp suffix, for example
+  `HK 2026-05-26 06:32`.
+- Duplicate trimmed `raw` URIs are rejected with `409 duplicate_node_raw`.
 - `enabled` defaults to `true`.
 - `source` defaults to `single`.
 - `tags` defaults to an empty array.
@@ -77,9 +80,10 @@ vless, vmess, trojan, ss, ssr, hysteria2, tuic, anytls, other
 
 - `GET /api/health`: check Worker secret configuration.
 - `GET /api/nodes`: list nodes.
-- `POST /api/nodes`: create a new node every time.
+- `POST /api/nodes`: create a new node, unless the raw URI already exists.
 - `GET /api/nodes/:id`: get one node.
-- `PATCH /api/nodes/:id`: update one node.
+- `PATCH /api/nodes/:id`: update one node; duplicate names are made unique and
+  raw URI collisions are rejected.
 - `DELETE /api/nodes/:id`: delete one node and remove it from aggregate
   `nodeIds`.
 - `PUT /api/nodes/by-key/:externalKey`: idempotent create/update by stable key.
@@ -88,5 +92,6 @@ vless, vmess, trojan, ss, ssr, hysteria2, tuic, anytls, other
 
 - This API is not designed for high-concurrency writes.
 - CORS is not broadly opened for arbitrary browser origins.
+- Treat `409 duplicate_node_raw` as an idempotency or inventory mismatch signal;
+  inspect the existing node before retrying with a different raw URI.
 - Rotate `SUBMAN_API_TOKEN` if a trusted script host is compromised.
-

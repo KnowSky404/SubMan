@@ -1,6 +1,7 @@
 export type ApiErrorCode =
 	| "bad_request"
 	| "unauthorized"
+	| "duplicate_node_raw"
 	| "not_found"
 	| "method_not_allowed"
 	| "server_error";

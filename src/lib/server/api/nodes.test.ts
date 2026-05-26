@@ -1,7 +1,9 @@
 import { describe, expect, it } from "bun:test";
 import type { AppState, NodeItem } from "$lib/models";
 import {
+	applyNodeCreate,
 	applyNodeDelete,
+	applyNodePatch,
 	applyNodeUpsertByExternalKey,
 	EXTERNAL_KEY_TAG_PREFIX,
 	parseNodePayload,
@@ -138,6 +140,104 @@ describe("applyNodeUpsertByExternalKey", () => {
 		expect(result.node.id).toBe("node-1");
 		expect(result.node.name).toBe("vps-1 new");
 		expect(result.node.raw).toBe("vless://new");
+	});
+});
+
+describe("node create and patch duplicate handling", () => {
+	const existingNode = {
+		id: "node-1",
+		name: "HK",
+		type: "vless",
+		raw: "vless://existing",
+		tags: [],
+		enabled: true,
+		source: "single",
+		updatedAt: "2026-01-01T00:00:00.000Z",
+	} satisfies NodeItem;
+
+	it("adds a timestamp suffix when API create receives a duplicate name", () => {
+		const result = applyNodeCreate(
+			stateWith([existingNode]),
+			parseNodePayload({
+				name: "HK",
+				type: "vless",
+				raw: "vless://new",
+			}),
+			{
+				id: () => "node-2",
+				now: () => "2026-05-26T06:32:00.000Z",
+			},
+		);
+
+		expect(result.node.name).toBe("HK 2026-05-26 06:32");
+	});
+
+	it("rejects API create when raw already exists", () => {
+		expect(() =>
+			applyNodeCreate(
+				stateWith([existingNode]),
+				parseNodePayload({
+					name: "HK New",
+					type: "vless",
+					raw: " vless://existing ",
+				}),
+			),
+		).toThrow("A node with the same raw URI already exists: HK");
+	});
+
+	it("adds a timestamp suffix when API patch receives a duplicate name", () => {
+		const result = applyNodePatch(
+			stateWith([
+				existingNode,
+				{
+					...existingNode,
+					id: "node-2",
+					name: "JP",
+					raw: "vless://new",
+				},
+			]),
+			"node-2",
+			{ name: "HK" },
+			"2026-05-26T06:32:00.000Z",
+		);
+
+		expect(result.node?.name).toBe("HK 2026-05-26 06:32");
+	});
+
+	it("rejects API patch when raw already exists on another node", () => {
+		expect(() =>
+			applyNodePatch(
+				stateWith([
+					existingNode,
+					{
+						...existingNode,
+						id: "node-2",
+						name: "JP",
+						raw: "vless://new",
+					},
+				]),
+				"node-2",
+				{ raw: "vless://existing" },
+			),
+		).toThrow("A node with the same raw URI already exists: HK");
+	});
+
+	it("keeps external-key upsert idempotent while applying duplicate-name rules", () => {
+		const result = applyNodeUpsertByExternalKey(
+			stateWith([existingNode]),
+			"vps-1-vless",
+			parseNodePayload({
+				name: "HK",
+				type: "vless",
+				raw: "vless://new",
+			}),
+			{
+				id: () => "node-2",
+				now: () => "2026-05-26T06:32:00.000Z",
+			},
+		);
+
+		expect(result.node.name).toBe("HK 2026-05-26 06:32");
 	});
 });
 

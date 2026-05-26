@@ -28,6 +28,10 @@ API endpoints from the same Cloudflare Worker.
 - Do not give external automation the GitHub token. Store `GITHUB_TOKEN` in
   Cloudflare Secrets and give scripts only `SUBMAN_API_TOKEN`.
 - For machine-managed nodes, prefer `PUT /api/nodes/by-key/:externalKey`.
+- Node names must remain distinguishable for aggregate filtering. UI and API
+  writes automatically add a timestamp suffix on name collision.
+- Treat duplicate node raw URIs as content duplicates. UI and API writes reject
+  raw collisions instead of creating another node with a different name.
 - Preserve existing conflict handling: local overwrite, remote overwrite, merge
   and save, bind only.
 - Run `bun run check` after TypeScript or Svelte changes. Run `bun run build`
@@ -40,7 +44,8 @@ API endpoints from the same Cloudflare Worker.
 
 Read `references/server-api.md`. Use idempotent upserts with stable external
 keys. Use `curl -fsS` or equivalent failure handling. Treat SubMan as a
-low-frequency Gist-backed write target, not a high-concurrency database.
+low-frequency Gist-backed write target, not a high-concurrency database. Handle
+`409 duplicate_node_raw` as "this node URI already exists elsewhere".
 
 ### Change workspace behavior
 
@@ -59,4 +64,3 @@ publishing.
 
 Read `references/deployment.md`. Use Wrangler through bun. Verify secrets with
 `GET /api/health` after deployment.
-

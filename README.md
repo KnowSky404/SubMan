@@ -110,6 +110,8 @@ curl -sS -X PUT "https://subman.example.com/api/nodes/by-key/vps-1-vless" \
 
 推荐脚本使用 `PUT /api/nodes/by-key/:externalKey`，因为它是幂等接口：同一个
 `externalKey` 重复调用会更新已有节点，不会产生重复节点。
+通过 UI 或 API 新增/更新节点时，同名会自动追加时间后缀以便聚合筛选区分；
+相同原始 URI 会被视为重复内容并拒绝保存。
 
 `GITHUB_TOKEN` 只保存在 Cloudflare Secrets 中，外部脚本不需要也不应该持有 GitHub Token。
 第一版 API 面向可信后端脚本调用，不默认开放浏览器跨域访问。

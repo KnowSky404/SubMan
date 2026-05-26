@@ -131,8 +131,12 @@ Allowed `source` values:
 Rules:
 
 - `name` is required.
+- If another node already has the same name, the API saves the node with a
+  timestamp suffix such as `HK 2026-05-26 06:32`.
 - `type` is required and must be one of the allowed proxy types.
 - `raw` is required.
+- If another node already has the same trimmed `raw` URI, the API rejects the
+  write with `409 duplicate_node_raw`.
 - `enabled` defaults to `true`.
 - `source` defaults to `single`.
 - `tags` defaults to an empty array.
@@ -150,6 +154,9 @@ Rules:
 ```
 
 Missing fields keep their existing values.
+
+Patch requests use the same duplicate handling as create requests: duplicate
+names are made unique, and duplicate raw URIs on another node are rejected.
 
 ## Response Envelope
 
@@ -270,8 +277,10 @@ Response:
 POST /api/nodes
 ```
 
-Creates a new node every time. For installer scripts, prefer
-`PUT /api/nodes/by-key/:externalKey` to avoid duplicates.
+Creates a new node every time unless the submitted raw URI already exists. If
+the submitted name already exists, the saved name receives a timestamp suffix.
+For installer scripts, prefer `PUT /api/nodes/by-key/:externalKey` to avoid
+creating separate records for the same machine-managed node.
 
 Example:
 
@@ -351,6 +360,10 @@ This is the recommended endpoint for automation scripts. It is idempotent:
 running the same command again updates the existing node instead of creating a
 duplicate.
 
+It still follows normal node validation: duplicate names are made unique, and a
+raw URI that already belongs to a different node is rejected with
+`409 duplicate_node_raw`.
+
 The API stores the external key as a hidden-style tag label:
 
 ```text
@@ -400,6 +413,7 @@ curl -fsS -X PUT "${SUBMAN_BASE_URL}/api/nodes/by-key/${NODE_KEY}" \
 | `201` | - | Node created by `POST /api/nodes`. |
 | `400` | `bad_request` | Invalid JSON body or unsupported field value. |
 | `401` | `unauthorized` | Missing or invalid `SUBMAN_API_TOKEN`. |
+| `409` | `duplicate_node_raw` | Submitted raw URI already belongs to another node. |
 | `404` | `not_found` | Requested node id does not exist. |
 | `500` | `server_error` | Missing `GITHUB_TOKEN` or unexpected server/Gist failure. |
 

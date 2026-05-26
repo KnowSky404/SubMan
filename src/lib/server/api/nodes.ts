@@ -5,6 +5,11 @@ import type {
 	ProxyType,
 	SourceType,
 } from "$lib/models";
+import {
+	findDuplicateNodeRaw,
+	formatResourceNameTimestamp,
+	makeUniqueResourceName,
+} from "$lib/resource-dedupe";
 import { ApiError } from "./errors";
 
 const PROXY_TYPES = new Set<ProxyType>([
@@ -100,6 +105,29 @@ function externalKeyTag(externalKey: string): NodeTag {
 	return { id: tagIdFromLabel(label), label };
 }
 
+function uniqueNodeNameForState(
+	state: AppState,
+	name: string,
+	now: string,
+	excludeId?: string,
+): string {
+	return makeUniqueResourceName(
+		name,
+		state.nodes
+			.filter((node) => node.id !== excludeId)
+			.map((node) => node.name),
+		formatResourceNameTimestamp(new Date(now)),
+	);
+}
+
+function duplicateRawError(node: NodeItem): ApiError {
+	return new ApiError(
+		409,
+		"duplicate_node_raw",
+		`A node with the same raw URI already exists: ${node.name}`,
+	);
+}
+
 export function parseNodePayload(input: unknown): NodePayload {
 	if (!input || typeof input !== "object") {
 		throw new ApiError(400, "bad_request", "request body must be an object");
@@ -182,9 +210,14 @@ export function applyNodeCreate(
 	clock: NodeMutationClock = defaultClock,
 ): { state: AppState; node: NodeItem } {
 	const timestamp = clock.now();
+	const duplicate = findDuplicateNodeRaw(state.nodes, payload.raw);
+	if (duplicate) {
+		throw duplicateRawError(duplicate);
+	}
 	const node: NodeItem = {
 		id: clock.id(),
 		...payload,
+		name: uniqueNodeNameForState(state, payload.name, timestamp),
 		updatedAt: timestamp,
 	};
 
@@ -209,10 +242,22 @@ export function applyNodePatch(
 		return { state, node: null };
 	}
 
+	const raw = patch.raw ?? state.nodes[index]?.raw;
+	const duplicate = raw
+		? findDuplicateNodeRaw(state.nodes, raw, nodeId)
+		: null;
+	if (duplicate) {
+		throw duplicateRawError(duplicate);
+	}
+
 	const nodes = [...state.nodes];
 	const node = {
 		...nodes[index],
 		...patch,
+		name:
+			patch.name !== undefined
+				? uniqueNodeNameForState(state, patch.name, now, nodeId)
+				: nodes[index].name,
 		updatedAt: now,
 	};
 	nodes[index] = node;

@@ -113,6 +113,9 @@ curl -sS -X PUT "https://subman.example.com/api/nodes/by-key/vps-1-vless" \
 Scripts should prefer `PUT /api/nodes/by-key/:externalKey` because it is
 idempotent: repeated calls with the same `externalKey` update the existing node
 instead of creating duplicates.
+When nodes are created or updated through either the UI or API, duplicate names
+receive a timestamp suffix so aggregate filtering remains distinguishable.
+Duplicate raw URIs are treated as duplicate content and rejected.
 
 `GITHUB_TOKEN` stays in Cloudflare Secrets. External scripts do not need and
 should not hold the GitHub token.

@@ -78,6 +78,10 @@ external:<externalKey>
 Use this endpoint for VPS installers and other repeatable node updates. Avoid
 `POST /api/nodes` for automation unless duplicates are intended.
 
+Node writes share the same duplicate rules as the browser UI: duplicate names
+are saved with a timestamp suffix for easier aggregate filtering, while duplicate
+raw URIs are rejected with `409 duplicate_node_raw`.
+
 Example:
 
 ```bash
@@ -92,9 +96,10 @@ curl -fsS -X PUT "https://subman.example.com/api/nodes/by-key/vps-1-vless" \
 - Keep runtime data in the single workspace gist.
 - Keep `subman.json` protected from UI deletion.
 - Prefer `PUT /api/nodes/by-key/:externalKey` for machine-created nodes.
+- Handle `409 duplicate_node_raw` explicitly in automation scripts; it means the
+  submitted URI is already stored on another node.
 - Do not expose `GITHUB_TOKEN` to external scripts; only Cloudflare Secrets
   should hold it.
 - External scripts should receive only `SUBMAN_API_TOKEN`.
 - Keep code ASCII unless the edited file already uses non-ASCII intentionally.
 - Commit atomically after each independent feature, UI improvement, or bug fix.
-
