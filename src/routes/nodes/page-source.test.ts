@@ -36,13 +36,34 @@ test("nodes page uses stable list row primitives", () => {
 });
 
 test("single node add can derive the name from the raw URI", () => {
-	expect(nodesPageSource).toContain("if (!nodeRaw.trim()) return;");
+	expect(nodesPageSource).toContain("const raw = nodeRaw.trim();");
+	expect(nodesPageSource).toContain("if (!raw) return;");
 	expect(nodesPageSource).toContain(
-		'name:\n\t\t\t\t\tnodeName.trim() ||\n\t\t\t\t\tinferNodeNameFromRaw(nodeRaw.trim(), "Imported Node")',
+		'nodeName.trim() || inferNodeNameFromRaw(raw, "Imported Node")',
 	);
 	expect(nodesPageSource).not.toContain(
 		"if (!nodeName.trim() || !nodeRaw.trim()) return;",
 	);
+});
+
+test("nodes page prevents duplicate raw URIs and subscription URLs", () => {
+	expect(nodesPageSource).toContain("findDuplicateNodeRaw($appState.nodes, raw)");
+	expect(nodesPageSource).toContain(
+		"findDuplicateSubscriptionUrl(\n\t\t\t\t$appState.subscriptions,",
+	);
+	expect(nodesPageSource).toContain(
+		'$t("A node with the same raw URI already exists: {name}"',
+	);
+	expect(nodesPageSource).toContain(
+		'$t("A subscription with the same URL already exists: {name}"',
+	);
+});
+
+test("nodes page makes saved resource names unique", () => {
+	expect(nodesPageSource).toContain("function uniqueNodeName");
+	expect(nodesPageSource).toContain("function uniqueSubscriptionName");
+	expect(nodesPageSource).toContain("makeUniqueResourceName(");
+	expect(nodesPageSource).toContain("formatResourceNameTimestamp()");
 });
 
 test("resource deletion interpolates the target name in confirmation and toast text", () => {

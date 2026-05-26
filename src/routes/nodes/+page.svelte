@@ -44,6 +44,12 @@ import {
 	inferNodeTypeFromRaw,
 	loadSubscriptionContent,
 } from "$lib/subscription";
+import {
+	findDuplicateNodeRaw,
+	findDuplicateSubscriptionUrl,
+	formatResourceNameTimestamp,
+	makeUniqueResourceName,
+} from "$lib/resource-dedupe";
 import { cn } from "$lib/utils/cn";
 import { createId } from "$lib/utils/id";
 import { nowIso } from "$lib/utils/time";
@@ -196,17 +202,49 @@ function updateNodeDraftRaw(id: string, value: string) {
 	draft.type = inferNodeTypeFromDraft(value, draft.type);
 }
 
+function uniqueNodeName(name: string, excludeId?: string) {
+	return makeUniqueResourceName(
+		name,
+		$appState.nodes
+			.filter((node) => node.id !== excludeId)
+			.map((node) => node.name),
+		formatResourceNameTimestamp(),
+	);
+}
+
+function uniqueSubscriptionName(name: string, excludeId?: string) {
+	return makeUniqueResourceName(
+		name,
+		$appState.subscriptions
+			.filter((subscription) => subscription.id !== excludeId)
+			.map((subscription) => subscription.name),
+		formatResourceNameTimestamp(),
+	);
+}
+
 function handleAdd() {
 	if (addMode === "single") {
 		if (activeTab === "nodes") {
-			if (!nodeRaw.trim()) return;
+			const raw = nodeRaw.trim();
+			if (!raw) return;
+			const duplicate = findDuplicateNodeRaw($appState.nodes, raw);
+			if (duplicate) {
+				showToastNotify(
+					$t("A node with the same raw URI already exists: {name}", {
+						name: duplicate.name,
+					}),
+					"error",
+				);
+				return;
+			}
+			const name = uniqueNodeName(
+				nodeName.trim() || inferNodeNameFromRaw(raw, "Imported Node"),
+			);
 			upsertNode({
 				id: createId("node"),
-				name:
-					nodeName.trim() ||
-					inferNodeNameFromRaw(nodeRaw.trim(), "Imported Node"),
-				type: inferNodeTypeFromDraft(nodeRaw, nodeType),
-				raw: nodeRaw.trim(),
+				name,
+				type: inferNodeTypeFromDraft(raw, nodeType),
+				raw,
 				tags: parseTags(nodeTags),
 				enabled: true,
 				updatedAt: nowIso(),
@@ -216,11 +254,26 @@ function handleAdd() {
 			nodeRaw = "";
 			nodeTags = "";
 		} else {
-			if (!subName.trim() || !subUrl.trim()) return;
+			const url = subUrl.trim();
+			if (!subName.trim() || !url) return;
+			const duplicate = findDuplicateSubscriptionUrl(
+				$appState.subscriptions,
+				url,
+			);
+			if (duplicate) {
+				showToastNotify(
+					$t("A subscription with the same URL already exists: {name}", {
+						name: duplicate.name,
+					}),
+					"error",
+				);
+				return;
+			}
+			const name = uniqueSubscriptionName(subName.trim());
 			upsertSubscription({
 				id: createId("sub"),
-				name: subName.trim(),
-				url: subUrl.trim(),
+				name,
+				url,
 				enabled: true,
 				tags: parseTags(subTags),
 				updatedAt: nowIso(),
@@ -239,23 +292,46 @@ function handleAdd() {
 		let count = 0;
 
 		if (activeTab === "nodes") {
+			const seenRaw = new Set(
+				$appState.nodes.map((node) => node.raw.trim()),
+			);
+			let importedNames = $appState.nodes.map((node) => node.name);
 			for (const line of lines) {
 				const nodes = extractSubscriptionNodeLines(line);
 				for (const raw of nodes) {
+					const normalizedRaw = raw.trim();
+					if (seenRaw.has(normalizedRaw)) {
+						continue;
+					}
+					const name = makeUniqueResourceName(
+						inferNodeNameFromRaw(normalizedRaw, `Imported Node ${count + 1}`),
+						importedNames,
+						formatResourceNameTimestamp(),
+					);
 					upsertNode({
 						id: createId("node"),
-						name: inferNodeNameFromRaw(raw, `Imported Node ${count + 1}`),
-						type: inferNodeTypeFromRaw(raw),
-						raw,
+						name,
+						type: inferNodeTypeFromRaw(normalizedRaw),
+						raw: normalizedRaw,
 						tags: parseTags(batchTags),
 						enabled: true,
 						updatedAt: nowIso(),
 						source: "single",
 					});
+					seenRaw.add(normalizedRaw);
+					importedNames = [name, ...importedNames];
 					count++;
 				}
 			}
 		} else {
+			const seenUrl = new Set(
+				$appState.subscriptions.map((subscription) =>
+					subscription.url.trim(),
+				),
+			);
+			let importedNames = $appState.subscriptions.map(
+				(subscription) => subscription.name,
+			);
 			for (const line of lines) {
 				// Support "Name = URL" or just "URL"
 				const parts = line.split("=").map((p) => p.trim());
@@ -274,6 +350,14 @@ function handleAdd() {
 				}
 
 				if (url.includes("://")) {
+					if (seenUrl.has(url)) {
+						continue;
+					}
+					name = makeUniqueResourceName(
+						name,
+						importedNames,
+						formatResourceNameTimestamp(),
+					);
 					upsertSubscription({
 						id: createId("sub"),
 						name,
@@ -282,6 +366,8 @@ function handleAdd() {
 						tags: parseTags(batchTags),
 						updatedAt: nowIso(),
 					});
+					seenUrl.add(url);
+					importedNames = [name, ...importedNames];
 					count++;
 				}
 			}
@@ -312,11 +398,22 @@ function saveEditNode(id: string) {
 	const draft = nodeDrafts[id];
 	const original = $appState.nodes.find((n) => n.id === id);
 	if (!draft || !original) return;
+	const raw = draft.raw.trim();
+	const duplicate = findDuplicateNodeRaw($appState.nodes, raw, id);
+	if (duplicate) {
+		showToastNotify(
+			$t("A node with the same raw URI already exists: {name}", {
+				name: duplicate.name,
+			}),
+			"error",
+		);
+		return;
+	}
 	upsertNode({
 		...original,
-		name: draft.name.trim(),
-		type: inferNodeTypeFromDraft(draft.raw, draft.type),
-		raw: draft.raw.trim(),
+		name: uniqueNodeName(draft.name.trim(), id),
+		type: inferNodeTypeFromDraft(raw, draft.type),
+		raw,
 		tags: parseTags(draft.tags),
 		updatedAt: nowIso(),
 	});
@@ -341,11 +438,26 @@ function saveEditSub(id: string) {
 	const draft = subDrafts[id];
 	const original = $appState.subscriptions.find((s) => s.id === id);
 	if (!draft || !original) return;
+	const url = draft.url.trim();
+	const duplicate = findDuplicateSubscriptionUrl(
+		$appState.subscriptions,
+		url,
+		id,
+	);
+	if (duplicate) {
+		showToastNotify(
+			$t("A subscription with the same URL already exists: {name}", {
+				name: duplicate.name,
+			}),
+			"error",
+		);
+		return;
+	}
 
 	upsertSubscription({
 		...original,
-		name: draft.name.trim(),
-		url: draft.url.trim(),
+		name: uniqueSubscriptionName(draft.name.trim(), id),
+		url,
 		tags: parseTags(draft.tags),
 		updatedAt: nowIso(),
 	});
