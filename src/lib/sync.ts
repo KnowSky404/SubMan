@@ -14,6 +14,7 @@ import type { AppState } from "$lib/models";
 const DEFAULT_DELAY = 1200;
 const BASELINE_KEY = "subman:sync:baseline";
 const BASELINE_STATE_KEY = "subman:sync:baseline-state";
+const BASELINE_EVENT = "subman:sync:baseline";
 const AUTO_SYNC_STATUS_KEY = "subman:sync:last-status:v1";
 const AUTO_SYNC_STATUS_EVENT = "subman:auto-sync-status";
 
@@ -25,6 +26,11 @@ export type AutoSyncStatus = {
 	lastErrorAt: string | null;
 	lastErrorMessage: string | null;
 	lastSyncedFile: string | null;
+};
+
+type SyncBaselineEvent = {
+	baseline: string;
+	state: AppState | null;
 };
 
 const defaultAutoSyncStatus: AutoSyncStatus = {
@@ -107,6 +113,17 @@ function writeAutoSyncStatus(next: AutoSyncStatus): void {
 	);
 }
 
+function dispatchBaselineEvent(baseline: string, state: AppState | null): void {
+	if (!browser) {
+		return;
+	}
+	window.dispatchEvent(
+		new CustomEvent<SyncBaselineEvent>(BASELINE_EVENT, {
+			detail: { baseline, state },
+		}),
+	);
+}
+
 export function getAutoSyncStatusEventName(): string {
 	return AUTO_SYNC_STATUS_EVENT;
 }
@@ -116,6 +133,7 @@ export function setSyncBaseline(baseline: string, state?: AppState): void {
 	if (state) {
 		writeBaselineState(state);
 	}
+	dispatchBaselineEvent(baseline, state ?? readBaselineState());
 }
 
 function mergeItemsByBaseline<T extends { id: string; updatedAt: string }>(
@@ -248,6 +266,13 @@ export function startAutoSync(delayMs: number = DEFAULT_DELAY): () => void {
 	const authUnsub = authState.subscribe((state) => {
 		token = state.token;
 	});
+
+	const handleBaselineChange = (event: Event) => {
+		const detail = (event as CustomEvent<SyncBaselineEvent>).detail;
+		lastSignature = detail.baseline;
+		baselineState = detail.state;
+	};
+	window.addEventListener(BASELINE_EVENT, handleBaselineChange);
 
 	const appUnsub = appState.subscribe((state) => {
 		latestState = state;
@@ -384,6 +409,7 @@ export function startAutoSync(delayMs: number = DEFAULT_DELAY): () => void {
 	}
 
 	return () => {
+		window.removeEventListener(BASELINE_EVENT, handleBaselineChange);
 		authUnsub();
 		appUnsub();
 		if (timer) {

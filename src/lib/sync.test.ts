@@ -21,6 +21,7 @@ const { afterEach, mock } = bun;
 const mockModule = bun.mock.module;
 
 const storage = new Map<string, string>();
+const listeners = new Map<string, Set<(event: Event) => void>>();
 const createGist = mock(async () => ({ id: "gist-1" }));
 const getGist = mock(async () => ({ id: "gist-1" }));
 let onUpdateGist: (() => void | Promise<void>) | null = null;
@@ -63,7 +64,28 @@ Object.defineProperty(globalThis, "localStorage", {
 
 Object.defineProperty(globalThis, "window", {
 	value: {
-		dispatchEvent: mock(() => true),
+		addEventListener: (
+			type: string,
+			listener: EventListenerOrEventListenerObject,
+		) => {
+			if (typeof listener !== "function") return;
+			const typeListeners = listeners.get(type) ?? new Set();
+			typeListeners.add(listener);
+			listeners.set(type, typeListeners);
+		},
+		removeEventListener: (
+			type: string,
+			listener: EventListenerOrEventListenerObject,
+		) => {
+			if (typeof listener !== "function") return;
+			listeners.get(type)?.delete(listener);
+		},
+		dispatchEvent: (event: Event) => {
+			for (const listener of listeners.get(event.type) ?? []) {
+				listener(event);
+			}
+			return true;
+		},
 	},
 	configurable: true,
 });
@@ -101,6 +123,7 @@ afterEach(async () => {
 	const { appState, defaultState } = await import("$lib/stores/app");
 	const { authState } = await import("$lib/stores/auth");
 	storage.clear();
+	listeners.clear();
 	createGist.mockClear();
 	getGist.mockClear();
 	updateGist.mockClear();
@@ -206,6 +229,53 @@ test("auto-sync keeps remote deletions when merging from the saved baseline", as
 	authState.set({ token: "token-1", lastLoginAt: "2026-05-01T00:00:00.000Z" });
 
 	const stop = startAutoSync(0);
+	appState.set(localState);
+	await flushTimers();
+	stop();
+
+	expect(updateGist.mock.calls.length).toBe(1);
+	expect(getSavedState().nodes.map((item) => item.id).sort()).toEqual([
+		"kept-node",
+		"local-node",
+	]);
+});
+
+test("auto-sync uses a baseline saved after auto-sync has started", async () => {
+	const [
+		{ appState },
+		{ authState },
+		{ exportSyncState, getSyncStateSignature },
+		{ setSyncBaseline, startAutoSync },
+	] = await Promise.all([
+		import("$lib/stores/app"),
+		import("$lib/stores/auth"),
+		import("$lib/serialization"),
+		import("$lib/sync"),
+	]);
+
+	const baselineState = await baseState({
+		nodes: [
+			node("kept-node", "2026-05-01T00:00:00.000Z"),
+			node("deleted-remotely", "2026-05-01T00:00:00.000Z"),
+		],
+	});
+	const remoteState = await baseState({
+		nodes: [node("kept-node", "2026-05-01T00:00:00.000Z")],
+		lastUpdated: "2026-05-02T00:00:00.000Z",
+	});
+	const localState = await baseState({
+		nodes: [
+			node("kept-node", "2026-05-01T00:00:00.000Z"),
+			node("deleted-remotely", "2026-05-01T00:00:00.000Z"),
+			node("local-node", "2026-05-03T00:00:00.000Z"),
+		],
+		lastUpdated: "2026-05-03T00:00:00.000Z",
+	});
+
+	const stop = startAutoSync(0);
+	setBaseline(setSyncBaseline, getSyncStateSignature, baselineState);
+	getGistFileContent.mockResolvedValueOnce(exportSyncState(remoteState));
+	authState.set({ token: "token-1", lastLoginAt: "2026-05-01T00:00:00.000Z" });
 	appState.set(localState);
 	await flushTimers();
 	stop();
