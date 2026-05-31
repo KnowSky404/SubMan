@@ -1,7 +1,12 @@
 import { get } from "svelte/store";
 import { browser } from "$app/environment";
-import { updateGist } from "$lib/gist";
-import { exportSyncState, getSyncStateSignature } from "$lib/serialization";
+import { getGistFileContent, updateGist } from "$lib/gist";
+import { mergeSyncState } from "$lib/merge";
+import {
+	exportSyncState,
+	getSyncStateSignature,
+	importState,
+} from "$lib/serialization";
 import { appState } from "$lib/stores/app";
 import { authState } from "$lib/stores/auth";
 
@@ -138,7 +143,6 @@ export function startAutoSync(delayMs: number = DEFAULT_DELAY): () => void {
 			return;
 		}
 
-		const payload = exportSyncState(latestState);
 		syncing = true;
 		const attemptedAt = new Date().toISOString();
 		const syncedFile = latestState.activeGistFile || "subman.json";
@@ -150,14 +154,52 @@ export function startAutoSync(delayMs: number = DEFAULT_DELAY): () => void {
 			lastErrorMessage: null,
 		});
 		try {
+			let stateToSave = latestState;
+			let signatureToSave = signature;
+			const remoteContent = await getGistFileContent(
+				token,
+				latestState.activeGistId,
+				syncedFile,
+			);
+			const remoteState = importState(remoteContent);
+			const remoteSignature = getSyncStateSignature(remoteState);
+
+			if (remoteSignature === signature) {
+				lastSignature = signature;
+				writeBaseline(signature);
+				updateStatus({
+					status: "success",
+					gistId: latestState.activeGistId,
+					lastSuccessAt: attemptedAt,
+					lastErrorMessage: null,
+					lastSyncedFile: syncedFile,
+				});
+				return;
+			}
+
+			if (remoteSignature !== lastSignature) {
+				stateToSave = {
+					...latestState,
+					...mergeSyncState(latestState, remoteState),
+					activeGistId: latestState.activeGistId,
+					activeGistFile: syncedFile,
+				};
+				signatureToSave = getSyncStateSignature(stateToSave);
+			}
+
+			const payload = exportSyncState(stateToSave);
 			await updateGist(token, {
 				gistId: latestState.activeGistId,
 				files: {
 					[syncedFile]: { content: payload },
 				},
 			});
-			lastSignature = signature;
-			writeBaseline(signature);
+			lastSignature = signatureToSave;
+			writeBaseline(signatureToSave);
+			if (stateToSave !== latestState) {
+				latestState = stateToSave;
+				appState.set(stateToSave);
+			}
 			updateStatus({
 				status: "success",
 				gistId: latestState.activeGistId,
