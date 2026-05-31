@@ -66,12 +66,13 @@ async function handleTokenSave() {
 		const { gist, created } = await ensureWorkspaceGist(token, localPayload);
 
 		if (created) {
-			appState.update((s) => ({
-				...s,
+			const nextState = {
+				...$appState,
 				activeGistId: gist.id,
 				lastUpdated: new Date().toISOString(),
-			}));
-			setSyncBaseline(localSignature);
+			};
+			appState.set(nextState);
+			setSyncBaseline(getSyncStateSignature(nextState), nextState);
 			setStatus($t("Workspace created and connected"), "success");
 			tokenInput = "";
 			return;
@@ -88,7 +89,7 @@ async function handleTokenSave() {
 
 		if (remoteSignature === localSignature) {
 			appState.update((s) => ({ ...s, activeGistId: gist.id }));
-			setSyncBaseline(remoteSignature);
+			setSyncBaseline(remoteSignature, remoteState);
 			setStatus($t("Workspace connected (In Sync)"), "success");
 			tokenInput = "";
 		} else {
@@ -134,7 +135,7 @@ function setLocalStateAndBaseline(nextState: AppState, gistId: string) {
 	const nextLocalState = { ...nextState, activeGistId: gistId };
 	replaceState(nextLocalState);
 	appState.update((state) => {
-		setSyncBaseline(getSyncStateSignature(state));
+		setSyncBaseline(getSyncStateSignature(state), state);
 		return state;
 	});
 }
@@ -165,7 +166,7 @@ async function handleResolveConflict(action: "local" | "remote" | "merge") {
 				files: { [WORKSPACE_FILE]: { content: localPayload } },
 			});
 			appState.update((s) => ({ ...s, activeGistId: currentConflict.gistId }));
-			setSyncBaseline(currentConflict.localSignature);
+			setSyncBaseline(currentConflict.localSignature, $appState);
 			setStatus($t("Local data pushed to Gist"), "success");
 		} else {
 			const mergedState = {
@@ -246,7 +247,7 @@ async function handleManualPush() {
 			gistId,
 			files: { [WORKSPACE_FILE]: { content: localPayload } },
 		});
-		setSyncBaseline(localSignature);
+		setSyncBaseline(localSignature, $appState);
 		setStatus($t("Pushed successfully"), "success");
 	} catch (err) {
 		setStatus($t("Push failed"), "error");

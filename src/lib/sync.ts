@@ -9,9 +9,11 @@ import {
 } from "$lib/serialization";
 import { appState } from "$lib/stores/app";
 import { authState } from "$lib/stores/auth";
+import type { AppState } from "$lib/models";
 
 const DEFAULT_DELAY = 1200;
 const BASELINE_KEY = "subman:sync:baseline";
+const BASELINE_STATE_KEY = "subman:sync:baseline-state";
 const AUTO_SYNC_STATUS_KEY = "subman:sync:last-status:v1";
 const AUTO_SYNC_STATUS_EVENT = "subman:auto-sync-status";
 
@@ -47,6 +49,30 @@ function writeBaseline(baseline: string): void {
 		return;
 	}
 	localStorage.setItem(BASELINE_KEY, baseline);
+}
+
+function readBaselineState(): AppState | null {
+	if (!browser) {
+		return null;
+	}
+
+	const raw = localStorage.getItem(BASELINE_STATE_KEY);
+	if (!raw) {
+		return null;
+	}
+
+	try {
+		return importState(raw);
+	} catch {
+		return null;
+	}
+}
+
+function writeBaselineState(state: AppState): void {
+	if (!browser) {
+		return;
+	}
+	localStorage.setItem(BASELINE_STATE_KEY, exportSyncState(state));
 }
 
 export function readAutoSyncStatus(): AutoSyncStatus {
@@ -85,8 +111,124 @@ export function getAutoSyncStatusEventName(): string {
 	return AUTO_SYNC_STATUS_EVENT;
 }
 
-export function setSyncBaseline(baseline: string): void {
+export function setSyncBaseline(baseline: string, state?: AppState): void {
 	writeBaseline(baseline);
+	if (state) {
+		writeBaselineState(state);
+	}
+}
+
+function mergeItemsByBaseline<T extends { id: string; updatedAt: string }>(
+	localItems: T[],
+	remoteItems: T[],
+	baselineItems: T[],
+): T[] {
+	const localById = new Map(localItems.map((item) => [item.id, item]));
+	const remoteById = new Map(remoteItems.map((item) => [item.id, item]));
+	const baselineById = new Map(baselineItems.map((item) => [item.id, item]));
+	const ids = new Set([
+		...localById.keys(),
+		...remoteById.keys(),
+		...baselineById.keys(),
+	]);
+	const merged: T[] = [];
+
+	for (const id of ids) {
+		const localItem = localById.get(id);
+		const remoteItem = remoteById.get(id);
+		const baselineItem = baselineById.get(id);
+
+		if (!baselineItem) {
+			if (localItem && remoteItem) {
+				merged.push(
+					Date.parse(remoteItem.updatedAt) >= Date.parse(localItem.updatedAt)
+						? remoteItem
+						: localItem,
+				);
+			} else if (localItem) {
+				merged.push(localItem);
+			} else if (remoteItem) {
+				merged.push(remoteItem);
+			}
+			continue;
+		}
+
+		if (!localItem && !remoteItem) {
+			continue;
+		}
+
+		const localChanged =
+			Boolean(localItem) &&
+			JSON.stringify(localItem) !== JSON.stringify(baselineItem);
+		const remoteChanged =
+			Boolean(remoteItem) &&
+			JSON.stringify(remoteItem) !== JSON.stringify(baselineItem);
+
+		if (!localItem && remoteItem) {
+			if (remoteChanged) {
+				merged.push(remoteItem);
+			}
+			continue;
+		}
+
+		if (localItem && !remoteItem) {
+			if (localChanged) {
+				merged.push(localItem);
+			}
+			continue;
+		}
+
+		if (localItem && remoteItem && localChanged && !remoteChanged) {
+			merged.push(localItem);
+			continue;
+		}
+
+		if (localItem && remoteItem && remoteChanged && !localChanged) {
+			merged.push(remoteItem);
+			continue;
+		}
+
+		if (localItem && remoteItem) {
+			merged.push(
+				Date.parse(remoteItem.updatedAt) >= Date.parse(localItem.updatedAt)
+					? remoteItem
+					: localItem,
+			);
+		}
+	}
+
+	return merged;
+}
+
+function mergeSyncStateFromBaseline(
+	local: AppState,
+	remote: AppState,
+	baseline: AppState,
+): AppState {
+	return {
+		...local,
+		nodes: mergeItemsByBaseline(local.nodes, remote.nodes, baseline.nodes),
+		subscriptions: mergeItemsByBaseline(
+			local.subscriptions,
+			remote.subscriptions,
+			baseline.subscriptions,
+		),
+		aggregates: mergeItemsByBaseline(
+			local.aggregates,
+			remote.aggregates,
+			baseline.aggregates,
+		),
+		publishTargets: mergeItemsByBaseline(
+			local.publishTargets,
+			remote.publishTargets,
+			baseline.publishTargets,
+		),
+		clientExports: mergeItemsByBaseline(
+			local.clientExports ?? [],
+			remote.clientExports ?? [],
+			baseline.clientExports ?? [],
+		),
+	};
 }
 
 export function startAutoSync(delayMs: number = DEFAULT_DELAY): () => void {
@@ -99,6 +241,7 @@ export function startAutoSync(delayMs: number = DEFAULT_DELAY): () => void {
 	let syncing = false;
 	let pending = false;
 	let lastSignature = readBaseline();
+	let baselineState = readBaselineState();
 	let latestState = get(appState);
 	let lastStatus = readAutoSyncStatus();
 
@@ -138,27 +281,29 @@ export function startAutoSync(delayMs: number = DEFAULT_DELAY): () => void {
 			return;
 		}
 
-		const signature = getSyncStateSignature(latestState);
+		const syncStartState = latestState;
+		const syncStartGistId: string = latestState.activeGistId;
+		const signature = getSyncStateSignature(syncStartState);
 		if (signature === lastSignature) {
 			return;
 		}
 
 		syncing = true;
 		const attemptedAt = new Date().toISOString();
-		const syncedFile = latestState.activeGistFile || "subman.json";
+		const syncedFile = syncStartState.activeGistFile || "subman.json";
 		updateStatus({
 			status: "syncing",
-			gistId: latestState.activeGistId,
+			gistId: syncStartGistId,
 			lastAttemptAt: attemptedAt,
 			lastSyncedFile: syncedFile,
 			lastErrorMessage: null,
 		});
 		try {
-			let stateToSave = latestState;
+			let stateToSave = syncStartState;
 			let signatureToSave = signature;
 			const remoteContent = await getGistFileContent(
 				token,
-				latestState.activeGistId,
+				syncStartGistId,
 				syncedFile,
 			);
 			const remoteState = importState(remoteContent);
@@ -167,9 +312,11 @@ export function startAutoSync(delayMs: number = DEFAULT_DELAY): () => void {
 			if (remoteSignature === signature) {
 				lastSignature = signature;
 				writeBaseline(signature);
+				writeBaselineState(syncStartState);
+				baselineState = syncStartState;
 				updateStatus({
 					status: "success",
-					gistId: latestState.activeGistId,
+					gistId: syncStartGistId,
 					lastSuccessAt: attemptedAt,
 					lastErrorMessage: null,
 					lastSyncedFile: syncedFile,
@@ -178,10 +325,15 @@ export function startAutoSync(delayMs: number = DEFAULT_DELAY): () => void {
 			}
 
 			if (remoteSignature !== lastSignature) {
+				stateToSave = baselineState
+					? mergeSyncStateFromBaseline(syncStartState, remoteState, baselineState)
+					: {
+							...syncStartState,
+							...mergeSyncState(syncStartState, remoteState),
+						};
 				stateToSave = {
-					...latestState,
-					...mergeSyncState(latestState, remoteState),
-					activeGistId: latestState.activeGistId,
+					...stateToSave,
+					activeGistId: syncStartGistId,
 					activeGistFile: syncedFile,
 				};
 				signatureToSave = getSyncStateSignature(stateToSave);
@@ -189,20 +341,26 @@ export function startAutoSync(delayMs: number = DEFAULT_DELAY): () => void {
 
 			const payload = exportSyncState(stateToSave);
 			await updateGist(token, {
-				gistId: latestState.activeGistId,
+				gistId: syncStartGistId,
 				files: {
 					[syncedFile]: { content: payload },
 				},
 			});
 			lastSignature = signatureToSave;
 			writeBaseline(signatureToSave);
-			if (stateToSave !== latestState) {
+			writeBaselineState(stateToSave);
+			baselineState = stateToSave;
+			if (stateToSave !== syncStartState && latestState === syncStartState) {
 				latestState = stateToSave;
 				appState.set(stateToSave);
+			} else if (stateToSave !== syncStartState) {
+				appState.set(
+					mergeSyncStateFromBaseline(latestState, stateToSave, syncStartState),
+				);
 			}
 			updateStatus({
 				status: "success",
-				gistId: latestState.activeGistId,
+				gistId: syncStartGistId,
 				lastSuccessAt: attemptedAt,
 				lastErrorMessage: null,
 				lastSyncedFile: syncedFile,

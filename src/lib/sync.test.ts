@@ -1,4 +1,5 @@
 import * as bunTest from "bun:test";
+import { get } from "svelte/store";
 import type { AppState, NodeItem } from "$lib/models";
 
 type MockedFunction<T extends (...args: never[]) => unknown> = T & {
@@ -22,7 +23,11 @@ const mockModule = bun.mock.module;
 const storage = new Map<string, string>();
 const createGist = mock(async () => ({ id: "gist-1" }));
 const getGist = mock(async () => ({ id: "gist-1" }));
-const updateGist = mock(async () => ({ id: "gist-1" }));
+let onUpdateGist: (() => void | Promise<void>) | null = null;
+const updateGist = mock(async () => {
+	await onUpdateGist?.();
+	return { id: "gist-1" };
+});
 const getGistFileContent = mock(async () => "");
 const listGists = mock(async () => []);
 const toStableGistRawUrl = mock((rawUrl?: string | null) => rawUrl ?? undefined);
@@ -102,9 +107,28 @@ afterEach(async () => {
 	getGistFileContent.mockClear();
 	listGists.mockClear();
 	toStableGistRawUrl.mockClear();
+	onUpdateGist = null;
 	appState.set(defaultState);
 	authState.set({ token: null, lastLoginAt: null });
 });
+
+function setBaseline(
+	setSyncBaseline: (baseline: string, state?: AppState) => void,
+	getSyncStateSignature: (state: AppState) => string,
+	state: AppState,
+): void {
+	setSyncBaseline(getSyncStateSignature(state), state);
+}
+
+function getSavedState(): AppState {
+	const payload = updateGist.mock.calls[0]?.[1] as {
+		files: Record<string, { content: string }>;
+	};
+	const saved = JSON.parse(payload.files["subman.json"].content) as {
+		data: AppState;
+	};
+	return saved.data;
+}
 
 test("auto-sync merges remote changes before writing when remote diverged from baseline", async () => {
 	const [
@@ -129,7 +153,7 @@ test("auto-sync merges remote changes before writing when remote diverged from b
 		lastUpdated: "2026-05-03T00:00:00.000Z",
 	});
 
-	setSyncBaseline(getSyncStateSignature(baselineState));
+	setBaseline(setSyncBaseline, getSyncStateSignature, baselineState);
 	getGistFileContent.mockResolvedValueOnce(exportSyncState(remoteState));
 	authState.set({ token: "token-1", lastLoginAt: "2026-05-01T00:00:00.000Z" });
 
@@ -139,14 +163,106 @@ test("auto-sync merges remote changes before writing when remote diverged from b
 	stop();
 
 	expect(updateGist.mock.calls.length).toBe(1);
-	const payload = updateGist.mock.calls[0]?.[1] as {
-		files: Record<string, { content: string }>;
-	};
-	const saved = JSON.parse(payload.files["subman.json"].content) as {
-		data: AppState;
-	};
-	expect(saved.data.nodes.map((item) => item.id).sort()).toEqual([
+	expect(getSavedState().nodes.map((item) => item.id).sort()).toEqual([
 		"local-node",
+		"remote-node",
+	]);
+});
+
+test("auto-sync keeps remote deletions when merging from the saved baseline", async () => {
+	const [
+		{ appState },
+		{ authState },
+		{ exportSyncState, getSyncStateSignature },
+		{ setSyncBaseline, startAutoSync },
+	] = await Promise.all([
+		import("$lib/stores/app"),
+		import("$lib/stores/auth"),
+		import("$lib/serialization"),
+		import("$lib/sync"),
+	]);
+
+	const baselineState = await baseState({
+		nodes: [
+			node("kept-node", "2026-05-01T00:00:00.000Z"),
+			node("deleted-remotely", "2026-05-01T00:00:00.000Z"),
+		],
+	});
+	const remoteState = await baseState({
+		nodes: [node("kept-node", "2026-05-01T00:00:00.000Z")],
+		lastUpdated: "2026-05-02T00:00:00.000Z",
+	});
+	const localState = await baseState({
+		nodes: [
+			node("kept-node", "2026-05-01T00:00:00.000Z"),
+			node("deleted-remotely", "2026-05-01T00:00:00.000Z"),
+			node("local-node", "2026-05-03T00:00:00.000Z"),
+		],
+		lastUpdated: "2026-05-03T00:00:00.000Z",
+	});
+
+	setBaseline(setSyncBaseline, getSyncStateSignature, baselineState);
+	getGistFileContent.mockResolvedValueOnce(exportSyncState(remoteState));
+	authState.set({ token: "token-1", lastLoginAt: "2026-05-01T00:00:00.000Z" });
+
+	const stop = startAutoSync(0);
+	appState.set(localState);
+	await flushTimers();
+	stop();
+
+	expect(updateGist.mock.calls.length).toBe(1);
+	expect(getSavedState().nodes.map((item) => item.id).sort()).toEqual([
+		"kept-node",
+		"local-node",
+	]);
+});
+
+test("auto-sync does not overwrite local edits made while a merge sync is in flight", async () => {
+	const [
+		{ appState },
+		{ authState },
+		{ exportSyncState, getSyncStateSignature },
+		{ setSyncBaseline, startAutoSync },
+	] = await Promise.all([
+		import("$lib/stores/app"),
+		import("$lib/stores/auth"),
+		import("$lib/serialization"),
+		import("$lib/sync"),
+	]);
+
+	const baselineState = await baseState();
+	const remoteState = await baseState({
+		nodes: [node("remote-node", "2026-05-02T00:00:00.000Z")],
+		lastUpdated: "2026-05-02T00:00:00.000Z",
+	});
+	const firstLocalState = await baseState({
+		nodes: [node("first-local-node", "2026-05-03T00:00:00.000Z")],
+		lastUpdated: "2026-05-03T00:00:00.000Z",
+	});
+	const interveningLocalState = await baseState({
+		nodes: [
+			node("first-local-node", "2026-05-03T00:00:00.000Z"),
+			node("intervening-local-node", "2026-05-04T00:00:00.000Z"),
+		],
+		lastUpdated: "2026-05-04T00:00:00.000Z",
+	});
+
+	setBaseline(setSyncBaseline, getSyncStateSignature, baselineState);
+	getGistFileContent.mockResolvedValueOnce(exportSyncState(remoteState));
+	authState.set({ token: "token-1", lastLoginAt: "2026-05-01T00:00:00.000Z" });
+	onUpdateGist = () => {
+		appState.set(interveningLocalState);
+	};
+
+	const stop = startAutoSync(0);
+	appState.set(firstLocalState);
+	await flushTimers();
+	stop();
+
+	const currentState = get(appState);
+	expect(currentState?.nodes.map((item) => item.id).sort()).toEqual([
+		"first-local-node",
+		"intervening-local-node",
 		"remote-node",
 	]);
 });
