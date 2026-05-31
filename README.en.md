@@ -51,6 +51,27 @@ Default workspace identity:
 - Conflict resolution options: local overwrite, remote overwrite, merge, or bind only
 - Health check and repair are available from workspace settings
 
+## FAQ
+
+### Will auto sync overwrite remote data with my local copy?
+Not blindly. After a workspace is connected, local browser edits trigger auto sync. Before writing to the Gist, SubMan reads the remote `subman.json` and compares it with the saved sync baseline.
+
+- If the remote file has not changed, SubMan writes the current local state.
+- If the remote file also changed, SubMan performs a three-way merge using the last sync baseline, the local state, and the remote state, then saves the merged result.
+- If the remote side deleted an item and the local side only still has the old copy, auto-merge preserves the remote deletion instead of restoring that item to the Gist.
+- If you keep editing while an auto sync is in flight, the older sync snapshot will not replace those newer local edits. The newer local edits are kept and handled by the next sync.
+
+### Which actions still overwrite the remote workspace?
+Manual Push Local and the conflict-resolution choice to overwrite remote with local are explicit overwrite actions. After confirmation, they write the current local state to the Workspace Gist. Use them when you know the local data is the source of truth.
+
+### What should I choose when local and remote differ during workspace setup?
+The `/auth` page shows conflict-resolution options:
+
+- Pull Remote: replace the local view with remote data.
+- Push Local: write current local data to the Gist.
+- Merge & Save: merge local and remote items by `updatedAt`, then save.
+- Bind only: bind the workspace without syncing immediately.
+
 ## Development
 ```bash
 bun install
