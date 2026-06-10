@@ -9,7 +9,16 @@ import Octicon from "$lib/components/Octicon.svelte";
 import { createGist, toStableGistRawUrl, updateGist } from "$lib/gist";
 import { t } from "$lib/i18n";
 import type { ClientExportProfile } from "$lib/models";
-import { copy, download, fileCode, trash, upload } from "$lib/octicons";
+import {
+	checkCircle,
+	copy,
+	database,
+	download,
+	fileCode,
+	pencil,
+	trash,
+	upload,
+} from "$lib/octicons";
 import { exportSyncState } from "$lib/serialization";
 import {
 	appState,
@@ -137,6 +146,10 @@ function selectProfile(profileId: string): void {
 	clearPreview();
 }
 
+function editProfile(profile: ClientExportProfile): void {
+	selectProfile(profile.id);
+}
+
 function createProfile(): void {
 	if (!firstRule) return;
 
@@ -247,6 +260,13 @@ async function downloadPreview(): Promise<void> {
 	link.click();
 	link.remove();
 	URL.revokeObjectURL(url);
+}
+
+async function copyPublishedUrl(): Promise<void> {
+	if (!selectedProfile?.lastPublishedUrl) return;
+
+	await navigator.clipboard.writeText(selectedProfile.lastPublishedUrl);
+	showToast($t("Link copied to clipboard"), "success");
 }
 
 async function publishPreview(): Promise<void> {
@@ -428,7 +448,17 @@ async function publishPreview(): Promise<void> {
 										<div class="min-w-0 text-sm text-fg-muted">
 											{getProfileRuleName(profile)}
 										</div>
-										<div class="flex justify-end">
+										<div class="flex justify-end gap-2">
+											<button
+												type="button"
+												class="gh-btn gh-btn-sm"
+												on:click={() => editProfile(profile)}
+												aria-label={$t("Edit export profile")}
+												title={$t("Edit export profile")}
+											>
+												<Octicon icon={pencil} className="h-3.5 w-3.5" />
+												{$t("Edit")}
+											</button>
 											<button
 												type="button"
 												class="gh-btn gh-btn-sm gh-btn-danger"
@@ -567,6 +597,58 @@ async function publishPreview(): Promise<void> {
 						<div class="text-xs text-fg-muted">{$t("Warning Count")}</div>
 						<div class="text-lg font-semibold text-fg-default">{previewWarnings.length}</div>
 					</div>
+				</div>
+			</section>
+
+			<section class="gh-box overflow-hidden">
+				<div class="gh-box-header">
+					<h2 class="gh-section-title">
+						<Octicon icon={upload} className="h-4 w-4" />
+						{$t("Publish to Gist")}
+					</h2>
+				</div>
+				<div class="space-y-4 p-4">
+					<div class="space-y-1">
+						<div class="text-xs text-fg-muted">{$t("Output File")}</div>
+						<code class="gh-list-meta-code block truncate">
+							{selectedProfile
+								? normalizeExportFileName(selectedProfile.fileName) ||
+									"sing-box-client.json"
+								: "sing-box-client.json"}
+						</code>
+					</div>
+					<p class="text-xs leading-relaxed text-fg-muted">
+						{$t("Publish the generated JSON to the workspace gist, then copy the raw URL as a remote profile URL for compatible sing-box clients.")}
+					</p>
+					{#if $authState.token}
+						<button
+							type="button"
+							class="gh-btn gh-btn-primary w-full py-3 h-auto"
+							on:click={publishPreview}
+							disabled={publishDisabled}
+						>
+							<Octicon icon={upload} className="h-4 w-4" />
+							{publishing ? $t("Publishing...") : $t("Publish")}
+						</button>
+					{:else}
+						<a href="/auth" class="gh-btn gh-btn-primary w-full py-3 h-auto">
+							<Octicon icon={database} className="h-4 w-4" />
+							{$t("Connect to Publish")}
+						</a>
+					{/if}
+					{#if selectedProfile?.lastPublishedUrl}
+						<div class="gh-alert gh-alert-success flex-col items-stretch gap-2">
+							<div class="flex items-center justify-between text-xs font-semibold text-[color:var(--success-emphasis)]">
+								<span>{$t("Live Link")}</span>
+								<Octicon icon={checkCircle} className="h-3 w-3" />
+							</div>
+							<code class="gh-code-block break-all">{selectedProfile.lastPublishedUrl}</code>
+							<button type="button" class="gh-btn gh-btn-sm" on:click={copyPublishedUrl}>
+								<Octicon icon={copy} className="h-3 w-3" />
+								{$t("Copy remote profile URL")}
+							</button>
+						</div>
+					{/if}
 				</div>
 			</section>
 

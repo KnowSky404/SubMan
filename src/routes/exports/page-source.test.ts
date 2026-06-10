@@ -41,6 +41,8 @@ test("exports page exposes profile management actions", () => {
 	expect(exportsPageSource).toContain("removeClientExport");
 	expect(exportsPageSource).toContain("requestConfirm");
 	expect(exportsPageSource).toContain("deleteProfile");
+	expect(exportsPageSource).toContain("editProfile");
+	expect(exportsPageSource).toContain("Edit export profile");
 	expect(exportsPageSource).toContain("Delete Profile");
 	expect(exportsPageSource).toContain("Delete export profile");
 	expect(exportsPageSource).not.toContain(
@@ -74,4 +76,13 @@ test("exports page stores the exact published workspace snapshot locally", () =>
 	expect(exportsPageSource).toContain("lastUpdated: now");
 	expect(exportsPageSource).toContain("appState.set(finalAppState)");
 	expect(exportsPageSource).not.toContain("upsertClientExport(finalProfile)");
+});
+
+test("exports page exposes gist live link publishing for remote profiles", () => {
+	expect(exportsPageSource).toContain("Publish to Gist");
+	expect(exportsPageSource).toContain("Live Link");
+	expect(exportsPageSource).toContain("copyPublishedUrl");
+	expect(exportsPageSource).toContain("selectedProfile.lastPublishedUrl");
+	expect(exportsPageSource).toContain("remote profile URL");
+	expect(exportsPageSource).toContain("Connect to Publish");
 });

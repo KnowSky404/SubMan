@@ -386,6 +386,7 @@ const zhCN: Record<string, string> = {
 	"Delete export profile": "删除导出配置",
 	"Delete export profile {name}?": "删除导出配置 {name}？",
 	"Deleted export profile": "已删除导出配置",
+	"Edit export profile": "编辑导出配置",
 	"Listen Address": "监听地址",
 	"Listen Port": "监听端口",
 	"Selector Tag": "Selector 标签",
@@ -399,6 +400,9 @@ const zhCN: Record<string, string> = {
 	"Warning Count": "警告数",
 	Warnings: "警告",
 	"Select an Aggregate rule": "选择聚合规则",
+	"Copy remote profile URL": "复制远程配置 URL",
+	"Publish the generated JSON to the workspace gist, then copy the raw URL as a remote profile URL for compatible sing-box clients.":
+		"将生成的 JSON 发布到 Workspace Gist，然后复制 raw URL 作为兼容 sing-box 客户端的远程配置 URL。",
 	"No workspace": "未绑定工作区",
 	"{file} is protected. All other workspace files can be deleted.":
 		"{file} 受保护。其余工作区文件均可删除。",
