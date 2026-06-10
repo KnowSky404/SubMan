@@ -78,7 +78,10 @@ test("exports page stores the exact published workspace snapshot locally", () =>
 	expect(exportsPageSource).not.toContain("upsertClientExport(finalProfile)");
 });
 
-test("exports page clears stale live link metadata after profile edits", () => {
+test("exports page clears stale live link metadata only after output changes", () => {
+	expect(exportsPageSource).toContain("hasClientExportOutputChanged");
+	expect(exportsPageSource).toContain("const outputChanged");
+	expect(exportsPageSource).toContain("outputChanged");
 	expect(exportsPageSource).toContain("lastGeneratedAt: null");
 	expect(exportsPageSource).toContain("lastPublishedAt: null");
 	expect(exportsPageSource).toContain("lastPublishedUrl: null");

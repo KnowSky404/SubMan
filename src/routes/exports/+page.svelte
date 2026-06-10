@@ -1,6 +1,7 @@
 <script lang="ts">
 import {
 	createDefaultSingBoxClientProfile,
+	hasClientExportOutputChanged,
 	normalizeExportFileName,
 } from "$lib/client-export/profile";
 import { buildSingBoxClientConfig } from "$lib/client-export/sing-box";
@@ -170,7 +171,7 @@ function saveProfile(): void {
 	}
 
 	const now = nowIso();
-	const nextProfile: ClientExportProfile = {
+	const draftProfile: ClientExportProfile = {
 		...selectedProfile,
 		name: draftName.trim() || "sing-box Client",
 		fileName: normalizeExportFileName(draftFileName) || "sing-box-client.json",
@@ -183,11 +184,20 @@ function saveProfile(): void {
 			urlTestTag: draftUrlTestTag.trim(),
 			includeExperimental: draftIncludeExperimental,
 		},
-		lastGeneratedAt: null,
-		lastPublishedAt: null,
-		lastPublishedUrl: null,
 		updatedAt: now,
 	};
+	const outputChanged = hasClientExportOutputChanged(
+		selectedProfile,
+		draftProfile,
+	);
+	const nextProfile: ClientExportProfile = outputChanged
+		? {
+				...draftProfile,
+				lastGeneratedAt: null,
+				lastPublishedAt: null,
+				lastPublishedUrl: null,
+			}
+		: draftProfile;
 
 	upsertClientExport(nextProfile);
 	selectedProfileId = nextProfile.id;

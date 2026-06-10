@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 import type { AggregateRule, NodeItem } from "$lib/models";
 import {
 	createDefaultSingBoxClientProfile,
+	hasClientExportOutputChanged,
 	validateSingBoxClientProfile,
 } from "./profile";
 import { buildSingBoxClientConfig } from "./sing-box";
@@ -79,6 +80,47 @@ describe("sing-box client export profile", () => {
 				options: { ...profile.options, urlTestTag: " block " },
 			}).errors,
 		).toContain("Control tags cannot use direct or block");
+	});
+
+	it("does not invalidate published output for metadata-only profile changes", () => {
+		const profile = createDefaultSingBoxClientProfile(
+			"rule-1",
+			"2026-05-12T00:00:00.000Z",
+		);
+
+		expect(
+			hasClientExportOutputChanged(profile, {
+				...profile,
+				name: "Renamed profile",
+				updatedAt: "2026-05-12T01:00:00.000Z",
+			}),
+		).toBe(false);
+	});
+
+	it("invalidates published output when export-affecting fields change", () => {
+		const profile = createDefaultSingBoxClientProfile(
+			"rule-1",
+			"2026-05-12T00:00:00.000Z",
+		);
+
+		expect(
+			hasClientExportOutputChanged(profile, {
+				...profile,
+				fileName: "renamed-client.json",
+			}),
+		).toBe(true);
+		expect(
+			hasClientExportOutputChanged(profile, {
+				...profile,
+				ruleId: "rule-2",
+			}),
+		).toBe(true);
+		expect(
+			hasClientExportOutputChanged(profile, {
+				...profile,
+				options: { ...profile.options, listenPort: 2081 },
+			}),
+		).toBe(true);
 	});
 });
 

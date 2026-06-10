@@ -37,6 +37,18 @@ export function normalizeExportFileName(value: string): string {
 	return value.trim().replace(/^\/+/, "");
 }
 
+export function hasClientExportOutputChanged(
+	before: ClientExportProfile,
+	after: ClientExportProfile,
+): boolean {
+	return (
+		normalizeExportFileName(before.fileName) !==
+			normalizeExportFileName(after.fileName) ||
+		before.ruleId !== after.ruleId ||
+		JSON.stringify(before.options) !== JSON.stringify(after.options)
+	);
+}
+
 export function validateSingBoxClientProfile(profile: ClientExportProfile): {
 	errors: string[];
 } {
