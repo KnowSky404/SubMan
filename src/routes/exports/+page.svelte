@@ -183,6 +183,9 @@ function saveProfile(): void {
 			urlTestTag: draftUrlTestTag.trim(),
 			includeExperimental: draftIncludeExperimental,
 		},
+		lastGeneratedAt: null,
+		lastPublishedAt: null,
+		lastPublishedUrl: null,
 		updatedAt: now,
 	};
 

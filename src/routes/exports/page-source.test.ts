@@ -78,6 +78,12 @@ test("exports page stores the exact published workspace snapshot locally", () =>
 	expect(exportsPageSource).not.toContain("upsertClientExport(finalProfile)");
 });
 
+test("exports page clears stale live link metadata after profile edits", () => {
+	expect(exportsPageSource).toContain("lastGeneratedAt: null");
+	expect(exportsPageSource).toContain("lastPublishedAt: null");
+	expect(exportsPageSource).toContain("lastPublishedUrl: null");
+});
+
 test("exports page exposes gist live link publishing for remote profiles", () => {
 	expect(exportsPageSource).toContain("Publish to Gist");
 	expect(exportsPageSource).toContain("Live Link");
