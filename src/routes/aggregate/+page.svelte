@@ -80,6 +80,7 @@ type PreviewEntry = {
 
 let previewEntries: PreviewEntry[] = [];
 let previewLoading = false;
+let previewGeneratedAt: string | null = null;
 
 let selectedTargetId = "";
 let publishTargetName = "";
@@ -220,6 +221,13 @@ $: publishedTargetCount = $appState.publishTargets.filter(
 	(target) => target.lastPublishedUrl,
 ).length;
 $: isWorkspaceConnected = Boolean($authState.token && $appState.activeGistId);
+$: previewGeneratedText = previewGeneratedAt
+	? new Intl.DateTimeFormat(undefined, {
+			hour: "2-digit",
+			minute: "2-digit",
+			second: "2-digit",
+		}).format(new Date(previewGeneratedAt))
+	: null;
 
 function resetRuleForm() {
 	editingRuleId = "";
@@ -234,6 +242,7 @@ function resetRuleForm() {
 	sortMode = "none";
 	sortPriority = "";
 	previewEntries = [];
+	previewGeneratedAt = null;
 }
 
 function loadPublishTarget(target: AggregatePublishTarget) {
@@ -422,7 +431,7 @@ async function buildPreview() {
 		});
 		if (previewEntries.length === 0)
 			showToast($t("No nodes matched criteria"), "info");
-		else showToast($t("Preview generated"), "success");
+		else previewGeneratedAt = new Date().toISOString();
 	} catch (err) {
 		showToast($t("Preview failed"), "error");
 	} finally {
@@ -711,6 +720,9 @@ function handlePreviewDndFinalize(e: CustomEvent<DndEvent<PreviewEntry>>) {
 							<Octicon icon={fileCode} className="h-4 w-4" />
 							<span>{$t("Preview Results")}</span>
 							<span class="badge ml-2">{previewEntries.length} {$t("Nodes")}</span>
+							{#if previewGeneratedText}
+								<span class="text-xs font-normal text-fg-muted">{$t("Preview generated {time}", { time: previewGeneratedText })}</span>
+							{/if}
 						</div>
 						<button type="button" class="gh-icon-button h-7 w-7" on:click={() => (previewEntries = [])} aria-label={$t("Close preview results")}><Octicon icon={x} className="h-4 w-4" /></button>
 					</div>

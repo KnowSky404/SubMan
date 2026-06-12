@@ -55,3 +55,11 @@ test("aggregate publish action directs local-only users to workspace setup", () 
 		"disabled={publishing || !isWorkspaceConnected}",
 	);
 });
+
+test("aggregate preview generation does not show a success toast", () => {
+	expect(aggregatePageSource).not.toContain(
+		'showToast($t("Preview generated"), "success")',
+	);
+	expect(aggregatePageSource).toContain("previewGeneratedAt");
+	expect(aggregatePageSource).toContain('{$t("Preview generated {time}"');
+});

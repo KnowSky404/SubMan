@@ -25,6 +25,7 @@ import { WORKSPACE_FILE } from "$lib/workspace";
 let workspace: GistMeta | null = null;
 let loading = false;
 let deleting = false;
+let lastRefreshedAt: string | null = null;
 $: workspaceFileCount = workspace?.files.length ?? 0;
 $: workspaceUpdatedText = workspace?.updatedAt
 	? new Intl.DateTimeFormat(undefined, {
@@ -34,6 +35,13 @@ $: workspaceUpdatedText = workspace?.updatedAt
 			hour: "2-digit",
 			minute: "2-digit",
 		}).format(new Date(workspace.updatedAt))
+	: null;
+$: lastRefreshedText = lastRefreshedAt
+	? new Intl.DateTimeFormat(undefined, {
+			hour: "2-digit",
+			minute: "2-digit",
+			second: "2-digit",
+		}).format(new Date(lastRefreshedAt))
 	: null;
 
 function setStatus(
@@ -51,7 +59,7 @@ async function refreshWorkspace() {
 	loading = true;
 	try {
 		workspace = await getGist(token, gistId);
-		setStatus($t("Refreshed"), "success");
+		lastRefreshedAt = new Date().toISOString();
 	} catch (err) {
 		setStatus($t("Failed to fetch"), "error");
 	} finally {
@@ -113,12 +121,15 @@ async function deleteFile(filename: string) {
 				{#if workspaceUpdatedText}
 					<span class="gh-page-meta-item">{$t("Updated {time}", { time: workspaceUpdatedText })}</span>
 				{/if}
+				{#if lastRefreshedText}
+					<span class="gh-page-meta-item">{$t("Last refreshed {time}", { time: lastRefreshedText })}</span>
+				{/if}
 			</div>
 		</div>
 		<div class="gh-page-actions">
 			<button type="button" class="gh-btn gh-btn-primary" on:click={refreshWorkspace} disabled={loading}>
 				<Octicon icon={sync} className={cn("h-4 w-4", loading && "animate-spin")} />
-				{$t("Refresh")}
+				{loading ? $t("Refreshing...") : $t("Refresh")}
 			</button>
 		</div>
 	</header>
@@ -136,12 +147,18 @@ async function deleteFile(filename: string) {
 						<span class="badge">{workspaceFileCount}</span>
 						<button type="button" class="gh-btn gh-btn-sm" on:click={refreshWorkspace} disabled={loading}>
 							<Octicon icon={sync} className={cn("h-3.5 w-3.5", loading && "animate-spin")} />
-							{$t("Refresh")}
+							{loading ? $t("Refreshing...") : $t("Refresh")}
 						</button>
 					</div>
 				</div>
 
-				{#if !workspace}
+				{#if loading && !workspace}
+					<div class="blankslate border-none">
+						<Octicon icon={sync} className="mb-3 h-10 w-10 animate-spin text-accent-fg" />
+						<h3 class="text-lg font-bold">{$t("Loading workspace files...")}</h3>
+						<p class="text-sm text-fg-muted">{$t("Fetching the active gist from GitHub.")}</p>
+					</div>
+				{:else if !workspace}
 					<div class="blankslate border-none">
 						<Octicon icon={sync} className="mb-3 h-10 w-10 text-fg-subtle opacity-20" />
 						<p class="text-fg-muted">{$t("Refresh to load files.")}</p>
