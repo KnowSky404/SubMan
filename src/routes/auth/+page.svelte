@@ -3,7 +3,6 @@ import { slide } from "svelte/transition";
 import Octicon from "$lib/components/Octicon.svelte";
 import { getGistFileContent, updateGist } from "$lib/gist";
 import { t } from "$lib/i18n";
-import { mergeSyncState } from "$lib/merge";
 import type { AppState } from "$lib/models";
 import {
 	alert,
@@ -31,7 +30,12 @@ import { appState, replaceState } from "$lib/stores/app";
 import { authState, clearAuth, setToken } from "$lib/stores/auth";
 import { requestConfirm } from "$lib/stores/confirm";
 import { showToast } from "$lib/stores/toast";
-import { setSyncBaseline } from "$lib/sync";
+import {
+	readSyncBaseline,
+	readSyncBaselineState,
+	setSyncBaseline,
+} from "$lib/sync";
+import { decideManualPush, mergeSyncStateFromBaseline } from "$lib/sync-guard";
 import { cn } from "$lib/utils/cn";
 import { ensureWorkspaceGist, WORKSPACE_FILE } from "$lib/workspace";
 
@@ -41,6 +45,12 @@ let workspaceBusy = false;
 
 // Conflict State
 let conflict: {
+	gistId: string;
+	remoteState: AppState;
+	remoteSignature: string;
+	localSignature: string;
+} | null = null;
+let manualPushReview: {
 	gistId: string;
 	remoteState: AppState;
 	remoteSignature: string;
@@ -59,6 +69,7 @@ async function handleTokenSave() {
 	if (!token) return;
 	workspaceBusy = true;
 	conflict = null;
+	manualPushReview = null;
 	try {
 		setToken(token);
 		const localPayload = exportSyncState($appState);
@@ -170,9 +181,13 @@ async function handleResolveConflict(action: "local" | "remote" | "merge") {
 			setStatus($t("Local data pushed to Gist"), "success");
 		} else {
 			const mergedState = {
-				...$appState,
-				...mergeSyncState($appState, currentConflict.remoteState),
+				...mergeSyncStateFromBaseline(
+					$appState,
+					currentConflict.remoteState,
+					readSyncBaselineState(),
+				),
 				activeGistId: currentConflict.gistId,
+				activeGistFile: $appState.activeGistFile || WORKSPACE_FILE,
 			};
 			const mergedPayload = exportSyncState(mergedState);
 			await updateGist($authState.token, {
@@ -183,6 +198,7 @@ async function handleResolveConflict(action: "local" | "remote" | "merge") {
 			setStatus($t("Merged data saved."), "success");
 		}
 		conflict = null;
+		manualPushReview = null;
 		tokenInput = "";
 	} catch (err) {
 		setStatus($t("Resolution failed"), "error");
@@ -230,24 +246,131 @@ async function handleManualPull() {
 async function handleManualPush() {
 	const token = $authState.token;
 	const gistId = $appState.activeGistId;
+	const syncedFile = $appState.activeGistFile || WORKSPACE_FILE;
 	if (!token || !gistId) return;
+
+	workspaceBusy = true;
+	try {
+		const remoteContent = await getGistFileContent(token, gistId, syncedFile);
+		const remoteState = importState(remoteContent);
+		const decision = decideManualPush({
+			local: $appState,
+			remote: remoteState,
+			baselineSignature: readSyncBaseline(),
+		});
+
+		if (decision.action === "already-synced") {
+			setSyncBaseline(decision.remoteSignature, remoteState);
+			manualPushReview = null;
+			setStatus($t("Already in sync"), "info");
+			return;
+		}
+
+		if (decision.action === "remote-changed") {
+			manualPushReview = {
+				gistId,
+				remoteState,
+				remoteSignature: decision.remoteSignature,
+				localSignature: decision.localSignature,
+			};
+			setStatus($t("Remote workspace changed since your last sync."), "info");
+			return;
+		}
+
+		const confirmed = await requestConfirm({
+			title: $t("Sync Update"),
+			message: $t("Overwrite remote workspace data with current local state?"),
+			confirmText: $t("Push Local"),
+		});
+		if (!confirmed) return;
+
+		await updateGist(token, {
+			gistId,
+			files: { [syncedFile]: { content: exportSyncState($appState) } },
+		});
+		setSyncBaseline(decision.localSignature, $appState);
+		manualPushReview = null;
+		setStatus($t("Pushed successfully"), "success");
+	} catch (err) {
+		setStatus($t("Push failed"), "error");
+	} finally {
+		workspaceBusy = false;
+	}
+}
+
+async function handleManualPushReview(action: "remote" | "merge" | "force") {
+	if (!manualPushReview || !$authState.token) return;
+
+	if (action === "remote") {
+		const confirmed = await requestConfirm({
+			title: $t("Sync Update"),
+			message: $t("Remote data is different. Overwrite local with remote?"),
+			confirmText: $t("Pull Remote"),
+		});
+		if (!confirmed) return;
+		setLocalStateAndBaseline(manualPushReview.remoteState, manualPushReview.gistId);
+		manualPushReview = null;
+		setStatus($t("Pulled successfully"), "success");
+		return;
+	}
+
+	if (action === "force") {
+		await handleManualForcePush();
+		return;
+	}
 
 	const confirmed = await requestConfirm({
 		title: $t("Sync Update"),
-		message: $t("Overwrite remote workspace data with current local state?"),
-		confirmText: $t("Push Local"),
+		message: $t("Merge local and remote data, then save the merged state?"),
+		confirmText: $t("Merge & Save"),
 	});
 	if (!confirmed) return;
 
 	workspaceBusy = true;
 	try {
-		const localPayload = exportSyncState($appState);
+		const syncedFile = $appState.activeGistFile || WORKSPACE_FILE;
+		const mergedState = {
+			...mergeSyncStateFromBaseline(
+				$appState,
+				manualPushReview.remoteState,
+				readSyncBaselineState(),
+			),
+			activeGistId: manualPushReview.gistId,
+			activeGistFile: syncedFile,
+		};
+		await updateGist($authState.token, {
+			gistId: manualPushReview.gistId,
+			files: { [syncedFile]: { content: exportSyncState(mergedState) } },
+		});
+		setLocalStateAndBaseline(mergedState, manualPushReview.gistId);
+		manualPushReview = null;
+		setStatus($t("Merged data saved."), "success");
+	} catch (err) {
+		setStatus($t("Resolution failed"), "error");
+	} finally {
+		workspaceBusy = false;
+	}
+}
+
+async function handleManualForcePush() {
+	if (!manualPushReview || !$authState.token) return;
+	const confirmed = await requestConfirm({
+		title: $t("Sync Update"),
+		message: $t("Force push will overwrite remote workspace changes. Continue?"),
+		confirmText: $t("Force Push"),
+	});
+	if (!confirmed) return;
+
+	workspaceBusy = true;
+	try {
+		const syncedFile = $appState.activeGistFile || WORKSPACE_FILE;
 		const localSignature = getSyncStateSignature($appState);
-		await updateGist(token, {
-			gistId,
-			files: { [WORKSPACE_FILE]: { content: localPayload } },
+		await updateGist($authState.token, {
+			gistId: manualPushReview.gistId,
+			files: { [syncedFile]: { content: exportSyncState($appState) } },
 		});
 		setSyncBaseline(localSignature, $appState);
+		manualPushReview = null;
 		setStatus($t("Pushed successfully"), "success");
 	} catch (err) {
 		setStatus($t("Push failed"), "error");
@@ -261,6 +384,7 @@ function handleTokenClear() {
 	appState.update((s) => ({ ...s, activeGistId: null }));
 	setStatus($t("Logged out"), "info");
 	conflict = null;
+	manualPushReview = null;
 }
 
 function handleExport() {
@@ -322,6 +446,37 @@ function handleImport() {
 						<Octicon icon={arrowUp} className="h-5 w-5 text-[color:var(--success-emphasis)]" />
 						<span class="font-semibold">{$t("Use Local")}</span>
 						<span class="gh-form-caption">{$t("Replace gist state")}</span>
+					</button>
+				</div>
+			</div>
+		</section>
+	{/if}
+
+	{#if manualPushReview}
+		<section class="gh-alert gh-alert-attention" transition:slide>
+			<Octicon icon={alert} className="mt-0.5 h-4 w-4 shrink-0 text-[color:var(--attention-emphasis)]" />
+			<div class="min-w-0 flex-1 space-y-3">
+				<div>
+					<h2 class="text-sm font-semibold">{$t("Remote Change Detected")}</h2>
+					<p class="text-sm text-fg-muted">
+						{$t("Remote workspace changed since your last sync. Choose how to continue.")}
+					</p>
+				</div>
+				<div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
+					<button class="gh-btn flex h-auto flex-col items-center gap-2 py-4" on:click={() => handleManualPushReview('remote')}>
+						<Octicon icon={arrowDown} className="h-5 w-5 text-accent-fg" />
+						<span class="font-semibold">{$t("Pull Remote")}</span>
+						<span class="gh-form-caption">{$t("Replace local state")}</span>
+					</button>
+					<button class="gh-btn flex h-auto flex-col items-center gap-2 py-4" on:click={() => handleManualPushReview('merge')}>
+						<Octicon icon={sync} className="h-5 w-5 text-fg-muted" />
+						<span class="font-semibold">{$t("Merge & Save")}</span>
+						<span class="gh-form-caption">{$t("Merge Both States")}</span>
+					</button>
+					<button class="gh-btn flex h-auto flex-col items-center gap-2 py-4" on:click={() => handleManualPushReview('force')}>
+						<Octicon icon={arrowUp} className="h-5 w-5 text-[color:var(--danger-emphasis)]" />
+						<span class="font-semibold">{$t("Force Push")}</span>
+						<span class="gh-form-caption">{$t("Overwrite remote changes")}</span>
 					</button>
 				</div>
 			</div>

@@ -41,7 +41,18 @@ test("auth conflict actions require confirmation before writing state", () => {
 	expect(authPageSource).toContain('confirmText: $t("Push Local")');
 	expect(authPageSource).toContain('confirmText: $t("Merge & Save")');
 	expect(authPageSource).toContain(
-		"mergeSyncState($appState, currentConflict.remoteState)",
+		"mergeSyncStateFromBaseline(",
 	);
 	expect(authPageSource).toContain("handleResolveConflict('merge')");
+});
+
+test("auth page blocks stale manual push behind a remote-change review", () => {
+	expect(authPageSource).toContain("manualPushReview");
+	expect(authPageSource).toContain("decideManualPush");
+	expect(authPageSource).toContain("handleManualForcePush");
+	expect(authPageSource).toContain(
+		'$t("Remote workspace changed since your last sync. Choose how to continue.")',
+	);
+	expect(authPageSource).toContain('$t("Force Push")');
+	expect(authPageSource).toContain("handleManualPushReview('merge')");
 });

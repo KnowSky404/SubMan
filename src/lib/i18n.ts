@@ -216,6 +216,15 @@ const zhCN: Record<string, string> = {
 	"Push Local": "推送本地",
 	"Overwrite remote workspace data with current local state?":
 		"用当前本地状态覆盖远端工作区数据吗？",
+	"Remote Change Detected": "检测到远端变更",
+	"Remote workspace changed since your last sync.":
+		"远端工作区在上次同步后发生了变化。",
+	"Remote workspace changed since your last sync. Choose how to continue.":
+		"远端工作区在上次同步后发生了变化。请选择如何继续。",
+	"Force Push": "强制推送",
+	"Force push will overwrite remote workspace changes. Continue?":
+		"强制推送会覆盖远端工作区变更。继续吗？",
+	"Overwrite remote changes": "覆盖远端变更",
 	"Merge local and remote data, then save the merged state?":
 		"合并本地和远端数据，然后保存合并后的状态吗？",
 	"Pushed successfully": "推送成功",

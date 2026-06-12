@@ -136,6 +136,14 @@ export function setSyncBaseline(baseline: string, state?: AppState): void {
 	dispatchBaselineEvent(baseline, state ?? readBaselineState());
 }
 
+export function readSyncBaseline(): string {
+	return readBaseline();
+}
+
+export function readSyncBaselineState(): AppState | null {
+	return readBaselineState();
+}
+
 export function startAutoSync(delayMs: number = DEFAULT_DELAY): () => void {
 	if (!browser) {
 		return () => {};
