@@ -1,7 +1,6 @@
 import { get } from "svelte/store";
 import { browser } from "$app/environment";
 import { getGistFileContent, updateGist } from "$lib/gist";
-import { mergeSyncState } from "$lib/merge";
 import {
 	exportSyncState,
 	getSyncStateSignature,
@@ -9,6 +8,7 @@ import {
 } from "$lib/serialization";
 import { appState } from "$lib/stores/app";
 import { authState } from "$lib/stores/auth";
+import { mergeSyncStateFromBaseline } from "$lib/sync-guard";
 import type { AppState } from "$lib/models";
 
 const DEFAULT_DELAY = 1200;
@@ -136,119 +136,6 @@ export function setSyncBaseline(baseline: string, state?: AppState): void {
 	dispatchBaselineEvent(baseline, state ?? readBaselineState());
 }
 
-function mergeItemsByBaseline<T extends { id: string; updatedAt: string }>(
-	localItems: T[],
-	remoteItems: T[],
-	baselineItems: T[],
-): T[] {
-	const localById = new Map(localItems.map((item) => [item.id, item]));
-	const remoteById = new Map(remoteItems.map((item) => [item.id, item]));
-	const baselineById = new Map(baselineItems.map((item) => [item.id, item]));
-	const ids = new Set([
-		...localById.keys(),
-		...remoteById.keys(),
-		...baselineById.keys(),
-	]);
-	const merged: T[] = [];
-
-	for (const id of ids) {
-		const localItem = localById.get(id);
-		const remoteItem = remoteById.get(id);
-		const baselineItem = baselineById.get(id);
-
-		if (!baselineItem) {
-			if (localItem && remoteItem) {
-				merged.push(
-					Date.parse(remoteItem.updatedAt) >= Date.parse(localItem.updatedAt)
-						? remoteItem
-						: localItem,
-				);
-			} else if (localItem) {
-				merged.push(localItem);
-			} else if (remoteItem) {
-				merged.push(remoteItem);
-			}
-			continue;
-		}
-
-		if (!localItem && !remoteItem) {
-			continue;
-		}
-
-		const localChanged =
-			Boolean(localItem) &&
-			JSON.stringify(localItem) !== JSON.stringify(baselineItem);
-		const remoteChanged =
-			Boolean(remoteItem) &&
-			JSON.stringify(remoteItem) !== JSON.stringify(baselineItem);
-
-		if (!localItem && remoteItem) {
-			if (remoteChanged) {
-				merged.push(remoteItem);
-			}
-			continue;
-		}
-
-		if (localItem && !remoteItem) {
-			if (localChanged) {
-				merged.push(localItem);
-			}
-			continue;
-		}
-
-		if (localItem && remoteItem && localChanged && !remoteChanged) {
-			merged.push(localItem);
-			continue;
-		}
-
-		if (localItem && remoteItem && remoteChanged && !localChanged) {
-			merged.push(remoteItem);
-			continue;
-		}
-
-		if (localItem && remoteItem) {
-			merged.push(
-				Date.parse(remoteItem.updatedAt) >= Date.parse(localItem.updatedAt)
-					? remoteItem
-					: localItem,
-			);
-		}
-	}
-
-	return merged;
-}
-
-function mergeSyncStateFromBaseline(
-	local: AppState,
-	remote: AppState,
-	baseline: AppState,
-): AppState {
-	return {
-		...local,
-		nodes: mergeItemsByBaseline(local.nodes, remote.nodes, baseline.nodes),
-		subscriptions: mergeItemsByBaseline(
-			local.subscriptions,
-			remote.subscriptions,
-			baseline.subscriptions,
-		),
-		aggregates: mergeItemsByBaseline(
-			local.aggregates,
-			remote.aggregates,
-			baseline.aggregates,
-		),
-		publishTargets: mergeItemsByBaseline(
-			local.publishTargets,
-			remote.publishTargets,
-			baseline.publishTargets,
-		),
-		clientExports: mergeItemsByBaseline(
-			local.clientExports ?? [],
-			remote.clientExports ?? [],
-			baseline.clientExports ?? [],
-		),
-	};
-}
-
 export function startAutoSync(delayMs: number = DEFAULT_DELAY): () => void {
 	if (!browser) {
 		return () => {};
@@ -350,12 +237,11 @@ export function startAutoSync(delayMs: number = DEFAULT_DELAY): () => void {
 			}
 
 			if (remoteSignature !== lastSignature) {
-				stateToSave = baselineState
-					? mergeSyncStateFromBaseline(syncStartState, remoteState, baselineState)
-					: {
-							...syncStartState,
-							...mergeSyncState(syncStartState, remoteState),
-						};
+				stateToSave = mergeSyncStateFromBaseline(
+					syncStartState,
+					remoteState,
+					baselineState,
+				);
 				stateToSave = {
 					...stateToSave,
 					activeGistId: syncStartGistId,
