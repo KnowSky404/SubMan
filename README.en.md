@@ -62,7 +62,17 @@ Not blindly. After a workspace is connected, local browser edits trigger auto sy
 - If you keep editing while an auto sync is in flight, the older sync snapshot will not replace those newer local edits. The newer local edits are kept and handled by the next sync.
 
 ### Which actions still overwrite the remote workspace?
-Manual Push Local and the conflict-resolution choice to overwrite remote with local are explicit overwrite actions. After confirmation, they write the current local state to the Workspace Gist. Use them when you know the local data is the source of truth.
+When you click Manual Push Local, SubMan first reads the remote `subman.json`
+and compares it with the saved local sync baseline:
+
+- If the remote file has not changed, SubMan pushes the current local state
+  after confirmation.
+- If the remote file changed, SubMan does not overwrite it immediately. It asks
+  you to choose Pull Remote, Merge & Save, or Force Push.
+- Only Force Push, or the setup conflict option to overwrite remote with local,
+  overwrites remote data after divergence is detected.
+
+Use overwrite actions when you know the local data is the source of truth.
 
 ### What should I choose when local and remote differ during workspace setup?
 The `/auth` page shows conflict-resolution options:
