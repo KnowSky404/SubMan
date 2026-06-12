@@ -3,6 +3,7 @@ import { slide } from "svelte/transition";
 import Octicon from "$lib/components/Octicon.svelte";
 import { getGistFileContent, updateGist } from "$lib/gist";
 import { t } from "$lib/i18n";
+import { mergeSyncState } from "$lib/merge";
 import type { AppState } from "$lib/models";
 import {
 	alert,
@@ -181,11 +182,8 @@ async function handleResolveConflict(action: "local" | "remote" | "merge") {
 			setStatus($t("Local data pushed to Gist"), "success");
 		} else {
 			const mergedState = {
-				...mergeSyncStateFromBaseline(
-					$appState,
-					currentConflict.remoteState,
-					readSyncBaselineState(),
-				),
+				...$appState,
+				...mergeSyncState($appState, currentConflict.remoteState),
 				activeGistId: currentConflict.gistId,
 				activeGistFile: $appState.activeGistFile || WORKSPACE_FILE,
 			};
