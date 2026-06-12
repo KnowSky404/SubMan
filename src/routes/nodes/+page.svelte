@@ -72,7 +72,6 @@ let batchTags = "";
 // Filter & List State
 let searchQuery = "";
 let filterStatus: "all" | "enabled" | "disabled" = "all";
-let expandedId: string | null = null;
 let deletingResourceId: string | null = null;
 
 // Preview State
@@ -87,6 +86,10 @@ let subscriptionPreviewCache: Record<
 > = {};
 
 // Edit State
+let editingResource:
+	| { type: "node"; id: string }
+	| { type: "subscription"; id: string }
+	| null = null;
 let nodeDrafts: Record<
 	string,
 	{ name: string; type: ProxyType; raw: string; tags: string }
@@ -381,17 +384,13 @@ function handleAdd() {
 
 // Edit Logic
 function startEditNode(node: NodeItem) {
-	if (expandedId === node.id) {
-		expandedId = null;
-		return;
-	}
 	nodeDrafts[node.id] = {
 		name: node.name,
 		type: node.type,
 		raw: node.raw,
 		tags: stringifyTags(node.tags),
 	};
-	expandedId = node.id;
+	editingResource = { type: "node", id: node.id };
 }
 
 function saveEditNode(id: string) {
@@ -417,21 +416,17 @@ function saveEditNode(id: string) {
 		tags: parseTags(draft.tags),
 		updatedAt: nowIso(),
 	});
-	expandedId = null;
+	closeEditModal();
 	showToastNotify($t("Node updated"));
 }
 
 function startEditSub(sub: SubscriptionItem) {
-	if (expandedId === sub.id) {
-		expandedId = null;
-		return;
-	}
 	subDrafts[sub.id] = {
 		name: sub.name,
 		url: sub.url,
 		tags: stringifyTags(sub.tags),
 	};
-	expandedId = sub.id;
+	editingResource = { type: "subscription", id: sub.id };
 }
 
 function saveEditSub(id: string) {
@@ -461,8 +456,12 @@ function saveEditSub(id: string) {
 		tags: parseTags(draft.tags),
 		updatedAt: nowIso(),
 	});
-	expandedId = null;
+	closeEditModal();
 	showToastNotify($t("Subscription updated"));
+}
+
+function closeEditModal() {
+	editingResource = null;
 }
 
 async function loadSubscriptionPreview(
@@ -529,9 +528,7 @@ async function remove(id: string, type: "node" | "sub", name: string) {
 	await tick();
 
 	try {
-		if (expandedId === id) {
-			expandedId = null;
-		}
+		if (editingResource?.id === id) closeEditModal();
 		if (type === "node") {
 			removeNode(id);
 			delete nodeDrafts[id];
@@ -656,12 +653,12 @@ async function copy(text: string) {
 	<div class="gh-filter-bar">
 		<div class="gh-filter-controls">
 			<div class="nodes-filter-tabs gh-tabs w-full sm:w-auto">
-				<button type="button" class={cn("gh-tab", activeTab === "nodes" && "gh-tab-active")} on:click={() => { activeTab = "nodes"; expandedId = null; }}>
+				<button type="button" class={cn("gh-tab", activeTab === "nodes" && "gh-tab-active")} on:click={() => { activeTab = "nodes"; closeEditModal(); }}>
 					<Octicon icon={server} className="h-4 w-4" />
 					{$t("Nodes")}
 					<span class="gh-counter">{$appState.nodes.length}</span>
 				</button>
-				<button type="button" class={cn("gh-tab", activeTab === "subscriptions" && "gh-tab-active")} on:click={() => { activeTab = "subscriptions"; expandedId = null; }}>
+				<button type="button" class={cn("gh-tab", activeTab === "subscriptions" && "gh-tab-active")} on:click={() => { activeTab = "subscriptions"; closeEditModal(); }}>
 					<Octicon icon={link} className="h-4 w-4" />
 					{$t("Subscriptions")}
 					<span class="gh-counter">{$appState.subscriptions.length}</span>
@@ -767,34 +764,6 @@ async function copy(text: string) {
 									</button>
 								</div>
 							</div>
-
-							<!-- Inline Editor for Node -->
-							{#if expandedId === node.id && nodeDrafts[node.id]}
-								<div class="gh-inset-panel mt-4 flex flex-col gap-4" transition:slide>
-									<div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-										<div class="flex flex-col gap-1.5">
-											<label class="gh-form-label" for={`node-name-${node.id}`}>{$t("Name")}</label>
-											<input id={`node-name-${node.id}`} class="gh-input" bind:value={nodeDrafts[node.id].name} />
-										</div>
-										<div class="flex flex-col gap-1.5">
-											<label class="gh-form-label" for={`node-type-${node.id}`}>{$t("Protocol")}</label>
-											<GitHubSelect id={`node-type-${node.id}`} bind:value={nodeDrafts[node.id].type} options={nodeTypeOptions} />
-										</div>
-										<div class="md:col-span-2 flex flex-col gap-1.5">
-											<label class="gh-form-label" for={`node-raw-${node.id}`}>{$t("Raw URI")}</label>
-											<textarea id={`node-raw-${node.id}`} class="gh-input gh-textarea font-mono text-xs" value={nodeDrafts[node.id].raw} on:input={(event) => updateNodeDraftRaw(node.id, event.currentTarget.value)}></textarea>
-										</div>
-										<div class="md:col-span-2 flex flex-col gap-1.5">
-											<label class="gh-form-label" for={`node-tags-${node.id}`}>{$t("Tags")}</label>
-											<input id={`node-tags-${node.id}`} class="gh-input" bind:value={nodeDrafts[node.id].tags} />
-										</div>
-									</div>
-									<div class="flex justify-end gap-2">
-										<button type="button" class="gh-btn gh-btn-sm" on:click={() => (expandedId = null)}>{$t("Cancel")}</button>
-										<button type="button" class="gh-btn gh-btn-sm gh-btn-primary" on:click={() => saveEditNode(node.id)}><Octicon icon={save} className="mr-1 h-3 w-3" />{$t("Save")}</button>
-									</div>
-								</div>
-							{/if}
 					</div>
 				{/each}
 			{/if}
@@ -864,36 +833,76 @@ async function copy(text: string) {
 									</button>
 								</div>
 							</div>
-
-						<!-- Inline Editor for Subscription -->
-						{#if expandedId === sub.id && subDrafts[sub.id]}
-								<div class="gh-inset-panel mt-4 flex flex-col gap-4" transition:slide>
-									<div class="flex flex-col gap-3">
-										<div class="flex flex-col gap-1.5">
-											<label class="gh-form-label" for={`sub-name-${sub.id}`}>{$t("Name")}</label>
-											<input id={`sub-name-${sub.id}`} class="gh-input" bind:value={subDrafts[sub.id].name} />
-										</div>
-										<div class="flex flex-col gap-1.5">
-											<label class="gh-form-label" for={`sub-url-${sub.id}`}>{$t("URL")}</label>
-											<input id={`sub-url-${sub.id}`} class="gh-input font-mono" bind:value={subDrafts[sub.id].url} />
-										</div>
-										<div class="flex flex-col gap-1.5">
-											<label class="gh-form-label" for={`sub-tags-${sub.id}`}>{$t("Tags")}</label>
-											<input id={`sub-tags-${sub.id}`} class="gh-input" bind:value={subDrafts[sub.id].tags} />
-										</div>
-									</div>
-									<div class="flex justify-end gap-2">
-										<button type="button" class="gh-btn gh-btn-sm" on:click={() => (expandedId = null)}>{$t("Cancel")}</button>
-										<button type="button" class="gh-btn gh-btn-sm gh-btn-primary" on:click={() => saveEditSub(sub.id)}><Octicon icon={save} className="mr-1 h-3 w-3" />{$t("Save")}</button>
-									</div>
-								</div>
-							{/if}
 					</div>
 				{/each}
 			{/if}
 		{/if}
 	</div>
 </div>
+
+<!-- Edit Resource Modal -->
+{#if editingResource}
+	{@const edit = editingResource}
+	<div class="fixed inset-0 z-[150] flex items-center justify-center p-4">
+		<button type="button" class="fixed inset-0 bg-black/50 backdrop-blur-sm" on:click={closeEditModal} aria-label={$t("Close edit modal")}></button>
+		<div class="gh-box relative flex max-h-[85vh] w-full max-w-2xl flex-col shadow-[var(--shadow-medium)]" in:fly={{ y: 20 }}>
+			<div class="gh-box-header">
+				<div class="flex min-w-0 items-center gap-2">
+					<Octicon icon={pencil} className="h-4 w-4" />
+					<span>{edit.type === "node" ? $t("Edit Node") : $t("Edit Subscription")}</span>
+				</div>
+				<button type="button" class="gh-icon-button h-7 w-7" on:click={closeEditModal} aria-label={$t("Close edit modal")}><Octicon icon={x} className="h-4 w-4" /></button>
+			</div>
+
+			<div class="gh-section-body flex-1 overflow-y-auto">
+				{#if edit.type === "node" && nodeDrafts[edit.id]}
+					<div class="grid grid-cols-1 gap-3 md:grid-cols-2">
+						<div class="flex flex-col gap-1.5">
+							<label class="gh-form-label" for={`node-name-${edit.id}`}>{$t("Name")}</label>
+							<input id={`node-name-${edit.id}`} class="gh-input" bind:value={nodeDrafts[edit.id].name} />
+						</div>
+						<div class="flex flex-col gap-1.5">
+							<label class="gh-form-label" for={`node-type-${edit.id}`}>{$t("Protocol")}</label>
+							<GitHubSelect id={`node-type-${edit.id}`} bind:value={nodeDrafts[edit.id].type} options={nodeTypeOptions} />
+						</div>
+						<div class="flex flex-col gap-1.5 md:col-span-2">
+							<label class="gh-form-label" for={`node-raw-${edit.id}`}>{$t("Raw URI")}</label>
+							<textarea id={`node-raw-${edit.id}`} class="gh-input gh-textarea font-mono text-xs" value={nodeDrafts[edit.id].raw} on:input={(event) => updateNodeDraftRaw(edit.id, event.currentTarget.value)}></textarea>
+						</div>
+						<div class="flex flex-col gap-1.5 md:col-span-2">
+							<label class="gh-form-label" for={`node-tags-${edit.id}`}>{$t("Tags")}</label>
+							<input id={`node-tags-${edit.id}`} class="gh-input" bind:value={nodeDrafts[edit.id].tags} />
+						</div>
+					</div>
+				{:else if edit.type === "subscription" && subDrafts[edit.id]}
+					<div class="flex flex-col gap-3">
+						<div class="flex flex-col gap-1.5">
+							<label class="gh-form-label" for={`sub-name-${edit.id}`}>{$t("Name")}</label>
+							<input id={`sub-name-${edit.id}`} class="gh-input" bind:value={subDrafts[edit.id].name} />
+						</div>
+						<div class="flex flex-col gap-1.5">
+							<label class="gh-form-label" for={`sub-url-${edit.id}`}>{$t("URL")}</label>
+							<input id={`sub-url-${edit.id}`} class="gh-input font-mono" bind:value={subDrafts[edit.id].url} />
+						</div>
+						<div class="flex flex-col gap-1.5">
+							<label class="gh-form-label" for={`sub-tags-${edit.id}`}>{$t("Tags")}</label>
+							<input id={`sub-tags-${edit.id}`} class="gh-input" bind:value={subDrafts[edit.id].tags} />
+						</div>
+					</div>
+				{/if}
+			</div>
+
+			<div class="gh-section-footer">
+				<button type="button" class="gh-btn" on:click={closeEditModal}>{$t("Cancel")}</button>
+				{#if edit.type === "node"}
+					<button type="button" class="gh-btn gh-btn-primary" on:click={() => saveEditNode(edit.id)}><Octicon icon={save} className="h-3.5 w-3.5" />{$t("Save")}</button>
+				{:else}
+					<button type="button" class="gh-btn gh-btn-primary" on:click={() => saveEditSub(edit.id)}><Octicon icon={save} className="h-3.5 w-3.5" />{$t("Save")}</button>
+				{/if}
+			</div>
+		</div>
+	</div>
+{/if}
 
 <!-- Subscription Preview Modal -->
 {#if previewSubscriptionId}

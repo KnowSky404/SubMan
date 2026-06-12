@@ -84,3 +84,15 @@ test("resource deletion shows per-row loading while the delete action settles", 
 	expect(nodesPageSource).toContain("animate-spin");
 	expect(nodesPageSource).toContain("out:slide");
 });
+
+test("resource editing opens a modal instead of expanding inline editors", () => {
+	expect(nodesPageSource).toContain("let editingResource");
+	expect(nodesPageSource).toContain("closeEditModal");
+	expect(nodesPageSource).toContain("Edit Node");
+	expect(nodesPageSource).toContain("Edit Subscription");
+	expect(nodesPageSource).toContain("Close edit modal");
+	expect(nodesPageSource).toContain("fixed inset-0 z-[150]");
+	expect(nodesPageSource).not.toContain("Inline Editor for Node");
+	expect(nodesPageSource).not.toContain("Inline Editor for Subscription");
+	expect(nodesPageSource).not.toContain("expandedId");
+});
