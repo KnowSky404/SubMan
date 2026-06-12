@@ -36,7 +36,11 @@ import {
 	readSyncBaselineState,
 	setSyncBaseline,
 } from "$lib/sync";
-import { decideManualPush, mergeSyncStateFromBaseline } from "$lib/sync-guard";
+import {
+	decideManualPush,
+	mergeSyncStateFromBaseline,
+	selectTrustedSyncBaseline,
+} from "$lib/sync-guard";
 import { cn } from "$lib/utils/cn";
 import { ensureWorkspaceGist, WORKSPACE_FILE } from "$lib/workspace";
 
@@ -181,11 +185,24 @@ async function handleResolveConflict(action: "local" | "remote" | "merge") {
 			setSyncBaseline(currentConflict.localSignature, $appState);
 			setStatus($t("Local data pushed to Gist"), "success");
 		} else {
+			const syncedFile = $appState.activeGistFile || WORKSPACE_FILE;
+			const trustedBaseline = selectTrustedSyncBaseline(
+				readSyncBaselineState(),
+				currentConflict.gistId,
+				syncedFile,
+			);
+			const mergedData = trustedBaseline
+				? mergeSyncStateFromBaseline(
+						$appState,
+						currentConflict.remoteState,
+						trustedBaseline,
+					)
+				: mergeSyncState($appState, currentConflict.remoteState);
 			const mergedState = {
 				...$appState,
-				...mergeSyncState($appState, currentConflict.remoteState),
+				...mergedData,
 				activeGistId: currentConflict.gistId,
-				activeGistFile: $appState.activeGistFile || WORKSPACE_FILE,
+				activeGistFile: syncedFile,
 			};
 			const mergedPayload = exportSyncState(mergedState);
 			await updateGist($authState.token, {

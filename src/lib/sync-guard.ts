@@ -13,6 +13,21 @@ export type ManualPushDecision = {
 	remoteSignature: string;
 };
 
+export function selectTrustedSyncBaseline(
+	baseline: AppState | null,
+	gistId: string,
+	fileName: string,
+): AppState | null {
+	if (
+		baseline?.activeGistId === gistId &&
+		baseline.activeGistFile === fileName
+	) {
+		return baseline;
+	}
+
+	return null;
+}
+
 export function decideManualPush({
 	local,
 	remote,

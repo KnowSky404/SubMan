@@ -117,3 +117,20 @@ test("baseline merge preserves remote deletions when local only has the old copy
 		"local",
 	]);
 });
+
+test("setup merge trusts a baseline only for the same workspace file", async () => {
+	const { selectTrustedSyncBaseline } = await loadModules();
+	const baseline = state({
+		activeGistId: "gist-1",
+		activeGistFile: "subman.json",
+	});
+
+	expect(selectTrustedSyncBaseline(baseline, "gist-1", "subman.json")).toBe(
+		baseline,
+	);
+	expect(selectTrustedSyncBaseline(baseline, "gist-2", "subman.json")).toBeNull();
+	expect(
+		selectTrustedSyncBaseline(baseline, "gist-1", "alternate.json"),
+	).toBeNull();
+	expect(selectTrustedSyncBaseline(null, "gist-1", "subman.json")).toBeNull();
+});
