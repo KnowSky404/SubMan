@@ -17,6 +17,9 @@ test("compact repository header owns global controls", () => {
 	expect(layoutSource).toContain('<div class="app-repo-meta">');
 	expect(layoutSource).toContain('<div class="app-repo-tabs">');
 	expect(layoutSource).toContain('<div class="app-repo-title-line">');
+	expect(layoutSource).toContain(
+		'<img src="/brand/subman-logo.png" alt="" class="app-brand-mark"',
+	);
 	expect(layoutSource).toContain('<div class="app-repo-status-line">');
 	expect(layoutSource).toContain('<div class="app-repo-actions">');
 	expect(layoutSource).toContain('<div class="theme-menu relative shrink-0">');
@@ -35,6 +38,22 @@ test("compact repository header owns global controls", () => {
 		'buttonClass="gh-select gh-select-header"',
 	);
 	expect(layoutSource).not.toContain("absolute inset-y-0 left-0");
+});
+
+test("layout declares the SubMan favicon family", () => {
+	expect(layoutSource).toContain("<title>SubMan</title>");
+	expect(layoutSource).toContain(
+		'<link rel="icon" href="/favicon.ico" sizes="any" />',
+	);
+	expect(layoutSource).toContain(
+		'<link rel="icon" type="image/png" href="/favicon-32.png" sizes="32x32" />',
+	);
+	expect(layoutSource).toContain(
+		'<link rel="icon" type="image/png" href="/favicon-192.png" sizes="192x192" />',
+	);
+	expect(layoutSource).toContain(
+		'<link rel="apple-touch-icon" href="/apple-touch-icon.png" sizes="180x180" />',
+	);
 });
 
 test("repo header renders identity and stats in one compact row", () => {

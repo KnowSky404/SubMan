@@ -14,7 +14,6 @@ import {
 	fileCode,
 	gear,
 	home,
-	markGithub,
 	moon,
 	packageIcon,
 	server,
@@ -83,6 +82,14 @@ onMount(() => {
 });
 </script>
 
+<svelte:head>
+	<title>SubMan</title>
+	<link rel="icon" href="/favicon.ico" sizes="any" />
+	<link rel="icon" type="image/png" href="/favicon-32.png" sizes="32x32" />
+	<link rel="icon" type="image/png" href="/favicon-192.png" sizes="192x192" />
+	<link rel="apple-touch-icon" href="/apple-touch-icon.png" sizes="180x180" />
+</svelte:head>
+
 <div class="flex min-h-screen flex-col">
 	<div class="app-repo-shell">
 		<div class="app-repo-masthead">
@@ -90,7 +97,7 @@ onMount(() => {
 				<div class="app-repo-main">
 					<div class="app-repo-title-line">
 						<div class="app-repo-title">
-							<Octicon icon={markGithub} className="h-5 w-5 shrink-0 text-fg-muted" />
+							<img src="/brand/subman-logo.png" alt="" class="app-brand-mark" width="24" height="24" />
 							<a href={PROJECT_GITHUB_URL} target="_blank" rel="noreferrer" class="app-repo-title-owner">
 								{PROJECT_OWNER}
 							</a>

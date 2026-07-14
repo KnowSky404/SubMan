@@ -617,7 +617,7 @@ input[type="checkbox"]:indeterminate {
 }
 
 .app-brand-mark {
-	@apply flex h-8 w-8 items-center justify-center rounded-md border border-border-default bg-canvas-subtle text-fg-muted;
+	@apply h-6 w-6 shrink-0 object-contain;
 }
 
 .theme-menu {
