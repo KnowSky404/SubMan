@@ -197,6 +197,17 @@ function uuid(value: unknown, path: string): string {
 	return value;
 }
 
+export function validateWorkspaceTimestamp(
+	value: unknown,
+	path = "timestamp",
+): string {
+	return timestamp(value, path);
+}
+
+export function validateWorkspaceUuid(value: unknown, path = "id"): string {
+	return uuid(value, path);
+}
+
 function nullableTimestamp(value: unknown, path: string): string | null {
 	if (value === null) return null;
 	return timestamp(value, path);
@@ -246,12 +257,15 @@ function parseNode(value: unknown, path: string): NodeItem {
 		"updatedAt",
 		"source",
 	]);
+	const tags = array(input.tags, `${path}.tags`, parseTag);
+	assertUniqueIds(tags, `${path}.tags`);
+	assertUniqueTagLabels(tags, `${path}.tags`);
 	return {
 		id: string(input.id, `${path}.id`),
 		name: string(input.name, `${path}.name`),
 		type: enumValue(input.type, `${path}.type`, PROXY_TYPES),
 		raw: string(input.raw, `${path}.raw`),
-		tags: array(input.tags, `${path}.tags`, parseTag),
+		tags,
 		enabled: boolean(input.enabled, `${path}.enabled`),
 		updatedAt: timestamp(input.updatedAt, `${path}.updatedAt`),
 		source: enumValue(input.source, `${path}.source`, SOURCE_TYPES),
@@ -261,12 +275,15 @@ function parseNode(value: unknown, path: string): NodeItem {
 function parseSubscription(value: unknown, path: string): SubscriptionItem {
 	const input = record(value, path);
 	keys(input, path, ["id", "name", "url", "enabled", "tags", "updatedAt"]);
+	const tags = array(input.tags, `${path}.tags`, parseTag);
+	assertUniqueIds(tags, `${path}.tags`);
+	assertUniqueTagLabels(tags, `${path}.tags`);
 	return {
 		id: string(input.id, `${path}.id`),
 		name: string(input.name, `${path}.name`),
 		url: string(input.url, `${path}.url`),
 		enabled: boolean(input.enabled, `${path}.enabled`),
-		tags: array(input.tags, `${path}.tags`, parseTag),
+		tags,
 		updatedAt: timestamp(input.updatedAt, `${path}.updatedAt`),
 	};
 }
@@ -363,6 +380,13 @@ function assertOutputFileName(value: unknown, path: string): string {
 		invalid(`${path} is reserved for workspace coordination`);
 	}
 	return fileName;
+}
+
+export function validateWorkspaceOutputFileName(
+	value: unknown,
+	path = "fileName",
+): string {
+	return assertOutputFileName(value, path);
 }
 
 function parsePublishTarget(
@@ -531,6 +555,16 @@ function assertUniqueStrings(items: readonly string[], path: string): void {
 	}
 }
 
+function assertUniqueTagLabels(tags: readonly NodeTag[], path: string): void {
+	const seen = new Set<string>();
+	for (const tag of tags) {
+		if (seen.has(tag.label)) {
+			invalid(`${path} contains duplicate label: ${tag.label}`);
+		}
+		seen.add(tag.label);
+	}
+}
+
 function parseWorkspaceData(
 	value: unknown,
 	path = "data",
@@ -577,8 +611,50 @@ function parseWorkspaceData(
 		assertUniqueStrings(item.excludeTagIds, `${itemPath}.excludeTagIds`);
 		assertUniqueStrings(item.allowedTypes, `${itemPath}.allowedTypes`);
 	}
+	const externalOwners = new Map<string, string>();
+	for (const item of result.nodes) {
+		for (const tag of item.tags) {
+			if (!tag.label.toLowerCase().startsWith("external:")) continue;
+			const key = tag.label.toLowerCase();
+			const owner = externalOwners.get(key);
+			if (owner && owner !== item.id) {
+				invalid(`data.nodes contains duplicate external key: ${tag.label}`);
+			}
+			externalOwners.set(key, item.id);
+		}
+	}
 	assertReferences(result, path);
 	return result;
+}
+
+export function validateWorkspaceData(value: unknown): WorkspaceData {
+	return parseWorkspaceData(value);
+}
+
+export function validateWorkspaceNode(value: unknown): NodeItem {
+	return parseNode(value, "node");
+}
+
+export function validateWorkspaceSubscription(
+	value: unknown,
+): SubscriptionItem {
+	return parseSubscription(value, "subscription");
+}
+
+export function validateWorkspaceAggregate(value: unknown): AggregateRule {
+	return parseAggregate(value, "aggregate");
+}
+
+export function validateWorkspacePublishTarget(
+	value: unknown,
+): AggregatePublishTarget {
+	return parsePublishTarget(value, "publishTarget");
+}
+
+export function validateWorkspaceClientExport(
+	value: unknown,
+): ClientExportProfile {
+	return parseClientExport(value, "clientExport");
 }
 
 function assertReferences(data: WorkspaceData, path: string): void {
@@ -937,6 +1013,13 @@ function canonicalizeTombstones(
 
 function normalizeV2(document: WorkspaceDocumentV2): WorkspaceDocumentV2 {
 	return parseV2(document as unknown as Record<string, unknown>);
+}
+
+export function validateWorkspaceDocumentV2(
+	value: unknown,
+	options: { expectedWorkspaceId?: string } = {},
+): WorkspaceDocumentV2 {
+	return parseV2(record(value, "workspace"), options.expectedWorkspaceId);
 }
 
 export function serializeWorkspaceDocumentV2(

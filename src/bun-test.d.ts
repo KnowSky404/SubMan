@@ -14,6 +14,7 @@ declare module "bun:test" {
 		toHaveLength(expected: number): void;
 		toThrow(expected?: string | RegExp): void;
 		not: {
+			toBe(expected: unknown): void;
 			toContain(expected: string): void;
 		};
 	};

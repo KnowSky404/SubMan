@@ -415,4 +415,44 @@ describe("Workspace Schema V2 validation", () => {
 			),
 		).toThrow("updatedAt must be an ISO timestamp");
 	});
+
+	it("rejects duplicate tag IDs, labels, and external-key owners", () => {
+		expect(() =>
+			parseWorkspaceDocument(
+				JSON.stringify(
+					document({
+						data: {
+							...data(),
+							nodes: [
+								{
+									...node("node-a"),
+									tags: [
+										{ id: "tag-1", label: "HK" },
+										{ id: "tag-1", label: "JP" },
+									],
+								},
+								node("node-b"),
+							],
+						},
+					}),
+				),
+			),
+		).toThrow("data.nodes[0].tags contains duplicate id: tag-1");
+
+		const first = {
+			...node("node-a"),
+			tags: [{ id: "external:shared", label: "external:shared" }],
+		};
+		const second = {
+			...node("node-b"),
+			tags: [{ id: "external:shared", label: "external:shared" }],
+		};
+		expect(() =>
+			parseWorkspaceDocument(
+				JSON.stringify(
+					document({ data: { ...data(), nodes: [first, second] } }),
+				),
+			),
+		).toThrow("data.nodes contains duplicate external key: external:shared");
+	});
 });
