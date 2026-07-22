@@ -483,7 +483,7 @@ name = "WORKSPACE_COORDINATOR"
 class_name = "WorkspaceCoordinator"
 
 [[migrations]]
-tag = "v1-workspace-coordinator"
+tag = "v1"
 new_sqlite_classes = ["WorkspaceCoordinator"]
 ```
 

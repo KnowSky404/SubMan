@@ -18,7 +18,7 @@ Local runtimes:
 
 ```bash
 bun run dev
-bun run dev:cf
+bun run dev:cf -- --ip :: --port 8787
 ```
 
 Deploy only with explicit operator approval:

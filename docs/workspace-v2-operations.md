@@ -32,7 +32,7 @@ bun wrangler deploy --dry-run
 Start the local Cloudflare runtime and exercise the health and mutation routes:
 
 ```bash
-bun run dev:cf
+bun run dev:cf -- --ip :: --port 8787
 curl -fsS "http://127.0.0.1:8787/api/health"
 ```
 
