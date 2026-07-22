@@ -111,6 +111,7 @@ function persistConflict(
 	const binding = conflict.document
 		? createWorkspaceV2LocalState(current.gistId, {
 				baseline: conflict.document,
+				conflictBaseline: previous.conflictBaseline ?? previous.baseline,
 				syncMode: "paused-conflict",
 			})
 		: { ...previous, syncMode: "paused-conflict" as const };

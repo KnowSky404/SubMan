@@ -1,5 +1,9 @@
 import { describe, expect, it } from "bun:test";
-import { enqueueAutomaticWorkspaceMutation } from "$lib/workspace-browser-mutation";
+import {
+	enqueueAutomaticWorkspaceMutation,
+	enqueueAutomaticWorkspaceReconcile,
+} from "$lib/workspace-browser-mutation";
+import { createDefaultWorkspaceState } from "$lib/workspace-data";
 import type { WorkspaceDocumentV2 } from "$lib/workspace-document";
 import { WorkspaceMutationQueue } from "$lib/workspace-mutation-queue";
 import {
@@ -141,5 +145,26 @@ describe("automatic browser mutation enqueue", () => {
 			expect(result.status).toBe(mode);
 			expect(queue.list()).toEqual([]);
 		}
+	});
+
+	it("queues an explicit reconcile for imported automatic state", async () => {
+		const { queue, stateStore } = stores("automatic");
+		const imported = createDefaultWorkspaceState(NOW);
+
+		const result = await enqueueAutomaticWorkspaceReconcile(imported, {
+			stateStore,
+			queue,
+			mutationId: () => "b0000000-0000-4000-8000-000000000003",
+			now: () => NOW,
+		});
+
+		expect(result.status).toBe("queued");
+		const queued = queue.peek(WORKSPACE_ID);
+		expect(queued?.kind).toBe("workspace.reconcile");
+		expect(
+			queued?.kind === "workspace.reconcile"
+				? queued.payload.baselineRevision
+				: null,
+		).toBe(5);
 	});
 });

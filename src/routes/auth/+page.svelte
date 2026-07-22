@@ -1,6 +1,8 @@
 <script lang="ts">
+import { onMount } from "svelte";
 import { slide } from "svelte/transition";
 import Octicon from "$lib/components/Octicon.svelte";
+import { getGist } from "$lib/gist";
 import { t } from "$lib/i18n";
 import { mergeSyncState } from "$lib/merge";
 import type { AppState } from "$lib/models";
@@ -30,27 +32,29 @@ import { appState, replaceState } from "$lib/stores/app";
 import { authState, clearAuth, setToken } from "$lib/stores/auth";
 import { requestConfirm } from "$lib/stores/confirm";
 import { showToast } from "$lib/stores/toast";
-import {
-	readSyncBaselineEnvelope,
-	resetWorkspaceSyncState,
-	setSyncBaseline,
-	setSyncPausedConflict,
-} from "$lib/sync";
+import { resetWorkspaceSyncState } from "$lib/sync";
 import { decideManualPush, mergeSyncStateFromBaseline } from "$lib/sync-guard";
 import { cn } from "$lib/utils/cn";
-import { ensureWorkspaceGist, WORKSPACE_FILE } from "$lib/workspace";
+import { ensureWorkspaceBootstrapGist, WORKSPACE_FILE } from "$lib/workspace";
 import {
-	createSyncBaselineEnvelope,
-	isTrustedSyncBaseline,
-} from "$lib/workspace-data";
+	type BrowserWorkspaceSnapshot,
+	persistBrowserWorkspaceSnapshot,
+	readBrowserWorkspaceSnapshot,
+	reconcileBrowserWorkspace,
+} from "$lib/workspace-browser-session-v2";
+import type { WorkspaceDocumentV2 } from "$lib/workspace-document";
+import { subscribeWorkspaceEvents } from "$lib/workspace-events";
+import { WorkspaceMutationQueue } from "$lib/workspace-mutation-queue";
 import {
 	bindWorkspaceOnly,
 	pullWorkspaceExactly,
 } from "$lib/workspace-session";
 import {
-	readWorkspaceSnapshot,
-	runWorkspaceTransaction,
-} from "$lib/workspace-transaction";
+	createWorkspaceV2LocalState,
+	hydrateAppStateFromWorkspaceDocument,
+	type WorkspaceV2LocalState,
+	WorkspaceV2StateStore,
+} from "$lib/workspace-v2-state";
 
 let tokenInput = "";
 let payload = "";
@@ -59,16 +63,107 @@ let workspaceBusy = false;
 // Conflict State
 let conflict: {
 	gistId: string;
+	remoteDocument: WorkspaceDocumentV2;
 	remoteState: AppState;
 	remoteSignature: string;
 	localSignature: string;
 } | null = null;
+
+function restoreConflict(document: WorkspaceDocumentV2, gistId: string) {
+	const remoteState = hydrateAppStateFromWorkspaceDocument(
+		$appState,
+		document,
+		gistId,
+	);
+	conflict = {
+		gistId,
+		remoteDocument: document,
+		remoteState,
+		remoteSignature: getSyncStateSignature(remoteState),
+		localSignature: getSyncStateSignature($appState),
+	};
+}
+
+onMount(() => {
+	try {
+		const binding = new WorkspaceV2StateStore().read();
+		if (binding?.syncMode === "paused-conflict" && binding.baseline) {
+			restoreConflict(binding.baseline, binding.gistId);
+		}
+	} catch {
+		// Invalid local metadata is surfaced by connection actions.
+	}
+	return subscribeWorkspaceEvents((event) => {
+		if (event.type === "paused-conflict" && event.document && event.gistId) {
+			restoreConflict(event.document, event.gistId);
+		}
+	});
+});
 let manualPushReview: {
 	gistId: string;
+	remoteDocument: WorkspaceDocumentV2;
 	remoteState: AppState;
 	remoteSignature: string;
 	localSignature: string;
 } | null = null;
+
+function workspaceDependencies() {
+	return {
+		queue: new WorkspaceMutationQueue(),
+		stateStore: new WorkspaceV2StateStore(),
+		getState: () => $appState,
+		setState: (state: AppState) => appState.set(state),
+	};
+}
+
+function currentSyncMode(): "automatic" | "manual" {
+	try {
+		return new WorkspaceV2StateStore().read()?.syncMode === "manual"
+			? "manual"
+			: "automatic";
+	} catch {
+		return "automatic";
+	}
+}
+
+async function loadWorkspaceSnapshot(token: string, gistId: string) {
+	const gist = await getGist(token, gistId);
+	return readBrowserWorkspaceSnapshot(token, gist, $appState);
+}
+
+async function discardPendingMutations(workspaceId: string) {
+	const queue = new WorkspaceMutationQueue();
+	for (const mutation of queue.list(workspaceId)) {
+		await queue.remove(mutation.mutationId);
+	}
+}
+
+function persistSnapshot(
+	snapshot: BrowserWorkspaceSnapshot,
+	gistId: string,
+	syncMode: "automatic" | "manual",
+) {
+	persistBrowserWorkspaceSnapshot(
+		snapshot,
+		gistId,
+		syncMode,
+		workspaceDependencies(),
+	);
+}
+
+async function reconcileSnapshot(
+	token: string,
+	gistId: string,
+	baseline: WorkspaceDocumentV2,
+	resolvedState: AppState,
+	syncMode: "automatic" | "manual",
+	replacePending = false,
+) {
+	return reconcileBrowserWorkspace(
+		{ token, gistId, baseline, resolvedState, syncMode, replacePending },
+		workspaceDependencies(),
+	);
+}
 
 function setStatus(
 	message: string,
@@ -86,48 +181,75 @@ async function handleTokenSave() {
 	try {
 		resetWorkspaceSyncState();
 		setToken(token);
-		const localPayload = exportSyncState($appState);
 		const localSignature = getSyncStateSignature($appState);
-		const { gist, created } = await ensureWorkspaceGist(token, localPayload, {
-			activeGistId: $appState.activeGistId,
+		let savedGistId = $appState.activeGistId;
+		try {
+			savedGistId = new WorkspaceV2StateStore().read()?.gistId ?? savedGistId;
+		} catch {
+			// Discovery can recover a workspace even when local V2 metadata is corrupt.
+		}
+		const { gist, created } = await ensureWorkspaceBootstrapGist(token, {
+			activeGistId: savedGistId,
 		});
+		const snapshot = await readBrowserWorkspaceSnapshot(token, gist, $appState);
 
-		if (created) {
-			const nextState = {
-				...$appState,
-				activeGistId: gist.id,
-				lastUpdated: new Date().toISOString(),
-			};
-			appState.set(nextState);
-			setSyncBaseline(nextState, gist.id, WORKSPACE_FILE);
+		if (created || snapshot.origin === "bootstrap") {
+			await reconcileSnapshot(
+				token,
+				gist.id,
+				snapshot.document,
+				$appState,
+				"automatic",
+			);
 			setStatus($t("Workspace created and connected"), "success");
 			tokenInput = "";
 			return;
 		}
 
-		// Existing Gist - Check for content
-		const snapshot = await readWorkspaceSnapshot(
-			token,
-			gist.id,
-			WORKSPACE_FILE,
-		);
 		const remoteState = snapshot.state;
 		const remoteSignature = getSyncStateSignature(remoteState);
 
 		if (remoteSignature === localSignature) {
-			appState.set(remoteState);
-			setSyncBaseline(remoteState, gist.id, WORKSPACE_FILE);
+			if (snapshot.origin === "v2") {
+				persistSnapshot(snapshot, gist.id, "automatic");
+			} else {
+				await reconcileSnapshot(
+					token,
+					gist.id,
+					snapshot.document,
+					remoteState,
+					"automatic",
+				);
+			}
 			setStatus($t("Workspace connected (In Sync)"), "success");
 			tokenInput = "";
 		} else {
 			// Conflict!
 			conflict = {
 				gistId: gist.id,
+				remoteDocument: snapshot.document,
 				remoteState,
 				remoteSignature,
 				localSignature,
 			};
-			setSyncPausedConflict(true);
+			const stateStore = new WorkspaceV2StateStore();
+			let previousBinding: WorkspaceV2LocalState | null = null;
+			try {
+				previousBinding = stateStore.read();
+			} catch {
+				// The validated remote snapshot replaces corrupt local metadata.
+			}
+			stateStore.write(
+				createWorkspaceV2LocalState(gist.id, {
+					baseline: snapshot.document,
+					conflictBaseline:
+						previousBinding?.workspaceId === `gist:${gist.id}`
+							? (previousBinding.conflictBaseline ?? previousBinding.baseline)
+							: null,
+					syncMode: "paused-conflict",
+				}),
+			);
+			appState.update((state) => ({ ...state, activeGistId: gist.id }));
 			setStatus($t("Sync conflict detected"), "info");
 		}
 	} catch (err) {
@@ -159,22 +281,18 @@ function getConflictConfirmation(action: "local" | "remote" | "merge") {
 	};
 }
 
-function setLocalStateAndBaseline(nextState: AppState, gistId: string) {
-	const nextLocalState = pullWorkspaceExactly(
-		nextState,
-		gistId,
-		nextState.activeGistFile || WORKSPACE_FILE,
-	);
-	appState.set(nextLocalState);
-	setSyncBaseline(nextLocalState, gistId, nextLocalState.activeGistFile);
-}
-
-function handleBindOnly() {
+async function handleBindOnly() {
 	if (!conflict) return;
 	const bound = bindWorkspaceOnly($appState, conflict.gistId, WORKSPACE_FILE);
 	resetWorkspaceSyncState();
+	await discardPendingMutations(`gist:${conflict.gistId}`);
+	new WorkspaceV2StateStore().write(
+		createWorkspaceV2LocalState(conflict.gistId, {
+			baseline: conflict.remoteDocument,
+			syncMode: "manual",
+		}),
+	);
 	appState.set(bound);
-	setSyncPausedConflict(true);
 	conflict = null;
 	manualPushReview = null;
 	tokenInput = "";
@@ -195,35 +313,39 @@ async function handleResolveConflict(action: "local" | "remote" | "merge") {
 	try {
 		const currentConflict = conflict;
 		if (action === "remote") {
-			setLocalStateAndBaseline(
-				currentConflict.remoteState,
+			await discardPendingMutations(`gist:${currentConflict.gistId}`);
+			persistSnapshot(
+				{
+					origin: "v2",
+					document: currentConflict.remoteDocument,
+					state: currentConflict.remoteState,
+				},
 				currentConflict.gistId,
+				"automatic",
 			);
 			setStatus($t("Remote data loaded"), "success");
 		} else if (action === "local") {
-			const result = await runWorkspaceTransaction({
-				token: $authState.token,
-				gistId: currentConflict.gistId,
-				fileName: WORKSPACE_FILE,
-				localState: bindWorkspaceOnly(
-					$appState,
-					currentConflict.gistId,
-					WORKSPACE_FILE,
-				),
-				force: true,
-			});
-			appState.set(result.state);
-			setSyncBaseline(result.state, currentConflict.gistId, WORKSPACE_FILE);
+			await reconcileSnapshot(
+				$authState.token,
+				currentConflict.gistId,
+				currentConflict.remoteDocument,
+				$appState,
+				"automatic",
+				true,
+			);
 			setStatus($t("Local data pushed to Gist"), "success");
 		} else {
-			const syncedFile = $appState.activeGistFile || WORKSPACE_FILE;
-			const baselineEnvelope = readSyncBaselineEnvelope();
-			const trustedBaseline = isTrustedSyncBaseline(
-				baselineEnvelope,
-				currentConflict.gistId,
-				syncedFile,
-			)
-				? baselineEnvelope.state
+			const localBinding = new WorkspaceV2StateStore().read();
+			const trustedBaseline = localBinding?.conflictBaseline
+				? pullWorkspaceExactly(
+						{
+							...$appState,
+							...localBinding.conflictBaseline.data,
+							lastUpdated: localBinding.conflictBaseline.updatedAt,
+						},
+						currentConflict.gistId,
+						WORKSPACE_FILE,
+					)
 				: null;
 			const mergedData = trustedBaseline
 				? mergeSyncStateFromBaseline(
@@ -236,20 +358,16 @@ async function handleResolveConflict(action: "local" | "remote" | "merge") {
 				...$appState,
 				...mergedData,
 				activeGistId: currentConflict.gistId,
-				activeGistFile: syncedFile,
+				activeGistFile: WORKSPACE_FILE,
 			};
-			const result = await runWorkspaceTransaction({
-				token: $authState.token,
-				gistId: currentConflict.gistId,
-				fileName: syncedFile,
-				localState: mergedState,
-				baseline: createSyncBaselineEnvelope(
-					currentConflict.remoteState,
-					currentConflict.gistId,
-					syncedFile,
-				),
-			});
-			setLocalStateAndBaseline(result.state, currentConflict.gistId);
+			await reconcileSnapshot(
+				$authState.token,
+				currentConflict.gistId,
+				currentConflict.remoteDocument,
+				mergedState,
+				"automatic",
+				true,
+			);
 			setStatus($t("Merged data saved."), "success");
 		}
 		conflict = null;
@@ -269,14 +387,13 @@ async function handleManualPull() {
 
 	workspaceBusy = true;
 	try {
-		const syncedFile = $appState.activeGistFile || WORKSPACE_FILE;
-		const remoteState = (await readWorkspaceSnapshot(token, gistId, syncedFile))
-			.state;
+		const snapshot = await loadWorkspaceSnapshot(token, gistId);
+		const remoteState = snapshot.state;
 		const remoteSignature = getSyncStateSignature(remoteState);
 		const localSignature = getSyncStateSignature($appState);
 
 		if (remoteSignature === localSignature) {
-			setLocalStateAndBaseline(remoteState, gistId);
+			persistSnapshot(snapshot, gistId, currentSyncMode());
 			setStatus($t("Already in sync"), "info");
 		} else {
 			const confirmed = await requestConfirm({
@@ -285,7 +402,8 @@ async function handleManualPull() {
 				confirmText: $t("Pull Remote"),
 			});
 			if (confirmed) {
-				setLocalStateAndBaseline(remoteState, gistId);
+				await discardPendingMutations(`gist:${gistId}`);
+				persistSnapshot(snapshot, gistId, currentSyncMode());
 				setStatus($t("Pulled successfully"), "success");
 			}
 		}
@@ -299,40 +417,34 @@ async function handleManualPull() {
 async function handleManualPush() {
 	const token = $authState.token;
 	const gistId = $appState.activeGistId;
-	const syncedFile = $appState.activeGistFile || WORKSPACE_FILE;
 	if (!token || !gistId) return;
 
 	workspaceBusy = true;
 	try {
-		const remoteState = (await readWorkspaceSnapshot(token, gistId, syncedFile))
-			.state;
-		const baselineEnvelope = readSyncBaselineEnvelope();
-		const baselineSignature = isTrustedSyncBaseline(
-			baselineEnvelope,
-			gistId,
-			syncedFile,
-		)
-			? baselineEnvelope.signature
-			: "";
-		const decision = decideManualPush({
-			local: $appState,
-			remote: remoteState,
-			baselineSignature,
-		});
+		const snapshot = await loadWorkspaceSnapshot(token, gistId);
+		const remoteState = snapshot.state;
+		const localSignature = getSyncStateSignature($appState);
+		const remoteSignature = getSyncStateSignature(remoteState);
+		const binding = new WorkspaceV2StateStore().read();
 
-		if (decision.action === "already-synced") {
-			setLocalStateAndBaseline(remoteState, gistId);
+		if (remoteSignature === localSignature) {
+			persistSnapshot(snapshot, gistId, currentSyncMode());
 			manualPushReview = null;
 			setStatus($t("Already in sync"), "info");
 			return;
 		}
 
-		if (decision.action === "remote-changed") {
+		if (
+			!binding ||
+			binding.workspaceId !== `gist:${gistId}` ||
+			binding.revision !== snapshot.document.revision
+		) {
 			manualPushReview = {
 				gistId,
+				remoteDocument: snapshot.document,
 				remoteState,
-				remoteSignature: decision.remoteSignature,
-				localSignature: decision.localSignature,
+				remoteSignature,
+				localSignature,
 			};
 			setStatus($t("Remote workspace changed since your last sync."), "info");
 			return;
@@ -345,15 +457,13 @@ async function handleManualPush() {
 		});
 		if (!confirmed) return;
 
-		const result = await runWorkspaceTransaction({
+		await reconcileSnapshot(
 			token,
 			gistId,
-			fileName: syncedFile,
-			localState: $appState,
-			baseline: baselineEnvelope,
-		});
-		appState.set(result.state);
-		setSyncBaseline(result.state, gistId, syncedFile);
+			snapshot.document,
+			$appState,
+			currentSyncMode(),
+		);
 		manualPushReview = null;
 		setStatus($t("Pushed successfully"), "success");
 	} catch (err) {
@@ -373,9 +483,15 @@ async function handleManualPushReview(action: "remote" | "merge" | "force") {
 			confirmText: $t("Pull Remote"),
 		});
 		if (!confirmed) return;
-		setLocalStateAndBaseline(
-			manualPushReview.remoteState,
+		await discardPendingMutations(`gist:${manualPushReview.gistId}`);
+		persistSnapshot(
+			{
+				origin: "v2",
+				document: manualPushReview.remoteDocument,
+				state: manualPushReview.remoteState,
+			},
 			manualPushReview.gistId,
+			currentSyncMode(),
 		);
 		manualPushReview = null;
 		setStatus($t("Pulled successfully"), "success");
@@ -396,14 +512,15 @@ async function handleManualPushReview(action: "remote" | "merge" | "force") {
 
 	workspaceBusy = true;
 	try {
-		const syncedFile = $appState.activeGistFile || WORKSPACE_FILE;
-		const baselineEnvelope = readSyncBaselineEnvelope();
-		const trustedBaseline = isTrustedSyncBaseline(
-			baselineEnvelope,
-			manualPushReview.gistId,
-			syncedFile,
-		)
-			? baselineEnvelope.state
+		const localBinding = new WorkspaceV2StateStore().read();
+		const trustedBaseline = localBinding?.baseline
+			? {
+					...$appState,
+					...localBinding.baseline.data,
+					activeGistId: manualPushReview.gistId,
+					activeGistFile: WORKSPACE_FILE,
+					lastUpdated: localBinding.baseline.updatedAt,
+				}
 			: null;
 		const mergedState = {
 			...mergeSyncStateFromBaseline(
@@ -412,20 +529,16 @@ async function handleManualPushReview(action: "remote" | "merge" | "force") {
 				trustedBaseline,
 			),
 			activeGistId: manualPushReview.gistId,
-			activeGistFile: syncedFile,
+			activeGistFile: WORKSPACE_FILE,
 		};
-		const result = await runWorkspaceTransaction({
-			token: $authState.token,
-			gistId: manualPushReview.gistId,
-			fileName: syncedFile,
-			localState: mergedState,
-			baseline: createSyncBaselineEnvelope(
-				manualPushReview.remoteState,
-				manualPushReview.gistId,
-				syncedFile,
-			),
-		});
-		setLocalStateAndBaseline(result.state, manualPushReview.gistId);
+		await reconcileSnapshot(
+			$authState.token,
+			manualPushReview.gistId,
+			manualPushReview.remoteDocument,
+			mergedState,
+			currentSyncMode(),
+			true,
+		);
 		manualPushReview = null;
 		setStatus($t("Merged data saved."), "success");
 	} catch (err) {
@@ -448,16 +561,14 @@ async function handleManualForcePush() {
 
 	workspaceBusy = true;
 	try {
-		const syncedFile = $appState.activeGistFile || WORKSPACE_FILE;
-		const result = await runWorkspaceTransaction({
-			token: $authState.token,
-			gistId: manualPushReview.gistId,
-			fileName: syncedFile,
-			localState: $appState,
-			force: true,
-		});
-		appState.set(result.state);
-		setSyncBaseline(result.state, manualPushReview.gistId, syncedFile);
+		await reconcileSnapshot(
+			$authState.token,
+			manualPushReview.gistId,
+			manualPushReview.remoteDocument,
+			$appState,
+			currentSyncMode(),
+			true,
+		);
 		manualPushReview = null;
 		setStatus($t("Pushed successfully"), "success");
 	} catch (err) {

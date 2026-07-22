@@ -1,6 +1,6 @@
 import { updateGist } from "$lib/gist";
 import type { GistMeta } from "$lib/models";
-import { WORKSPACE_FILE } from "$lib/workspace-data";
+import { WORKSPACE_RESERVED_FILE_NAMES } from "$lib/workspace-document";
 
 export type WorkspaceOutputUpdate = (
 	token: string,
@@ -23,7 +23,11 @@ export async function deleteWorkspaceOutputFile(
 	fileName: string,
 	update: WorkspaceOutputUpdate = updateGist,
 ): Promise<GistMeta> {
-	if (fileName === WORKSPACE_FILE) {
+	if (
+		[...WORKSPACE_RESERVED_FILE_NAMES].some(
+			(reserved) => reserved.toLowerCase() === fileName.toLowerCase(),
+		)
+	) {
 		throw new ProtectedWorkspaceFileError(fileName);
 	}
 	return await update(token, {

@@ -9,7 +9,10 @@ import type {
 	SubscriptionItem,
 } from "$lib/models";
 import { nowIso } from "$lib/utils/time";
-import { enqueueAutomaticWorkspaceMutation } from "$lib/workspace-browser-mutation";
+import {
+	enqueueAutomaticWorkspaceMutation,
+	enqueueAutomaticWorkspaceReconcile,
+} from "$lib/workspace-browser-mutation";
 import {
 	createDefaultWorkspaceState,
 	reconcileWorkspaceState,
@@ -212,5 +215,11 @@ export function removeClientExport(profileId: string): void {
 }
 
 export function replaceState(next: AppState): void {
-	appState.set({ ...defaultState, ...next, lastUpdated: nowIso() });
+	const state = { ...defaultState, ...next, lastUpdated: nowIso() };
+	if (browser) {
+		void enqueueAutomaticWorkspaceReconcile(state).catch(() => {
+			// Corrupt local coordination state must not be overwritten implicitly.
+		});
+	}
+	appState.set(state);
 }

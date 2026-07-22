@@ -40,6 +40,20 @@ test("workspace config cannot be deleted through the output boundary", async () 
 	expect(update.mock.calls).toHaveLength(0);
 });
 
+test("migration and bootstrap files are protected case-insensitively", async () => {
+	const update = mock(async () => gist());
+	for (const fileName of ["subman.v1.backup.json", "SUBMAN.BOOTSTRAP.JSON"]) {
+		let error: unknown;
+		try {
+			await deleteWorkspaceOutputFile("token", "gist-1", fileName, update);
+		} catch (caught) {
+			error = caught;
+		}
+		expect(error instanceof ProtectedWorkspaceFileError).toBe(true);
+	}
+	expect(update.mock.calls).toEqual([]);
+});
+
 test("workspace output deletion sends one file-scoped PATCH", async () => {
 	const update = mock(async () => gist());
 

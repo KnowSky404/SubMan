@@ -20,6 +20,7 @@ export type WorkspaceV2LocalState = {
 	revision: number | null;
 	syncMode: "automatic" | "manual" | "paused-conflict";
 	baseline: WorkspaceDocumentV2 | null;
+	conflictBaseline: WorkspaceDocumentV2 | null;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -29,10 +30,12 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function hasExactKeys(
 	value: Record<string, unknown>,
 	required: readonly string[],
+	optional: readonly string[] = [],
 ): boolean {
+	const allowed = new Set([...required, ...optional]);
 	return (
-		Object.keys(value).length === required.length &&
-		required.every((key) => key in value)
+		required.every((key) => key in value) &&
+		Object.keys(value).every((key) => allowed.has(key))
 	);
 }
 
@@ -48,15 +51,19 @@ export function validateWorkspaceV2LocalState(
 ): WorkspaceV2LocalState {
 	if (
 		!isRecord(value) ||
-		!hasExactKeys(value, [
-			"version",
-			"gistId",
-			"fileName",
-			"workspaceId",
-			"revision",
-			"syncMode",
-			"baseline",
-		]) ||
+		!hasExactKeys(
+			value,
+			[
+				"version",
+				"gistId",
+				"fileName",
+				"workspaceId",
+				"revision",
+				"syncMode",
+				"baseline",
+			],
+			["conflictBaseline"],
+		) ||
 		value.version !== 2 ||
 		value.fileName !== WORKSPACE_FILE_NAME ||
 		typeof value.workspaceId !== "string" ||
@@ -71,7 +78,7 @@ export function validateWorkspaceV2LocalState(
 		throw new Error("Workspace V2 local state identity is invalid");
 	}
 	if (value.revision === null) {
-		if (value.baseline !== null) {
+		if (value.baseline !== null || value.conflictBaseline != null) {
 			throw new Error("Workspace V2 local state baseline is invalid");
 		}
 		return {
@@ -82,6 +89,7 @@ export function validateWorkspaceV2LocalState(
 			revision: null,
 			syncMode: value.syncMode as WorkspaceV2LocalState["syncMode"],
 			baseline: null,
+			conflictBaseline: null,
 		};
 	}
 	if (!Number.isSafeInteger(value.revision) || (value.revision as number) < 0) {
@@ -93,14 +101,28 @@ export function validateWorkspaceV2LocalState(
 	if (baseline.revision !== value.revision) {
 		throw new Error("Workspace V2 local state baseline revision is invalid");
 	}
+	const syncMode = value.syncMode as WorkspaceV2LocalState["syncMode"];
+	const conflictBaseline =
+		value.conflictBaseline == null
+			? null
+			: validateWorkspaceDocumentV2(value.conflictBaseline, {
+					expectedWorkspaceId: workspaceId,
+				});
+	if (
+		(syncMode !== "paused-conflict" && conflictBaseline !== null) ||
+		(conflictBaseline !== null && conflictBaseline.revision > baseline.revision)
+	) {
+		throw new Error("Workspace V2 conflict baseline is invalid");
+	}
 	return {
 		version: 2,
 		gistId,
 		fileName: WORKSPACE_FILE_NAME,
 		workspaceId,
 		revision: value.revision as number,
-		syncMode: value.syncMode as WorkspaceV2LocalState["syncMode"],
+		syncMode,
 		baseline,
+		conflictBaseline,
 	};
 }
 
@@ -109,6 +131,7 @@ export function createWorkspaceV2LocalState(
 	options: {
 		syncMode?: WorkspaceV2LocalState["syncMode"];
 		baseline?: WorkspaceDocumentV2 | null;
+		conflictBaseline?: WorkspaceDocumentV2 | null;
 	} = {},
 ): WorkspaceV2LocalState {
 	const gistId = parseGistId(gistIdValue);
@@ -119,6 +142,12 @@ export function createWorkspaceV2LocalState(
 			: validateWorkspaceDocumentV2(options.baseline, {
 					expectedWorkspaceId: workspaceId,
 				});
+	const conflictBaseline =
+		options.conflictBaseline === undefined || options.conflictBaseline === null
+			? null
+			: validateWorkspaceDocumentV2(options.conflictBaseline, {
+					expectedWorkspaceId: workspaceId,
+				});
 	return validateWorkspaceV2LocalState({
 		version: 2,
 		gistId,
@@ -127,6 +156,7 @@ export function createWorkspaceV2LocalState(
 		revision: baseline?.revision ?? null,
 		syncMode: options.syncMode ?? "automatic",
 		baseline,
+		conflictBaseline,
 	});
 }
 

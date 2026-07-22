@@ -30,11 +30,11 @@ import {
 import { authState } from "$lib/stores/auth";
 import { requestConfirm } from "$lib/stores/confirm";
 import { showToast } from "$lib/stores/toast";
-import { readSyncBaselineEnvelope, setSyncBaseline } from "$lib/sync";
 import { cn } from "$lib/utils/cn";
 import { nowIso } from "$lib/utils/time";
-import { buildClientExportPublication } from "$lib/workspace-publication";
-import { runWorkspaceTransaction } from "$lib/workspace-transaction";
+import { submitBrowserWorkspaceMutation } from "$lib/workspace-browser-session-v2";
+import { WorkspaceMutationQueue } from "$lib/workspace-mutation-queue";
+import { WorkspaceV2StateStore } from "$lib/workspace-v2-state";
 
 let selectedProfileId = "";
 let previewContent = "";
@@ -293,29 +293,39 @@ async function publishPreview(): Promise<void> {
 
 	publishing = true;
 	try {
-		const now = nowIso();
 		const profileId = selectedProfile.id;
-		const publicationResult: { build?: SingBoxClientBuildResult } = {};
-		const result = await runWorkspaceTransaction({
-			token,
-			gistId,
-			fileName: $appState.activeGistFile,
-			localState: $appState,
-			baseline: readSyncBaselineEnvelope(),
-			mutate: async (state, context) => {
-				const publication = await buildClientExportPublication(
-					state,
-					context.gist,
+		const publicationBuild = await buildSingBoxClientConfig(
+			selectedProfile,
+			selectedRule,
+			$appState.nodes,
+			$appState.subscriptions,
+		);
+		if (
+			publicationBuild.errors.length > 0 ||
+			!publicationBuild.content ||
+			publicationBuild.outbounds <= 0
+		) {
+			throw new Error(publicationBuild.errors[0] ?? "No output generated");
+		}
+		await submitBrowserWorkspaceMutation(
+			{
+				token,
+				kind: "client-export.publish",
+				payload: {
 					profileId,
-					now,
-				);
-				publicationResult.build = publication.build;
-				return { state: publication.state, files: publication.files };
+					output: {
+						fileName: normalizeExportFileName(selectedProfile.fileName),
+						content: publicationBuild.content,
+					},
+				},
 			},
-		});
-		appState.set(result.state);
-		setSyncBaseline(result.state, gistId, result.state.activeGistFile);
-		const publicationBuild = publicationResult.build;
+			{
+				queue: new WorkspaceMutationQueue(),
+				stateStore: new WorkspaceV2StateStore(),
+				getState: () => $appState,
+				setState: (state) => appState.set(state),
+			},
+		);
 		if (publicationBuild) {
 			previewContent = publicationBuild.content;
 			previewWarnings = publicationBuild.warnings;

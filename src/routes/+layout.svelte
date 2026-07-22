@@ -28,8 +28,8 @@ import { authState } from "$lib/stores/auth";
 import { confirmDialog, resolveConfirm } from "$lib/stores/confirm";
 import { startThemeSync, type ThemeMode, themeMode } from "$lib/stores/theme";
 import { dismissToast, toastStore } from "$lib/stores/toast";
-import { startAutoSync } from "$lib/sync";
 import { cn } from "$lib/utils/cn";
+import { startWorkspaceMutationSync } from "$lib/workspace-mutation-sync-browser";
 
 const PROJECT_GITHUB_URL = "https://github.com/KnowSky404/SubMan";
 const PROJECT_OWNER = "KnowSky404";
@@ -73,7 +73,7 @@ function handleThemeChange(nextTheme: ThemeMode) {
 }
 
 onMount(() => {
-	const stopAutoSync = startAutoSync();
+	const stopAutoSync = startWorkspaceMutationSync();
 	const stopThemeSync = startThemeSync();
 	return () => {
 		stopAutoSync();

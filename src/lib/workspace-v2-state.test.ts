@@ -103,6 +103,33 @@ describe("Workspace V2 local state", () => {
 		expect(state.workspaceId).toBe(WORKSPACE_ID);
 	});
 
+	it("retains the last common baseline while a conflict is paused", () => {
+		const state = createWorkspaceV2LocalState("gist-1", {
+			baseline: document(5),
+			conflictBaseline: document(4),
+			syncMode: "paused-conflict",
+		});
+
+		expect(state.revision).toBe(5);
+		expect(state.conflictBaseline?.revision).toBe(4);
+		expect(() =>
+			createWorkspaceV2LocalState("gist-1", {
+				baseline: document(5),
+				conflictBaseline: document(4),
+				syncMode: "automatic",
+			}),
+		).toThrow("conflict baseline is invalid");
+	});
+
+	it("upgrades stored bindings that predate conflict baselines", () => {
+		const current = createWorkspaceV2LocalState("gist-1", {
+			baseline: document(),
+		});
+		const { conflictBaseline: _, ...legacy } = current;
+
+		expect(validateWorkspaceV2LocalState(legacy).conflictBaseline).toBeNull();
+	});
+
 	it("rejects mismatched workspace and baseline revisions", () => {
 		const state = createWorkspaceV2LocalState("gist-1", {
 			baseline: document(),

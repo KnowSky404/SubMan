@@ -217,6 +217,7 @@ describe("Workspace mutation synchronization", () => {
 		expect(result.status).toBe("conflict");
 		expect(dependencies.stateStore.read()?.syncMode).toBe("paused-conflict");
 		expect(dependencies.stateStore.read()?.revision).toBe(2);
+		expect(dependencies.stateStore.read()?.conflictBaseline?.revision).toBe(1);
 		expect(dependencies.getCurrentState().nodes[0]?.id).toBe("optimistic");
 		expect(dependencies.queue.list()).toHaveLength(1);
 	});

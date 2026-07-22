@@ -42,12 +42,12 @@ import {
 import { authState } from "$lib/stores/auth";
 import { requestConfirm } from "$lib/stores/confirm";
 import { showToast } from "$lib/stores/toast";
-import { readSyncBaselineEnvelope, setSyncBaseline } from "$lib/sync";
 import { cn } from "$lib/utils/cn";
 import { createId } from "$lib/utils/id";
 import { nowIso } from "$lib/utils/time";
-import { buildAggregatePublication } from "$lib/workspace-publication";
-import { runWorkspaceTransaction } from "$lib/workspace-transaction";
+import { submitBrowserWorkspaceMutation } from "$lib/workspace-browser-session-v2";
+import { WorkspaceMutationQueue } from "$lib/workspace-mutation-queue";
+import { WorkspaceV2StateStore } from "$lib/workspace-v2-state";
 
 let ruleName = "";
 let selectedNodeIds: string[] = [];
@@ -332,27 +332,40 @@ async function publish() {
 
 	publishing = true;
 	try {
-		const publishedAt = nowIso();
-		const result = await runWorkspaceTransaction({
-			token,
-			gistId,
-			fileName: $appState.activeGistFile,
-			localState: $appState,
-			baseline: readSyncBaselineEnvelope(),
-			mutate: (state, context) =>
-				buildAggregatePublication(
-					state,
-					context.gist,
-					selectedTargetId,
-					publishedAt,
-				),
-		});
-		appState.set(result.state);
-		setSyncBaseline(result.state, gistId, result.state.activeGistFile);
+		const target = $appState.publishTargets.find(
+			(item) => item.id === selectedTargetId,
+		);
+		const rule = $appState.aggregates.find(
+			(item) => item.id === target?.ruleId,
+		);
+		if (!target || !rule) throw new Error("Publish target not found");
+		const output = await buildAggregateOutput(
+			rule,
+			$appState.nodes,
+			$appState.subscriptions,
+		);
+		if (output.errors.length > 0) {
+			throw new Error(output.errors[0] ?? "Publish failed");
+		}
+		await submitBrowserWorkspaceMutation(
+			{
+				token,
+				kind: "aggregate.publish",
+				payload: {
+					targetId: target.id,
+					output: { fileName: target.fileName, content: output.content },
+				},
+			},
+			{
+				queue: new WorkspaceMutationQueue(),
+				stateStore: new WorkspaceV2StateStore(),
+				getState: () => $appState,
+				setState: (state) => appState.set(state),
+			},
+		);
 		publishUrl =
-			result.state.publishTargets.find(
-				(target) => target.id === selectedTargetId,
-			)?.lastPublishedUrl ?? null;
+			$appState.publishTargets.find((target) => target.id === selectedTargetId)
+				?.lastPublishedUrl ?? null;
 		showToast($t("Published successfully to GitHub Gist"), "success");
 	} catch (err) {
 		showToast(

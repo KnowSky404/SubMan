@@ -1,3 +1,5 @@
+import type { AppState } from "$lib/models";
+import { getWorkspaceBusinessData } from "$lib/workspace-data";
 import {
 	parseWorkspaceMutation,
 	type WorkspaceMutation,
@@ -51,4 +53,23 @@ export async function enqueueAutomaticWorkspaceMutation(
 			}),
 	);
 	return { status: "queued", mutation };
+}
+
+export async function enqueueAutomaticWorkspaceReconcile(
+	state: AppState,
+	options: Parameters<typeof enqueueAutomaticWorkspaceMutation>[1] = {},
+): Promise<BrowserMutationEnqueueResult> {
+	const stateStore = options.stateStore ?? new WorkspaceV2StateStore();
+	const binding = stateStore.read();
+	if (!binding || binding.revision === null) return { status: "local-only" };
+	return enqueueAutomaticWorkspaceMutation(
+		{
+			kind: "workspace.reconcile",
+			payload: {
+				baselineRevision: binding.revision,
+				data: getWorkspaceBusinessData(state),
+			},
+		},
+		{ ...options, stateStore },
+	);
 }
