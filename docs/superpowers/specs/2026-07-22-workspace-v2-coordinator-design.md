@@ -277,12 +277,14 @@ document, update the target/profile metadata, and write the output file plus
 the next `subman.json` in one Gist PATCH. A publication cannot commit only one
 half of that pair.
 
-After every PATCH, the coordinator reads the Gist again and verifies the
-committed revision, `lastMutationId`, canonical document signature, and expected
-output file set. It writes the SQLite idempotency result only after verification.
-If the read-back has the mutation ID and expected signature, the commit
-succeeded even if the PATCH response was lost. Any other mismatch returns a
-conflict or write-verification error and is not blindly retried as a fresh
+Before every PATCH, the coordinator writes a SQLite pending journal entry that
+contains only the canonical request hash, candidate revision and document hash,
+safe receipt, and expected file hashes. After the PATCH, it reads the Gist again
+and verifies the committed revision, `lastMutationId`, canonical document hash,
+and expected file hashes. It then promotes the journal entry into the committed
+idempotency index. If the read-back has the mutation ID and expected hashes, the
+commit succeeded even if the PATCH response was lost. Any other mismatch returns
+a conflict or write-verification error and is not blindly retried as a fresh
 transition.
 
 ## Durable Object Architecture
@@ -320,6 +322,19 @@ instead of creating a duplicate workspace.
 The initial SQLite schema is:
 
 ```sql
+CREATE TABLE IF NOT EXISTS pending_mutations (
+  mutation_id TEXT PRIMARY KEY,
+  workspace_id TEXT NOT NULL UNIQUE,
+  request_hash TEXT NOT NULL,
+  base_revision INTEGER NOT NULL,
+  base_document_hash TEXT NOT NULL,
+  candidate_revision INTEGER NOT NULL,
+  candidate_document_hash TEXT NOT NULL,
+  result_json TEXT NOT NULL,
+  expected_files_json TEXT NOT NULL,
+  committed_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS processed_mutations (
   mutation_id TEXT PRIMARY KEY,
   workspace_id TEXT NOT NULL,
@@ -330,23 +345,31 @@ CREATE TABLE IF NOT EXISTS processed_mutations (
 );
 ```
 
-The token, mutation payload, and complete workspace document are not stored.
-`result_json` contains only the safe committed response needed for an
-idempotent retry.
+The token, mutation payload, file contents, and complete workspace document are
+not stored. `result_json` contains only the safe receipt needed for an
+idempotent retry. The document hashes and each content entry in
+`expected_files_json` are fixed-size SHA-256 digests, not serialized content.
 
 There is an unavoidable crash window after GitHub accepts a PATCH but before
-SQLite records the result. Every request closes that window as follows:
+SQLite promotes the pending row. Every request closes that window as follows:
 
 1. Read and validate the latest Gist document.
-2. If its non-null `lastMutationId` is absent from SQLite, reconstruct the safe
-   committed result from that document and insert it.
+2. If its non-null `lastMutationId` is absent from `processed_mutations`, load
+   the corresponding pending row, verify its candidate revision and document
+   and file hashes against the Gist, then promote it. A missing or mismatched
+   pending row is a recovery error rather than permission to reapply a mutation.
 3. Look up the incoming `mutationId` and return its prior result if its
    canonical request hash matches. Return `mutation_id_reused` if it differs.
-4. Otherwise validate the latest revision and process the mutation.
+4. If the incoming ID has a pending row, require the same request hash. When the
+   Gist still has the expected pre-mutation revision and document hash, resume
+   the same mutation; when it has the candidate commit, verify and promote it.
+5. Otherwise validate the latest revision, apply the transition, insert the
+   pending row, PATCH GitHub, verify the read-back, and promote the row.
 
-The Gist document is therefore the commit record and SQLite is the idempotency
-index. A Durable Object restart cannot cause the last successful mutation to be
-applied twice.
+The Gist document is therefore the commit record, the pending table is the
+minimal crash journal, and `processed_mutations` is the idempotency index. A
+Durable Object restart cannot cause the last successful mutation to be applied
+twice, and request-hash collision detection remains possible after a crash.
 
 ## Endpoint Contract
 
