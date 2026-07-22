@@ -2,9 +2,9 @@
 
 ## Runtime
 
-SubMan is a SvelteKit + TypeScript app deployed to Cloudflare Workers with
-`@sveltejs/adapter-cloudflare`. The UI is the primary product surface. Server API
-routes live in the same app for trusted backend automation.
+SubMan is a SvelteKit + TypeScript app deployed to Cloudflare Workers. The UI
+and trusted Server API submit revisioned Workspace mutations to one
+SQLite-backed `WorkspaceCoordinator` Durable Object per Gist.
 
 ## Core Data Model
 
@@ -14,9 +14,10 @@ Types live in `src/lib/models.ts`.
 - `SubscriptionItem`: remote subscription source.
 - `AggregateRule`: selection, filtering, rename, flag, and sort rule.
 - `AggregatePublishTarget`: output file settings and last publish metadata.
-- `AppState`: full workspace state, including nodes, subscriptions,
-  aggregates, publish targets, gist metadata, active gist id, and active gist
-  file.
+- `WorkspaceDocumentV2`: remote business data, revision metadata, and
+  tombstones.
+- `AppState`: browser view state. Gist identity and UI metadata remain local
+  and are not serialized into the V2 document.
 
 Allowed proxy types:
 
@@ -38,9 +39,16 @@ vless, vmess, trojan, ss, ssr, hysteria2, tuic, anytls, other
 
 ## Important Library Modules
 
-- `src/lib/workspace.ts`: find/create/bind the fixed workspace gist.
+- `src/lib/workspace.ts`: discover the fixed Gist or create its bootstrap
+  marker.
 - `src/lib/gist.ts`: GitHub Gist API client.
-- `src/lib/sync.ts`: local-to-gist automatic sync.
+- `src/lib/workspace-browser-mutation.ts`: translate browser store actions to
+  mutations.
+- `src/lib/workspace-mutation-queue.ts`: persistent ordered browser queue.
+- `src/lib/workspace-mutation-sync.ts`: committed-state persistence, optimistic
+  replay, and conflict pausing.
+- `src/lib/server/workspace-coordinator.ts`: Durable Object RPC boundary.
+- `src/lib/server/workspace-coordinator-core.ts`: the only `subman.json` writer.
 - `src/lib/aggregate.ts`: aggregate output generation.
 - `src/lib/serialization.ts`: import/export and workspace serialization.
 - `src/lib/merge.ts`: conflict merge behavior.
@@ -52,6 +60,6 @@ vless, vmess, trojan, ss, ssr, hysteria2, tuic, anytls, other
 - Follow existing route and store patterns before introducing abstractions.
 - Keep shared business rules in `src/lib` rather than duplicating them in route
   components.
-- Server API writes mutate the same serialized `AppState` stored in
-  `subman.json`.
-
+- Server API and browser writes use the same coordinator and revision contract.
+- See `docs/workspace-v2-operations.md` before migration, deployment, or
+  rollback work.

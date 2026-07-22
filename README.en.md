@@ -13,7 +13,7 @@ Default workspace identity:
 - Workspace Gist: finds or creates the fixed workspace Gist after token setup
 - Local and cloud modes: localStorage only without token; auto sync with Gist when token is present
 - Conflict handling and repair: local overwrite, remote overwrite, merge, or bind only; health check and config repair
-- Auto sync: local changes are pushed to the workspace gist and sync status is tracked
+- Auto sync: browser changes enter a persistent queue and a Cloudflare Durable Object commits them in revision order
 - Nodes and subscriptions: add, edit, enable/disable, tag, search, and filter
 - Batch import: multi-line import with dedupe and preview; supports base64 subscription content
 - Aggregation rules: select nodes/subscriptions, exclude tags, filter by proxy types, regex renaming, region flags
@@ -46,20 +46,31 @@ Default workspace identity:
 - Publish strategy: keep file name for stable links; renames create a new stable link and provide cleanup guidance
 
 ## Workspace Model
-- After token setup, SubMan finds or creates the fixed workspace gist and writes `subman.json`
+- After token setup, SubMan finds the fixed Gist; a new Gist starts with a bootstrap marker and the first coordinator commit creates `subman.json`
 - All data lives in a single workspace gist, and the config file is protected from deletion in UI
+- Browser and Server API mutations are serialized by one Durable Object per Workspace
+- The first V2 commit for a legacy Workspace preserves the byte-exact V1 file as `subman.v1.backup.json`
 - Conflict resolution options: local overwrite, remote overwrite, merge, or bind only
 - Health check and repair are available from workspace settings
+
+See [Workspace V2 Operations](docs/workspace-v2-operations.md) for deployment,
+migration verification, and rollback.
 
 ## FAQ
 
 ### Will auto sync overwrite remote data with my local copy?
-Not blindly. After a workspace is connected, local browser edits trigger auto sync. Before writing to the Gist, SubMan reads the remote `subman.json` and compares it with the saved sync baseline.
+Not blindly. After a Workspace is connected, each browser business action is
+persisted in a local queue and sent to the Workspace coordinator with an
+`expectedRevision`.
 
-- If the remote file has not changed, SubMan writes the current local state.
-- If the remote file also changed, SubMan performs a three-way merge using the last sync baseline, the local state, and the remote state, then saves the merged result.
-- If the remote side deleted an item and the local side only still has the old copy, auto-merge preserves the remote deletion instead of restoring that item to the Gist.
-- If you keep editing while an auto sync is in flight, the older sync snapshot will not replace those newer local edits. The newer local edits are kept and handled by the next sync.
+- The coordinator accepts only the next mutation for the current revision and
+  commits config plus publication files in one Gist PATCH.
+- Network failures retain and retry the same mutation ID, so one operation is
+  not committed twice.
+- A remote revision change retains the queue, pauses automatic delivery, and
+  opens conflict handling.
+- Later queued edits are replayed over the newest committed baseline, so an old
+  response cannot replace newer local work.
 
 ### Which actions still overwrite the remote workspace?
 When you click Manual Push Local, SubMan first reads the remote `subman.json`

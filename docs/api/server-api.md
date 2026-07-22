@@ -39,7 +39,8 @@ bun wrangler secret put SUBMAN_API_TOKEN
 ```
 
 `GITHUB_TOKEN` must have GitHub `gist` permission. The Worker uses it to find or
-create the Workspace Gist and update `subman.json`.
+create the Workspace Gist and passes it separately to the Workspace coordinator
+for each request. It is never included in a mutation payload.
 
 `SUBMAN_API_TOKEN` is an arbitrary long secret value that callers must send in
 the `Authorization` header.
@@ -58,9 +59,16 @@ The API uses the same workspace identity as the UI:
 - Gist description: `SubMan-Data`
 - Workspace file: `subman.json`
 
-If the Workspace Gist does not exist, the API creates it. Write operations read
-the current `subman.json`, mutate the requested node data, then write the full
-sync state back to the same file.
+If the Workspace Gist does not exist, the API creates only a bootstrap marker.
+Each write builds a revisioned node mutation and submits it to the
+`WorkspaceCoordinator` Durable Object for that Gist. The coordinator reads the
+latest document, applies one mutation, and commits `subman.json` in a verified
+Gist PATCH. Browser and Server API writes therefore share the same ordering,
+idempotency, tombstone, and conflict rules.
+
+The first write to a V1 Workspace preserves the exact original bytes as
+`subman.v1.backup.json` before committing V2. See
+`docs/workspace-v2-operations.md` for migration and rollback procedures.
 
 ## Common Headers
 
@@ -167,7 +175,8 @@ List responses:
   "data": [],
   "workspace": {
     "gistId": "gist-id",
-    "file": "subman.json"
+    "file": "subman.json",
+    "revision": 12
   }
 }
 ```
@@ -188,7 +197,8 @@ Single-node write responses:
   },
   "workspace": {
     "gistId": "gist-id",
-    "file": "subman.json"
+    "file": "subman.json",
+    "revision": 13
   }
 }
 ```
@@ -413,16 +423,22 @@ curl -fsS -X PUT "${SUBMAN_BASE_URL}/api/nodes/by-key/${NODE_KEY}" \
 | `201` | - | Node created by `POST /api/nodes`. |
 | `400` | `bad_request` | Invalid JSON body or unsupported field value. |
 | `401` | `unauthorized` | Missing or invalid `SUBMAN_API_TOKEN`. |
-| `409` | `duplicate_node_raw` | Submitted raw URI already belongs to another node. |
 | `404` | `not_found` | Requested node id does not exist. |
-| `500` | `server_error` | Missing `GITHUB_TOKEN` or unexpected server/Gist failure. |
+| `409` | `duplicate_node_raw` | Submitted raw URI already belongs to another node. |
+| `409` | `revision_conflict` | Another mutation committed after this request loaded the Workspace; retry from the latest revision. |
+| `409` | `entity_deleted` | A stale write attempted to restore a tombstoned entity. |
+| `409` | `migration_backup_conflict` | The existing V1 backup does not match the current V1 config. |
+| `422` | `unsupported_schema` | The Workspace uses a newer unsupported schema. |
+| `500` | `server_error` | A required Worker secret or coordinator binding is missing, or an unexpected failure occurred. |
+| `502` | `gist_read_failed` / `gist_write_failed` | GitHub I/O failed without a verified commit. |
 
 ## Operational Notes
 
 - Keep `GITHUB_TOKEN` only in Cloudflare Secrets.
 - Give backend scripts only `SUBMAN_API_TOKEN`.
 - Rotate `SUBMAN_API_TOKEN` if a script host is compromised.
-- The Gist backend is suitable for low-frequency automation. It is not intended
-  for high-concurrency writes from many machines at the same time.
+- The Durable Object serializes concurrent mutations and rejects stale
+  revisions, but GitHub Gist remains a low-frequency storage backend. Callers
+  should retry `revision_conflict` with bounded backoff.
 - CORS is intentionally not opened for arbitrary browser origins in this API
   version.

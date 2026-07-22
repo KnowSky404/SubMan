@@ -2,20 +2,54 @@
 
 ## Workspace Identity
 
-SubMan stores data in a fixed GitHub Workspace Gist:
+SubMan stores configuration and generated outputs in one GitHub Gist:
 
 - Description: `SubMan-Data`
+- Workspace ID: `gist:<gist-id>`
 - Config file: `subman.json`
 
-All workspace files should stay in this gist. Aggregate outputs are published as
-additional files in the same workspace gist.
+New Gists initially contain only `subman.bootstrap.json`. The first coordinator
+mutation replaces that marker with a V2 config document.
+
+## Schema V2
+
+The remote `WorkspaceDocumentV2` contains:
+
+- `version: 2` and `schemaVersion: 2`
+- deterministic `workspaceId`
+- monotonic `revision`
+- `updatedAt` and `lastMutationId`
+- business collections: nodes, subscriptions, aggregates, publish targets,
+  and client exports
+- tombstones for every business collection
+
+Browser-only Gist lists, active-file state, sync mode, conflict baselines, and
+the pending mutation queue are not written to the Gist.
+
+## Single-Writer Rule
+
+Every `subman.json` mutation goes through the `WorkspaceCoordinator` Durable
+Object. Browser store actions and Server API routes create validated,
+revisioned mutations; neither path writes a complete Gist state directly.
+
+The browser queue is persisted before delivery. Successful delivery persists
+the committed V2 document before removing the queue item. Network failures keep
+the same mutation ID for retry. Revision conflicts retain the mutation and
+pause automatic delivery.
 
 ## Modes
 
-- Local mode: no GitHub token; app data is stored in localStorage.
-- Workspace mode: token plus active gist id; data syncs to the workspace gist.
-- Server API mode: Cloudflare Worker uses `GITHUB_TOKEN` from secrets to mutate
-  the same workspace gist.
+- Local: no GitHub token or V2 binding; business data remains in localStorage.
+- Automatic: browser business actions enqueue and deliver mutations.
+- Manual: only explicit pull, push, reconcile, or publication actions send.
+- Paused conflict: local optimistic state and queued mutations are retained,
+  but automatic delivery stops.
+- Server API: the Worker supplies `GITHUB_TOKEN` separately to the same
+  coordinator used by the browser.
+
+Logout clears the active browser identity and token but preserves the V2
+binding and unsent queue. No mutation can be delivered until authentication is
+restored.
 
 ## Conflict Handling
 
@@ -24,36 +58,38 @@ The `/auth` flow supports:
 - Local overwrites remote.
 - Remote overwrites local.
 - Merge then save.
-- Bind only.
+- Bind only in manual mode.
 
-Do not remove these choices when changing sync or auth behavior.
+The latest safe remote document and the last common baseline are stored
+separately while a conflict is paused. Merge choices must include remote changes
+and preserve remote deletions. Local overwrite may intentionally omit remote
+live entities, producing tombstones through `workspace.reconcile`.
 
-## Protected Files
+## Reserved Files
 
-`subman.json` is the workspace config file and should be protected from UI file
-deletion. Gists page cleanup should target generated output files, not the
-config file.
+These names are protected case-insensitively:
 
-## Data Shape
+- `subman.json`
+- `subman.v1.backup.json`
+- `subman.bootstrap.json`
 
-The full serialized state follows `AppState` in `src/lib/models.ts`:
+Aggregate and client export files must use other names. The Gists page may
+delete generated outputs but cannot delete recovery or configuration files.
 
-- `nodes`
-- `subscriptions`
-- `aggregates`
-- `publishTargets`
-- `gists`
-- `activeGistId`
-- `activeGistFile`
-- `lastUpdated`
+## V1 Migration
 
-Server API writes read the current serialized state, mutate node data, and write
-the complete state back to `subman.json`.
+V1 remains readable only for migration and import compatibility. Discovery does
+not rewrite it. The first successful coordinator mutation copies the exact V1
+bytes to `subman.v1.backup.json`, migrates all business collections, applies the
+mutation, and writes V2 in one verified Gist PATCH.
+
+See `docs/workspace-v2-operations.md` for deployment evidence and rollback.
 
 ## Stability Rules
 
-- Preserve `activeGistFile` as `subman.json` unless deliberately migrating data.
-- Keep publish target file names stable when stable subscription links matter.
-- If a publish target file is renamed, the old raw URL is no longer the same
-  stable output. Existing UI behavior prompts for cleanup strategy.
-
+- Never add another runtime path that can write `subman.json`.
+- Never clear tombstones during normal reconciliation.
+- Preserve mutation IDs across retries.
+- Keep publish target filenames stable when stable raw URLs matter.
+- Keep GitHub tokens out of mutations, local coordination storage, Durable
+  Object SQLite state, responses, and logs.

@@ -7,7 +7,7 @@ short agent-facing version for automation work.
 
 The Server API is for owner-operated, trusted backend scripts. It runs inside the
 same SvelteKit app on Cloudflare Workers and writes to the same Workspace Gist as
-the browser UI.
+the browser UI through the same `WorkspaceCoordinator` Durable Object.
 
 ## Authentication
 
@@ -90,7 +90,15 @@ vless, vmess, trojan, ss, ssr, hysteria2, tuic, anytls, other
 
 ## Operational Constraints
 
-- This API is not designed for high-concurrency writes.
+- Every write is a revisioned mutation. The coordinator serializes commits, and
+  a stale request returns `409 revision_conflict` instead of overwriting newer
+  state.
+- Retry revision conflicts with bounded backoff. GitHub Gist is still intended
+  for low-frequency automation even though the coordinator prevents lost
+  updates.
+- A first write may migrate V1 and create the immutable
+  `subman.v1.backup.json`; investigate `migration_backup_conflict` rather than
+  replacing the backup.
 - CORS is not broadly opened for arbitrary browser origins.
 - Treat `409 duplicate_node_raw` as an idempotency or inventory mismatch signal;
   inspect the existing node before retrying with a different raw URI.

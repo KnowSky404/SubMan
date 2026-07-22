@@ -50,8 +50,10 @@ low-frequency Gist-backed write target, not a high-concurrency database. Handle
 ### Change workspace behavior
 
 Read `references/workspace-data.md` and inspect `src/lib/workspace.ts`,
-`src/lib/gist.ts`, `src/lib/sync.ts`, and `src/lib/serialization.ts`. Preserve
-the protected `subman.json` file and same-gist publishing model.
+`src/lib/workspace-browser-session-v2.ts`,
+`src/lib/workspace-mutation-sync.ts`, and
+`src/lib/server/workspace-coordinator-core.ts`. Preserve the protected
+`subman.json` file, revisioned mutation queue, and same-gist publishing model.
 
 ### Change UI flows
 
@@ -62,5 +64,6 @@ publishing.
 
 ### Deploy or debug Cloudflare runtime
 
-Read `references/deployment.md`. Use Wrangler through bun. Verify secrets with
-`GET /api/health` after deployment.
+Read `references/deployment.md` and `docs/workspace-v2-operations.md`. Use
+Wrangler through bun. Verify the Durable Object migration and secrets after
+deployment.

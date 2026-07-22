@@ -26,6 +26,7 @@ an active workspace gist, local changes sync to the workspace gist.
 - Agent skill: `docs/agents/subman-skill/SKILL.md`
 - Architecture reference: `docs/agents/subman-skill/references/architecture.md`
 - Deployment reference: `docs/agents/subman-skill/references/deployment.md`
+- Workspace V2 operations: `docs/workspace-v2-operations.md`
 - Workspace data reference: `docs/agents/subman-skill/references/workspace-data.md`
 - Automation API reference: `docs/agents/subman-skill/references/server-api.md`
 
@@ -95,6 +96,8 @@ curl -fsS -X PUT "https://subman.example.com/api/nodes/by-key/vps-1-vless" \
 
 - Keep runtime data in the single workspace gist.
 - Keep `subman.json` protected from UI deletion.
+- Route every config mutation through `WorkspaceCoordinator`; do not add a
+  direct full-state Gist writer.
 - Prefer `PUT /api/nodes/by-key/:externalKey` for machine-created nodes.
 - Handle `409 duplicate_node_raw` explicitly in automation scripts; it means the
   submitted URI is already stored on another node.
