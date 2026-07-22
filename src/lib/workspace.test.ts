@@ -2,6 +2,7 @@ import * as bunTest from "bun:test";
 import type { GistMeta } from "$lib/models";
 import {
 	discoverWorkspaceGist,
+	ensureWorkspaceBootstrapGist,
 	ensureWorkspaceGist,
 	type WorkspaceGistApi,
 } from "$lib/workspace";
@@ -9,6 +10,7 @@ import {
 	createDefaultWorkspaceState,
 	serializeWorkspaceState,
 } from "$lib/workspace-data";
+import { serializeWorkspaceDocumentV2 } from "$lib/workspace-document";
 
 type MockedFunction<T extends (...args: never[]) => unknown> = T & {
 	mock: { calls: unknown[][] };
@@ -24,15 +26,15 @@ const { mock } = bunTest as unknown as {
 function gist(
 	id: string,
 	description = "SubMan-Data",
-	hasConfig = true,
+	fileName: string | null = "subman.json",
 ): GistMeta {
 	return {
 		id,
 		description,
-		files: hasConfig
+		files: fileName
 			? [
 					{
-						filename: "subman.json",
+						filename: fileName,
 						language: "JSON",
 						size: 10,
 					},
@@ -44,6 +46,28 @@ function gist(
 }
 
 const validContent = serializeWorkspaceState(createDefaultWorkspaceState());
+const validV2Content = serializeWorkspaceDocumentV2({
+	version: 2,
+	schemaVersion: 2,
+	workspaceId: "gist:v2",
+	revision: 0,
+	updatedAt: "2026-07-22T00:00:00.000Z",
+	lastMutationId: null,
+	data: {
+		nodes: [],
+		subscriptions: [],
+		aggregates: [],
+		publishTargets: [],
+		clientExports: [],
+	},
+	tombstones: {
+		nodes: [],
+		subscriptions: [],
+		aggregates: [],
+		publishTargets: [],
+		clientExports: [],
+	},
+});
 
 function api(overrides: Partial<WorkspaceGistApi> = {}): WorkspaceGistApi {
 	return {
@@ -68,8 +92,8 @@ describe("workspace discovery", () => {
 
 	it("requires both workspace markers and parseable config", async () => {
 		const candidates = [
-			gist("description-only", "SubMan-Data", false),
-			gist("file-only", "Other", true),
+			gist("description-only", "SubMan-Data", null),
+			gist("file-only", "Other"),
 			gist("invalid"),
 			gist("valid"),
 		];
@@ -85,6 +109,29 @@ describe("workspace discovery", () => {
 		expect(result).toEqual({ status: "found", gist: gist("valid") });
 	});
 
+	it("recognizes valid V2 documents and bootstrap markers", async () => {
+		const bootstrap = gist("bootstrap", "SubMan-Data", "subman.bootstrap.json");
+		const v2 = gist("v2");
+		const result = await discoverWorkspaceGist("token", null, {
+			api: api({
+				listGists: mock(async () => [bootstrap, v2]),
+				getGistFileContent: mock(
+					async (_token: string, gistId: string, fileName: string) => {
+						if (fileName === "subman.bootstrap.json") {
+							return JSON.stringify({ version: 1 });
+						}
+						return gistId === "v2" ? validV2Content : validContent;
+					},
+				),
+			}),
+		});
+
+		expect(result).toEqual({
+			status: "ambiguous",
+			gists: [bootstrap, v2],
+		});
+	});
+
 	it("returns an explicit ambiguous result for multiple valid workspaces", async () => {
 		const result = await discoverWorkspaceGist("token", null, {
 			api: api({ listGists: mock(async () => [gist("one"), gist("two")]) }),
@@ -98,6 +145,36 @@ describe("workspace discovery", () => {
 });
 
 describe("workspace creation", () => {
+	it("creates only the reserved bootstrap marker for coordinator initialization", async () => {
+		let payload: Parameters<WorkspaceGistApi["createGist"]>[1] | null = null;
+		const workspaceApi = api({
+			createGist: mock(
+				async (
+					_token: string,
+					input: Parameters<WorkspaceGistApi["createGist"]>[1],
+				) => {
+					payload = input;
+					return gist("created", "SubMan-Data", "subman.bootstrap.json");
+				},
+			),
+		});
+
+		const result = await ensureWorkspaceBootstrapGist("token", {
+			api: workspaceApi,
+		});
+
+		expect(result.created).toBe(true);
+		expect(payload).toEqual({
+			description: "SubMan-Data",
+			isPublic: false,
+			files: {
+				"subman.bootstrap.json": {
+					content: JSON.stringify({ version: 1 }),
+				},
+			},
+		});
+	});
+
 	it("serializes concurrent ensure calls so only one gist is created", async () => {
 		let created: GistMeta | null = null;
 		const createGist = mock(async () => {

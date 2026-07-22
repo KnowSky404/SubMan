@@ -1,10 +1,10 @@
 import { createGist, getGist, getGistFileContent, listGists } from "$lib/gist";
 import type { GistMeta } from "$lib/models";
+import { WORKSPACE_DESCRIPTION, WORKSPACE_FILE } from "$lib/workspace-data";
 import {
-	parseWorkspaceState,
-	WORKSPACE_DESCRIPTION,
-	WORKSPACE_FILE,
-} from "$lib/workspace-data";
+	parseWorkspaceDocument,
+	WORKSPACE_BOOTSTRAP_FILE_NAME,
+} from "$lib/workspace-document";
 import { withWorkspaceLock } from "$lib/workspace-lock";
 
 export { WORKSPACE_DESCRIPTION, WORKSPACE_FILE } from "$lib/workspace-data";
@@ -28,6 +28,8 @@ const defaultApi: WorkspaceGistApi = {
 	listGists,
 };
 
+export const WORKSPACE_BOOTSTRAP_CONTENT = JSON.stringify({ version: 1 });
+
 export class WorkspaceAmbiguousError extends Error {
 	readonly gists: GistMeta[];
 
@@ -40,11 +42,35 @@ export class WorkspaceAmbiguousError extends Error {
 	}
 }
 
+function hasWorkspaceDescription(gist: GistMeta): boolean {
+	return gist.description === WORKSPACE_DESCRIPTION;
+}
+
+function hasFile(gist: GistMeta, fileName: string): boolean {
+	return gist.files.some((file) => file.filename === fileName);
+}
+
 function hasWorkspaceIdentity(gist: GistMeta): boolean {
 	return (
-		gist.description === WORKSPACE_DESCRIPTION &&
-		gist.files.some((file) => file.filename === WORKSPACE_FILE)
+		hasWorkspaceDescription(gist) &&
+		(hasFile(gist, WORKSPACE_FILE) ||
+			hasFile(gist, WORKSPACE_BOOTSTRAP_FILE_NAME))
 	);
+}
+
+function isValidBootstrapMarker(content: string): boolean {
+	try {
+		const marker = JSON.parse(content) as unknown;
+		return (
+			typeof marker === "object" &&
+			marker !== null &&
+			!Array.isArray(marker) &&
+			Object.keys(marker).length === 1 &&
+			(marker as { version?: unknown }).version === 1
+		);
+	} catch {
+		return false;
+	}
 }
 
 async function isValidWorkspace(
@@ -53,11 +79,25 @@ async function isValidWorkspace(
 	api: WorkspaceGistApi,
 ): Promise<boolean> {
 	if (!hasWorkspaceIdentity(gist)) return false;
+	if (hasFile(gist, WORKSPACE_FILE)) {
+		try {
+			parseWorkspaceDocument(
+				await api.getGistFileContent(token, gist.id, WORKSPACE_FILE),
+				{ expectedWorkspaceId: `gist:${gist.id}` },
+			);
+			return true;
+		} catch {
+			return false;
+		}
+	}
 	try {
-		parseWorkspaceState(
-			await api.getGistFileContent(token, gist.id, WORKSPACE_FILE),
+		return isValidBootstrapMarker(
+			await api.getGistFileContent(
+				token,
+				gist.id,
+				WORKSPACE_BOOTSTRAP_FILE_NAME,
+			),
 		);
-		return true;
 	} catch {
 		return false;
 	}
@@ -114,6 +154,33 @@ export async function ensureWorkspaceGist(
 	initialContent: string,
 	options: { activeGistId?: string | null; api?: WorkspaceGistApi } = {},
 ): Promise<{ gist: GistMeta; created: boolean }> {
+	return ensureWorkspaceWithFiles(
+		token,
+		{ [WORKSPACE_FILE]: { content: initialContent } },
+		options,
+	);
+}
+
+export async function ensureWorkspaceBootstrapGist(
+	token: string,
+	options: { activeGistId?: string | null; api?: WorkspaceGistApi } = {},
+): Promise<{ gist: GistMeta; created: boolean }> {
+	return ensureWorkspaceWithFiles(
+		token,
+		{
+			[WORKSPACE_BOOTSTRAP_FILE_NAME]: {
+				content: WORKSPACE_BOOTSTRAP_CONTENT,
+			},
+		},
+		options,
+	);
+}
+
+async function ensureWorkspaceWithFiles(
+	token: string,
+	files: Record<string, { content: string }>,
+	options: { activeGistId?: string | null; api?: WorkspaceGistApi },
+): Promise<{ gist: GistMeta; created: boolean }> {
 	const api = options.api ?? defaultApi;
 	return withWorkspaceLock("subman:workspace:create", async () => {
 		const discovery = await discoverWorkspaceGist(
@@ -131,7 +198,7 @@ export async function ensureWorkspaceGist(
 		const gist = await api.createGist(token, {
 			description: WORKSPACE_DESCRIPTION,
 			isPublic: false,
-			files: { [WORKSPACE_FILE]: { content: initialContent } },
+			files,
 		});
 		return { gist, created: true };
 	});
