@@ -256,3 +256,49 @@ test("automatic sync preserves edits made while the transaction is in flight", a
 			.sort(),
 	).toEqual(["first-local", "intervening-local", "remote"]);
 });
+
+test("reset invalidates an automatic sync result already in flight", async () => {
+	const [{ appState }, { authState }, sync] = await Promise.all([
+		import("$lib/stores/app"),
+		import("$lib/stores/auth"),
+		import("$lib/sync"),
+	]);
+	const baselineState = await state();
+	const localState = await state({ nodes: [node("local")] });
+	const staleCommittedState = await state({ nodes: [node("stale-remote")] });
+	let resolveTransaction!: (result: WorkspaceTransactionResult) => void;
+	let markTransactionStarted!: () => void;
+	const transactionStarted = new Promise<void>((resolve) => {
+		markTransactionStarted = resolve;
+	});
+	const runTransaction = () =>
+		new Promise<WorkspaceTransactionResult>((resolveResult) => {
+			resolveTransaction = resolveResult;
+			markTransactionStarted();
+		});
+
+	sync.setSyncBaseline(baselineState, "gist-1", "subman.json");
+	authState.set({ token: "token", lastLoginAt: null });
+	const stop = sync.startAutoSync(0, { runTransaction });
+	appState.set(localState);
+
+	await transactionStarted;
+	sync.resetWorkspaceSyncState();
+	resolveTransaction({
+		status: "committed",
+		gist: gist(),
+		state: staleCommittedState,
+		baseline: createSyncBaselineEnvelope(
+			staleCommittedState,
+			"gist-1",
+			"subman.json",
+		),
+		attempts: 1,
+	});
+	await flushTimers();
+	stop();
+
+	expect(sync.readSyncBaselineEnvelope()).toBeNull();
+	expect(sync.readAutoSyncStatus().status).toBe("idle");
+	expect(get(appState).nodes.map((item) => item.id)).toEqual(["local"]);
+});

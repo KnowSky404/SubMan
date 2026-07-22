@@ -194,6 +194,8 @@ export function startAutoSync(
 	let timer: ReturnType<typeof setTimeout> | null = null;
 	let syncing = false;
 	let pending = false;
+	let generation = 0;
+	let authInitialized = false;
 	let latestState = get(appState);
 	let baseline = readSyncBaselineEnvelope();
 	let lastStatus = readAutoSyncStatus();
@@ -232,7 +234,14 @@ export function startAutoSync(
 	}
 
 	const authUnsub = authState.subscribe((state) => {
+		const tokenChanged = authInitialized && state.token !== token;
 		token = state.token;
+		authInitialized = true;
+		if (tokenChanged) {
+			generation += 1;
+			baseline = null;
+			resetWorkspaceSyncState();
+		}
 		if (!token) clearPending();
 		else schedule();
 	});
@@ -244,12 +253,14 @@ export function startAutoSync(
 
 	const eventsUnsub = subscribeWorkspaceEvents((event) => {
 		if (event.type === "reset") {
+			generation += 1;
 			baseline = null;
 			lastStatus = { ...defaultAutoSyncStatus };
 			clearPending();
 			return;
 		}
 		if (event.type === "paused-conflict") {
+			generation += 1;
 			clearPending();
 			return;
 		}
@@ -277,6 +288,8 @@ export function startAutoSync(
 		const gistId = syncStartState.activeGistId;
 		if (!gistId) return;
 		const fileName = syncStartState.activeGistFile || WORKSPACE_FILE;
+		const syncGeneration = generation;
+		const syncToken = token;
 		const attemptedAt = new Date().toISOString();
 		syncing = true;
 		updateStatus({
@@ -289,12 +302,19 @@ export function startAutoSync(
 
 		try {
 			const result = await runTransaction({
-				token,
+				token: syncToken,
 				gistId,
 				fileName,
 				localState: syncStartState,
 				baseline,
 			});
+			if (
+				generation !== syncGeneration ||
+				token !== syncToken ||
+				isSyncPaused()
+			) {
+				return;
+			}
 			baseline = result.baseline;
 			persistBaselineEnvelope(result.baseline);
 
@@ -318,6 +338,7 @@ export function startAutoSync(
 				lastSyncedFile: fileName,
 			});
 		} catch (error) {
+			if (generation !== syncGeneration || token !== syncToken) return;
 			updateStatus({
 				status: "error",
 				gistId,
