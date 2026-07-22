@@ -103,6 +103,14 @@ const defaultTransport: WorkspaceTransactionTransport = {
 	},
 };
 
+export function readWorkspaceSnapshot(
+	token: string,
+	gistId: string,
+	fileName = WORKSPACE_FILE,
+): Promise<WorkspaceSnapshot> {
+	return defaultTransport.read(token, gistId, fileName);
+}
+
 function unpackMutationResult(
 	result: AppState | WorkspaceMutationResult,
 ): WorkspaceMutationResult {

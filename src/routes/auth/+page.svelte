@@ -1,7 +1,6 @@
 <script lang="ts">
 import { slide } from "svelte/transition";
 import Octicon from "$lib/components/Octicon.svelte";
-import { getGistFileContent, updateGist } from "$lib/gist";
 import { t } from "$lib/i18n";
 import { mergeSyncState } from "$lib/merge";
 import type { AppState } from "$lib/models";
@@ -32,17 +31,26 @@ import { authState, clearAuth, setToken } from "$lib/stores/auth";
 import { requestConfirm } from "$lib/stores/confirm";
 import { showToast } from "$lib/stores/toast";
 import {
-	readSyncBaseline,
-	readSyncBaselineState,
+	readSyncBaselineEnvelope,
+	resetWorkspaceSyncState,
 	setSyncBaseline,
+	setSyncPausedConflict,
 } from "$lib/sync";
-import {
-	decideManualPush,
-	mergeSyncStateFromBaseline,
-	selectTrustedSyncBaseline,
-} from "$lib/sync-guard";
+import { decideManualPush, mergeSyncStateFromBaseline } from "$lib/sync-guard";
 import { cn } from "$lib/utils/cn";
 import { ensureWorkspaceGist, WORKSPACE_FILE } from "$lib/workspace";
+import {
+	createSyncBaselineEnvelope,
+	isTrustedSyncBaseline,
+} from "$lib/workspace-data";
+import {
+	bindWorkspaceOnly,
+	pullWorkspaceExactly,
+} from "$lib/workspace-session";
+import {
+	readWorkspaceSnapshot,
+	runWorkspaceTransaction,
+} from "$lib/workspace-transaction";
 
 let tokenInput = "";
 let payload = "";
@@ -76,10 +84,13 @@ async function handleTokenSave() {
 	conflict = null;
 	manualPushReview = null;
 	try {
+		resetWorkspaceSyncState();
 		setToken(token);
 		const localPayload = exportSyncState($appState);
 		const localSignature = getSyncStateSignature($appState);
-		const { gist, created } = await ensureWorkspaceGist(token, localPayload);
+		const { gist, created } = await ensureWorkspaceGist(token, localPayload, {
+			activeGistId: $appState.activeGistId,
+		});
 
 		if (created) {
 			const nextState = {
@@ -88,24 +99,24 @@ async function handleTokenSave() {
 				lastUpdated: new Date().toISOString(),
 			};
 			appState.set(nextState);
-			setSyncBaseline(getSyncStateSignature(nextState), nextState);
+			setSyncBaseline(nextState, gist.id, WORKSPACE_FILE);
 			setStatus($t("Workspace created and connected"), "success");
 			tokenInput = "";
 			return;
 		}
 
 		// Existing Gist - Check for content
-		const remoteContent = await getGistFileContent(
+		const snapshot = await readWorkspaceSnapshot(
 			token,
 			gist.id,
 			WORKSPACE_FILE,
 		);
-		const remoteState = importState(remoteContent);
+		const remoteState = snapshot.state;
 		const remoteSignature = getSyncStateSignature(remoteState);
 
 		if (remoteSignature === localSignature) {
-			appState.update((s) => ({ ...s, activeGistId: gist.id }));
-			setSyncBaseline(remoteSignature, remoteState);
+			appState.set(remoteState);
+			setSyncBaseline(remoteState, gist.id, WORKSPACE_FILE);
 			setStatus($t("Workspace connected (In Sync)"), "success");
 			tokenInput = "";
 		} else {
@@ -116,6 +127,7 @@ async function handleTokenSave() {
 				remoteSignature,
 				localSignature,
 			};
+			setSyncPausedConflict(true);
 			setStatus($t("Sync conflict detected"), "info");
 		}
 	} catch (err) {
@@ -148,12 +160,25 @@ function getConflictConfirmation(action: "local" | "remote" | "merge") {
 }
 
 function setLocalStateAndBaseline(nextState: AppState, gistId: string) {
-	const nextLocalState = { ...nextState, activeGistId: gistId };
-	replaceState(nextLocalState);
-	appState.update((state) => {
-		setSyncBaseline(getSyncStateSignature(state), state);
-		return state;
-	});
+	const nextLocalState = pullWorkspaceExactly(
+		nextState,
+		gistId,
+		nextState.activeGistFile || WORKSPACE_FILE,
+	);
+	appState.set(nextLocalState);
+	setSyncBaseline(nextLocalState, gistId, nextLocalState.activeGistFile);
+}
+
+function handleBindOnly() {
+	if (!conflict) return;
+	const bound = bindWorkspaceOnly($appState, conflict.gistId, WORKSPACE_FILE);
+	resetWorkspaceSyncState();
+	appState.set(bound);
+	setSyncPausedConflict(true);
+	conflict = null;
+	manualPushReview = null;
+	tokenInput = "";
+	setStatus($t("Workspace bound without syncing"), "info");
 }
 
 async function handleResolveConflict(action: "local" | "remote" | "merge") {
@@ -176,21 +201,30 @@ async function handleResolveConflict(action: "local" | "remote" | "merge") {
 			);
 			setStatus($t("Remote data loaded"), "success");
 		} else if (action === "local") {
-			const localPayload = exportSyncState($appState);
-			await updateGist($authState.token, {
+			const result = await runWorkspaceTransaction({
+				token: $authState.token,
 				gistId: currentConflict.gistId,
-				files: { [WORKSPACE_FILE]: { content: localPayload } },
+				fileName: WORKSPACE_FILE,
+				localState: bindWorkspaceOnly(
+					$appState,
+					currentConflict.gistId,
+					WORKSPACE_FILE,
+				),
+				force: true,
 			});
-			appState.update((s) => ({ ...s, activeGistId: currentConflict.gistId }));
-			setSyncBaseline(currentConflict.localSignature, $appState);
+			appState.set(result.state);
+			setSyncBaseline(result.state, currentConflict.gistId, WORKSPACE_FILE);
 			setStatus($t("Local data pushed to Gist"), "success");
 		} else {
 			const syncedFile = $appState.activeGistFile || WORKSPACE_FILE;
-			const trustedBaseline = selectTrustedSyncBaseline(
-				readSyncBaselineState(),
+			const baselineEnvelope = readSyncBaselineEnvelope();
+			const trustedBaseline = isTrustedSyncBaseline(
+				baselineEnvelope,
 				currentConflict.gistId,
 				syncedFile,
-			);
+			)
+				? baselineEnvelope.state
+				: null;
 			const mergedData = trustedBaseline
 				? mergeSyncStateFromBaseline(
 						$appState,
@@ -204,12 +238,18 @@ async function handleResolveConflict(action: "local" | "remote" | "merge") {
 				activeGistId: currentConflict.gistId,
 				activeGistFile: syncedFile,
 			};
-			const mergedPayload = exportSyncState(mergedState);
-			await updateGist($authState.token, {
+			const result = await runWorkspaceTransaction({
+				token: $authState.token,
 				gistId: currentConflict.gistId,
-				files: { [WORKSPACE_FILE]: { content: mergedPayload } },
+				fileName: syncedFile,
+				localState: mergedState,
+				baseline: createSyncBaselineEnvelope(
+					currentConflict.remoteState,
+					currentConflict.gistId,
+					syncedFile,
+				),
 			});
-			setLocalStateAndBaseline(mergedState, currentConflict.gistId);
+			setLocalStateAndBaseline(result.state, currentConflict.gistId);
 			setStatus($t("Merged data saved."), "success");
 		}
 		conflict = null;
@@ -229,16 +269,14 @@ async function handleManualPull() {
 
 	workspaceBusy = true;
 	try {
-		const remoteContent = await getGistFileContent(
-			token,
-			gistId,
-			WORKSPACE_FILE,
-		);
-		const remoteState = importState(remoteContent);
+		const syncedFile = $appState.activeGistFile || WORKSPACE_FILE;
+		const remoteState = (await readWorkspaceSnapshot(token, gistId, syncedFile))
+			.state;
 		const remoteSignature = getSyncStateSignature(remoteState);
 		const localSignature = getSyncStateSignature($appState);
 
 		if (remoteSignature === localSignature) {
+			setLocalStateAndBaseline(remoteState, gistId);
 			setStatus($t("Already in sync"), "info");
 		} else {
 			const confirmed = await requestConfirm({
@@ -266,16 +304,24 @@ async function handleManualPush() {
 
 	workspaceBusy = true;
 	try {
-		const remoteContent = await getGistFileContent(token, gistId, syncedFile);
-		const remoteState = importState(remoteContent);
+		const remoteState = (await readWorkspaceSnapshot(token, gistId, syncedFile))
+			.state;
+		const baselineEnvelope = readSyncBaselineEnvelope();
+		const baselineSignature = isTrustedSyncBaseline(
+			baselineEnvelope,
+			gistId,
+			syncedFile,
+		)
+			? baselineEnvelope.signature
+			: "";
 		const decision = decideManualPush({
 			local: $appState,
 			remote: remoteState,
-			baselineSignature: readSyncBaseline(),
+			baselineSignature,
 		});
 
 		if (decision.action === "already-synced") {
-			setSyncBaseline(decision.remoteSignature, remoteState);
+			setLocalStateAndBaseline(remoteState, gistId);
 			manualPushReview = null;
 			setStatus($t("Already in sync"), "info");
 			return;
@@ -299,11 +345,15 @@ async function handleManualPush() {
 		});
 		if (!confirmed) return;
 
-		await updateGist(token, {
+		const result = await runWorkspaceTransaction({
+			token,
 			gistId,
-			files: { [syncedFile]: { content: exportSyncState($appState) } },
+			fileName: syncedFile,
+			localState: $appState,
+			baseline: baselineEnvelope,
 		});
-		setSyncBaseline(decision.localSignature, $appState);
+		appState.set(result.state);
+		setSyncBaseline(result.state, gistId, syncedFile);
 		manualPushReview = null;
 		setStatus($t("Pushed successfully"), "success");
 	} catch (err) {
@@ -347,20 +397,35 @@ async function handleManualPushReview(action: "remote" | "merge" | "force") {
 	workspaceBusy = true;
 	try {
 		const syncedFile = $appState.activeGistFile || WORKSPACE_FILE;
+		const baselineEnvelope = readSyncBaselineEnvelope();
+		const trustedBaseline = isTrustedSyncBaseline(
+			baselineEnvelope,
+			manualPushReview.gistId,
+			syncedFile,
+		)
+			? baselineEnvelope.state
+			: null;
 		const mergedState = {
 			...mergeSyncStateFromBaseline(
 				$appState,
 				manualPushReview.remoteState,
-				readSyncBaselineState(),
+				trustedBaseline,
 			),
 			activeGistId: manualPushReview.gistId,
 			activeGistFile: syncedFile,
 		};
-		await updateGist($authState.token, {
+		const result = await runWorkspaceTransaction({
+			token: $authState.token,
 			gistId: manualPushReview.gistId,
-			files: { [syncedFile]: { content: exportSyncState(mergedState) } },
+			fileName: syncedFile,
+			localState: mergedState,
+			baseline: createSyncBaselineEnvelope(
+				manualPushReview.remoteState,
+				manualPushReview.gistId,
+				syncedFile,
+			),
 		});
-		setLocalStateAndBaseline(mergedState, manualPushReview.gistId);
+		setLocalStateAndBaseline(result.state, manualPushReview.gistId);
 		manualPushReview = null;
 		setStatus($t("Merged data saved."), "success");
 	} catch (err) {
@@ -384,12 +449,15 @@ async function handleManualForcePush() {
 	workspaceBusy = true;
 	try {
 		const syncedFile = $appState.activeGistFile || WORKSPACE_FILE;
-		const localSignature = getSyncStateSignature($appState);
-		await updateGist($authState.token, {
+		const result = await runWorkspaceTransaction({
+			token: $authState.token,
 			gistId: manualPushReview.gistId,
-			files: { [syncedFile]: { content: exportSyncState($appState) } },
+			fileName: syncedFile,
+			localState: $appState,
+			force: true,
 		});
-		setSyncBaseline(localSignature, $appState);
+		appState.set(result.state);
+		setSyncBaseline(result.state, manualPushReview.gistId, syncedFile);
 		manualPushReview = null;
 		setStatus($t("Pushed successfully"), "success");
 	} catch (err) {
@@ -400,6 +468,7 @@ async function handleManualForcePush() {
 }
 
 function handleTokenClear() {
+	resetWorkspaceSyncState();
 	clearAuth();
 	appState.update((s) => ({ ...s, activeGistId: null }));
 	setStatus($t("Logged out"), "info");
@@ -451,7 +520,12 @@ function handleImport() {
 						{$t("Remote and local data differ. Choose which side becomes the source of truth.")}
 					</p>
 				</div>
-				<div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
+				<div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+					<button class="gh-btn flex h-auto flex-col items-center gap-2 py-4" on:click={handleBindOnly}>
+						<Octicon icon={database} className="h-5 w-5 text-fg-muted" />
+						<span class="font-semibold">{$t("Bind only")}</span>
+						<span class="gh-form-caption">{$t("Pause before choosing a sync direction")}</span>
+					</button>
 					<button class="gh-btn flex h-auto flex-col items-center gap-2 py-4" on:click={() => handleResolveConflict('remote')}>
 						<Octicon icon={arrowDown} className="h-5 w-5 text-accent-fg" />
 						<span class="font-semibold">{$t("Use Remote")}</span>
