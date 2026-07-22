@@ -16,6 +16,9 @@ import {
 	parseWorkspaceMutation,
 	type WorkspaceFiles,
 	type WorkspaceMutation,
+	type WorkspaceMutationApplication,
+	WorkspaceMutationError,
+	type WorkspaceMutationErrorCode,
 	type WorkspaceMutationReceipt,
 } from "$lib/workspace-mutation";
 
@@ -87,6 +90,10 @@ export type WorkspaceCoordinatorResult = {
 	status: "committed" | "already-committed";
 };
 
+export type WorkspaceCoordinatorOutcome =
+	| { ok: true; result: WorkspaceCoordinatorResult }
+	| { ok: false; error: unknown };
+
 type StoredCoordinatorResult = Omit<
 	WorkspaceCoordinatorResult,
 	"document" | "status"
@@ -125,11 +132,13 @@ const SHA256 = /^[0-9a-f]{64}$/;
 const CANONICAL_ISO_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 
 export type WorkspaceCoordinatorErrorCode =
+	| WorkspaceMutationErrorCode
 	| "workspace_not_found"
 	| "workspace_mismatch"
 	| "migration_backup_conflict"
 	| "mutation_id_reused"
 	| "mutation_recovery_failed"
+	| "gist_read_failed"
 	| "gist_write_failed"
 	| "write_verification_failed"
 	| "commit_index_failed"
@@ -140,6 +149,7 @@ export class WorkspaceCoordinatorError extends Error {
 	constructor(
 		readonly code: WorkspaceCoordinatorErrorCode,
 		message: string,
+		readonly latestDocument?: WorkspaceDocumentV2,
 	) {
 		super(message);
 		this.name = "WorkspaceCoordinatorError";
@@ -483,15 +493,35 @@ export class WorkspaceCoordinatorCore {
 		gistId: string;
 		mutation: WorkspaceMutation;
 	}): Promise<WorkspaceCoordinatorResult> {
+		return this.mutateSettled(input).then((outcome) => {
+			if (outcome.ok) return outcome.result;
+			throw outcome.error;
+		});
+	}
+
+	mutateSettled(input: {
+		githubToken: string;
+		gistId: string;
+		mutation: WorkspaceMutation;
+	}): Promise<WorkspaceCoordinatorOutcome> {
 		const operation = this.queue.then(
-			() => this.runMutation(input),
-			() => this.runMutation(input),
+			() => this.runMutationSettled(input),
+			() => this.runMutationSettled(input),
 		);
-		this.queue = operation.then(
-			() => undefined,
-			() => undefined,
-		);
+		this.queue = operation.then(() => undefined);
 		return operation;
+	}
+
+	private async runMutationSettled(input: {
+		githubToken: string;
+		gistId: string;
+		mutation: WorkspaceMutation;
+	}): Promise<WorkspaceCoordinatorOutcome> {
+		try {
+			return { ok: true, result: await this.runMutation(input) };
+		} catch (error) {
+			return { ok: false, error };
+		}
 	}
 
 	private async runMutation(input: {
@@ -518,11 +548,16 @@ export class WorkspaceCoordinatorCore {
 				initialFiles.add(file.fileName);
 			}
 		}
-		const snapshot = await this.options.gateway.read(
-			input.githubToken,
-			input.gistId,
-			[...initialFiles],
-		);
+		let snapshot: WorkspaceGistSnapshot;
+		try {
+			snapshot = await this.options.gateway.read(
+				input.githubToken,
+				input.gistId,
+				[...initialFiles],
+			);
+		} catch {
+			coordinatorError("gist_read_failed", "Unable to read the workspace Gist");
+		}
 
 		if (existingPending) {
 			await this.reconcilePending(
@@ -578,10 +613,22 @@ export class WorkspaceCoordinatorCore {
 				"already-committed",
 			);
 		}
-		const application = applyWorkspaceMutation(loaded.document, mutation, {
-			committedAt,
-			gist: snapshot.gist,
-		});
+		let application: WorkspaceMutationApplication;
+		try {
+			application = applyWorkspaceMutation(loaded.document, mutation, {
+				committedAt,
+				gist: snapshot.gist,
+			});
+		} catch (error) {
+			if (error instanceof WorkspaceMutationError) {
+				throw new WorkspaceCoordinatorError(
+					error.code,
+					error.message,
+					loaded.document,
+				);
+			}
+			throw error;
+		}
 		const serializedDocument = serializeWorkspaceDocumentV2(
 			application.document,
 		);

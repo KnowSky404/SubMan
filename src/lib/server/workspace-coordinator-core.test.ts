@@ -312,7 +312,17 @@ describe("Workspace coordinator serialization and idempotency", () => {
 
 		const committed = await first;
 		expect(committed.committedRevision).toBe(2);
-		await expectCode(second, "revision_conflict");
+		let conflict: WorkspaceCoordinatorError | null = null;
+		try {
+			await second;
+		} catch (error) {
+			conflict = error as WorkspaceCoordinatorError;
+		}
+		expect(conflict?.code).toBe("revision_conflict");
+		expect(conflict?.latestDocument?.revision).toBe(2);
+		expect(
+			conflict?.latestDocument?.data.nodes.map((item) => item.id),
+		).toContain("node-2");
 		expect(gateway.patches).toHaveLength(1);
 		expect(gateway.events).toEqual([
 			"read:gist-1",
@@ -570,6 +580,27 @@ describe("Workspace coordinator migration and recovery", () => {
 });
 
 describe("Workspace coordinator write verification and security", () => {
+	it("classifies an initial GitHub read failure without exposing its cause", async () => {
+		const gateway = new MemoryGateway({
+			"subman.json": serializeWorkspaceDocumentV2(document()),
+		});
+		gateway.failingReads.add(1);
+		const { core } = coordinator(gateway);
+		let failure: WorkspaceCoordinatorError | null = null;
+		try {
+			await core.mutate({
+				githubToken: TOKEN,
+				gistId: GIST_ID,
+				mutation: replaceNodeMutation("50000000-0000-4000-8000-000000000007"),
+			});
+		} catch (error) {
+			failure = error as WorkspaceCoordinatorError;
+		}
+		expect(failure?.code).toBe("gist_read_failed");
+		expect(failure?.message).toBe("Unable to read the workspace Gist");
+		expect(failure?.message).not.toContain(TOKEN);
+	});
+
 	it("accepts a lost PATCH response when read-back proves the commit", async () => {
 		const gateway = new MemoryGateway({
 			"subman.json": serializeWorkspaceDocumentV2(document()),
