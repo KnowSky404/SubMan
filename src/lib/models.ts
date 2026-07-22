@@ -111,6 +111,7 @@ export type GistFile = {
 
 export type GistMeta = {
 	id: string;
+	ownerLogin?: string;
 	description: string | null;
 	files: GistFile[];
 	updatedAt: string;

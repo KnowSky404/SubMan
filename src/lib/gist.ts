@@ -1,3 +1,4 @@
+import { collectPages } from "$lib/github-pagination";
 import type { GistMeta } from "$lib/models";
 
 const API_ROOT = "https://api.github.com";
@@ -5,6 +6,7 @@ const USER_AGENT = "SubMan";
 
 type GistApiResponse = {
 	id: string;
+	owner?: { login?: string } | null;
 	description: string | null;
 	updated_at: string;
 	html_url: string;
@@ -80,6 +82,7 @@ export function toStableGistRawUrl(rawUrl?: string | null): string | undefined {
 function mapGist(response: GistApiResponse): GistMeta {
 	return {
 		id: response.id,
+		ownerLogin: response.owner?.login,
 		description: response.description,
 		updatedAt: response.updated_at,
 		url: response.html_url,
@@ -92,16 +95,22 @@ function mapGist(response: GistApiResponse): GistMeta {
 	};
 }
 
-export async function listGists(token: string): Promise<GistMeta[]> {
-	const res = await fetch(`${API_ROOT}/gists`, {
-		headers: githubHeaders(token),
+export async function listGists(
+	token: string,
+	fetchImpl: typeof fetch = fetch,
+): Promise<GistMeta[]> {
+	const data = await collectPages<GistApiResponse>(async (page, perPage) => {
+		const res = await fetchImpl(
+			`${API_ROOT}/gists?per_page=${perPage}&page=${page}`,
+			{ headers: githubHeaders(token) },
+		);
+
+		if (!res.ok) {
+			throw new Error(await githubErrorMessage(res, "Failed to fetch gists"));
+		}
+
+		return (await res.json()) as GistApiResponse[];
 	});
-
-	if (!res.ok) {
-		throw new Error(await githubErrorMessage(res, "Failed to fetch gists"));
-	}
-
-	const data = (await res.json()) as GistApiResponse[];
 	return data.map(mapGist);
 }
 
