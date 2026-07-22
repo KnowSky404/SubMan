@@ -55,7 +55,10 @@ export type WorkspaceTransactionInput = {
 	mutate?: (
 		state: AppState,
 		context: WorkspaceMutationContext,
-	) => AppState | WorkspaceMutationResult;
+	) =>
+		| AppState
+		| WorkspaceMutationResult
+		| Promise<AppState | WorkspaceMutationResult>;
 	maxAttempts?: number;
 };
 
@@ -196,7 +199,7 @@ export async function runWorkspaceTransaction(
 
 					intent = input.mutate
 						? unpackMutationResult(
-								input.mutate(baseState, {
+								await input.mutate(baseState, {
 									gist: snapshot.gist,
 									gistId: input.gistId,
 									fileName,

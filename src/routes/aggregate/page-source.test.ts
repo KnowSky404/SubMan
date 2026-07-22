@@ -63,3 +63,11 @@ test("aggregate preview generation does not show a success toast", () => {
 	expect(aggregatePageSource).toContain("previewGeneratedAt");
 	expect(aggregatePageSource).toContain('{$t("Preview generated {time}"');
 });
+
+test("aggregate publishing uses one workspace transaction", () => {
+	expect(aggregatePageSource).toContain("buildAggregatePublication");
+	expect(aggregatePageSource).toContain("runWorkspaceTransaction");
+	expect(aggregatePageSource).toContain("readSyncBaselineEnvelope");
+	expect(aggregatePageSource).not.toContain("updateGist(");
+	expect(aggregatePageSource).not.toContain("createGist(");
+});

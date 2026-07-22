@@ -17,11 +17,11 @@ test("exports page implements sing-box client export behavior", () => {
 	expect(exportsPageSource).toContain("publishPreview");
 	expect(exportsPageSource).toContain("copyPreview");
 	expect(exportsPageSource).toContain("downloadPreview");
-	expect(exportsPageSource).toContain("WORKSPACE_FILE");
-	expect(exportsPageSource).toContain("exportSyncState");
-	expect(exportsPageSource).toContain("createGist");
-	expect(exportsPageSource).toContain("updateGist");
-	expect(exportsPageSource).toContain("toStableGistRawUrl");
+	expect(exportsPageSource).toContain("buildClientExportPublication");
+	expect(exportsPageSource).toContain("runWorkspaceTransaction");
+	expect(exportsPageSource).toContain("readSyncBaselineEnvelope");
+	expect(exportsPageSource).not.toContain("createGist(");
+	expect(exportsPageSource).not.toContain("updateGist(");
 	expect(exportsPageSource).toContain("Total Lines");
 	expect(exportsPageSource).toContain("Outbounds");
 	expect(exportsPageSource).toContain("Skipped");
@@ -72,9 +72,9 @@ test("exports page validates listen port before saving", () => {
 });
 
 test("exports page stores the exact published workspace snapshot locally", () => {
-	expect(exportsPageSource).toContain("finalAppState");
-	expect(exportsPageSource).toContain("lastUpdated: now");
-	expect(exportsPageSource).toContain("appState.set(finalAppState)");
+	expect(exportsPageSource).toContain("appState.set(result.state)");
+	expect(exportsPageSource).toContain("setSyncBaseline(");
+	expect(exportsPageSource).toContain("result.state.activeGistFile");
 	expect(exportsPageSource).not.toContain("upsertClientExport(finalProfile)");
 });
 

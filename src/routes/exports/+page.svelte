@@ -4,10 +4,12 @@ import {
 	hasClientExportOutputChanged,
 	normalizeExportFileName,
 } from "$lib/client-export/profile";
-import { buildSingBoxClientConfig } from "$lib/client-export/sing-box";
+import {
+	buildSingBoxClientConfig,
+	type SingBoxClientBuildResult,
+} from "$lib/client-export/sing-box";
 import GitHubSelect from "$lib/components/GitHubSelect.svelte";
 import Octicon from "$lib/components/Octicon.svelte";
-import { createGist, toStableGistRawUrl, updateGist } from "$lib/gist";
 import { t } from "$lib/i18n";
 import type { ClientExportProfile } from "$lib/models";
 import {
@@ -20,7 +22,6 @@ import {
 	trash,
 	upload,
 } from "$lib/octicons";
-import { exportSyncState } from "$lib/serialization";
 import {
 	appState,
 	removeClientExport,
@@ -29,9 +30,11 @@ import {
 import { authState } from "$lib/stores/auth";
 import { requestConfirm } from "$lib/stores/confirm";
 import { showToast } from "$lib/stores/toast";
+import { readSyncBaselineEnvelope, setSyncBaseline } from "$lib/sync";
 import { cn } from "$lib/utils/cn";
 import { nowIso } from "$lib/utils/time";
-import { WORKSPACE_FILE } from "$lib/workspace";
+import { buildClientExportPublication } from "$lib/workspace-publication";
+import { runWorkspaceTransaction } from "$lib/workspace-transaction";
 
 let selectedProfileId = "";
 let previewContent = "";
@@ -91,6 +94,7 @@ $: currentSignature = selectedProfile
 	: "";
 $: publishDisabled =
 	!$authState.token ||
+	!$appState.activeGistId ||
 	!selectedProfile ||
 	previewSignature !== currentSignature ||
 	!previewContent ||
@@ -283,86 +287,43 @@ async function copyPublishedUrl(): Promise<void> {
 }
 
 async function publishPreview(): Promise<void> {
-	if (!$authState.token || !selectedProfile) return;
+	const token = $authState.token;
+	const gistId = $appState.activeGistId;
+	if (!token || !gistId || !selectedProfile) return;
 
 	publishing = true;
 	try {
-		const result = await buildSingBoxClientConfig(
-			selectedProfile,
-			selectedRule,
-			$appState.nodes,
-			$appState.subscriptions,
-		);
-		previewContent = result.content;
-		previewWarnings = result.warnings;
-		previewErrors = result.errors;
-		totalLines = result.totalLines;
-		outboundCount = result.outbounds;
-		skippedCount = result.skipped;
-		previewSignature = currentSignature;
-
-		if (result.errors.length > 0 || !result.content || result.outbounds <= 0) {
-			showToast(
-				$t("Export failed: {error}", {
-					error: result.errors[0] ?? "No output generated.",
-				}),
-				"error",
-			);
-			return;
-		}
-
 		const now = nowIso();
-		const fileName =
-			normalizeExportFileName(selectedProfile.fileName) ||
-			"sing-box-client.json";
-		const generatedProfile: ClientExportProfile = {
-			...selectedProfile,
-			fileName,
-			lastGeneratedAt: now,
-			updatedAt: now,
-		};
-		const initialFiles = {
-			[fileName]: { content: result.content },
-		};
-		const initialResponse = $appState.activeGistId
-			? await updateGist($authState.token, {
-					gistId: $appState.activeGistId,
-					files: initialFiles,
-				})
-			: await createGist($authState.token, {
-					description: "SubMan client exports",
-					isPublic: false,
-					files: initialFiles,
-				});
-		const fileMeta = initialResponse.files.find(
-			(file) => file.filename === fileName,
-		);
-		const lastPublishedUrl = toStableGistRawUrl(fileMeta?.rawUrl) ?? null;
-		const finalProfile: ClientExportProfile = {
-			...generatedProfile,
-			lastPublishedAt: now,
-			lastPublishedUrl,
-			updatedAt: now,
-		};
-		const finalAppState = {
-			...$appState,
-			activeGistId: initialResponse.id,
-			activeGistFile: WORKSPACE_FILE,
-			lastUpdated: now,
-			clientExports: $appState.clientExports.map((profile) =>
-				profile.id === finalProfile.id ? finalProfile : profile,
-			),
-		};
-		const finalFiles = {
-			[fileName]: { content: result.content },
-			[WORKSPACE_FILE]: { content: exportSyncState(finalAppState) },
-		};
-
-		await updateGist($authState.token, {
-			gistId: initialResponse.id,
-			files: finalFiles,
+		const profileId = selectedProfile.id;
+		const publicationResult: { build?: SingBoxClientBuildResult } = {};
+		const result = await runWorkspaceTransaction({
+			token,
+			gistId,
+			fileName: $appState.activeGistFile,
+			localState: $appState,
+			baseline: readSyncBaselineEnvelope(),
+			mutate: async (state, context) => {
+				const publication = await buildClientExportPublication(
+					state,
+					context.gist,
+					profileId,
+					now,
+				);
+				publicationResult.build = publication.build;
+				return { state: publication.state, files: publication.files };
+			},
 		});
-		appState.set(finalAppState);
+		appState.set(result.state);
+		setSyncBaseline(result.state, gistId, result.state.activeGistFile);
+		const publicationBuild = publicationResult.build;
+		if (publicationBuild) {
+			previewContent = publicationBuild.content;
+			previewWarnings = publicationBuild.warnings;
+			previewErrors = publicationBuild.errors;
+			totalLines = publicationBuild.totalLines;
+			outboundCount = publicationBuild.outbounds;
+			skippedCount = publicationBuild.skipped;
+		}
 		showToast($t("Published sing-box config"), "success");
 	} catch (error) {
 		showToast(

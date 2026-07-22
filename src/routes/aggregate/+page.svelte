@@ -9,7 +9,6 @@ import {
 } from "$lib/aggregate";
 import GitHubSelect from "$lib/components/GitHubSelect.svelte";
 import Octicon from "$lib/components/Octicon.svelte";
-import { createGist, toStableGistRawUrl, updateGist } from "$lib/gist";
 import { t } from "$lib/i18n";
 import type {
 	AggregatePublishTarget,
@@ -33,7 +32,6 @@ import {
 	workflow,
 	x,
 } from "$lib/octicons";
-import { exportSyncState } from "$lib/serialization";
 import {
 	appState,
 	removeAggregate,
@@ -44,10 +42,12 @@ import {
 import { authState } from "$lib/stores/auth";
 import { requestConfirm } from "$lib/stores/confirm";
 import { showToast } from "$lib/stores/toast";
+import { readSyncBaselineEnvelope, setSyncBaseline } from "$lib/sync";
 import { cn } from "$lib/utils/cn";
 import { createId } from "$lib/utils/id";
 import { nowIso } from "$lib/utils/time";
-import { WORKSPACE_FILE } from "$lib/workspace";
+import { buildAggregatePublication } from "$lib/workspace-publication";
+import { runWorkspaceTransaction } from "$lib/workspace-transaction";
 
 let ruleName = "";
 let selectedNodeIds: string[] = [];
@@ -326,44 +326,33 @@ async function saveTarget() {
 }
 
 async function publish() {
-	if (!$authState.token || !selectedTargetId) return;
-	const target = $appState.publishTargets.find(
-		(t) => t.id === selectedTargetId,
-	);
-	const rule = $appState.aggregates.find((r) => r.id === target?.ruleId);
-	if (!target || !rule) return;
+	const token = $authState.token;
+	const gistId = $appState.activeGistId;
+	if (!token || !gistId || !selectedTargetId) return;
 
 	publishing = true;
 	try {
-		const result = await buildAggregateOutput(
-			rule,
-			$appState.nodes,
-			$appState.subscriptions,
-		);
-		const config = exportSyncState($appState);
-		const files = {
-			[target.fileName]: { content: result.content },
-			[WORKSPACE_FILE]: { content: config },
-		};
-		const response = $appState.activeGistId
-			? await updateGist($authState.token, {
-					gistId: $appState.activeGistId,
-					files,
-				})
-			: await createGist($authState.token, {
-					description: target.description,
-					isPublic: target.isPublic,
-					files,
-				});
-
-		const fileMeta = response.files.find((f) => f.filename === target.fileName);
-		publishUrl = toStableGistRawUrl(fileMeta?.rawUrl) || null;
-		appState.update((s) => ({ ...s, activeGistId: response.id }));
-		upsertPublishTarget({
-			...target,
-			lastPublishedAt: nowIso(),
-			lastPublishedUrl: publishUrl,
+		const publishedAt = nowIso();
+		const result = await runWorkspaceTransaction({
+			token,
+			gistId,
+			fileName: $appState.activeGistFile,
+			localState: $appState,
+			baseline: readSyncBaselineEnvelope(),
+			mutate: (state, context) =>
+				buildAggregatePublication(
+					state,
+					context.gist,
+					selectedTargetId,
+					publishedAt,
+				),
 		});
+		appState.set(result.state);
+		setSyncBaseline(result.state, gistId, result.state.activeGistFile);
+		publishUrl =
+			result.state.publishTargets.find(
+				(target) => target.id === selectedTargetId,
+			)?.lastPublishedUrl ?? null;
 		showToast($t("Published successfully to GitHub Gist"), "success");
 	} catch (err) {
 		showToast(

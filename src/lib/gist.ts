@@ -79,6 +79,20 @@ export function toStableGistRawUrl(rawUrl?: string | null): string | undefined {
 	}
 }
 
+export function buildStableGistRawUrl(
+	gist: GistMeta,
+	fileName: string,
+): string | null {
+	if (gist.ownerLogin) {
+		return `https://gist.githubusercontent.com/${encodeURIComponent(gist.ownerLogin)}/${encodeURIComponent(gist.id)}/raw/${encodeURIComponent(fileName)}`;
+	}
+	return (
+		toStableGistRawUrl(
+			gist.files.find((file) => file.filename === fileName)?.rawUrl,
+		) ?? null
+	);
+}
+
 function mapGist(response: GistApiResponse): GistMeta {
 	return {
 		id: response.id,

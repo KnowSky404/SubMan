@@ -1,4 +1,5 @@
 import { describe, expect, it } from "bun:test";
+import { DEFAULT_SING_BOX_CLIENT_OPTIONS } from "$lib/client-export/profile";
 import type { AppState, GistMeta, NodeItem } from "$lib/models";
 import {
 	createDefaultWorkspaceState,
@@ -6,6 +7,10 @@ import {
 	hydrateWorkspaceState,
 	parseWorkspaceState,
 } from "$lib/workspace-data";
+import {
+	buildAggregatePublication,
+	buildClientExportPublication,
+} from "$lib/workspace-publication";
 import {
 	runWorkspaceTransaction,
 	WorkspaceBaselineError,
@@ -50,6 +55,64 @@ function gist(fileNames = ["subman.json"]): GistMeta {
 		updatedAt: "2026-07-22T00:00:00.000Z",
 		url: "https://gist.github.com/gist-1",
 	};
+}
+
+function publicationState(includeRemote: boolean): AppState {
+	const nodeIds = includeRemote ? ["base", "remote"] : ["base"];
+	return state({
+		nodes: [
+			node("base"),
+			...(includeRemote ? [node("remote", "2026-07-22T01:00:00.000Z")] : []),
+		].map((item) => ({
+			...item,
+			raw: `vless://uuid@${item.id}.example.com:443?security=tls#${item.id}`,
+		})),
+		aggregates: [
+			{
+				id: "rule-1",
+				name: "All",
+				nodeIds,
+				subscriptionIds: [],
+				excludeTagIds: [],
+				renameMap: {},
+				allowedTypes: ["vless"],
+				updatedAt: includeRemote
+					? "2026-07-22T01:00:00.000Z"
+					: "2026-07-22T00:00:00.000Z",
+			},
+		],
+		publishTargets: [
+			{
+				id: "target-1",
+				name: "Aggregate",
+				ruleId: "rule-1",
+				fileName: "aggregate.txt",
+				description: "Aggregate",
+				isPublic: false,
+				lastPublishedAt: null,
+				lastPublishedUrl: null,
+				lastPublishTransitionAt: null,
+				lastPublishTransitionFromFileName: null,
+				lastPublishTransitionToFileName: null,
+				lastPublishTransitionOutcome: null,
+				updatedAt: "2026-07-22T00:00:00.000Z",
+			},
+		],
+		clientExports: [
+			{
+				id: "export-1",
+				name: "Client",
+				type: "sing-box-client",
+				ruleId: "rule-1",
+				fileName: "client.json",
+				options: { ...DEFAULT_SING_BOX_CLIENT_OPTIONS },
+				lastGeneratedAt: null,
+				lastPublishedAt: null,
+				lastPublishedUrl: null,
+				updatedAt: "2026-07-22T00:00:00.000Z",
+			},
+		],
+	});
 }
 
 function memoryTransport(initial: AppState): {
@@ -280,5 +343,67 @@ describe("workspace transaction", () => {
 			error = caught;
 		}
 		expect(error instanceof WorkspaceConflictError).toBe(true);
+	});
+
+	it("aggregate publishing keeps concurrent remote workspace changes", async () => {
+		const baselineState = publicationState(false);
+		const memory = memoryTransport(publicationState(true));
+		const result = await runWorkspaceTransaction(
+			{
+				token: "token",
+				gistId: "gist-1",
+				localState: baselineState,
+				baseline: createSyncBaselineEnvelope(
+					baselineState,
+					"gist-1",
+					"subman.json",
+				),
+				mutate: (state, context) =>
+					buildAggregatePublication(
+						state,
+						context.gist,
+						"target-1",
+						"2026-07-22T02:00:00.000Z",
+					),
+			},
+			{ transport: memory.transport },
+		);
+
+		expect(result.state.nodes.some((item) => item.id === "remote")).toBe(true);
+		expect(memory.getWrites()[0]?.["aggregate.txt"]?.content).toContain(
+			"remote.example.com",
+		);
+	});
+
+	it("client export publishing keeps concurrent remote workspace changes", async () => {
+		const baselineState = publicationState(false);
+		const memory = memoryTransport(publicationState(true));
+		const result = await runWorkspaceTransaction(
+			{
+				token: "token",
+				gistId: "gist-1",
+				localState: baselineState,
+				baseline: createSyncBaselineEnvelope(
+					baselineState,
+					"gist-1",
+					"subman.json",
+				),
+				mutate: async (state, context) => {
+					const publication = await buildClientExportPublication(
+						state,
+						context.gist,
+						"export-1",
+						"2026-07-22T02:00:00.000Z",
+					);
+					return { state: publication.state, files: publication.files };
+				},
+			},
+			{ transport: memory.transport },
+		);
+
+		expect(result.state.nodes.some((item) => item.id === "remote")).toBe(true);
+		expect(memory.getWrites()[0]?.["client.json"]?.content).toContain(
+			'"server": "remote.example.com"',
+		);
 	});
 });

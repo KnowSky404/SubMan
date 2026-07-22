@@ -80,7 +80,7 @@ describe("transactServerWorkspace", () => {
 				}),
 				runTransaction: async (input) => {
 					transactionCalls += 1;
-					const mutation = input.mutate?.(defaultState, {
+					const mutation = await input.mutate?.(defaultState, {
 						gist: {
 							id: "gist-1",
 							description: "SubMan-Data",
