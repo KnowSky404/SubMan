@@ -112,10 +112,7 @@ test("baseline merge preserves remote deletions when local only has the old copy
 
 	const merged = mergeSyncStateFromBaseline(local, remote, baseline);
 
-	expect(merged.nodes.map((item) => item.id).sort()).toEqual([
-		"kept",
-		"local",
-	]);
+	expect(merged.nodes.map((item) => item.id).sort()).toEqual(["kept", "local"]);
 });
 
 test("setup merge trusts a baseline only for the same workspace file", async () => {
@@ -128,7 +125,9 @@ test("setup merge trusts a baseline only for the same workspace file", async () 
 	expect(selectTrustedSyncBaseline(baseline, "gist-1", "subman.json")).toBe(
 		baseline,
 	);
-	expect(selectTrustedSyncBaseline(baseline, "gist-2", "subman.json")).toBeNull();
+	expect(
+		selectTrustedSyncBaseline(baseline, "gist-2", "subman.json"),
+	).toBeNull();
 	expect(
 		selectTrustedSyncBaseline(baseline, "gist-1", "alternate.json"),
 	).toBeNull();

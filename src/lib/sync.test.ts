@@ -31,7 +31,9 @@ const updateGist = mock(async () => {
 });
 const getGistFileContent = mock(async () => "");
 const listGists = mock(async () => []);
-const toStableGistRawUrl = mock((rawUrl?: string | null) => rawUrl ?? undefined);
+const toStableGistRawUrl = mock(
+	(rawUrl?: string | null) => rawUrl ?? undefined,
+);
 
 mockModule("$app/environment", () => ({
 	browser: true,
@@ -186,10 +188,11 @@ test("auto-sync merges remote changes before writing when remote diverged from b
 	stop();
 
 	expect(updateGist.mock.calls.length).toBe(1);
-	expect(getSavedState().nodes.map((item) => item.id).sort()).toEqual([
-		"local-node",
-		"remote-node",
-	]);
+	expect(
+		getSavedState()
+			.nodes.map((item) => item.id)
+			.sort(),
+	).toEqual(["local-node", "remote-node"]);
 });
 
 test("auto-sync keeps remote deletions when merging from the saved baseline", async () => {
@@ -234,10 +237,11 @@ test("auto-sync keeps remote deletions when merging from the saved baseline", as
 	stop();
 
 	expect(updateGist.mock.calls.length).toBe(1);
-	expect(getSavedState().nodes.map((item) => item.id).sort()).toEqual([
-		"kept-node",
-		"local-node",
-	]);
+	expect(
+		getSavedState()
+			.nodes.map((item) => item.id)
+			.sort(),
+	).toEqual(["kept-node", "local-node"]);
 });
 
 test("auto-sync uses a baseline saved after auto-sync has started", async () => {
@@ -281,10 +285,11 @@ test("auto-sync uses a baseline saved after auto-sync has started", async () => 
 	stop();
 
 	expect(updateGist.mock.calls.length).toBe(1);
-	expect(getSavedState().nodes.map((item) => item.id).sort()).toEqual([
-		"kept-node",
-		"local-node",
-	]);
+	expect(
+		getSavedState()
+			.nodes.map((item) => item.id)
+			.sort(),
+	).toEqual(["kept-node", "local-node"]);
 });
 
 test("auto-sync does not overwrite local edits made while a merge sync is in flight", async () => {

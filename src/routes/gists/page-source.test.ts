@@ -22,7 +22,9 @@ test("gists page uses github file list action primitives", () => {
 });
 
 test("gists refresh keeps success feedback inside the page instead of toast", () => {
-	expect(gistsPageSource).not.toContain('setStatus($t("Refreshed"), "success")');
+	expect(gistsPageSource).not.toContain(
+		'setStatus($t("Refreshed"), "success")',
+	);
 	expect(gistsPageSource).toContain("lastRefreshedAt");
 	expect(gistsPageSource).toContain('{$t("Last refreshed {time}"');
 });
@@ -30,5 +32,7 @@ test("gists refresh keeps success feedback inside the page instead of toast", ()
 test("gists page shows an explicit loading state while workspace files load", () => {
 	expect(gistsPageSource).toContain("{#if loading && !workspace}");
 	expect(gistsPageSource).toContain('{$t("Loading workspace files...")}');
-	expect(gistsPageSource).toContain('{loading ? $t("Refreshing...") : $t("Refresh")}');
+	expect(gistsPageSource).toContain(
+		'{loading ? $t("Refreshing...") : $t("Refresh")}',
+	);
 });

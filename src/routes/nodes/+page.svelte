@@ -28,6 +28,12 @@ import {
 	x,
 } from "$lib/octicons";
 import {
+	findDuplicateNodeRaw,
+	findDuplicateSubscriptionUrl,
+	formatResourceNameTimestamp,
+	makeUniqueResourceName,
+} from "$lib/resource-dedupe";
+import {
 	appState,
 	removeNode,
 	removeSubscription,
@@ -44,12 +50,6 @@ import {
 	inferNodeTypeFromRaw,
 	loadSubscriptionContent,
 } from "$lib/subscription";
-import {
-	findDuplicateNodeRaw,
-	findDuplicateSubscriptionUrl,
-	formatResourceNameTimestamp,
-	makeUniqueResourceName,
-} from "$lib/resource-dedupe";
 import { cn } from "$lib/utils/cn";
 import { createId } from "$lib/utils/id";
 import { nowIso } from "$lib/utils/time";
@@ -295,9 +295,7 @@ function handleAdd() {
 		let count = 0;
 
 		if (activeTab === "nodes") {
-			const seenRaw = new Set(
-				$appState.nodes.map((node) => node.raw.trim()),
-			);
+			const seenRaw = new Set($appState.nodes.map((node) => node.raw.trim()));
 			let importedNames = $appState.nodes.map((node) => node.name);
 			for (const line of lines) {
 				const nodes = extractSubscriptionNodeLines(line);
@@ -328,9 +326,7 @@ function handleAdd() {
 			}
 		} else {
 			const seenUrl = new Set(
-				$appState.subscriptions.map((subscription) =>
-					subscription.url.trim(),
-				),
+				$appState.subscriptions.map((subscription) => subscription.url.trim()),
 			);
 			let importedNames = $appState.subscriptions.map(
 				(subscription) => subscription.name,

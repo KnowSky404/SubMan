@@ -21,11 +21,7 @@ describe("makeUniqueResourceName", () => {
 
 	it("appends a counter when the timestamped name is also taken", () => {
 		expect(
-			makeUniqueResourceName(
-				"HK",
-				["HK", "HK 2026-05-26 14:32"],
-				timestamp,
-			),
+			makeUniqueResourceName("HK", ["HK", "HK 2026-05-26 14:32"], timestamp),
 		).toBe("HK 2026-05-26 14:32 #2");
 	});
 });

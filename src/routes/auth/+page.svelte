@@ -323,7 +323,10 @@ async function handleManualPushReview(action: "remote" | "merge" | "force") {
 			confirmText: $t("Pull Remote"),
 		});
 		if (!confirmed) return;
-		setLocalStateAndBaseline(manualPushReview.remoteState, manualPushReview.gistId);
+		setLocalStateAndBaseline(
+			manualPushReview.remoteState,
+			manualPushReview.gistId,
+		);
 		manualPushReview = null;
 		setStatus($t("Pulled successfully"), "success");
 		return;
@@ -371,7 +374,9 @@ async function handleManualForcePush() {
 	if (!manualPushReview || !$authState.token) return;
 	const confirmed = await requestConfirm({
 		title: $t("Sync Update"),
-		message: $t("Force push will overwrite remote workspace changes. Continue?"),
+		message: $t(
+			"Force push will overwrite remote workspace changes. Continue?",
+		),
 		confirmText: $t("Force Push"),
 	});
 	if (!confirmed) return;

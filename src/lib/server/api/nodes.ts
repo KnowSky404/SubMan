@@ -243,9 +243,7 @@ export function applyNodePatch(
 	}
 
 	const raw = patch.raw ?? state.nodes[index]?.raw;
-	const duplicate = raw
-		? findDuplicateNodeRaw(state.nodes, raw, nodeId)
-		: null;
+	const duplicate = raw ? findDuplicateNodeRaw(state.nodes, raw, nodeId) : null;
 	if (duplicate) {
 		throw duplicateRawError(duplicate);
 	}

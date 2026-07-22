@@ -1,6 +1,7 @@
 import { get } from "svelte/store";
 import { browser } from "$app/environment";
 import { getGistFileContent, updateGist } from "$lib/gist";
+import type { AppState } from "$lib/models";
 import {
 	exportSyncState,
 	getSyncStateSignature,
@@ -9,7 +10,6 @@ import {
 import { appState } from "$lib/stores/app";
 import { authState } from "$lib/stores/auth";
 import { mergeSyncStateFromBaseline } from "$lib/sync-guard";
-import type { AppState } from "$lib/models";
 
 const DEFAULT_DELAY = 1200;
 const BASELINE_KEY = "subman:sync:baseline";

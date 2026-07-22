@@ -47,7 +47,9 @@ test("single node add can derive the name from the raw URI", () => {
 });
 
 test("nodes page prevents duplicate raw URIs and subscription URLs", () => {
-	expect(nodesPageSource).toContain("findDuplicateNodeRaw($appState.nodes, raw)");
+	expect(nodesPageSource).toContain(
+		"findDuplicateNodeRaw($appState.nodes, raw)",
+	);
 	expect(nodesPageSource).toContain(
 		"findDuplicateSubscriptionUrl(\n\t\t\t\t$appState.subscriptions,",
 	);
@@ -70,12 +72,18 @@ test("resource deletion interpolates the target name in confirmation and toast t
 	expect(nodesPageSource).toContain(
 		'message: $t("Delete {name} forever?", { name }),',
 	);
-	expect(nodesPageSource).toContain('showToastNotify($t("Deleted {name}", { name }));');
-	expect(nodesPageSource).not.toContain('showToastNotify($t("Deleted {name}"));');
+	expect(nodesPageSource).toContain(
+		'showToastNotify($t("Deleted {name}", { name }));',
+	);
+	expect(nodesPageSource).not.toContain(
+		'showToastNotify($t("Deleted {name}"));',
+	);
 });
 
 test("resource deletion shows per-row loading while the delete action settles", () => {
-	expect(nodesPageSource).toContain("let deletingResourceId: string | null = null;");
+	expect(nodesPageSource).toContain(
+		"let deletingResourceId: string | null = null;",
+	);
 	expect(nodesPageSource).toContain("deletingResourceId = id;");
 	expect(nodesPageSource).toContain("deletingResourceId = null;");
 	expect(nodesPageSource).toContain("deletingResourceId === node.id");
