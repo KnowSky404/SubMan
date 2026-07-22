@@ -94,8 +94,9 @@ Follow `docs/workspace-v2-operations.md`. In particular:
 - V1 migration happens on the first coordinator mutation, not at discovery.
 - New Gists use a bootstrap marker until the first coordinator commit.
 - Rollback requires stopping V2 writers, preserving the V2 document, restoring
-  the exact V1 backup, and deploying a forward compatibility release that
-  retains the applied migration, binding, and coordinator class export.
+  the exact V1 backup, and forward-deploying tested compatibility artifact
+  `c89a60b`, which retains the applied migration, binding, and coordinator class
+  export while using the verified V1 transaction paths.
 - Keep the Durable Object namespace and SQLite records during rollback.
 
 The browser UI can still run in localStorage-only mode without a GitHub token.

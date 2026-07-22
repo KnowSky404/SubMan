@@ -518,12 +518,12 @@ implementation without explicit authorization.
 Before rollback, disable or stop V2 writers so a compatibility Worker cannot
 race the coordinator. Export the current V2 `subman.json` for forward recovery
 and restore the byte-for-byte `subman.v1.backup.json` content to `subman.json`.
-Deploy a tested forward compatibility release that restores V1 application
-behavior while retaining the applied migration, Durable Object binding, and
-`WorkspaceCoordinator` class export. Do not use Wrangler rollback or deploy a
-pre-Durable-Object bundle after the atomic migration. Generated output files do
-not need restoration because migration and publications preserve the same Gist
-and filenames.
+Deploy the tested compatibility artifact at `c89a60b` as a normal forward
+deployment. It restores V1 application behavior while retaining the applied
+migration, Durable Object binding, and `WorkspaceCoordinator` class export. Do
+not use Wrangler rollback or deploy a pre-Durable-Object bundle after the atomic
+migration. Generated output files do not need restoration because migration and
+publications preserve the same Gist and filenames.
 
 The Durable Object namespace and SQLite records can remain allocated during
 rollback; they contain no credentials and deleting them would make a rapid

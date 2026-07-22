@@ -65,6 +65,9 @@ production GitHub credentials for disposable local migration fixtures.
    use.
 
 Deployment or production Gist mutation requires explicit operator approval.
+Commit `c89a60b` is the tested V1-behavior compatibility artifact: it retains
+the `v1` Durable Object migration, binding, and class export while browser and
+Server API writes still use the verified V1 transaction path.
 
 ## First-Write Migration
 
@@ -97,8 +100,9 @@ controlled production Workspace, verify:
   export.
 - A browser publication and a Server API node update both remain present.
 - API responses contain no unrelated Workspace data or credentials.
-- Repeating the same controlled idempotent Server API operation does not create
-  a second node and advances the Workspace only when its content changes.
+- Repeating the same controlled external-key Server API operation keeps one
+  node with the same identity. Each accepted HTTP request may still advance the
+  Workspace revision because it has a new mutation ID and update timestamp.
 
 ## Rollback
 
@@ -109,9 +113,23 @@ reversal:
    coordinator.
 2. Export the current V2 `subman.json` for forward recovery.
 3. Restore the exact `subman.v1.backup.json` content as `subman.json`.
-4. Build and deploy a tested forward compatibility release that restores V1
-   application behavior while retaining the applied `v1` migration,
-   `WORKSPACE_COORDINATOR` binding, and exported `WorkspaceCoordinator` class.
+4. In an isolated worktree at `c89a60b`, run its complete gate and deploy it as
+   a normal forward deployment. This artifact restores V1 application behavior
+   while retaining the applied `v1` migration, `WORKSPACE_COORDINATOR` binding,
+   and exported `WorkspaceCoordinator` class:
+
+   ```bash
+   git worktree add --detach /tmp/subman-v1-compat c89a60b
+   cd /tmp/subman-v1-compat
+   bun install --frozen-lockfile
+   bun test
+   bun run check
+   bun run lint
+   bun run test:cf
+   bun wrangler deploy --dry-run
+   bun run deploy
+   ```
+
 5. Verify the V1 UI against the restored Gist before reopening writes.
 
 Do not deploy or use Wrangler rollback to a pre-Durable-Object Worker version:
