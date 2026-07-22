@@ -181,6 +181,51 @@ export class WorkspaceMutationQueue {
 		});
 	}
 
+	enqueueNext(
+		workspaceId: string,
+		committedRevision: number,
+		build: (expectedRevision: number) => WorkspaceMutation,
+	): Promise<WorkspaceMutation> {
+		if (!Number.isSafeInteger(committedRevision) || committedRevision < 0) {
+			throw new Error("Committed Workspace revision is invalid");
+		}
+		return withWorkspaceLock(WRITE_LOCK, async () => {
+			const stored = parseStoredQueue(this.storage.getItem(this.storageKey));
+			const workspaceMutations = stored.mutations.filter(
+				(item) => item.workspaceId === workspaceId,
+			);
+			const lastExpectedRevision =
+				workspaceMutations.at(-1)?.expectedRevision ?? committedRevision - 1;
+			const expectedRevision = Math.max(
+				committedRevision,
+				lastExpectedRevision + 1,
+			);
+			const mutation = parseWorkspaceMutation(build(expectedRevision));
+			if (mutation.source !== "browser") {
+				throw new Error("Only browser mutations can be queued");
+			}
+			if (
+				mutation.workspaceId !== workspaceId ||
+				mutation.expectedRevision !== expectedRevision
+			) {
+				throw new Error("Queued mutation revision allocation is invalid");
+			}
+			if (
+				stored.mutations.some((item) => item.mutationId === mutation.mutationId)
+			) {
+				throw new Error("Mutation ID is already queued");
+			}
+			stored.mutations.push(mutation);
+			this.write(stored);
+			this.notify({
+				workspaceId: mutation.workspaceId,
+				mutationId: mutation.mutationId,
+				action: "enqueued",
+			});
+			return mutation;
+		});
+	}
+
 	remove(mutationId: string): Promise<boolean> {
 		return withWorkspaceLock(WRITE_LOCK, async () => {
 			const stored = parseStoredQueue(this.storage.getItem(this.storageKey));

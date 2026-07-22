@@ -169,6 +169,27 @@ describe("WorkspaceMutationQueue", () => {
 		expect(new WorkspaceMutationQueue(storage).list()).toEqual([first, second]);
 	});
 
+	it("allocates consecutive expected revisions inside the queue write lock", async () => {
+		const queue = new WorkspaceMutationQueue(new MemoryStorage());
+		const ids = [
+			"b0000000-0000-4000-8000-000000000001",
+			"b0000000-0000-4000-8000-000000000002",
+		];
+
+		await Promise.all(
+			ids.map((id) =>
+				queue.enqueueNext(WORKSPACE_ID, 7, (expectedRevision) => ({
+					...mutation(id),
+					expectedRevision,
+				})),
+			),
+		);
+
+		expect(
+			queue.list(WORKSPACE_ID).map((item) => item.expectedRevision),
+		).toEqual([7, 8]);
+	});
+
 	it("rejects server mutations and retains corrupted storage for recovery", () => {
 		const storage = new MemoryStorage();
 		const queue = new WorkspaceMutationQueue(storage);

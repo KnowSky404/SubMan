@@ -9,10 +9,12 @@ import type {
 	SubscriptionItem,
 } from "$lib/models";
 import { nowIso } from "$lib/utils/time";
+import { enqueueAutomaticWorkspaceMutation } from "$lib/workspace-browser-mutation";
 import {
 	createDefaultWorkspaceState,
 	reconcileWorkspaceState,
 } from "$lib/workspace-data";
+import type { WorkspaceMutation } from "$lib/workspace-mutation";
 
 const STORAGE_KEY = "subman:state:v1";
 
@@ -44,7 +46,21 @@ if (browser) {
 	});
 }
 
+function enqueueWorkspaceMutation(
+	kind: WorkspaceMutation["kind"],
+	payload: unknown,
+): void {
+	if (!browser) return;
+	void enqueueAutomaticWorkspaceMutation({
+		kind,
+		payload,
+	}).catch(() => {
+		// Corrupt local coordination state must not be overwritten implicitly.
+	});
+}
+
 export function upsertNode(node: NodeItem): void {
+	enqueueWorkspaceMutation("node.upsert", { operation: "replace", node });
 	appState.update((state) => {
 		const index = state.nodes.findIndex((item) => item.id === node.id);
 		if (index >= 0) {
@@ -57,6 +73,7 @@ export function upsertNode(node: NodeItem): void {
 }
 
 export function removeNode(nodeId: string): void {
+	enqueueWorkspaceMutation("node.delete", { id: nodeId });
 	appState.update((state) => {
 		const now = nowIso();
 		return reconcileWorkspaceState(
@@ -71,6 +88,7 @@ export function removeNode(nodeId: string): void {
 }
 
 export function upsertSubscription(subscription: SubscriptionItem): void {
+	enqueueWorkspaceMutation("subscription.upsert", { subscription });
 	appState.update((state) => {
 		const index = state.subscriptions.findIndex(
 			(item) => item.id === subscription.id,
@@ -89,6 +107,7 @@ export function upsertSubscription(subscription: SubscriptionItem): void {
 }
 
 export function removeSubscription(subscriptionId: string): void {
+	enqueueWorkspaceMutation("subscription.delete", { id: subscriptionId });
 	appState.update((state) => {
 		const now = nowIso();
 		return reconcileWorkspaceState(
@@ -105,6 +124,7 @@ export function removeSubscription(subscriptionId: string): void {
 }
 
 export function upsertAggregate(rule: AggregateRule): void {
+	enqueueWorkspaceMutation("aggregate.upsert", { aggregate: rule });
 	appState.update((state) => {
 		const index = state.aggregates.findIndex((item) => item.id === rule.id);
 		if (index >= 0) {
@@ -121,6 +141,7 @@ export function upsertAggregate(rule: AggregateRule): void {
 }
 
 export function removeAggregate(ruleId: string): void {
+	enqueueWorkspaceMutation("aggregate.delete", { id: ruleId });
 	appState.update((state) => ({
 		...state,
 		aggregates: state.aggregates.filter((item) => item.id !== ruleId),
@@ -135,6 +156,7 @@ export function removeAggregate(ruleId: string): void {
 }
 
 export function upsertPublishTarget(target: AggregatePublishTarget): void {
+	enqueueWorkspaceMutation("publish-target.upsert", { target });
 	appState.update((state) => {
 		const index = state.publishTargets.findIndex(
 			(item) => item.id === target.id,
@@ -153,6 +175,7 @@ export function upsertPublishTarget(target: AggregatePublishTarget): void {
 }
 
 export function removePublishTarget(targetId: string): void {
+	enqueueWorkspaceMutation("publish-target.delete", { id: targetId });
 	appState.update((state) => ({
 		...state,
 		publishTargets: state.publishTargets.filter((item) => item.id !== targetId),
@@ -161,6 +184,7 @@ export function removePublishTarget(targetId: string): void {
 }
 
 export function upsertClientExport(profile: ClientExportProfile): void {
+	enqueueWorkspaceMutation("client-export.upsert", { profile });
 	appState.update((state) => {
 		const index = state.clientExports.findIndex(
 			(item) => item.id === profile.id,
@@ -179,6 +203,7 @@ export function upsertClientExport(profile: ClientExportProfile): void {
 }
 
 export function removeClientExport(profileId: string): void {
+	enqueueWorkspaceMutation("client-export.delete", { id: profileId });
 	appState.update((state) => ({
 		...state,
 		clientExports: state.clientExports.filter((item) => item.id !== profileId),
