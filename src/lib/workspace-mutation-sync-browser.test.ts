@@ -116,15 +116,12 @@ async function waitFor<T>(promise: Promise<T>): Promise<T> {
 
 describe("browser Workspace mutation scheduler", () => {
 	it("retries the same queued mutation after an offline failure", async () => {
-		const [appStore, authStore, workspaceData, queueModule, stateModule, sync] =
-			await Promise.all([
-				import("$lib/stores/app"),
-				import("$lib/stores/auth"),
-				import("$lib/workspace-data"),
-				import("$lib/workspace-mutation-queue"),
-				import("$lib/workspace-v2-state"),
-				import("$lib/workspace-mutation-sync-browser"),
-			]);
+		const [workspaceData, queueModule, stateModule, sync] = await Promise.all([
+			import("$lib/workspace-data"),
+			import("$lib/workspace-mutation-queue"),
+			import("$lib/workspace-v2-state"),
+			import("$lib/workspace-mutation-sync-browser"),
+		]);
 		const storage = new MemoryStorage();
 		const queue = new queueModule.WorkspaceMutationQueue(storage);
 		const stateStore = new stateModule.WorkspaceV2StateStore(storage);
@@ -139,8 +136,7 @@ describe("browser Workspace mutation scheduler", () => {
 			activeGistId: GIST_ID,
 			nodes: [],
 		};
-		appStore.appState.set(optimistic);
-		authStore.authState.set({ token: "browser-token", lastLoginAt: NOW });
+		let state = optimistic;
 
 		let calls = 0;
 		const requestBodies: string[] = [];
@@ -154,6 +150,15 @@ describe("browser Workspace mutation scheduler", () => {
 			retryDelayMs: 0,
 			queue,
 			stateStore,
+			getState: () => state,
+			setState: (next) => {
+				state = next;
+			},
+			subscribeAuth: (listener) => {
+				listener({ token: "browser-token" });
+				return () => {};
+			},
+			subscribeEvents: () => () => {},
 			fetchImpl: async (_input, init) => {
 				calls += 1;
 				requestBodies.push(String(init?.body));
@@ -189,8 +194,6 @@ describe("browser Workspace mutation scheduler", () => {
 			expect(stateStore.read()?.revision).toBe(2);
 		} finally {
 			stop();
-			authStore.authState.set({ ...authStore.defaultAuthState });
-			appStore.appState.set({ ...appStore.defaultState });
 		}
 	});
 });

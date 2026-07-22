@@ -22,6 +22,12 @@ export function startWorkspaceMutationSync(
 		queue?: WorkspaceMutationQueue;
 		stateStore?: WorkspaceV2StateStore;
 		fetchImpl?: typeof fetch;
+		getState?: () => AppState;
+		setState?: (state: AppState) => void;
+		subscribeAuth?: (
+			listener: (state: { token: string | null }) => void,
+		) => () => void;
+		subscribeEvents?: typeof subscribeWorkspaceEvents;
 	} = {},
 ): () => void {
 	if (!(options.enabled ?? browser)) return () => {};
@@ -29,6 +35,9 @@ export function startWorkspaceMutationSync(
 	const stateStore = options.stateStore ?? new WorkspaceV2StateStore();
 	const delayMs = options.delayMs ?? 250;
 	const retryDelayMs = options.retryDelayMs ?? 5_000;
+	const getState = options.getState ?? (() => get(appState));
+	const setState =
+		options.setState ?? ((state: AppState) => appState.set(state));
 	let githubToken: string | null = null;
 	let timer: ReturnType<typeof setTimeout> | null = null;
 	let running = false;
@@ -38,8 +47,8 @@ export function startWorkspaceMutationSync(
 		queue,
 		stateStore,
 		githubToken,
-		getState: () => get(appState),
-		setState: (state: AppState) => appState.set(state),
+		getState,
+		setState,
 		fetchImpl: options.fetchImpl,
 	});
 
@@ -81,7 +90,7 @@ export function startWorkspaceMutationSync(
 		}
 	}
 
-	const authUnsub = authState.subscribe((state) => {
+	const authUnsub = (options.subscribeAuth ?? authState.subscribe)((state) => {
 		githubToken = state.token;
 		if (!githubToken && timer) {
 			clearTimeout(timer);
@@ -89,17 +98,19 @@ export function startWorkspaceMutationSync(
 		}
 		schedule();
 	});
-	const eventsUnsub = subscribeWorkspaceEvents((event) => {
-		if (event.type === "workspace-v2-committed") {
-			applyCommittedWorkspaceEvent(event, dependencies());
-		}
-		if (
-			event.type === "mutation-queue-changed" ||
-			event.type === "workspace-v2-committed"
-		) {
-			schedule();
-		}
-	});
+	const eventsUnsub = (options.subscribeEvents ?? subscribeWorkspaceEvents)(
+		(event) => {
+			if (event.type === "workspace-v2-committed") {
+				applyCommittedWorkspaceEvent(event, dependencies());
+			}
+			if (
+				event.type === "mutation-queue-changed" ||
+				event.type === "workspace-v2-committed"
+			) {
+				schedule();
+			}
+		},
+	);
 	schedule();
 
 	return () => {
