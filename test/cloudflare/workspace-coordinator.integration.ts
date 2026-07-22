@@ -1,8 +1,9 @@
 import { runInDurableObject, SELF } from "cloudflare:test";
 import { env } from "cloudflare:workers";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { WorkspaceCoordinator } from "../../src/lib/server/workspace-coordinator";
 import { SqlWorkspaceCoordinatorJournal } from "../../src/lib/server/workspace-coordinator-journal";
+import { serializeWorkspaceDocumentV2 } from "../../src/lib/workspace-document";
 import type { WorkspaceMutation } from "../../src/lib/workspace-mutation";
 
 describe("WorkspaceCoordinator Durable Object", () => {
@@ -149,5 +150,138 @@ describe("WorkspaceCoordinator Durable Object", () => {
 			},
 		});
 		expect(body).not.toContain(token);
+	});
+
+	it("commits and retries a browser mutation through the real Worker and DO", async () => {
+		const gistId = "successful-worker-do";
+		const workspaceId = `gist:${gistId}`;
+		const token = "successful-route-token";
+		const mutationId = "80000000-0000-4000-8000-000000000004";
+		let content = serializeWorkspaceDocumentV2({
+			version: 2,
+			schemaVersion: 2,
+			workspaceId,
+			revision: 1,
+			updatedAt: "2026-07-22T10:00:00.000Z",
+			lastMutationId: null,
+			data: {
+				nodes: [
+					{
+						id: "node-1",
+						name: "node-1",
+						type: "vless",
+						raw: "vless://node-1",
+						tags: [],
+						enabled: true,
+						updatedAt: "2026-07-22T10:00:00.000Z",
+						source: "single",
+					},
+				],
+				subscriptions: [],
+				aggregates: [],
+				publishTargets: [],
+				clientExports: [],
+			},
+			tombstones: {
+				nodes: [],
+				subscriptions: [],
+				aggregates: [],
+				publishTargets: [],
+				clientExports: [],
+			},
+		});
+		let patchCount = 0;
+		vi.spyOn(globalThis, "fetch").mockImplementation(
+			async (input: RequestInfo | URL, init?: RequestInit) => {
+				const url = String(input);
+				if (url !== `https://api.github.com/gists/${gistId}`) {
+					throw new Error(`Unexpected outbound request: ${url}`);
+				}
+				if (init?.method === "PATCH") {
+					patchCount += 1;
+					const body = JSON.parse(String(init.body)) as {
+						files: Record<string, { content: string } | null>;
+					};
+					const workspace = body.files["subman.json"];
+					if (!workspace) throw new Error("Workspace content is missing");
+					content = workspace.content;
+					return Response.json({ ok: true });
+				}
+				return Response.json({
+					id: gistId,
+					owner: { login: "owner" },
+					files: {
+						"subman.json": {
+							filename: "subman.json",
+							language: "JSON",
+							size: content.length,
+							truncated: false,
+							content,
+							raw_url: `https://gist.githubusercontent.com/owner/${gistId}/raw/subman.json`,
+						},
+					},
+				});
+			},
+		);
+		const mutation = {
+			mutationId,
+			workspaceId,
+			expectedRevision: 1,
+			source: "browser",
+			createdAt: "2026-07-22T11:00:00.000Z",
+			kind: "node.delete",
+			payload: { id: "node-1" },
+		} satisfies WorkspaceMutation;
+		const send = () =>
+			SELF.fetch(
+				`https://subman.example/api/workspaces/${encodeURIComponent(workspaceId)}/mutations`,
+				{
+					method: "POST",
+					headers: {
+						Authorization: `Bearer ${token}`,
+						"Content-Type": "application/json",
+					},
+					body: JSON.stringify(mutation),
+				},
+			);
+
+		try {
+			const first = await send();
+			const firstBody = await first.json<{
+				status: string;
+				document: {
+					revision: number;
+					tombstones: { nodes: Array<{ id: string }> };
+				};
+			}>();
+			expect(first.status).toBe(200);
+			expect(firstBody.status).toBe("committed");
+			expect(firstBody.document.revision).toBe(2);
+			expect(firstBody.document.tombstones.nodes[0]?.id).toBe("node-1");
+
+			const retry = await send();
+			const retryBody = await retry.json<{ status: string }>();
+			expect(retry.status).toBe(200);
+			expect(retryBody.status).toBe("already-committed");
+			expect(patchCount).toBe(1);
+
+			const stub = env.WORKSPACE_COORDINATOR.getByName(workspaceId);
+			await runInDurableObject(
+				stub,
+				async (_instance: WorkspaceCoordinator, state) => {
+					const rows = state.storage.sql
+						.exec<{ mutation_id: string; committed_revision: number }>(
+							"SELECT mutation_id, committed_revision FROM processed_mutations",
+						)
+						.toArray();
+					expect(rows).toEqual([
+						{ mutation_id: mutationId, committed_revision: 2 },
+					]);
+					expect(JSON.stringify(rows)).not.toContain(token);
+				},
+			);
+		} finally {
+			vi.restoreAllMocks();
+		}
 	});
 });
