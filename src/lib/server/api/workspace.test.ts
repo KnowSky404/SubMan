@@ -1,121 +1,235 @@
 import { describe, expect, it } from "bun:test";
-import type { AppState } from "../../models";
-import { createSyncBaselineEnvelope } from "../../workspace-data";
+import type { GistMeta } from "$lib/models";
 import {
-	readStateFromWorkspaceContent,
-	transactServerWorkspace,
-} from "./workspace";
+	createServerMutationIdentity,
+	loadServerWorkspace,
+	submitServerWorkspaceMutation,
+} from "$lib/server/api/workspace";
+import type { WorkspaceCoordinatorNamespace } from "$lib/server/api/workspace-mutations";
+import {
+	createDefaultWorkspaceState,
+	serializeWorkspaceState,
+} from "$lib/workspace-data";
+import {
+	serializeWorkspaceDocumentV2,
+	type WorkspaceDocumentV2,
+} from "$lib/workspace-document";
+import type { WorkspaceMutation } from "$lib/workspace-mutation";
 
-const defaultState: AppState = {
-	nodes: [],
-	subscriptions: [],
-	aggregates: [],
-	publishTargets: [],
-	clientExports: [],
-	gists: [],
-	activeGistId: null,
-	activeGistFile: "subman.json",
-	lastUpdated: "2026-01-01T00:00:00.000Z",
-};
+const TOKEN = "server-github-token";
 
-function exportSyncState(state: AppState): string {
-	return JSON.stringify({
-		version: 1,
-		exportedAt: "2026-05-06T00:00:00.000Z",
-		data: state,
-	});
+function gist(id = "gist-1", fileName = "subman.json"): GistMeta {
+	return {
+		id,
+		description: "SubMan-Data",
+		files: [{ filename: fileName, language: "JSON", size: 10 }],
+		updatedAt: "2026-07-22T00:00:00.000Z",
+		url: `https://gist.github.com/${id}`,
+	};
 }
 
-describe("readStateFromWorkspaceContent", () => {
-	it("imports existing sync content", () => {
-		const content = exportSyncState({
-			...defaultState,
+function document(revision = 4): WorkspaceDocumentV2 {
+	return {
+		version: 2,
+		schemaVersion: 2,
+		workspaceId: "gist:gist-1",
+		revision,
+		updatedAt: "2026-07-22T10:00:00.000Z",
+		lastMutationId: null,
+		data: {
 			nodes: [
 				{
 					id: "node-1",
-					name: "vps-1",
+					name: "node-1",
 					type: "vless",
-					raw: "vless://example",
+					raw: "vless://node-1",
 					tags: [],
 					enabled: true,
+					updatedAt: "2026-07-22T10:00:00.000Z",
 					source: "single",
-					updatedAt: "2026-05-06T00:00:00.000Z",
 				},
 			],
+			subscriptions: [],
+			aggregates: [],
+			publishTargets: [],
+			clientExports: [],
+		},
+		tombstones: {
+			nodes: [],
+			subscriptions: [],
+			aggregates: [],
+			publishTargets: [],
+			clientExports: [],
+		},
+	};
+}
+
+function mutation(): WorkspaceMutation {
+	return {
+		mutationId: "a0000000-0000-4000-8000-000000000001",
+		workspaceId: "gist:gist-1",
+		expectedRevision: 4,
+		source: "server-api",
+		createdAt: "2026-07-22T11:00:00.000Z",
+		kind: "node.delete",
+		payload: { id: "node-1" },
+	};
+}
+
+describe("loadServerWorkspace", () => {
+	it("loads legacy V1 data at revision zero for coordinator migration", async () => {
+		const state = createDefaultWorkspaceState();
+		state.nodes = document().data.nodes;
+		const result = await loadServerWorkspace(TOKEN, {
+			ensureWorkspace: async () => ({ gist: gist(), created: false }),
+			getFileContent: async () => serializeWorkspaceState(state),
 		});
 
-		const state = readStateFromWorkspaceContent(content);
-
-		expect(state.nodes).toHaveLength(1);
-		expect(state.nodes[0]?.name).toBe("vps-1");
+		expect(result.revision).toBe(0);
+		expect(result.data.nodes[0]?.id).toBe("node-1");
 	});
 
-	it("falls back to default state when workspace content is empty", () => {
-		const state = readStateFromWorkspaceContent("");
+	it("loads a V2 workspace revision and business data", async () => {
+		const result = await loadServerWorkspace(TOKEN, {
+			ensureWorkspace: async () => ({ gist: gist(), created: false }),
+			getFileContent: async () => serializeWorkspaceDocumentV2(document()),
+		});
 
-		expect(state.nodes).toEqual([]);
-		expect(state.activeGistFile).toBe("subman.json");
+		expect(result.workspaceId).toBe("gist:gist-1");
+		expect(result.revision).toBe(4);
+		expect(result.data.nodes[0]?.id).toBe("node-1");
+	});
+
+	it("treats a bootstrap workspace as an empty revision zero document", async () => {
+		const result = await loadServerWorkspace(TOKEN, {
+			ensureWorkspace: async () => ({
+				gist: gist("gist-1", "subman.bootstrap.json"),
+				created: true,
+			}),
+			getFileContent: async () => {
+				throw new Error("bootstrap must not read subman.json");
+			},
+		});
+
+		expect(result.revision).toBe(0);
+		expect(result.data.nodes).toEqual([]);
+	});
+
+	it("sanitizes workspace discovery failures before route logging", async () => {
+		let failure: unknown;
+		try {
+			await loadServerWorkspace(TOKEN, {
+				ensureWorkspace: async () => {
+					throw new Error(`upstream echoed ${TOKEN}`);
+				},
+			});
+		} catch (error) {
+			failure = error;
+		}
+
+		expect((failure as { status?: number }).status).toBe(502);
+		expect((failure as { code?: string }).code).toBe("gist_read_failed");
+		expect((failure as { message?: string }).message).not.toContain(TOKEN);
 	});
 });
 
-describe("transactServerWorkspace", () => {
-	it("runs server mutations through the shared workspace transaction", async () => {
-		let transactionCalls = 0;
-		const result = await transactServerWorkspace(
-			"token",
-			(state) => ({
-				state: { ...state, lastUpdated: "2026-07-22T00:00:00.000Z" },
-				value: "mutated",
-			}),
+describe("Server API coordinator submission", () => {
+	it("builds server-owned mutation identity from the latest revision", () => {
+		const identity = createServerMutationIdentity(
 			{
-				ensureWorkspace: async () => ({
-					gist: {
-						id: "gist-1",
-						description: "SubMan-Data",
-						files: [],
-						updatedAt: "2026-07-22T00:00:00.000Z",
-						url: "https://gist.github.com/gist-1",
-					},
-					created: false,
-				}),
-				runTransaction: async (input) => {
-					transactionCalls += 1;
-					const mutation = await input.mutate?.(defaultState, {
-						gist: {
-							id: "gist-1",
-							description: "SubMan-Data",
-							files: [],
-							updatedAt: "2026-07-22T00:00:00.000Z",
-							url: "https://gist.github.com/gist-1",
-						},
-						gistId: "gist-1",
-						fileName: "subman.json",
-					});
-					if (!mutation) throw new Error("Expected mutation");
-					const state = "state" in mutation ? mutation.state : mutation;
-					return {
-						status: "committed",
-						gist: {
-							id: "gist-1",
-							description: "SubMan-Data",
-							files: [],
-							updatedAt: "2026-07-22T00:00:00.000Z",
-							url: "https://gist.github.com/gist-1",
-						},
-						state,
-						baseline: createSyncBaselineEnvelope(
-							state,
-							"gist-1",
-							"subman.json",
-						),
-						attempts: 1,
-					};
-				},
+				gist: gist(),
+				workspaceId: "gist:gist-1",
+				revision: 4,
+				data: document().data,
+			},
+			{
+				id: () => "a0000000-0000-4000-8000-000000000001",
+				now: () => "2026-07-22T11:00:00.000Z",
 			},
 		);
 
-		expect(transactionCalls).toBe(1);
-		expect(result.value).toBe("mutated");
-		expect(result.gist.id).toBe("gist-1");
+		expect(identity).toEqual({
+			mutationId: "a0000000-0000-4000-8000-000000000001",
+			workspaceId: "gist:gist-1",
+			expectedRevision: 4,
+			source: "server-api",
+			createdAt: "2026-07-22T11:00:00.000Z",
+		});
+	});
+
+	it("routes the token separately and returns the committed result", async () => {
+		const calls: unknown[] = [];
+		const committed = document(5);
+		const namespace: WorkspaceCoordinatorNamespace = {
+			getByName(name) {
+				return {
+					async mutate(command, token) {
+						calls.push({ name, command, token });
+						return {
+							ok: true,
+							result: {
+								document: committed,
+								mutationId: mutation().mutationId,
+								workspaceId: committed.workspaceId,
+								committedRevision: committed.revision,
+								committedAt: committed.updatedAt,
+								receipt: {
+									kind: "node.delete",
+									entityId: "node-1",
+									deleted: true,
+								},
+								status: "committed",
+							},
+						};
+					},
+				};
+			},
+		};
+
+		const result = await submitServerWorkspaceMutation(
+			namespace,
+			TOKEN,
+			gist(),
+			mutation(),
+		);
+
+		expect(result.document.revision).toBe(5);
+		expect(calls).toEqual([
+			{
+				name: "gist:gist-1",
+				command: { gistId: "gist-1", mutation: mutation() },
+				token: TOKEN,
+			},
+		]);
+		expect(JSON.stringify(result)).not.toContain(TOKEN);
+	});
+
+	it("maps coordinator conflicts to the Server API error contract", async () => {
+		const namespace: WorkspaceCoordinatorNamespace = {
+			getByName() {
+				return {
+					async mutate() {
+						return {
+							ok: false,
+							error: {
+								code: "revision_conflict",
+								message: "Workspace revision changed",
+								document: document(5),
+								revision: 5,
+							},
+						};
+					},
+				};
+			},
+		};
+
+		let failure: unknown;
+		try {
+			await submitServerWorkspaceMutation(namespace, TOKEN, gist(), mutation());
+		} catch (error) {
+			failure = error;
+		}
+		expect((failure as { status?: number }).status).toBe(409);
+		expect((failure as { code?: string }).code).toBe("revision_conflict");
 	});
 });

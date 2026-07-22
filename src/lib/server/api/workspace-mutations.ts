@@ -39,7 +39,7 @@ function errorResponse(
 	);
 }
 
-function statusForCoordinatorError(
+export function getWorkspaceCoordinatorErrorStatus(
 	code: WorkspaceCoordinatorRpcErrorCode,
 ): number {
 	switch (code) {
@@ -151,7 +151,7 @@ export async function handleBrowserWorkspaceMutation(
 	}
 	if (response.ok) return Response.json(response.result);
 	return errorResponse(
-		statusForCoordinatorError(response.error.code),
+		getWorkspaceCoordinatorErrorStatus(response.error.code),
 		response.error.code,
 		response.error.message,
 		response.error,

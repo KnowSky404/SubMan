@@ -1,10 +1,13 @@
 import { ApiError } from "$lib/server/api/errors";
-import {
-	applyNodeUpsertByExternalKey,
-	parseNodePayload,
-} from "$lib/server/api/nodes";
+import { parseNodePayload } from "$lib/server/api/nodes";
 import { handleApiError, requireApiAccess } from "$lib/server/api/routes";
-import { transactServerWorkspace } from "$lib/server/api/workspace";
+import {
+	createServerMutationIdentity,
+	loadServerWorkspace,
+	submitServerWorkspaceMutation,
+} from "$lib/server/api/workspace";
+import { WORKSPACE_FILE_NAME } from "$lib/workspace-document";
+import type { WorkspaceMutation } from "$lib/workspace-mutation";
 
 export async function PUT({
 	request,
@@ -23,16 +26,37 @@ export async function PUT({
 
 		const githubToken = await requireApiAccess(request, platform);
 		const payload = parseNodePayload(await request.json());
-		const workspace = await transactServerWorkspace(githubToken, (state) => {
-			const result = applyNodeUpsertByExternalKey(state, externalKey, payload);
-			return { state: result.state, value: result.node };
-		});
+		const workspace = await loadServerWorkspace(githubToken);
+		const nodeId = crypto.randomUUID();
+		const mutation = {
+			...createServerMutationIdentity(workspace),
+			kind: "node.upsert",
+			payload: {
+				operation: "upsert-by-external-key",
+				nodeId,
+				externalKey,
+				node: payload,
+			},
+		} satisfies WorkspaceMutation;
+		const result = await submitServerWorkspaceMutation(
+			platform?.env?.WORKSPACE_COORDINATOR,
+			githubToken,
+			workspace.gist,
+			mutation,
+		);
+		const committedNodeId = result.receipt?.entityId ?? nodeId;
+		const node = result.document.data.nodes.find(
+			(item) => item.id === committedNodeId,
+		);
+		if (!node)
+			throw new ApiError(500, "server_error", "Node was not committed");
 
 		return Response.json({
-			data: workspace.value,
+			data: node,
 			workspace: {
 				gistId: workspace.gist.id,
-				file: workspace.state.activeGistFile,
+				file: WORKSPACE_FILE_NAME,
+				revision: result.committedRevision,
 			},
 		});
 	} catch (error) {

@@ -1,4 +1,7 @@
+import type { WorkspaceCoordinatorRpcErrorCode } from "$lib/server/workspace-coordinator";
+
 export type ApiErrorCode =
+	| WorkspaceCoordinatorRpcErrorCode
 	| "bad_request"
 	| "unauthorized"
 	| "duplicate_node_raw"
