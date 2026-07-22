@@ -87,6 +87,11 @@ export function parseWorkspaceState(raw: string): AppState {
 	if (!isRecord(parsed) || !isRecord(parsed.data)) {
 		throw new Error("Invalid export payload");
 	}
+	if (parsed.schemaVersion !== undefined) {
+		throw new Error(
+			`Unsupported workspace schema version: ${String(parsed.schemaVersion)}`,
+		);
+	}
 	if (parsed.version !== undefined && parsed.version !== WORKSPACE_VERSION) {
 		throw new Error(`Unsupported workspace version: ${String(parsed.version)}`);
 	}

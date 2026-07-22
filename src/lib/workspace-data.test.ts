@@ -93,6 +93,23 @@ describe("workspace version 1 data", () => {
 		expect(hydrated.lastUpdated).toBe("2026-07-19T12:34:56.000Z");
 		expect(hydrated.activeGistId).toBe("gist-1");
 	});
+
+	it("does not interpret a schema document as legacy V1", () => {
+		expect(() =>
+			parseWorkspaceState(
+				JSON.stringify({
+					schemaVersion: 2,
+					data: {
+						nodes: [],
+						subscriptions: [],
+						aggregates: [],
+						publishTargets: [],
+						clientExports: [],
+					},
+				}),
+			),
+		).toThrow("Unsupported workspace schema version: 2");
+	});
 });
 
 describe("sync baseline envelope", () => {
