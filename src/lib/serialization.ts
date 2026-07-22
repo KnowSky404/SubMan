@@ -1,41 +1,18 @@
 import type { AppState } from "$lib/models";
-import { defaultState } from "$lib/stores/app";
-
-const EXPORT_VERSION = 1;
-
-function buildSyncState(state: AppState): AppState {
-	return {
-		...defaultState,
-		nodes: state.nodes,
-		subscriptions: state.subscriptions,
-		aggregates: state.aggregates,
-		publishTargets: state.publishTargets,
-		clientExports: state.clientExports,
-		activeGistId: state.activeGistId,
-		activeGistFile: state.activeGistFile,
-		lastUpdated: state.lastUpdated,
-	};
-}
-
-function buildComparableSyncState(state: AppState): AppState {
-	return {
-		...buildSyncState(state),
-		activeGistId: null,
-		activeGistFile: defaultState.activeGistFile,
-	};
-}
+import {
+	getWorkspaceSignature,
+	parseWorkspaceState,
+	serializeWorkspaceState,
+} from "$lib/workspace-data";
 
 export function getSyncStateSignature(state: AppState): string {
-	return JSON.stringify({
-		version: EXPORT_VERSION,
-		data: buildComparableSyncState(state),
-	});
+	return getWorkspaceSignature(state);
 }
 
 export function exportState(state: AppState): string {
 	return JSON.stringify(
 		{
-			version: EXPORT_VERSION,
+			version: 1,
 			exportedAt: new Date().toISOString(),
 			data: state,
 		},
@@ -45,26 +22,9 @@ export function exportState(state: AppState): string {
 }
 
 export function exportSyncState(state: AppState): string {
-	return JSON.stringify(
-		{
-			version: EXPORT_VERSION,
-			exportedAt: new Date().toISOString(),
-			data: buildSyncState(state),
-		},
-		null,
-		2,
-	);
+	return serializeWorkspaceState(state);
 }
 
 export function importState(raw: string): AppState {
-	const parsed = JSON.parse(raw) as {
-		version?: number;
-		data?: AppState;
-	};
-
-	if (!parsed?.data) {
-		throw new Error("Invalid export payload");
-	}
-
-	return { ...defaultState, ...parsed.data };
+	return parseWorkspaceState(raw);
 }

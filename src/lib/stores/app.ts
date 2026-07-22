@@ -9,20 +9,11 @@ import type {
 	SubscriptionItem,
 } from "$lib/models";
 import { nowIso } from "$lib/utils/time";
+import { createDefaultWorkspaceState } from "$lib/workspace-data";
 
 const STORAGE_KEY = "subman:state:v1";
 
-export const defaultState: AppState = {
-	nodes: [],
-	subscriptions: [],
-	aggregates: [],
-	publishTargets: [],
-	clientExports: [],
-	gists: [],
-	activeGistId: null,
-	activeGistFile: "subman.json",
-	lastUpdated: nowIso(),
-};
+export const defaultState: AppState = createDefaultWorkspaceState(nowIso());
 
 function loadInitialState(): AppState {
 	if (!browser) {
