@@ -4,7 +4,7 @@ import {
 	buildSingBoxClientConfig,
 	type SingBoxClientBuildResult,
 } from "$lib/client-export/sing-box";
-import { buildStableGistRawUrl } from "$lib/gist";
+import { buildStableGistRawUrl } from "$lib/gist-raw-url";
 import type { AppState, GistMeta } from "$lib/models";
 import type { WorkspaceMutationResult } from "$lib/workspace-transaction";
 
