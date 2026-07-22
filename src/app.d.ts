@@ -7,9 +7,12 @@ declare global {
 		// interface PageData {}
 		// interface PageState {}
 		interface Platform {
-			env?: {
+			env?: Env & {
 				GITHUB_TOKEN?: string;
 				SUBMAN_API_TOKEN?: string;
+				WORKSPACE_COORDINATOR: DurableObjectNamespace<
+					import("$lib/server/workspace-coordinator").WorkspaceCoordinator
+				>;
 			};
 		}
 	}
