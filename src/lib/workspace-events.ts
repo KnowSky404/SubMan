@@ -1,5 +1,3 @@
-import type { AppState } from "$lib/models";
-import type { SyncBaselineEnvelope } from "$lib/workspace-data";
 import type { WorkspaceDocumentV2 } from "$lib/workspace-document";
 
 const CHANNEL_NAME = "subman:workspace:v1";
@@ -7,7 +5,6 @@ const FALLBACK_EVENT = "subman:workspace-message";
 
 export type WorkspaceEvent = {
 	type:
-		| "transaction-result"
 		| "reset"
 		| "paused-conflict"
 		| "mutation-queue-changed"
@@ -16,10 +13,8 @@ export type WorkspaceEvent = {
 	fileName: string | null;
 	mutationId?: string;
 	queueAction?: "enqueued" | "removed";
-	state?: AppState;
 	document?: WorkspaceDocumentV2;
-	baseline?: SyncBaselineEnvelope;
-	status?: "already-synced" | "committed" | "conflict";
+	status?: "already-synced" | "committed";
 };
 
 export function broadcastWorkspaceEvent(event: WorkspaceEvent): void {

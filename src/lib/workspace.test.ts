@@ -3,7 +3,6 @@ import type { GistMeta } from "$lib/models";
 import {
 	discoverWorkspaceGist,
 	ensureWorkspaceBootstrapGist,
-	ensureWorkspaceGist,
 	type WorkspaceGistApi,
 } from "$lib/workspace";
 import {
@@ -179,17 +178,18 @@ describe("workspace creation", () => {
 		let created: GistMeta | null = null;
 		const createGist = mock(async () => {
 			await Promise.resolve();
-			created = gist("created");
+			created = gist("created", "SubMan-Data", "subman.bootstrap.json");
 			return created;
 		});
 		const workspaceApi = api({
 			createGist,
+			getGistFileContent: mock(async () => JSON.stringify({ version: 1 })),
 			listGists: mock(async () => (created ? [created] : [])),
 		});
 
 		const [first, second] = await Promise.all([
-			ensureWorkspaceGist("token", validContent, { api: workspaceApi }),
-			ensureWorkspaceGist("token", validContent, { api: workspaceApi }),
+			ensureWorkspaceBootstrapGist("token", { api: workspaceApi }),
+			ensureWorkspaceBootstrapGist("token", { api: workspaceApi }),
 		]);
 
 		expect(createGist.mock.calls).toHaveLength(1);

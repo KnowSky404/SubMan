@@ -72,7 +72,6 @@ function persistCommittedResult(
 		fileName: binding.fileName,
 		mutationId: result.mutationId,
 		document: result.document,
-		state,
 		status: result.status === "committed" ? "committed" : "already-synced",
 	});
 }

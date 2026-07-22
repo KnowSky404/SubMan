@@ -149,18 +149,6 @@ export async function findWorkspaceGist(
 	return result.status === "found" ? result.gist : null;
 }
 
-export async function ensureWorkspaceGist(
-	token: string,
-	initialContent: string,
-	options: { activeGistId?: string | null; api?: WorkspaceGistApi } = {},
-): Promise<{ gist: GistMeta; created: boolean }> {
-	return ensureWorkspaceWithFiles(
-		token,
-		{ [WORKSPACE_FILE]: { content: initialContent } },
-		options,
-	);
-}
-
 export async function ensureWorkspaceBootstrapGist(
 	token: string,
 	options: { activeGistId?: string | null; api?: WorkspaceGistApi } = {},

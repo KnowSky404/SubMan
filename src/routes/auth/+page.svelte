@@ -32,7 +32,6 @@ import { appState, replaceState } from "$lib/stores/app";
 import { authState, clearAuth, setToken } from "$lib/stores/auth";
 import { requestConfirm } from "$lib/stores/confirm";
 import { showToast } from "$lib/stores/toast";
-import { resetWorkspaceSyncState } from "$lib/sync";
 import { decideManualPush, mergeSyncStateFromBaseline } from "$lib/sync-guard";
 import { cn } from "$lib/utils/cn";
 import { ensureWorkspaceBootstrapGist, WORKSPACE_FILE } from "$lib/workspace";
@@ -49,6 +48,7 @@ import {
 	bindWorkspaceOnly,
 	pullWorkspaceExactly,
 } from "$lib/workspace-session";
+import { clearLegacyWorkspaceSyncState } from "$lib/workspace-v1-cleanup";
 import {
 	createWorkspaceV2LocalState,
 	hydrateAppStateFromWorkspaceDocument,
@@ -179,7 +179,7 @@ async function handleTokenSave() {
 	conflict = null;
 	manualPushReview = null;
 	try {
-		resetWorkspaceSyncState();
+		clearLegacyWorkspaceSyncState();
 		setToken(token);
 		const localSignature = getSyncStateSignature($appState);
 		let savedGistId = $appState.activeGistId;
@@ -284,7 +284,7 @@ function getConflictConfirmation(action: "local" | "remote" | "merge") {
 async function handleBindOnly() {
 	if (!conflict) return;
 	const bound = bindWorkspaceOnly($appState, conflict.gistId, WORKSPACE_FILE);
-	resetWorkspaceSyncState();
+	clearLegacyWorkspaceSyncState();
 	await discardPendingMutations(`gist:${conflict.gistId}`);
 	new WorkspaceV2StateStore().write(
 		createWorkspaceV2LocalState(conflict.gistId, {
@@ -579,7 +579,7 @@ async function handleManualForcePush() {
 }
 
 function handleTokenClear() {
-	resetWorkspaceSyncState();
+	clearLegacyWorkspaceSyncState();
 	clearAuth();
 	appState.update((s) => ({ ...s, activeGistId: null }));
 	setStatus($t("Logged out"), "info");
