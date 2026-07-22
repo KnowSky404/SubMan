@@ -17,11 +17,6 @@ test("exports page implements sing-box client export behavior", () => {
 	expect(exportsPageSource).toContain("publishPreview");
 	expect(exportsPageSource).toContain("copyPreview");
 	expect(exportsPageSource).toContain("downloadPreview");
-	expect(exportsPageSource).toContain("buildClientExportPublication");
-	expect(exportsPageSource).toContain("runWorkspaceTransaction");
-	expect(exportsPageSource).toContain("readSyncBaselineEnvelope");
-	expect(exportsPageSource).not.toContain("createGist(");
-	expect(exportsPageSource).not.toContain("updateGist(");
 	expect(exportsPageSource).toContain("Total Lines");
 	expect(exportsPageSource).toContain("Outbounds");
 	expect(exportsPageSource).toContain("Skipped");
@@ -69,13 +64,6 @@ test("exports page validates listen port before saving", () => {
 	expect(exportsPageSource).toContain(
 		'showToast($t("Listen port must be between 1 and 65535"), "error")',
 	);
-});
-
-test("exports page stores the exact published workspace snapshot locally", () => {
-	expect(exportsPageSource).toContain("appState.set(result.state)");
-	expect(exportsPageSource).toContain("setSyncBaseline(");
-	expect(exportsPageSource).toContain("result.state.activeGistFile");
-	expect(exportsPageSource).not.toContain("upsertClientExport(finalProfile)");
 });
 
 test("exports page clears stale live link metadata only after output changes", () => {

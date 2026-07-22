@@ -1,7 +1,7 @@
 <script lang="ts">
 import { onMount } from "svelte";
 import Octicon from "$lib/components/Octicon.svelte";
-import { getGist, updateGist } from "$lib/gist";
+import { getGist } from "$lib/gist";
 import { t } from "$lib/i18n";
 import type { GistMeta } from "$lib/models";
 import {
@@ -21,6 +21,7 @@ import { requestConfirm } from "$lib/stores/confirm";
 import { showToast } from "$lib/stores/toast";
 import { cn } from "$lib/utils/cn";
 import { WORKSPACE_FILE } from "$lib/workspace";
+import { deleteWorkspaceOutputFile } from "$lib/workspace-output-files";
 
 let workspace: GistMeta | null = null;
 let loading = false;
@@ -96,10 +97,7 @@ async function deleteFile(filename: string) {
 
 	deleting = true;
 	try {
-		workspace = await updateGist(token, {
-			gistId,
-			files: { [filename]: null },
-		});
+		workspace = await deleteWorkspaceOutputFile(token, gistId, filename);
 		setStatus($t("Deleted file successfully"), "success");
 	} catch (err) {
 		setStatus($t("Delete failed"), "error");
