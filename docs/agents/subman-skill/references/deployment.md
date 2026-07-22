@@ -67,7 +67,8 @@ local test fixtures.
 Check secret configuration:
 
 ```bash
-curl -fsS "https://subman.example.com/api/health"
+curl -fsS "https://subman.example.com/api/health" | \
+  jq -e '.ok == true and .config.githubToken == true and .config.submanApiToken == true'
 ```
 
 Expected successful shape:
@@ -93,7 +94,8 @@ Follow `docs/workspace-v2-operations.md`. In particular:
 - V1 migration happens on the first coordinator mutation, not at discovery.
 - New Gists use a bootstrap marker until the first coordinator commit.
 - Rollback requires stopping V2 writers, preserving the V2 document, restoring
-  the exact V1 backup, and deploying the previous Worker.
+  the exact V1 backup, and deploying a forward compatibility release that
+  retains the applied migration, binding, and coordinator class export.
 - Keep the Durable Object namespace and SQLite records during rollback.
 
 The browser UI can still run in localStorage-only mode without a GitHub token.
