@@ -1,65 +1,32 @@
 import * as bunTest from "bun:test";
 import { get } from "svelte/store";
-import type { AppState, NodeItem } from "$lib/models";
-
-type MockedFunction<T extends (...args: never[]) => unknown> = T & {
-	mock: { calls: unknown[][] };
-	mockClear: () => void;
-	mockResolvedValueOnce: (value: unknown) => void;
-};
+import type { AppState, GistMeta, NodeItem } from "$lib/models";
+import {
+	createSyncBaselineEnvelope,
+	hydrateWorkspaceState,
+} from "$lib/workspace-data";
+import type {
+	WorkspaceTransactionInput,
+	WorkspaceTransactionResult,
+} from "$lib/workspace-transaction";
 
 const { expect, test } = bunTest;
-const bun = bunTest as unknown as {
+const { afterEach, mock } = bunTest as unknown as {
 	afterEach: (callback: () => void | Promise<void>) => void;
-	mock: (<T extends (...args: never[]) => unknown>(
-		callback: T,
-	) => MockedFunction<T>) & {
-		module: (specifier: string, factory: () => unknown) => void;
-	};
+	mock: { module: (specifier: string, factory: () => unknown) => void };
 };
-const { afterEach, mock } = bun;
-const mockModule = bun.mock.module;
 
 const storage = new Map<string, string>();
 const listeners = new Map<string, Set<(event: Event) => void>>();
-const createGist = mock(async () => ({ id: "gist-1" }));
-const getGist = mock(async () => ({ id: "gist-1" }));
-let onUpdateGist: (() => void | Promise<void>) | null = null;
-const updateGist = mock(async () => {
-	await onUpdateGist?.();
-	return { id: "gist-1" };
-});
-const getGistFileContent = mock(async () => "");
-const listGists = mock(async () => []);
-const toStableGistRawUrl = mock(
-	(rawUrl?: string | null) => rawUrl ?? undefined,
-);
 
-mockModule("$app/environment", () => ({
-	browser: true,
-}));
-
-mockModule("$lib/gist", () => ({
-	createGist,
-	getGist,
-	listGists,
-	toStableGistRawUrl,
-	updateGist,
-	getGistFileContent,
-}));
+mock.module("$app/environment", () => ({ browser: true }));
 
 Object.defineProperty(globalThis, "localStorage", {
 	value: {
 		getItem: (key: string) => storage.get(key) ?? null,
-		setItem: (key: string, value: string) => {
-			storage.set(key, value);
-		},
-		removeItem: (key: string) => {
-			storage.delete(key);
-		},
-		clear: () => {
-			storage.clear();
-		},
+		setItem: (key: string, value: string) => storage.set(key, value),
+		removeItem: (key: string) => storage.delete(key),
+		clear: () => storage.clear(),
 	},
 	configurable: true,
 });
@@ -71,33 +38,35 @@ Object.defineProperty(globalThis, "window", {
 			listener: EventListenerOrEventListenerObject,
 		) => {
 			if (typeof listener !== "function") return;
-			const typeListeners = listeners.get(type) ?? new Set();
-			typeListeners.add(listener);
-			listeners.set(type, typeListeners);
+			const registered = listeners.get(type) ?? new Set();
+			registered.add(listener);
+			listeners.set(type, registered);
 		},
 		removeEventListener: (
 			type: string,
 			listener: EventListenerOrEventListenerObject,
 		) => {
-			if (typeof listener !== "function") return;
-			listeners.get(type)?.delete(listener);
+			if (typeof listener === "function") listeners.get(type)?.delete(listener);
 		},
 		dispatchEvent: (event: Event) => {
-			for (const listener of listeners.get(event.type) ?? []) {
-				listener(event);
-			}
+			for (const listener of listeners.get(event.type) ?? []) listener(event);
 			return true;
 		},
 	},
 	configurable: true,
 });
 
-function node(id: string, updatedAt: string): NodeItem {
+Object.defineProperty(globalThis, "BroadcastChannel", {
+	value: undefined,
+	configurable: true,
+});
+
+function node(id: string, updatedAt = "2026-07-22T00:00:00.000Z"): NodeItem {
 	return {
 		id,
 		name: id,
 		type: "vless",
-		raw: `${id}-raw`,
+		raw: `vless://${id}`,
 		tags: [],
 		enabled: true,
 		updatedAt,
@@ -105,14 +74,26 @@ function node(id: string, updatedAt: string): NodeItem {
 	};
 }
 
-async function baseState(overrides: Partial<AppState> = {}): Promise<AppState> {
+async function state(overrides: Partial<AppState> = {}): Promise<AppState> {
 	const { defaultState } = await import("$lib/stores/app");
+	return hydrateWorkspaceState(
+		{
+			...defaultState,
+			lastUpdated: "2026-07-22T00:00:00.000Z",
+			...overrides,
+		},
+		"gist-1",
+		"subman.json",
+	);
+}
+
+function gist(): GistMeta {
 	return {
-		...defaultState,
-		activeGistId: "gist-1",
-		activeGistFile: "subman.json",
-		lastUpdated: "2026-05-01T00:00:00.000Z",
-		...overrides,
+		id: "gist-1",
+		description: "SubMan-Data",
+		files: [],
+		updatedAt: "2026-07-22T00:00:00.000Z",
+		url: "https://gist.github.com/gist-1",
 	};
 }
 
@@ -122,222 +103,156 @@ async function flushTimers(): Promise<void> {
 }
 
 afterEach(async () => {
-	const { appState, defaultState } = await import("$lib/stores/app");
-	const { authState } = await import("$lib/stores/auth");
+	const [{ appState, defaultState }, { authState }] = await Promise.all([
+		import("$lib/stores/app"),
+		import("$lib/stores/auth"),
+	]);
 	storage.clear();
 	listeners.clear();
-	createGist.mockClear();
-	getGist.mockClear();
-	updateGist.mockClear();
-	getGistFileContent.mockClear();
-	listGists.mockClear();
-	toStableGistRawUrl.mockClear();
-	onUpdateGist = null;
 	appState.set(defaultState);
 	authState.set({ token: null, lastLoginAt: null });
 });
 
-function setBaseline(
-	setSyncBaseline: (baseline: string, state?: AppState) => void,
-	getSyncStateSignature: (state: AppState) => string,
-	state: AppState,
-): void {
-	setSyncBaseline(getSyncStateSignature(state), state);
-}
+test("stores one identity-bound baseline envelope and clears all sync state", async () => {
+	const {
+		isSyncPaused,
+		readSyncBaselineEnvelope,
+		resetWorkspaceSyncState,
+		setSyncBaseline,
+		setSyncPausedConflict,
+	} = await import("$lib/sync");
+	const baselineState = await state({ nodes: [node("baseline")] });
 
-function getSavedState(): AppState {
-	const payload = updateGist.mock.calls[0]?.[1] as {
-		files: Record<string, { content: string }>;
-	};
-	const saved = JSON.parse(payload.files["subman.json"].content) as {
-		data: AppState;
-	};
-	return saved.data;
-}
+	setSyncBaseline(baselineState, "gist-1", "subman.json");
+	setSyncPausedConflict(true);
 
-test("auto-sync merges remote changes before writing when remote diverged from baseline", async () => {
-	const [
-		{ appState },
-		{ authState },
-		{ exportSyncState, getSyncStateSignature },
-		{ setSyncBaseline, startAutoSync },
-	] = await Promise.all([
+	expect(readSyncBaselineEnvelope()?.gistId).toBe("gist-1");
+	expect(readSyncBaselineEnvelope()?.fileName).toBe("subman.json");
+	expect(isSyncPaused()).toBe(true);
+
+	resetWorkspaceSyncState();
+
+	expect(readSyncBaselineEnvelope()).toBeNull();
+	expect(isSyncPaused()).toBe(false);
+});
+
+test("paused-conflict prevents automatic workspace writes", async () => {
+	const [{ appState }, { authState }, sync] = await Promise.all([
 		import("$lib/stores/app"),
 		import("$lib/stores/auth"),
-		import("$lib/serialization"),
 		import("$lib/sync"),
 	]);
+	const calls: WorkspaceTransactionInput[] = [];
+	const runTransaction = async (input: WorkspaceTransactionInput) => {
+		calls.push(input);
+		throw new Error("should not run");
+	};
 
-	const baselineState = await baseState();
-	const remoteState = await baseState({
-		nodes: [node("remote-node", "2026-05-02T00:00:00.000Z")],
-		lastUpdated: "2026-05-02T00:00:00.000Z",
+	sync.setSyncPausedConflict(true);
+	authState.set({ token: "token", lastLoginAt: null });
+	const stop = sync.startAutoSync(0, { runTransaction });
+	appState.set(await state({ nodes: [node("local")] }));
+	await flushTimers();
+	stop();
+
+	expect(calls).toHaveLength(0);
+});
+
+test("automatic sync delegates to the transaction with a trusted envelope", async () => {
+	const [{ appState }, { authState }, sync] = await Promise.all([
+		import("$lib/stores/app"),
+		import("$lib/stores/auth"),
+		import("$lib/sync"),
+	]);
+	const baselineState = await state();
+	const localState = await state({ nodes: [node("local")] });
+	const committedState = await state({
+		nodes: [node("local"), node("remote")],
 	});
-	const localState = await baseState({
-		nodes: [node("local-node", "2026-05-03T00:00:00.000Z")],
-		lastUpdated: "2026-05-03T00:00:00.000Z",
-	});
+	const calls: WorkspaceTransactionInput[] = [];
+	const runTransaction = async (
+		input: WorkspaceTransactionInput,
+	): Promise<WorkspaceTransactionResult> => {
+		calls.push(input);
+		return {
+			status: "committed",
+			gist: gist(),
+			state: committedState,
+			baseline: createSyncBaselineEnvelope(
+				committedState,
+				"gist-1",
+				"subman.json",
+			),
+			attempts: 1,
+		};
+	};
 
-	setBaseline(setSyncBaseline, getSyncStateSignature, baselineState);
-	getGistFileContent.mockResolvedValueOnce(exportSyncState(remoteState));
-	authState.set({ token: "token-1", lastLoginAt: "2026-05-01T00:00:00.000Z" });
-
-	const stop = startAutoSync(0);
+	sync.setSyncBaseline(baselineState, "gist-1", "subman.json");
+	authState.set({ token: "token", lastLoginAt: null });
+	const stop = sync.startAutoSync(0, { runTransaction });
 	appState.set(localState);
 	await flushTimers();
 	stop();
 
-	expect(updateGist.mock.calls.length).toBe(1);
+	expect(calls).toHaveLength(1);
+	expect(calls[0]?.baseline?.gistId).toBe("gist-1");
 	expect(
-		getSavedState()
+		get(appState)
 			.nodes.map((item) => item.id)
 			.sort(),
-	).toEqual(["local-node", "remote-node"]);
+	).toEqual(["local", "remote"]);
+	expect(sync.readSyncBaselineEnvelope()?.signature).toBe(
+		createSyncBaselineEnvelope(committedState, "gist-1", "subman.json")
+			.signature,
+	);
 });
 
-test("auto-sync keeps remote deletions when merging from the saved baseline", async () => {
-	const [
-		{ appState },
-		{ authState },
-		{ exportSyncState, getSyncStateSignature },
-		{ setSyncBaseline, startAutoSync },
-	] = await Promise.all([
+test("automatic sync preserves edits made while the transaction is in flight", async () => {
+	const [{ appState }, { authState }, sync] = await Promise.all([
 		import("$lib/stores/app"),
 		import("$lib/stores/auth"),
-		import("$lib/serialization"),
 		import("$lib/sync"),
 	]);
-
-	const baselineState = await baseState({
-		nodes: [
-			node("kept-node", "2026-05-01T00:00:00.000Z"),
-			node("deleted-remotely", "2026-05-01T00:00:00.000Z"),
-		],
+	const baselineState = await state();
+	const firstLocal = await state({ nodes: [node("first-local")] });
+	const intervening = await state({
+		nodes: [node("first-local"), node("intervening-local")],
 	});
-	const remoteState = await baseState({
-		nodes: [node("kept-node", "2026-05-01T00:00:00.000Z")],
-		lastUpdated: "2026-05-02T00:00:00.000Z",
+	const committed = await state({
+		nodes: [node("first-local"), node("remote")],
 	});
-	const localState = await baseState({
-		nodes: [
-			node("kept-node", "2026-05-01T00:00:00.000Z"),
-			node("deleted-remotely", "2026-05-01T00:00:00.000Z"),
-			node("local-node", "2026-05-03T00:00:00.000Z"),
-		],
-		lastUpdated: "2026-05-03T00:00:00.000Z",
+	const converged = await state({
+		nodes: [node("first-local"), node("intervening-local"), node("remote")],
 	});
-
-	setBaseline(setSyncBaseline, getSyncStateSignature, baselineState);
-	getGistFileContent.mockResolvedValueOnce(exportSyncState(remoteState));
-	authState.set({ token: "token-1", lastLoginAt: "2026-05-01T00:00:00.000Z" });
-
-	const stop = startAutoSync(0);
-	appState.set(localState);
-	await flushTimers();
-	stop();
-
-	expect(updateGist.mock.calls.length).toBe(1);
-	expect(
-		getSavedState()
-			.nodes.map((item) => item.id)
-			.sort(),
-	).toEqual(["kept-node", "local-node"]);
-});
-
-test("auto-sync uses a baseline saved after auto-sync has started", async () => {
-	const [
-		{ appState },
-		{ authState },
-		{ exportSyncState, getSyncStateSignature },
-		{ setSyncBaseline, startAutoSync },
-	] = await Promise.all([
-		import("$lib/stores/app"),
-		import("$lib/stores/auth"),
-		import("$lib/serialization"),
-		import("$lib/sync"),
-	]);
-
-	const baselineState = await baseState({
-		nodes: [
-			node("kept-node", "2026-05-01T00:00:00.000Z"),
-			node("deleted-remotely", "2026-05-01T00:00:00.000Z"),
-		],
-	});
-	const remoteState = await baseState({
-		nodes: [node("kept-node", "2026-05-01T00:00:00.000Z")],
-		lastUpdated: "2026-05-02T00:00:00.000Z",
-	});
-	const localState = await baseState({
-		nodes: [
-			node("kept-node", "2026-05-01T00:00:00.000Z"),
-			node("deleted-remotely", "2026-05-01T00:00:00.000Z"),
-			node("local-node", "2026-05-03T00:00:00.000Z"),
-		],
-		lastUpdated: "2026-05-03T00:00:00.000Z",
-	});
-
-	const stop = startAutoSync(0);
-	setBaseline(setSyncBaseline, getSyncStateSignature, baselineState);
-	getGistFileContent.mockResolvedValueOnce(exportSyncState(remoteState));
-	authState.set({ token: "token-1", lastLoginAt: "2026-05-01T00:00:00.000Z" });
-	appState.set(localState);
-	await flushTimers();
-	stop();
-
-	expect(updateGist.mock.calls.length).toBe(1);
-	expect(
-		getSavedState()
-			.nodes.map((item) => item.id)
-			.sort(),
-	).toEqual(["kept-node", "local-node"]);
-});
-
-test("auto-sync does not overwrite local edits made while a merge sync is in flight", async () => {
-	const [
-		{ appState },
-		{ authState },
-		{ exportSyncState, getSyncStateSignature },
-		{ setSyncBaseline, startAutoSync },
-	] = await Promise.all([
-		import("$lib/stores/app"),
-		import("$lib/stores/auth"),
-		import("$lib/serialization"),
-		import("$lib/sync"),
-	]);
-
-	const baselineState = await baseState();
-	const remoteState = await baseState({
-		nodes: [node("remote-node", "2026-05-02T00:00:00.000Z")],
-		lastUpdated: "2026-05-02T00:00:00.000Z",
-	});
-	const firstLocalState = await baseState({
-		nodes: [node("first-local-node", "2026-05-03T00:00:00.000Z")],
-		lastUpdated: "2026-05-03T00:00:00.000Z",
-	});
-	const interveningLocalState = await baseState({
-		nodes: [
-			node("first-local-node", "2026-05-03T00:00:00.000Z"),
-			node("intervening-local-node", "2026-05-04T00:00:00.000Z"),
-		],
-		lastUpdated: "2026-05-04T00:00:00.000Z",
-	});
-
-	setBaseline(setSyncBaseline, getSyncStateSignature, baselineState);
-	getGistFileContent.mockResolvedValueOnce(exportSyncState(remoteState));
-	authState.set({ token: "token-1", lastLoginAt: "2026-05-01T00:00:00.000Z" });
-	onUpdateGist = () => {
-		appState.set(interveningLocalState);
+	let calls = 0;
+	const runTransaction = async (): Promise<WorkspaceTransactionResult> => {
+		calls += 1;
+		if (calls === 1) appState.set(intervening);
+		const resultState = calls === 1 ? committed : converged;
+		return {
+			status: "committed",
+			gist: gist(),
+			state: resultState,
+			baseline: createSyncBaselineEnvelope(
+				resultState,
+				"gist-1",
+				"subman.json",
+			),
+			attempts: 1,
+		};
 	};
 
-	const stop = startAutoSync(0);
-	appState.set(firstLocalState);
-	await flushTimers();
+	sync.setSyncBaseline(baselineState, "gist-1", "subman.json");
+	authState.set({ token: "token", lastLoginAt: null });
+	const stop = sync.startAutoSync(0, { runTransaction });
+	appState.set(firstLocal);
+	await new Promise((resolve) => setTimeout(resolve, 20));
 	stop();
 
-	const currentState = get(appState);
-	expect(currentState?.nodes.map((item) => item.id).sort()).toEqual([
-		"first-local-node",
-		"intervening-local-node",
-		"remote-node",
-	]);
+	expect(calls).toBeGreaterThan(0);
+	expect(
+		get(appState)
+			.nodes.map((item) => item.id)
+			.sort(),
+	).toEqual(["first-local", "intervening-local", "remote"]);
 });
