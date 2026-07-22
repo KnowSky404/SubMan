@@ -5,9 +5,15 @@ const CHANNEL_NAME = "subman:workspace:v1";
 const FALLBACK_EVENT = "subman:workspace-message";
 
 export type WorkspaceEvent = {
-	type: "transaction-result" | "reset" | "paused-conflict";
+	type:
+		| "transaction-result"
+		| "reset"
+		| "paused-conflict"
+		| "mutation-queue-changed";
 	gistId: string | null;
 	fileName: string | null;
+	mutationId?: string;
+	queueAction?: "enqueued" | "removed";
 	state?: AppState;
 	baseline?: SyncBaselineEnvelope;
 	status?: "already-synced" | "committed" | "conflict";
