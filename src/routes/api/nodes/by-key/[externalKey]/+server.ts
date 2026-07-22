@@ -4,10 +4,7 @@ import {
 	parseNodePayload,
 } from "$lib/server/api/nodes";
 import { handleApiError, requireApiAccess } from "$lib/server/api/routes";
-import {
-	loadWorkspaceState,
-	saveWorkspaceState,
-} from "$lib/server/api/workspace";
+import { transactServerWorkspace } from "$lib/server/api/workspace";
 
 export async function PUT({
 	request,
@@ -25,24 +22,17 @@ export async function PUT({
 		}
 
 		const githubToken = await requireApiAccess(request, platform);
-		const workspace = await loadWorkspaceState(githubToken);
 		const payload = parseNodePayload(await request.json());
-		const result = applyNodeUpsertByExternalKey(
-			workspace.state,
-			externalKey,
-			payload,
-		);
-		const gist = await saveWorkspaceState(
-			githubToken,
-			workspace.gist.id,
-			result.state,
-		);
+		const workspace = await transactServerWorkspace(githubToken, (state) => {
+			const result = applyNodeUpsertByExternalKey(state, externalKey, payload);
+			return { state: result.state, value: result.node };
+		});
 
 		return Response.json({
-			data: result.node,
+			data: workspace.value,
 			workspace: {
-				gistId: gist.id,
-				file: result.state.activeGistFile,
+				gistId: workspace.gist.id,
+				file: workspace.state.activeGistFile,
 			},
 		});
 	} catch (error) {

@@ -1,127 +1,73 @@
+import type { AppState, GistMeta } from "$lib/models";
+import { ensureWorkspaceGist } from "$lib/workspace";
 import {
-	createGist,
-	getGistFileContent,
-	listGists,
-	updateGist,
-} from "../../gist";
-import type { AppState, GistMeta } from "../../models";
-
-const EXPORT_VERSION = 1;
-const WORKSPACE_DESCRIPTION = "SubMan-Data";
-const WORKSPACE_FILE = "subman.json";
-
-const defaultState: AppState = {
-	nodes: [],
-	subscriptions: [],
-	aggregates: [],
-	publishTargets: [],
-	clientExports: [],
-	gists: [],
-	activeGistId: null,
-	activeGistFile: WORKSPACE_FILE,
-	lastUpdated: new Date(0).toISOString(),
-};
+	createDefaultWorkspaceState,
+	parseWorkspaceState,
+	serializeWorkspaceState,
+	WORKSPACE_FILE,
+} from "$lib/workspace-data";
+import {
+	readWorkspaceSnapshot,
+	runWorkspaceTransaction,
+	type WorkspaceTransactionInput,
+	type WorkspaceTransactionResult,
+} from "$lib/workspace-transaction";
 
 export type WorkspaceState = {
 	gist: GistMeta;
 	state: AppState;
 };
 
+type ServerWorkspaceDependencies = {
+	ensureWorkspace?: typeof ensureWorkspaceGist;
+	runTransaction?: (
+		input: WorkspaceTransactionInput,
+	) => Promise<WorkspaceTransactionResult>;
+};
+
 export function readStateFromWorkspaceContent(content: string): AppState {
-	if (!content.trim()) {
-		return defaultState;
-	}
-
-	const parsed = JSON.parse(content) as {
-		version?: number;
-		data?: AppState;
-	};
-
-	if (!parsed?.data) {
-		throw new Error("Invalid export payload");
-	}
-
-	return { ...defaultState, ...parsed.data };
-}
-
-function exportServerSyncState(state: AppState): string {
-	return JSON.stringify(
-		{
-			version: EXPORT_VERSION,
-			exportedAt: new Date().toISOString(),
-			data: {
-				...defaultState,
-				nodes: state.nodes,
-				subscriptions: state.subscriptions,
-				aggregates: state.aggregates,
-				publishTargets: state.publishTargets,
-				clientExports: state.clientExports,
-				activeGistId: state.activeGistId,
-				activeGistFile: state.activeGistFile,
-				lastUpdated: state.lastUpdated,
-			},
-		},
-		null,
-		2,
-	);
-}
-
-async function ensureServerWorkspaceGist(
-	token: string,
-	initialContent: string,
-): Promise<{ gist: GistMeta; created: boolean }> {
-	const gists = await listGists(token);
-	const existing = gists.find(
-		(gist) =>
-			gist.description === WORKSPACE_DESCRIPTION ||
-			gist.files.some((file) => file.filename === WORKSPACE_FILE),
-	);
-
-	if (existing) {
-		return { gist: existing, created: false };
-	}
-
-	const gist = await createGist(token, {
-		description: WORKSPACE_DESCRIPTION,
-		isPublic: false,
-		files: {
-			[WORKSPACE_FILE]: { content: initialContent },
-		},
-	});
-
-	return { gist, created: true };
+	return content.trim()
+		? parseWorkspaceState(content)
+		: createDefaultWorkspaceState();
 }
 
 export async function loadWorkspaceState(
 	githubToken: string,
 ): Promise<WorkspaceState> {
-	const initialContent = exportServerSyncState(defaultState);
-	const { gist } = await ensureServerWorkspaceGist(githubToken, initialContent);
-	const content = await getGistFileContent(
+	const { gist } = await ensureWorkspaceGist(
 		githubToken,
-		gist.id,
-		WORKSPACE_FILE,
+		serializeWorkspaceState(createDefaultWorkspaceState()),
 	);
-
-	return {
-		gist,
-		state: {
-			...readStateFromWorkspaceContent(content),
-			activeGistId: gist.id,
-			activeGistFile: WORKSPACE_FILE,
-		},
-	};
+	return readWorkspaceSnapshot(githubToken, gist.id, WORKSPACE_FILE);
 }
 
-export async function saveWorkspaceState(
+export async function transactServerWorkspace<T>(
 	githubToken: string,
-	gistId: string,
-	state: AppState,
-): Promise<GistMeta> {
-	return updateGist(githubToken, {
-		gistId,
-		files: {
-			[WORKSPACE_FILE]: { content: exportServerSyncState(state) },
+	mutate: (state: AppState) => { state: AppState; value: T },
+	dependencies: ServerWorkspaceDependencies = {},
+): Promise<WorkspaceState & { value: T }> {
+	const ensureWorkspace = dependencies.ensureWorkspace ?? ensureWorkspaceGist;
+	const runTransaction = dependencies.runTransaction ?? runWorkspaceTransaction;
+	const { gist } = await ensureWorkspace(
+		githubToken,
+		serializeWorkspaceState(createDefaultWorkspaceState()),
+	);
+	const mutation: { current?: { state: AppState; value: T } } = {};
+	const result = await runTransaction({
+		token: githubToken,
+		gistId: gist.id,
+		fileName: WORKSPACE_FILE,
+		mutate: (state) => {
+			mutation.current = mutate(state);
+			return mutation.current.state;
 		},
 	});
+	if (!mutation.current) {
+		throw new Error("Server workspace mutation was not applied");
+	}
+	return {
+		gist: result.gist,
+		state: result.state,
+		value: mutation.current.value,
+	};
 }

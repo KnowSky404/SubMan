@@ -2,7 +2,7 @@ import { applyNodeCreate, parseNodePayload } from "$lib/server/api/nodes";
 import { handleApiError, requireApiAccess } from "$lib/server/api/routes";
 import {
 	loadWorkspaceState,
-	saveWorkspaceState,
+	transactServerWorkspace,
 } from "$lib/server/api/workspace";
 
 export async function GET({
@@ -36,21 +36,18 @@ export async function POST({
 }) {
 	try {
 		const githubToken = await requireApiAccess(request, platform);
-		const workspace = await loadWorkspaceState(githubToken);
 		const payload = parseNodePayload(await request.json());
-		const result = applyNodeCreate(workspace.state, payload);
-		const gist = await saveWorkspaceState(
-			githubToken,
-			workspace.gist.id,
-			result.state,
-		);
+		const workspace = await transactServerWorkspace(githubToken, (state) => {
+			const result = applyNodeCreate(state, payload);
+			return { state: result.state, value: result.node };
+		});
 
 		return Response.json(
 			{
-				data: result.node,
+				data: workspace.value,
 				workspace: {
-					gistId: gist.id,
-					file: result.state.activeGistFile,
+					gistId: workspace.gist.id,
+					file: workspace.state.activeGistFile,
 				},
 			},
 			{ status: 201 },

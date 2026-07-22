@@ -7,7 +7,7 @@ import {
 import { handleApiError, requireApiAccess } from "$lib/server/api/routes";
 import {
 	loadWorkspaceState,
-	saveWorkspaceState,
+	transactServerWorkspace,
 } from "$lib/server/api/workspace";
 
 export async function GET({
@@ -43,22 +43,19 @@ export async function PATCH({
 }) {
 	try {
 		const githubToken = await requireApiAccess(request, platform);
-		const workspace = await loadWorkspaceState(githubToken);
 		const payload = parseNodePatchPayload(await request.json());
-		const result = applyNodePatch(workspace.state, params.id, payload);
-		if (!result.node) {
+		const workspace = await transactServerWorkspace(githubToken, (state) => {
+			const result = applyNodePatch(state, params.id, payload);
+			return { state: result.state, value: result.node };
+		});
+		if (!workspace.value) {
 			throw new ApiError(404, "not_found", "Node not found");
 		}
-		const gist = await saveWorkspaceState(
-			githubToken,
-			workspace.gist.id,
-			result.state,
-		);
 		return Response.json({
-			data: result.node,
+			data: workspace.value,
 			workspace: {
-				gistId: gist.id,
-				file: result.state.activeGistFile,
+				gistId: workspace.gist.id,
+				file: workspace.state.activeGistFile,
 			},
 		});
 	} catch (error) {
@@ -77,21 +74,18 @@ export async function DELETE({
 }) {
 	try {
 		const githubToken = await requireApiAccess(request, platform);
-		const workspace = await loadWorkspaceState(githubToken);
-		const result = applyNodeDelete(workspace.state, params.id);
-		if (!result.deleted) {
+		const workspace = await transactServerWorkspace(githubToken, (state) => {
+			const result = applyNodeDelete(state, params.id);
+			return { state: result.state, value: result.deleted };
+		});
+		if (!workspace.value) {
 			throw new ApiError(404, "not_found", "Node not found");
 		}
-		const gist = await saveWorkspaceState(
-			githubToken,
-			workspace.gist.id,
-			result.state,
-		);
 		return Response.json({
 			data: { deleted: true },
 			workspace: {
-				gistId: gist.id,
-				file: result.state.activeGistFile,
+				gistId: workspace.gist.id,
+				file: workspace.state.activeGistFile,
 			},
 		});
 	} catch (error) {

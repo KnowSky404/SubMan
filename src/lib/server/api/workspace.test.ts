@@ -1,6 +1,10 @@
 import { describe, expect, it } from "bun:test";
 import type { AppState } from "../../models";
-import { readStateFromWorkspaceContent } from "./workspace";
+import { createSyncBaselineEnvelope } from "../../workspace-data";
+import {
+	readStateFromWorkspaceContent,
+	transactServerWorkspace,
+} from "./workspace";
 
 const defaultState: AppState = {
 	nodes: [],
@@ -51,5 +55,67 @@ describe("readStateFromWorkspaceContent", () => {
 
 		expect(state.nodes).toEqual([]);
 		expect(state.activeGistFile).toBe("subman.json");
+	});
+});
+
+describe("transactServerWorkspace", () => {
+	it("runs server mutations through the shared workspace transaction", async () => {
+		let transactionCalls = 0;
+		const result = await transactServerWorkspace(
+			"token",
+			(state) => ({
+				state: { ...state, lastUpdated: "2026-07-22T00:00:00.000Z" },
+				value: "mutated",
+			}),
+			{
+				ensureWorkspace: async () => ({
+					gist: {
+						id: "gist-1",
+						description: "SubMan-Data",
+						files: [],
+						updatedAt: "2026-07-22T00:00:00.000Z",
+						url: "https://gist.github.com/gist-1",
+					},
+					created: false,
+				}),
+				runTransaction: async (input) => {
+					transactionCalls += 1;
+					const mutation = input.mutate?.(defaultState, {
+						gist: {
+							id: "gist-1",
+							description: "SubMan-Data",
+							files: [],
+							updatedAt: "2026-07-22T00:00:00.000Z",
+							url: "https://gist.github.com/gist-1",
+						},
+						gistId: "gist-1",
+						fileName: "subman.json",
+					});
+					if (!mutation) throw new Error("Expected mutation");
+					const state = "state" in mutation ? mutation.state : mutation;
+					return {
+						status: "committed",
+						gist: {
+							id: "gist-1",
+							description: "SubMan-Data",
+							files: [],
+							updatedAt: "2026-07-22T00:00:00.000Z",
+							url: "https://gist.github.com/gist-1",
+						},
+						state,
+						baseline: createSyncBaselineEnvelope(
+							state,
+							"gist-1",
+							"subman.json",
+						),
+						attempts: 1,
+					};
+				},
+			},
+		);
+
+		expect(transactionCalls).toBe(1);
+		expect(result.value).toBe("mutated");
+		expect(result.gist.id).toBe("gist-1");
 	});
 });
