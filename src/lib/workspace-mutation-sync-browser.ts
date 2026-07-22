@@ -16,6 +16,7 @@ import {
 
 export function startWorkspaceMutationSync(
 	options: {
+		enabled?: boolean;
 		delayMs?: number;
 		retryDelayMs?: number;
 		queue?: WorkspaceMutationQueue;
@@ -23,7 +24,7 @@ export function startWorkspaceMutationSync(
 		fetchImpl?: typeof fetch;
 	} = {},
 ): () => void {
-	if (!browser) return () => {};
+	if (!(options.enabled ?? browser)) return () => {};
 	const queue = options.queue ?? new WorkspaceMutationQueue();
 	const stateStore = options.stateStore ?? new WorkspaceV2StateStore();
 	const delayMs = options.delayMs ?? 250;
