@@ -5,10 +5,15 @@ import type {
 	ClientExportProfile,
 	GistMeta,
 	NodeItem,
+	SubscriptionItem,
 } from "$lib/models";
 import {
+	handleBrowserWorkspaceMutation,
+	type WorkspaceCoordinatorNamespace,
+} from "$lib/server/api/workspace-mutations";
+import {
 	WorkspaceCoordinatorCore,
-	type WorkspaceCoordinatorError,
+	WorkspaceCoordinatorError,
 	type WorkspaceCoordinatorGateway,
 	type WorkspaceCoordinatorJournal,
 	type WorkspaceCoordinatorPendingMutation,
@@ -42,6 +47,17 @@ function node(id = "node-1"): NodeItem {
 		enabled: true,
 		updatedAt: T0,
 		source: "single",
+	};
+}
+
+function subscription(id = "subscription-1"): SubscriptionItem {
+	return {
+		id,
+		name: id,
+		url: `https://example.com/${id}`,
+		enabled: true,
+		tags: [],
+		updatedAt: T0,
 	};
 }
 
@@ -103,7 +119,7 @@ function profile(): ClientExportProfile {
 function data(overrides: Partial<WorkspaceData> = {}): WorkspaceData {
 	return {
 		nodes: [node()],
-		subscriptions: [],
+		subscriptions: [subscription()],
 		aggregates: [aggregate()],
 		publishTargets: [target()],
 		clientExports: [profile()],
@@ -369,6 +385,119 @@ describe("Workspace coordinator serialization and idempotency", () => {
 		);
 	});
 
+	it("retries a Server API create without duplicating the node", async () => {
+		const gateway = new MemoryGateway({
+			"subman.json": serializeWorkspaceDocumentV2(document()),
+		});
+		const { core } = coordinator(gateway);
+		const create = mutation(
+			"20000000-0000-4000-8000-000000000010",
+			1,
+			"node.upsert",
+			{
+				operation: "create",
+				nodeId: "node-2",
+				node: {
+					name: "node-2",
+					type: "vless",
+					raw: "vless://node-2",
+					tags: [],
+					enabled: true,
+					source: "single",
+				},
+			},
+			"server-api",
+		);
+		const input = { githubToken: TOKEN, gistId: GIST_ID, mutation: create };
+
+		const first = await core.mutate(input);
+		const retry = await core.mutate(input);
+
+		expect(
+			first.document.data.nodes.filter((item) => item.id === "node-2"),
+		).toHaveLength(1);
+		expect(
+			retry.document.data.nodes.filter((item) => item.id === "node-2"),
+		).toHaveLength(1);
+		expect(retry.committedRevision).toBe(2);
+		expect(gateway.patches).toHaveLength(1);
+	});
+
+	it("returns one HTTP success and one 409 for competing revisions", async () => {
+		const gateway = new MemoryGateway({
+			"subman.json": serializeWorkspaceDocumentV2(document()),
+		});
+		const { core } = coordinator(gateway);
+		const namespace: WorkspaceCoordinatorNamespace = {
+			getByName() {
+				return {
+					async mutate(command, githubToken) {
+						const outcome = await core.mutateSettled({
+							githubToken,
+							gistId: command.gistId,
+							mutation: command.mutation,
+						});
+						if (outcome.ok) return { ok: true, result: outcome.result };
+						if (outcome.error instanceof WorkspaceCoordinatorError) {
+							return {
+								ok: false,
+								error: {
+									code: outcome.error.code,
+									message: outcome.error.message,
+									...(outcome.error.latestDocument
+										? {
+												document: outcome.error.latestDocument,
+												revision: outcome.error.latestDocument.revision,
+											}
+										: {}),
+								},
+							};
+						}
+						return {
+							ok: false,
+							error: { code: "server_error", message: "Mutation failed" },
+						};
+					},
+				};
+			},
+		};
+		const firstMutation = replaceNodeMutation(
+			"20000000-0000-4000-8000-000000000011",
+		);
+		const secondMutation = replaceNodeMutation(
+			"20000000-0000-4000-8000-000000000012",
+			1,
+			"node-3",
+		);
+		const request = (value: WorkspaceMutation) =>
+			new Request("https://subman.example/api/workspaces/mutations", {
+				method: "POST",
+				headers: {
+					Authorization: `Bearer ${TOKEN}`,
+					"Content-Type": "application/json",
+				},
+				body: JSON.stringify(value),
+			});
+
+		const [first, second] = await Promise.all([
+			handleBrowserWorkspaceMutation(
+				request(firstMutation),
+				WORKSPACE_ID,
+				namespace,
+			),
+			handleBrowserWorkspaceMutation(
+				request(secondMutation),
+				WORKSPACE_ID,
+				namespace,
+			),
+		]);
+
+		expect([first.status, second.status]).toEqual([200, 409]);
+		const conflict = (await second.json()) as { error: { code: string } };
+		expect(conflict.error.code).toBe("revision_conflict");
+		expect(gateway.patches).toHaveLength(1);
+	});
+
 	it("reconciles the latest Gist mutation before returning an older retry", async () => {
 		const gateway = new MemoryGateway({
 			"subman.json": serializeWorkspaceDocumentV2(document()),
@@ -427,6 +556,92 @@ describe("Workspace coordinator migration and recovery", () => {
 
 		expect(gateway.files["subman.v1.backup.json"]).toBe(v1);
 		expect(gateway.patches[0]?.["subman.v1.backup.json"]?.content).toBe(v1);
+		const committed = JSON.parse(gateway.files["subman.json"] ?? "{}") as {
+			data?: WorkspaceData;
+		};
+		expect(committed.data).toEqual(data());
+	});
+
+	it("rejects corrupt and higher schemas without journal or Gist writes", async () => {
+		for (const [content, code] of [
+			[
+				JSON.stringify({ version: 3, schemaVersion: 3, data: data() }),
+				"unsupported_schema",
+			],
+			["not-json", "invalid_workspace_document"],
+			[
+				JSON.stringify({
+					version: 2,
+					schemaVersion: 2,
+					workspaceId: WORKSPACE_ID,
+				}),
+				"invalid_workspace_document",
+			],
+		] as const) {
+			const gateway = new MemoryGateway({ "subman.json": content });
+			const { core, journal } = coordinator(gateway);
+
+			await expectCode(
+				core.mutate({
+					githubToken: TOKEN,
+					gistId: GIST_ID,
+					mutation: replaceNodeMutation("30000000-0000-4000-8000-000000000010"),
+				}),
+				code,
+			);
+			expect(gateway.patches).toHaveLength(0);
+			expect(journal.pending.size).toBe(0);
+			expect(journal.processed.size).toBe(0);
+			expect(gateway.files["subman.json"]).toBe(content);
+		}
+	});
+
+	it("commits a tombstone and rejects stale and current-revision resurrection", async () => {
+		const gateway = new MemoryGateway({
+			"subman.json": serializeWorkspaceDocumentV2(document()),
+		});
+		const { core } = coordinator(gateway);
+		const deletion = core.mutate({
+			githubToken: TOKEN,
+			gistId: GIST_ID,
+			mutation: mutation(
+				"30000000-0000-4000-8000-000000000011",
+				1,
+				"node.delete",
+				{ id: "node-1" },
+			),
+		});
+		const staleUpdate = core.mutate({
+			githubToken: TOKEN,
+			gistId: GIST_ID,
+			mutation: replaceNodeMutation(
+				"30000000-0000-4000-8000-000000000012",
+				1,
+				"node-1",
+			),
+		});
+
+		const deleted = await deletion;
+		await expectCode(staleUpdate, "revision_conflict");
+		expect(deleted.document.tombstones.nodes[0]).toEqual({
+			id: "node-1",
+			deletedAt: T1,
+			deletedRevision: 2,
+			mutationId: "30000000-0000-4000-8000-000000000011",
+		});
+		await expectCode(
+			core.mutate({
+				githubToken: TOKEN,
+				gistId: GIST_ID,
+				mutation: replaceNodeMutation(
+					"30000000-0000-4000-8000-000000000013",
+					2,
+					"node-1",
+				),
+			}),
+			"entity_deleted",
+		);
+		expect(gateway.patches).toHaveLength(1);
 	});
 
 	it("rejects a conflicting V1 backup before writing", async () => {
