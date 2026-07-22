@@ -9,7 +9,10 @@ import type {
 	SubscriptionItem,
 } from "$lib/models";
 import { nowIso } from "$lib/utils/time";
-import { createDefaultWorkspaceState } from "$lib/workspace-data";
+import {
+	createDefaultWorkspaceState,
+	reconcileWorkspaceState,
+} from "$lib/workspace-data";
 
 const STORAGE_KEY = "subman:state:v1";
 
@@ -54,15 +57,17 @@ export function upsertNode(node: NodeItem): void {
 }
 
 export function removeNode(nodeId: string): void {
-	appState.update((state) => ({
-		...state,
-		nodes: state.nodes.filter((node) => node.id !== nodeId),
-		aggregates: state.aggregates.map((rule) => ({
-			...rule,
-			nodeIds: rule.nodeIds.filter((id) => id !== nodeId),
-		})),
-		lastUpdated: nowIso(),
-	}));
+	appState.update((state) => {
+		const now = nowIso();
+		return reconcileWorkspaceState(
+			{
+				...state,
+				nodes: state.nodes.filter((node) => node.id !== nodeId),
+				lastUpdated: now,
+			},
+			now,
+		);
+	});
 }
 
 export function upsertSubscription(subscription: SubscriptionItem): void {
@@ -84,19 +89,19 @@ export function upsertSubscription(subscription: SubscriptionItem): void {
 }
 
 export function removeSubscription(subscriptionId: string): void {
-	appState.update((state) => ({
-		...state,
-		subscriptions: state.subscriptions.filter(
-			(item) => item.id !== subscriptionId,
-		),
-		aggregates: state.aggregates.map((rule) => ({
-			...rule,
-			subscriptionIds: rule.subscriptionIds.filter(
-				(id) => id !== subscriptionId,
-			),
-		})),
-		lastUpdated: nowIso(),
-	}));
+	appState.update((state) => {
+		const now = nowIso();
+		return reconcileWorkspaceState(
+			{
+				...state,
+				subscriptions: state.subscriptions.filter(
+					(item) => item.id !== subscriptionId,
+				),
+				lastUpdated: now,
+			},
+			now,
+		);
+	});
 }
 
 export function upsertAggregate(rule: AggregateRule): void {

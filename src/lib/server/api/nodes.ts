@@ -10,6 +10,7 @@ import {
 	formatResourceNameTimestamp,
 	makeUniqueResourceName,
 } from "$lib/resource-dedupe";
+import { reconcileWorkspaceState } from "$lib/workspace-data";
 import { ApiError } from "./errors";
 
 const PROXY_TYPES = new Set<ProxyType>([
@@ -315,14 +316,6 @@ export function applyNodeDelete(
 
 	return {
 		deleted: true,
-		state: {
-			...state,
-			nodes,
-			aggregates: state.aggregates.map((rule) => ({
-				...rule,
-				nodeIds: rule.nodeIds.filter((id) => id !== nodeId),
-			})),
-			lastUpdated: now,
-		},
+		state: reconcileWorkspaceState({ ...state, nodes, lastUpdated: now }, now),
 	};
 }

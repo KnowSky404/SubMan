@@ -262,6 +262,9 @@ describe("applyNodeDelete", () => {
 
 		expect(result.deleted).toBe(true);
 		expect(result.state.nodes).toEqual([]);
-		expect(result.state.aggregates[0]?.nodeIds).toEqual(["node-2"]);
+		expect(result.state.aggregates[0]?.nodeIds).toEqual([]);
+		expect(result.state.aggregates[0]?.updatedAt).toBe(
+			"2026-05-06T00:00:00.000Z",
+		);
 	});
 });
