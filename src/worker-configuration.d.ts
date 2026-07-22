@@ -1,6 +1,7 @@
 /* eslint-disable */
-// Generated from wrangler.toml, with the built-worker import removed so
-// svelte-check does not type-check generated .svelte-kit JavaScript.
+// Curated from `wrangler types --include-runtime false`. The generated
+// mainModule import is intentionally omitted because it makes svelte-check
+// type-check generated .svelte-kit JavaScript.
 declare namespace Cloudflare {
 	interface GlobalProps {
 		durableNamespaces: "WorkspaceCoordinator";
