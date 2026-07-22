@@ -26,6 +26,11 @@ export function handleApiError(error: unknown): Response {
 		return jsonError(error);
 	}
 
-	console.error("Unhandled server API error", error);
+	console.error(
+		JSON.stringify({
+			message: "Unhandled server API error",
+			errorType: error instanceof Error ? "error" : "unknown",
+		}),
+	);
 	return jsonError(new ApiError(500, "server_error", "Internal server error"));
 }
