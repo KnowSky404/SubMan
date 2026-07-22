@@ -375,6 +375,47 @@ describe("workspace transaction", () => {
 		);
 	});
 
+	it("rebuilds aggregate output when verification finds a concurrent change", async () => {
+		const baselineState = publicationState(false);
+		const memory = memoryTransport(baselineState);
+		let injected = false;
+		const baseRead = memory.transport.read;
+		memory.transport.read = async (...args) => {
+			const snapshot = await baseRead(...args);
+			if (memory.getWrites().length === 1 && !injected) {
+				injected = true;
+				return { ...snapshot, state: publicationState(true) };
+			}
+			return snapshot;
+		};
+
+		const result = await runWorkspaceTransaction(
+			{
+				token: "token",
+				gistId: "gist-1",
+				localState: baselineState,
+				baseline: createSyncBaselineEnvelope(
+					baselineState,
+					"gist-1",
+					"subman.json",
+				),
+				mutate: (state, context) =>
+					buildAggregatePublication(
+						state,
+						context.gist,
+						"target-1",
+						"2026-07-22T02:00:00.000Z",
+					),
+			},
+			{ transport: memory.transport },
+		);
+
+		expect(result.attempts).toBe(2);
+		expect(memory.getWrites()[1]?.["aggregate.txt"]?.content).toContain(
+			"remote.example.com",
+		);
+	});
+
 	it("client export publishing keeps concurrent remote workspace changes", async () => {
 		const baselineState = publicationState(false);
 		const memory = memoryTransport(publicationState(true));

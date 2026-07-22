@@ -209,14 +209,21 @@ export async function runWorkspaceTransaction(
 					intentBase = snapshot.state;
 				} else if (intentBase) {
 					const currentIntent: WorkspaceMutationResult = intent;
-					intent = {
-						...currentIntent,
-						state: mergeWorkspaceStateFromBaseline(
-							intent.state,
-							snapshot.state,
-							intentBase,
-						),
-					};
+					const mergedIntentState = mergeWorkspaceStateFromBaseline(
+						intent.state,
+						snapshot.state,
+						intentBase,
+					);
+					intent =
+						input.mutate && Object.keys(currentIntent.files ?? {}).length > 0
+							? unpackMutationResult(
+									await input.mutate(mergedIntentState, {
+										gist: snapshot.gist,
+										gistId: input.gistId,
+										fileName,
+									}),
+								)
+							: { ...currentIntent, state: mergedIntentState };
 					intentBase = snapshot.state;
 				}
 
