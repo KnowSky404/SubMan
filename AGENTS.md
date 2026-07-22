@@ -44,7 +44,6 @@ Gist-first 的代理订阅管理工具（VLESS/VMess 等）。纯前端实现。
   - `bun run deploy`
 
 ## 约定
-- 编码、调试、重构、测试、发布等开发任务必须优先检索并使用适用的 Superpowers skill；若因任务不适用而跳过，需要在回复中简要说明原因。
 - UI 设计、视觉风格、组件外观与交互状态均参考根目录 `design.md`。
 - 代码保持 ASCII 字符
 - **原子化提交**：每完成一个独立的功能点、UI 改进或 Bug 修复后，必须立即执行 git commit。
