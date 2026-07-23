@@ -1,56 +1,120 @@
-# Codex 上下文 — SubMan
+# Codex Context - SubMan
 
-## 项目目标
-Gist-first 的代理订阅管理工具（VLESS/VMess 等）。纯前端实现。
-核心数据存储在固定的 GitHub Workspace Gist。
+## Product
 
-## 当前架构
-- Workspace 模式：保存 GitHub Token 后，查找/创建固定标识的 Gist（描述 `SubMan-Data`，配置文件 `subman.json`）
-- Local 模式：无 Token 时仅使用 localStorage
-- 自动同步：存在 Token + activeGistId 时，本地修改自动写入 Gist
-- 聚合：选定节点/订阅后生成输出，发布到同一个 Workspace Gist
+SubMan manages VLESS, VMess, and related proxy resources. It has two runtime
+modes:
 
-## 关键流程
-- 保存 Token -> ensure workspace gist -> 绑定 workspace
-- 冲突处理 UI：
-  - 本地覆盖远程
-  - 远程覆盖本地
-  - 合并后保存
-  - 仅绑定（不同步）
-- Gists 页面：展示 workspace 文件列表 + raw 链接复制
-- Nodes 页面：编辑节点/订阅
-- Aggregate 页面：生成输出并发布到 workspace gist
+- Local mode stores business data in the browser.
+- Workspace mode stores the authoritative document and generated outputs in one
+  private GitHub Gist described as `SubMan-Data`.
 
-## 关键文件
-- 路由
-  - `src/routes/auth/+page.svelte`（Workspace+Token+冲突处理）
-  - `src/routes/gists/+page.svelte`（Workspace 文件列表）
+The application is not purely frontend. SvelteKit runs on Cloudflare Workers,
+and one SQLite-backed `WorkspaceCoordinator` Durable Object serializes every
+Workspace mutation.
+
+## Workspace Invariants
+
+- `subman.json` is the authoritative Workspace Schema V2 document.
+- One coordinator is addressed by `workspaceId = "gist:" + gistId`.
+- The coordinator is the only runtime component allowed to create, replace, or
+  mutate `subman.json`.
+- Browser pages and Server API routes submit revisioned mutation envelopes; they
+  never PATCH the configuration file directly.
+- Generated output and the corresponding Workspace document update use the same
+  Gist PATCH.
+- Tombstones prevent ordinary upsert and reconcile operations from reviving a
+  deleted ID.
+- Browser retries reuse the original mutation ID.
+- GitHub tokens are request-scoped coordinator arguments. They are excluded from
+  mutation envelopes, IndexedDB, diagnostics, logs, and Durable Object SQLite.
+
+Reserved Gist files are:
+
+- `subman.json`
+- `subman.v1.backup.json`
+- `subman.bootstrap.json`
+
+## Browser Persistence
+
+The current V2 baseline persists the business snapshot, Workspace binding, and
+all Workspace queues in separate localStorage records. This is a known
+non-atomic boundary being replaced by the transactional persistence design in
+`docs/superpowers/plans/2026-07-23-workspace-v2-hardening.md`. Do not add another
+browser storage key or bypass that migration boundary.
+
+GitHub authentication remains outside that database:
+
+- Session-only is the default and uses `sessionStorage`.
+- Persistent storage uses `localStorage` only after explicit user opt-in.
+- Persistent browser storage does not protect a token from active XSS.
+
+## Migration And Recovery
+
+- The coordinator migrates V1 `subman.json` on the first accepted mutation.
+- The first V1 migration creates an immutable, byte-exact
+  `subman.v1.backup.json`; a mismatching existing backup stops migration.
+- Corrupt browser records are quarantined as metadata plus inaccessible raw
+  storage. Diagnostics never export quarantine contents.
+- Tombstone compaction and processed-mutation pruning require a separate protocol
+  design and must not be implemented as time-based deletion.
+
+## Key Areas
+
+- Browser persistence and dispatch:
+  - `src/lib/stores/app.ts`
+  - `src/lib/workspace-mutation-queue.ts`
+  - `src/lib/workspace-mutation-sync.ts`
+  - `src/lib/workspace-mutation-sync-browser.ts`
+  - `src/lib/workspace-sync-status.ts`
+- Workspace protocol:
+  - `src/lib/workspace-document.ts`
+  - `src/lib/workspace-mutation.ts`
+  - `src/lib/workspace-data.ts`
+- Coordinator and GitHub gateway:
+  - `src/lib/server/workspace-coordinator.ts`
+  - `src/lib/server/workspace-coordinator-core.ts`
+  - `src/lib/server/workspace-coordinator-journal.ts`
+  - `src/lib/server/workspace-gist.ts`
+- UI:
+  - `src/routes/auth/+page.svelte`
+  - `src/routes/gists/+page.svelte`
   - `src/routes/nodes/+page.svelte`
   - `src/routes/aggregate/+page.svelte`
-- 核心逻辑
-  - `src/lib/workspace.ts`（Gist 查找/创建）
-  - `src/lib/gist.ts`（GitHub Gist API）
-  - `src/lib/sync.ts`（自动同步）
-  - `src/lib/aggregate.ts`（聚合输出）
-  - `src/lib/serialization.ts`（导入导出）
+  - `src/routes/exports/+page.svelte`
 
-## 部署
-- Cloudflare Workers
-- Adapter: `@sveltejs/adapter-cloudflare`
-- 配置文件：`wrangler.toml`
-- 常用命令：
-  - `bun run build`
-  - `bun run preview`
-  - `bun run deploy`
+## Commands
 
-## 约定
-- UI 设计、视觉风格、组件外观与交互状态均参考根目录 `design.md`。
-- 代码保持 ASCII 字符
-- **原子化提交**：每完成一个独立的功能点、UI 改进或 Bug 修复后，必须立即执行 git commit。
-- 所有文件写入同一个 Workspace Gist
-- 涉及依赖变更时使用默认 `bun` 命令：`bun add <pkg>`、`bun add -d <pkg>`、`bun remove <pkg>`
+Use Bun for package management and scripts:
 
-## 后续方向
-- 更强的订阅解析与聚合能力
-- 冲突处理体验优化
-- 可选：手动切换 Workspace
+```bash
+bun install --frozen-lockfile
+bun test
+bun run check
+bun run lint
+bun run build
+bun run test:cf
+```
+
+Use `bun add`, `bun add -d`, and `bun remove` for dependency changes.
+
+## Delivery Rules
+
+- Follow `design.md` for UI behavior and styling.
+- Keep code identifiers and comments ASCII.
+- Add behavior tests before changing established protocol behavior.
+- Commit each independent feature, UI change, refactor, or bug fix immediately
+  with an atomic Conventional Commit.
+- Do not add another `subman.json` writer or weaken revision, tombstone,
+  Workspace identity, backup, request-hash, or idempotency checks.
+- Do not log credentials, raw mutation payloads, full outputs, or full Workspace
+  documents.
+- By default, do not deploy, run `wrangler deploy`, access or mutate a real Gist,
+  push commits, create releases, or use production secrets. Those operations
+  require explicit user authorization.
+
+## Design References
+
+- `docs/superpowers/specs/2026-07-22-workspace-v2-coordinator-design.md`
+- `docs/workspace-v2-operations.md`
+- `docs/superpowers/plans/2026-07-23-workspace-v2-hardening.md`
