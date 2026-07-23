@@ -4,7 +4,6 @@ import { slide } from "svelte/transition";
 import Octicon from "$lib/components/Octicon.svelte";
 import { getGist } from "$lib/gist";
 import { t } from "$lib/i18n";
-import { mergeSyncState } from "$lib/merge";
 import type { AppState } from "$lib/models";
 import {
 	alert,
@@ -32,7 +31,7 @@ import { appState, replaceState } from "$lib/stores/app";
 import { authState, clearAuth, setToken } from "$lib/stores/auth";
 import { requestConfirm } from "$lib/stores/confirm";
 import { showToast } from "$lib/stores/toast";
-import { decideManualPush, mergeSyncStateFromBaseline } from "$lib/sync-guard";
+import { decideManualPush } from "$lib/sync-guard";
 import { cn } from "$lib/utils/cn";
 import {
 	discoverWorkspaceGist,
@@ -46,13 +45,21 @@ import {
 	readBrowserWorkspaceSnapshot,
 	reconcileBrowserWorkspace,
 } from "$lib/workspace-browser-session-v2";
+import { getWorkspaceBusinessData } from "$lib/workspace-data";
 import { exportWorkspaceDiagnostics } from "$lib/workspace-diagnostics";
-import type { WorkspaceDocumentV2 } from "$lib/workspace-document";
+import type {
+	WorkspaceData,
+	WorkspaceDocumentV2,
+} from "$lib/workspace-document";
 import { subscribeWorkspaceEvents } from "$lib/workspace-events";
 import {
 	requireWorkspaceIdentity,
 	withWorkspaceBinding,
 } from "$lib/workspace-identity";
+import {
+	mergeWorkspaceData,
+	projectLocalWorkspaceAgainstTombstones,
+} from "$lib/workspace-merge";
 import { WorkspaceMutationQueue } from "$lib/workspace-mutation-queue";
 import {
 	bindWorkspaceOnly,
@@ -419,6 +426,18 @@ function getConflictConfirmation(action: "local" | "remote" | "merge") {
 	};
 }
 
+function appStateWithWorkspaceData(
+	data: WorkspaceData,
+	gistId: string,
+): AppState {
+	return {
+		...$appState,
+		...data,
+		activeGistId: gistId,
+		activeGistFile: WORKSPACE_FILE,
+	};
+}
+
 async function handleBindOnly() {
 	if (!conflict) return;
 	const bound = bindWorkspaceOnly($appState, conflict.gistId, WORKSPACE_FILE);
@@ -464,41 +483,44 @@ async function handleResolveConflict(action: "local" | "remote" | "merge") {
 			);
 			setStatus($t("Remote data loaded"), "success");
 		} else if (action === "local") {
+			const projected = projectLocalWorkspaceAgainstTombstones(
+				getWorkspaceBusinessData($appState),
+				currentConflict.remoteDocument,
+			);
 			await reconcileSnapshot(
 				$authState.token,
 				currentConflict.gistId,
 				currentConflict.remoteDocument,
-				$appState,
+				appStateWithWorkspaceData(projected.data, currentConflict.gistId),
 				"automatic",
 				true,
 			);
-			setStatus($t("Local data pushed to Gist"), "success");
+			setStatus(
+				projected.notices.length > 0
+					? $t("Local data pushed; remote deletions were preserved")
+					: $t("Local data pushed to Gist"),
+				"success",
+			);
 		} else {
 			const localBinding = new WorkspaceV2StateStore().read();
-			const trustedBaseline = localBinding?.conflictBaseline
-				? pullWorkspaceExactly(
-						{
-							...$appState,
-							...localBinding.conflictBaseline.data,
-							lastUpdated: localBinding.conflictBaseline.updatedAt,
-						},
-						currentConflict.gistId,
-						WORKSPACE_FILE,
-					)
-				: null;
-			const mergedData = trustedBaseline
-				? mergeSyncStateFromBaseline(
-						$appState,
-						currentConflict.remoteState,
-						trustedBaseline,
-					)
-				: mergeSyncState($appState, currentConflict.remoteState);
-			const mergedState = {
-				...$appState,
-				...mergedData,
-				activeGistId: currentConflict.gistId,
-				activeGistFile: WORKSPACE_FILE,
-			};
+			const merged = mergeWorkspaceData({
+				local: getWorkspaceBusinessData($appState),
+				remote: currentConflict.remoteDocument,
+				baseline: localBinding?.conflictBaseline ?? null,
+			});
+			if (merged.status === "needs-choice") {
+				setStatus(
+					$t(
+						"Entity conflicts require choosing Use Local or Use Remote before saving",
+					),
+					"info",
+				);
+				return;
+			}
+			const mergedState = appStateWithWorkspaceData(
+				merged.data,
+				currentConflict.gistId,
+			);
 			await reconcileSnapshot(
 				$authState.token,
 				currentConflict.gistId,
@@ -667,24 +689,24 @@ async function handleManualPushReview(action: "remote" | "merge" | "force") {
 	workspaceBusy = true;
 	try {
 		const localBinding = new WorkspaceV2StateStore().read();
-		const trustedBaseline = localBinding?.baseline
-			? {
-					...$appState,
-					...localBinding.baseline.data,
-					activeGistId: manualPushReview.gistId,
-					activeGistFile: WORKSPACE_FILE,
-					lastUpdated: localBinding.baseline.updatedAt,
-				}
-			: null;
-		const mergedState = {
-			...mergeSyncStateFromBaseline(
-				$appState,
-				manualPushReview.remoteState,
-				trustedBaseline,
-			),
-			activeGistId: manualPushReview.gistId,
-			activeGistFile: WORKSPACE_FILE,
-		};
+		const merged = mergeWorkspaceData({
+			local: getWorkspaceBusinessData($appState),
+			remote: manualPushReview.remoteDocument,
+			baseline: localBinding?.baseline ?? null,
+		});
+		if (merged.status === "needs-choice") {
+			setStatus(
+				$t(
+					"Entity conflicts require choosing Force Push or Pull Remote before saving",
+				),
+				"info",
+			);
+			return;
+		}
+		const mergedState = appStateWithWorkspaceData(
+			merged.data,
+			manualPushReview.gistId,
+		);
 		await reconcileSnapshot(
 			$authState.token,
 			manualPushReview.gistId,
@@ -719,16 +741,25 @@ async function handleManualForcePush() {
 
 	workspaceBusy = true;
 	try {
+		const projected = projectLocalWorkspaceAgainstTombstones(
+			getWorkspaceBusinessData($appState),
+			manualPushReview.remoteDocument,
+		);
 		await reconcileSnapshot(
 			$authState.token,
 			manualPushReview.gistId,
 			manualPushReview.remoteDocument,
-			$appState,
+			appStateWithWorkspaceData(projected.data, manualPushReview.gistId),
 			currentSyncMode(),
 			true,
 		);
 		manualPushReview = null;
-		setStatus($t("Pushed successfully"), "success");
+		setStatus(
+			projected.notices.length > 0
+				? $t("Pushed successfully; remote deletions were preserved")
+				: $t("Pushed successfully"),
+			"success",
+		);
 	} catch (err) {
 		setStatus($t("Push failed"), "error");
 	} finally {

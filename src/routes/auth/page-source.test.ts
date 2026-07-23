@@ -40,12 +40,9 @@ test("auth conflict actions require confirmation before writing state", () => {
 	expect(authPageSource).toContain('confirmText: $t("Pull Remote")');
 	expect(authPageSource).toContain('confirmText: $t("Push Local")');
 	expect(authPageSource).toContain('confirmText: $t("Merge & Save")');
-	expect(authPageSource).toContain("const trustedBaseline =");
-	expect(authPageSource).toContain("mergeSyncStateFromBaseline(");
-	expect(authPageSource).toContain("trustedBaseline,");
-	expect(authPageSource).toContain(
-		"mergeSyncState($appState, currentConflict.remoteState)",
-	);
+	expect(authPageSource).toContain("mergeWorkspaceData({");
+	expect(authPageSource).toContain("projectLocalWorkspaceAgainstTombstones(");
+	expect(authPageSource).not.toContain("mergeSyncStateFromBaseline(");
 	expect(authPageSource).toContain("handleResolveConflict('merge')");
 });
 
