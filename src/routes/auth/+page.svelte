@@ -49,7 +49,10 @@ import {
 import { exportWorkspaceDiagnostics } from "$lib/workspace-diagnostics";
 import type { WorkspaceDocumentV2 } from "$lib/workspace-document";
 import { subscribeWorkspaceEvents } from "$lib/workspace-events";
-import { withWorkspaceBinding } from "$lib/workspace-identity";
+import {
+	requireWorkspaceIdentity,
+	withWorkspaceBinding,
+} from "$lib/workspace-identity";
 import { WorkspaceMutationQueue } from "$lib/workspace-mutation-queue";
 import {
 	bindWorkspaceOnly,
@@ -68,11 +71,13 @@ import {
 } from "$lib/workspace-v2-state";
 
 let tokenInput = "";
+let rememberToken = false;
 let payload = "";
 let workspaceBusy = false;
 let workspaceCandidates: WorkspaceCandidate[] = [];
 let pendingConnection: {
 	token: string;
+	rememberToken: boolean;
 	previousState: AppState;
 	previousBinding: WorkspaceV2LocalState | null;
 } | null = null;
@@ -102,6 +107,7 @@ function restoreConflict(document: WorkspaceDocumentV2, gistId: string) {
 }
 
 onMount(() => {
+	rememberToken = $authState.persistence === "persistent";
 	try {
 		const binding = new WorkspaceV2StateStore().read();
 		if (binding?.syncMode === "paused-conflict" && binding.baseline) {
@@ -219,6 +225,9 @@ function connectionErrorMessage(error: unknown): string {
 			"The Workspace bootstrap marker is invalid. Repair or remove it in GitHub before resuming.",
 		);
 	}
+	if (message.includes("Workspace identity requires repair")) {
+		return $t("Workspace identity requires repair before this action.");
+	}
 	return message || $t("Connection failed");
 }
 
@@ -250,6 +259,7 @@ async function completeWorkspaceConnection(
 	gist: WorkspaceCandidate["gist"],
 	created: boolean,
 	previousBinding: WorkspaceV2LocalState | null,
+	remember: boolean,
 ) {
 	const stateStore = new WorkspaceV2StateStore();
 	const localSignature = getSyncStateSignature($appState);
@@ -264,7 +274,7 @@ async function completeWorkspaceConnection(
 			"automatic",
 		);
 		clearLegacyWorkspaceSyncState();
-		setToken(token);
+		setToken(token, { remember });
 		setStatus($t("Workspace created and connected"), "success");
 		tokenInput = "";
 		workspaceCandidates = [];
@@ -288,7 +298,7 @@ async function completeWorkspaceConnection(
 			);
 		}
 		clearLegacyWorkspaceSyncState();
-		setToken(token);
+		setToken(token, { remember });
 		setStatus($t("Workspace connected (In Sync)"), "success");
 		tokenInput = "";
 	} else {
@@ -310,7 +320,7 @@ async function completeWorkspaceConnection(
 		stateStore.write(paused);
 		appState.set(withWorkspaceBinding($appState, paused));
 		clearLegacyWorkspaceSyncState();
-		setToken(token);
+		setToken(token, { remember });
 		setStatus($t("Sync conflict detected"), "info");
 	}
 	workspaceCandidates = [];
@@ -329,6 +339,7 @@ async function connectCandidate(candidate: WorkspaceCandidate) {
 			candidate.gist,
 			false,
 			attempt.previousBinding,
+			attempt.rememberToken,
 		);
 	} catch (error) {
 		const stateStore = new WorkspaceV2StateStore();
@@ -357,7 +368,12 @@ async function handleTokenSave() {
 		const discovery = await discoverWorkspaceGist(token, savedGistId);
 		if (discovery.status === "chooser") {
 			workspaceCandidates = discovery.candidates;
-			pendingConnection = { token, previousState, previousBinding };
+			pendingConnection = {
+				token,
+				rememberToken,
+				previousState,
+				previousBinding,
+			};
 			setStatus($t("Choose a Workspace to continue."), "info");
 			return;
 		}
@@ -372,6 +388,7 @@ async function handleTokenSave() {
 			ensured.gist,
 			ensured.created,
 			previousBinding,
+			rememberToken,
 		);
 	} catch (error) {
 		if (previousBinding) stateStore.write(previousBinding);
@@ -495,8 +512,8 @@ async function handleResolveConflict(action: "local" | "remote" | "merge") {
 		conflict = null;
 		manualPushReview = null;
 		tokenInput = "";
-	} catch (err) {
-		setStatus($t("Resolution failed"), "error");
+	} catch (error) {
+		setStatus(connectionErrorMessage(error), "error");
 	} finally {
 		workspaceBusy = false;
 	}
@@ -504,11 +521,14 @@ async function handleResolveConflict(action: "local" | "remote" | "merge") {
 
 async function handleManualPull() {
 	const token = $authState.token;
-	const gistId = $appState.activeGistId;
-	if (!token || !gistId) return;
+	if (!token) return;
 
 	workspaceBusy = true;
 	try {
+		const { gistId } = requireWorkspaceIdentity(
+			$appState,
+			new WorkspaceV2StateStore().read(),
+		);
 		const snapshot = await loadWorkspaceSnapshot(token, gistId);
 		const remoteState = snapshot.state;
 		const remoteSignature = getSyncStateSignature(remoteState);
@@ -530,8 +550,8 @@ async function handleManualPull() {
 				setStatus($t("Pulled successfully"), "success");
 			}
 		}
-	} catch (err) {
-		setStatus($t("Pull failed"), "error");
+	} catch (error) {
+		setStatus(connectionErrorMessage(error), "error");
 	} finally {
 		workspaceBusy = false;
 	}
@@ -539,11 +559,14 @@ async function handleManualPull() {
 
 async function handleManualPush() {
 	const token = $authState.token;
-	const gistId = $appState.activeGistId;
-	if (!token || !gistId) return;
+	if (!token) return;
 
 	workspaceBusy = true;
 	try {
+		const { gistId } = requireWorkspaceIdentity(
+			$appState,
+			new WorkspaceV2StateStore().read(),
+		);
 		const snapshot = await loadWorkspaceSnapshot(token, gistId);
 		const remoteState = snapshot.state;
 		const localSignature = getSyncStateSignature($appState);
@@ -589,8 +612,8 @@ async function handleManualPush() {
 		);
 		manualPushReview = null;
 		setStatus($t("Pushed successfully"), "success");
-	} catch (err) {
-		setStatus($t("Push failed"), "error");
+	} catch (error) {
+		setStatus(connectionErrorMessage(error), "error");
 	} finally {
 		workspaceBusy = false;
 	}
@@ -672,8 +695,8 @@ async function handleManualPushReview(action: "remote" | "merge" | "force") {
 		);
 		manualPushReview = null;
 		setStatus($t("Merged data saved."), "success");
-	} catch (err) {
-		setStatus($t("Resolution failed"), "error");
+	} catch (error) {
+		setStatus(connectionErrorMessage(error), "error");
 	} finally {
 		workspaceBusy = false;
 	}
@@ -948,12 +971,25 @@ function handleImport() {
 							{$t("Connect")}
 						</button>
 					</div>
+					<label class="flex items-start gap-2 text-sm text-fg-muted" for="remember-token">
+						<input id="remember-token" type="checkbox" class="mt-0.5 rounded border-border-default" bind:checked={rememberToken} />
+						<span>
+							<span class="block font-medium text-fg-default">{$t("Remember token on this device")}</span>
+							<span class="block text-xs">{$t("Off by default. The token otherwise stays in this browser session only.")}</span>
+						</span>
+					</label>
 				</div>
 				<a href="https://github.com/settings/tokens/new?description=SubMan&scopes=gist" target="_blank" class="gh-link flex items-center gap-1 text-xs">
 					<Octicon icon={linkExternal} className="h-3 w-3" /> {$t("Generate a new token on GitHub")}
 				</a>
 			{:else}
 				<div class="flex flex-col gap-3">
+					{#if $authState.migratedLegacyToken}
+						<div class="flex items-start gap-2 rounded-md border border-attention-muted bg-attention-subtle p-3 text-sm text-attention-fg">
+							<Octicon icon={alert} className="mt-0.5 h-4 w-4 shrink-0" />
+							<span>{$t("A previously saved token was moved to this browser session. Choose Remember token to keep it on this device after the session ends.")}</span>
+						</div>
+					{/if}
 					<div class="flex flex-col gap-3 rounded-md border border-border-default bg-canvas-subtle p-3 sm:flex-row sm:items-center sm:justify-between">
 						<div class="flex min-w-0 items-center gap-3">
 							<div class="flex h-8 w-8 items-center justify-center rounded-md border border-border-default bg-canvas-default"><Octicon icon={shieldCheck} className="h-4 w-4 text-[color:var(--success-emphasis)]" /></div>
@@ -978,6 +1014,19 @@ function handleImport() {
 							<button type="button" class="gh-btn gh-btn-danger gh-btn-sm" on:click={handleTokenClear}><Octicon icon={trash} className="h-3.5 w-3.5" />{$t("Disconnect")}</button>
 						</div>
 					</div>
+					<label class="flex items-center gap-2 text-sm text-fg-muted" for="remember-connected-token">
+						<input
+							id="remember-connected-token"
+							type="checkbox"
+							class="rounded border-border-default"
+							checked={$authState.persistence === "persistent"}
+							on:change={(event) =>
+								setToken($authState.token, {
+									remember: event.currentTarget.checked,
+								})}
+						/>
+						<span>{$t("Remember token on this device")}</span>
+					</label>
 					<p class="gh-form-caption">
 						{$t("Auto-sync is enabled for local changes.")}
 					</p>

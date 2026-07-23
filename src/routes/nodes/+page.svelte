@@ -50,6 +50,7 @@ import {
 	inferNodeTypeFromRaw,
 	loadSubscriptionContent,
 } from "$lib/subscription";
+import { reconcileTags } from "$lib/tags";
 import { cn } from "$lib/utils/cn";
 import { createId } from "$lib/utils/id";
 import { nowIso } from "$lib/utils/time";
@@ -129,14 +130,6 @@ function showToastNotify(
 	type: "success" | "info" | "error" = "success",
 ) {
 	showToast(message, type);
-}
-
-function parseTags(value: string): NodeTag[] {
-	return value
-		.split(",")
-		.map((t) => t.trim())
-		.filter(Boolean)
-		.map((label) => ({ id: createId("tag"), label }));
 }
 
 function stringifyTags(tags: NodeTag[]): string {
@@ -249,7 +242,7 @@ function handleAdd() {
 					name,
 					type: inferNodeTypeFromDraft(raw, nodeType),
 					raw,
-					tags: parseTags(nodeTags),
+					tags: reconcileTags(nodeTags),
 					enabled: true,
 					updatedAt: nowIso(),
 					source: "single",
@@ -282,7 +275,7 @@ function handleAdd() {
 					name,
 					url,
 					enabled: true,
-					tags: parseTags(subTags),
+					tags: reconcileTags(subTags),
 					updatedAt: nowIso(),
 				}).accepted
 			)
@@ -321,7 +314,7 @@ function handleAdd() {
 							name,
 							type: inferNodeTypeFromRaw(normalizedRaw),
 							raw: normalizedRaw,
-							tags: parseTags(batchTags),
+							tags: reconcileTags(batchTags),
 							enabled: true,
 							updatedAt: nowIso(),
 							source: "single",
@@ -372,7 +365,7 @@ function handleAdd() {
 							name,
 							url,
 							enabled: true,
-							tags: parseTags(batchTags),
+							tags: reconcileTags(batchTags),
 							updatedAt: nowIso(),
 						}).accepted
 					)
@@ -422,7 +415,7 @@ function saveEditNode(id: string) {
 			name: uniqueNodeName(draft.name.trim(), id),
 			type: inferNodeTypeFromDraft(raw, draft.type),
 			raw,
-			tags: parseTags(draft.tags),
+			tags: reconcileTags(draft.tags, original.tags),
 			updatedAt: nowIso(),
 		}).accepted
 	)
@@ -465,7 +458,7 @@ function saveEditSub(id: string) {
 			...original,
 			name: uniqueSubscriptionName(draft.name.trim(), id),
 			url,
-			tags: parseTags(draft.tags),
+			tags: reconcileTags(draft.tags, original.tags),
 			updatedAt: nowIso(),
 		}).accepted
 	)

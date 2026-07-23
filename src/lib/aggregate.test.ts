@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { buildAggregateOutput, sortResultLines } from "./aggregate";
-import type { AggregateRule, NodeItem } from "./models";
+import type { AggregateRule, NodeItem, SubscriptionItem } from "./models";
 import {
 	extractSubscriptionNodeLines,
 	inferNodeTypeFromDraft,
@@ -145,6 +145,86 @@ describe("AnyTLS support", () => {
 		expect(result.content).toBe(
 			"anytls://password@example.com:443?sni=example.com#AnyTLS%20HK",
 		);
+	});
+});
+
+describe("stable tag exclusions", () => {
+	const taggedNode: NodeItem = {
+		id: "tagged-node",
+		name: "Tagged",
+		type: "vless",
+		raw: "vless://tagged#Tagged",
+		tags: [{ id: "legacy-tag-id", label: "Blocked" }],
+		enabled: true,
+		updatedAt: "2026-07-23T00:00:00.000Z",
+		source: "single",
+	};
+
+	function exclusionRule(excludeTagIds: string[]): AggregateRule {
+		return {
+			id: "rule-1",
+			name: "Exclusions",
+			nodeIds: [taggedNode.id],
+			subscriptionIds: [],
+			excludeTagIds,
+			renameMap: {},
+			allowedTypes: [],
+			prependRegionFlags: false,
+			updatedAt: "2026-07-23T00:00:00.000Z",
+		};
+	}
+
+	it("filters by normalized label", async () => {
+		const result = await buildAggregateOutput(
+			exclusionRule([" blocked "]),
+			[taggedNode],
+			[],
+		);
+
+		expect(result.lines).toBe(0);
+		expect(result.warnings).toEqual([]);
+	});
+
+	it("resolves a known legacy tag ID before filtering", async () => {
+		const result = await buildAggregateOutput(
+			exclusionRule(["legacy-tag-id"]),
+			[taggedNode],
+			[],
+		);
+
+		expect(result.lines).toBe(0);
+		expect(result.warnings).toEqual([]);
+	});
+
+	it("preserves and warns about an unresolved legacy exclusion", async () => {
+		const result = await buildAggregateOutput(
+			exclusionRule(["missing-tag-id"]),
+			[taggedNode],
+			[],
+		);
+
+		expect(result.lines).toBe(1);
+		expect(result.warnings).toContain(
+			"excluded-tag-needs-review:missing-tag-id",
+		);
+	});
+
+	it("applies label exclusions to subscription sources", async () => {
+		const subscription: SubscriptionItem = {
+			id: "subscription-1",
+			name: "Blocked subscription",
+			url: "https://invalid.example/subscription",
+			tags: [{ id: "subscription-tag", label: "Blocked" }],
+			enabled: true,
+			updatedAt: "2026-07-23T00:00:00.000Z",
+		};
+		const rule = exclusionRule(["Blocked"]);
+		rule.nodeIds = [];
+		rule.subscriptionIds = [subscription.id];
+
+		const result = await buildAggregateOutput(rule, [], [subscription]);
+
+		expect(result).toEqual({ content: "", lines: 0, warnings: [], errors: [] });
 	});
 });
 

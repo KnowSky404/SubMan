@@ -70,3 +70,56 @@ test("auth page presents structured Workspace chooser candidates", () => {
 	expect(authPageSource).toContain("candidate.currentBinding");
 	expect(authPageSource).toContain('$t("Resume")');
 });
+
+test("auth token persistence is opt-in and follows a successful connection", () => {
+	expect(authPageSource).toContain("let rememberToken = false;");
+	expect(authPageSource).toContain('$t("Remember token on this device")');
+	expect(authPageSource).toContain("setToken(token, { remember });");
+	expect(authPageSource).toContain("migratedLegacyToken");
+
+	const connection = authPageSource.indexOf(
+		"async function completeWorkspaceConnection",
+	);
+	const snapshot = authPageSource.indexOf(
+		"const snapshot = await readBrowserWorkspaceSnapshot",
+		connection,
+	);
+	const tokenCommit = authPageSource.indexOf(
+		"setToken(token, { remember });",
+		snapshot,
+	);
+	expect(snapshot).toBeGreaterThan(connection);
+	expect(tokenCommit).toBeGreaterThan(snapshot);
+});
+
+test("auth resolution keeps migration and bootstrap failures actionable", () => {
+	expect(authPageSource).toContain("migration_backup_conflict");
+	expect(authPageSource).toContain("invalid_bootstrap_marker");
+	expect(authPageSource).not.toContain(
+		'setStatus($t("Resolution failed"), "error")',
+	);
+	expect(
+		authPageSource.match(
+			/setStatus\(connectionErrorMessage\(error\), "error"\)/g,
+		)?.length ?? 0,
+	).toBeGreaterThanOrEqual(2);
+});
+
+test("manual sync validates the authoritative Workspace identity before reads", () => {
+	for (const [start, end] of [
+		["async function handleManualPull()", "async function handleManualPush()"],
+		[
+			"async function handleManualPush()",
+			"async function handleManualPushReview(",
+		],
+	] as const) {
+		const handler = authPageSource.slice(
+			authPageSource.indexOf(start),
+			authPageSource.indexOf(end),
+		);
+		expect(handler.indexOf("requireWorkspaceIdentity(")).toBeGreaterThan(-1);
+		expect(
+			handler.indexOf("loadWorkspaceSnapshot(token, gistId)"),
+		).toBeGreaterThan(handler.indexOf("requireWorkspaceIdentity("));
+	}
+});

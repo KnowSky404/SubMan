@@ -18,6 +18,7 @@ import type {
 	SortMode,
 } from "$lib/models";
 import {
+	alert,
 	checkCircle,
 	checklist,
 	copy,
@@ -45,6 +46,12 @@ import {
 import { authState } from "$lib/stores/auth";
 import { requestConfirm } from "$lib/stores/confirm";
 import { showToast } from "$lib/stores/toast";
+import {
+	type LegacyExcludeTagWarning,
+	normalizeTagLabel,
+	parseTagLabels,
+	resolveLegacyExcludeTags,
+} from "$lib/tags";
 import { cn } from "$lib/utils/cn";
 import { createId } from "$lib/utils/id";
 import { nowIso } from "$lib/utils/time";
@@ -66,6 +73,9 @@ let ruleName = "";
 let selectedNodeIds: string[] = [];
 let selectedSubscriptionIds: string[] = [];
 let excludeTags = "";
+let excludeTagMigrationWarnings: LegacyExcludeTagWarning[] = [];
+let migratedExcludeTagLabels: string[] = [];
+let excludeTagIdsMigrated = false;
 let renameMap = "";
 let customRegionFlagMap = "";
 let allowedTypes: ProxyType[] = [];
@@ -258,10 +268,7 @@ function getRuleDraftSignature(): string {
 		name: ruleName.trim(),
 		nodeIds: selectedNodeIds,
 		subscriptionIds: selectedSubscriptionIds,
-		excludeTagIds: excludeTags
-			.split(",")
-			.map((tag) => tag.trim())
-			.filter(Boolean),
+		excludeTagIds: parseTagLabels(excludeTags),
 		renameRules: renameMap
 			.split("\n")
 			.map((line) => line.trim())
@@ -321,7 +328,17 @@ function loadRule(rule: AggregateRule | undefined) {
 	selectedSubscriptionIds = (rule.subscriptionIds || []).filter((id: string) =>
 		$appState.subscriptions.some((s) => s.id === id),
 	);
-	excludeTags = (rule.excludeTagIds || []).join(", ");
+	const resolvedExclusions = resolveLegacyExcludeTags(
+		rule.excludeTagIds || [],
+		$appState.nodes,
+		$appState.subscriptions,
+	);
+	excludeTags = resolvedExclusions.values.join(", ");
+	excludeTagMigrationWarnings = resolvedExclusions.warnings;
+	migratedExcludeTagLabels = resolvedExclusions.migrations.map(
+		(migration) => migration.to,
+	);
+	excludeTagIdsMigrated = migratedExcludeTagLabels.length > 0;
 	renameMap = rule.renameRules
 		? rule.renameRules.join("\n")
 		: Object.entries(rule.renameMap || {})
@@ -352,6 +369,9 @@ function resetRuleForm() {
 	selectedNodeIds = [];
 	selectedSubscriptionIds = [];
 	excludeTags = "";
+	excludeTagMigrationWarnings = [];
+	migratedExcludeTagLabels = [];
+	excludeTagIdsMigrated = false;
 	renameMap = "";
 	customRegionFlagMap = "";
 	allowedTypes = [];
@@ -468,10 +488,7 @@ function createRuleDraft(id: string): AggregateRule {
 		name: ruleName.trim(),
 		nodeIds: finalNodeIds,
 		subscriptionIds: finalSubIds,
-		excludeTagIds: excludeTags
-			.split(",")
-			.map((tag) => tag.trim())
-			.filter(Boolean),
+		excludeTagIds: parseTagLabels(excludeTags),
 		renameMap: {},
 		renameRules: renameMap
 			.split("\n")
@@ -910,10 +927,7 @@ async function buildPreview() {
 			name: ruleName || "Preview",
 			nodeIds: selectedNodeIds,
 			subscriptionIds: selectedSubscriptionIds,
-			excludeTagIds: excludeTags
-				.split(",")
-				.map((t) => t.trim())
-				.filter(Boolean),
+			excludeTagIds: parseTagLabels(excludeTags),
 			renameMap: {},
 			renameRules,
 			customRegionFlagMap,
@@ -983,6 +997,19 @@ function handlePreviewDndConsider(e: CustomEvent<DndEvent<PreviewEntry>>) {
 function handlePreviewDndFinalize(e: CustomEvent<DndEvent<PreviewEntry>>) {
 	previewEntries = e.detail.items;
 	sortPriority = previewEntries.map((entry) => entry.name).join("\n");
+}
+
+function handleExcludeTagsInput() {
+	const currentLabels = new Set(
+		parseTagLabels(excludeTags).map(normalizeTagLabel),
+	);
+	excludeTagMigrationWarnings = excludeTagMigrationWarnings.filter((warning) =>
+		currentLabels.has(normalizeTagLabel(warning.value)),
+	);
+	migratedExcludeTagLabels = migratedExcludeTagLabels.filter((label) =>
+		currentLabels.has(normalizeTagLabel(label)),
+	);
+	excludeTagIdsMigrated = migratedExcludeTagLabels.length > 0;
 }
 </script>
 
@@ -1076,7 +1103,29 @@ function handlePreviewDndFinalize(e: CustomEvent<DndEvent<PreviewEntry>>) {
 						</div>
 						<div class="flex flex-col gap-1.5">
 							<label class="gh-form-label" for={fieldIds.excludeTags}>{$t("Exclude Tags")}</label>
-							<input id={fieldIds.excludeTags} class="gh-input" placeholder="domestic, bypass..." bind:value={excludeTags} />
+							<input
+								id={fieldIds.excludeTags}
+								class="gh-input"
+								placeholder="domestic, bypass..."
+								bind:value={excludeTags}
+								on:input={handleExcludeTagsInput}
+							/>
+							{#if excludeTagIdsMigrated}
+								<p class="flex items-start gap-1.5 text-xs text-attention-fg">
+									<Octicon icon={alert} className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+									<span>{$t("Legacy excluded tag IDs were converted to labels. Save this rule to persist the migration.")}</span>
+								</p>
+							{/if}
+							{#if excludeTagMigrationWarnings.length > 0}
+								<p class="flex items-start gap-1.5 text-xs text-danger-fg">
+									<Octicon icon={alert} className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+									<span>
+										{$t("Some legacy excluded tag values need review and were preserved: {tags}", {
+											tags: excludeTagMigrationWarnings.map((warning) => warning.value).join(", "),
+										})}
+									</span>
+								</p>
+							{/if}
 						</div>
 					</div>
 

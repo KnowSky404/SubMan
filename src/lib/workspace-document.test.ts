@@ -190,6 +190,30 @@ describe("Workspace Schema V2 migration", () => {
 		});
 	});
 
+	it("migrates known legacy exclusion tag IDs to labels", () => {
+		const legacyData = data();
+		legacyData.aggregates[0] = {
+			...legacyData.aggregates[0],
+			excludeTagIds: ["tag-hk", "missing-tag"],
+		};
+		const parsed = parseWorkspaceDocument(
+			JSON.stringify({ version: 1, data: legacyData }),
+		);
+		if (parsed.schemaVersion !== 1) {
+			throw new Error("Expected a V1 workspace document");
+		}
+
+		const migrated = migrateWorkspaceDocumentV1ToV2(parsed.document, {
+			gistId: "gist-1",
+			now: NOW,
+		});
+
+		expect(migrated.document.data.aggregates[0]?.excludeTagIds).toEqual([
+			"HK",
+			"missing-tag",
+		]);
+	});
+
 	it("normalizes entity fields that older deployed V1 writers omitted", () => {
 		const legacyAggregate = aggregate("aggregate-1") as unknown as Record<
 			string,

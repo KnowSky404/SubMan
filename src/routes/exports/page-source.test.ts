@@ -106,3 +106,13 @@ test("exports page resets deletion state only after deferred acceptance", () => 
 	);
 	expect(exportsPageSource).toContain('status === "queued"');
 });
+
+test("exports page localizes legacy exclusion warnings", () => {
+	expect(exportsPageSource).toContain("formatPreviewWarning(warning)");
+	expect(exportsPageSource).toContain(
+		'const prefix = "excluded-tag-needs-review:"',
+	);
+	expect(exportsPageSource).toContain(
+		'$t("Excluded tag value needs review: {tag}"',
+	);
+});

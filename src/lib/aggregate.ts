@@ -8,6 +8,7 @@ import {
 	loadSubscriptionContent,
 	normalizeSubscriptionContent,
 } from "$lib/subscription";
+import { normalizeTagLabel, resolveLegacyExcludeTags } from "$lib/tags";
 
 export type AggregateBuildResult = {
 	content: string;
@@ -505,10 +506,6 @@ export const BUILT_IN_REGION_FLAG_RULES: RegionFlagRule[] = [
 	},
 ];
 
-function normalize(value: string): string {
-	return value.trim().toLowerCase();
-}
-
 function normalizeRegionKeyword(value: string): string {
 	return value
 		.toUpperCase()
@@ -673,14 +670,15 @@ function prependRegionFlag(name: string, rules: RegionFlagRule[]): string {
 	return flag ? `${flag} ${trimmed}` : name;
 }
 
-function isExcluded(node: NodeItem, excludeTags: string[]): boolean {
+function isExcluded(
+	resource: Pick<NodeItem | SubscriptionItem, "tags">,
+	excludeTags: string[],
+): boolean {
 	if (excludeTags.length === 0) {
 		return false;
 	}
-	const tags = node.tags
-		.map((tag) => normalize(tag.label))
-		.concat(node.tags.map((tag) => normalize(tag.id)));
-	return excludeTags.some((tag) => tags.includes(normalize(tag)));
+	const tags = resource.tags.map((tag) => normalizeTagLabel(tag.label));
+	return excludeTags.some((tag) => tags.includes(normalizeTagLabel(tag)));
 }
 
 function normalizeBase64(value: string): string | null {
@@ -964,7 +962,15 @@ export async function buildAggregateOutput(
 ): Promise<AggregateBuildResult> {
 	const warnings: string[] = [];
 	const errors: string[] = [];
-	const excludeTags = rule.excludeTagIds.map((tag) => normalize(tag));
+	const resolvedExclusions = resolveLegacyExcludeTags(
+		rule.excludeTagIds,
+		nodes,
+		subscriptions,
+	);
+	const excludeTags = resolvedExclusions.values;
+	for (const warning of resolvedExclusions.warnings) {
+		warnings.push(`excluded-tag-needs-review:${warning.value}`);
+	}
 	const allowedTypes =
 		rule.allowedTypes && rule.allowedTypes.length > 0
 			? rule.allowedTypes
@@ -986,7 +992,10 @@ export async function buildAggregateOutput(
 			(!allowedTypes || allowedTypes.includes(node.type)),
 	);
 	const selectedSubs = subscriptions.filter(
-		(sub) => sub.enabled && rule.subscriptionIds.includes(sub.id),
+		(sub) =>
+			sub.enabled &&
+			rule.subscriptionIds.includes(sub.id) &&
+			!isExcluded(sub, excludeTags),
 	);
 
 	const nodeLines = selectedNodes.map((node) => {

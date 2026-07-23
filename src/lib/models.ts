@@ -133,4 +133,6 @@ export type AppState = {
 export type AuthState = {
 	token: string | null;
 	lastLoginAt: string | null;
+	persistence: "session" | "persistent";
+	migratedLegacyToken: boolean;
 };

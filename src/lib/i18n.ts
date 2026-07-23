@@ -838,6 +838,16 @@ const zhCN: Record<string, string> = {
 	"Workspace identity requires repair before this action.":
 		"执行此操作前需要先修复工作区身份。",
 	"domestic, gaming...": "国内, 游戏...",
+	"Legacy excluded tag IDs were converted to labels. Save this rule to persist the migration.":
+		"旧版排除标签 ID 已转换为标签文本。请保存此规则以完成迁移。",
+	"Some legacy excluded tag values need review and were preserved: {tags}":
+		"部分旧版排除标签值需要检查，已保留原值：{tags}",
+	"Excluded tag value needs review: {tag}": "排除标签值需要检查：{tag}",
+	"Remember token on this device": "在此设备上记住 Token",
+	"Off by default. The token otherwise stays in this browser session only.":
+		"默认关闭。否则 Token 仅保留在当前浏览器会话中。",
+	"A previously saved token was moved to this browser session. Choose Remember token to keep it on this device after the session ends.":
+		"之前保存的 Token 已迁移到当前浏览器会话。如需在会话结束后继续保留，请选择在此设备上记住 Token。",
 	"{file} is protected.": "{file} 受保护。",
 };
 

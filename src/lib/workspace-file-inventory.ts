@@ -2,6 +2,7 @@ import type { WorkspaceData } from "$lib/workspace-document";
 import {
 	WORKSPACE_BOOTSTRAP_FILE_NAME,
 	WORKSPACE_FILE_NAME,
+	WORKSPACE_RESERVED_FILE_NAMES,
 	WORKSPACE_V1_BACKUP_FILE_NAME,
 } from "$lib/workspace-document";
 
@@ -28,6 +29,10 @@ export function classifyWorkspaceFile(
 		return "managed-output";
 	}
 	return "external-file";
+}
+
+export function canDeleteWorkspaceFile(fileName: string): boolean {
+	return !WORKSPACE_RESERVED_FILE_NAMES.has(fileName);
 }
 
 export function getWorkspaceBootstrapStatus(

@@ -30,6 +30,7 @@ import {
 	WORKSPACE_RESERVED_FILE_NAMES,
 } from "$lib/workspace-document";
 import {
+	canDeleteWorkspaceFile,
 	classifyWorkspaceFile,
 	getWorkspaceBootstrapStatus,
 	type WorkspaceFileKind,
@@ -114,22 +115,25 @@ function mutationDependencies() {
 
 async function refreshWorkspace() {
 	const token = $authState.token;
-	const gistId = $appState.activeGistId;
-	if (!token || !gistId) return;
+	if (!token) return;
 
 	loading = true;
 	try {
-		workspace = await getGist(token, gistId);
+		const identity = requireWorkspaceIdentity(
+			$appState,
+			new WorkspaceV2StateStore().read(),
+		);
+		workspace = await getGist(token, identity.gistId);
 		lastRefreshedAt = new Date().toISOString();
-	} catch (err) {
-		setStatus($t("Failed to fetch"), "error");
+	} catch (error) {
+		setStatus(workspaceFailureMessage(error, "Failed to fetch"), "error");
 	} finally {
 		loading = false;
 	}
 }
 
 onMount(() => {
-	if ($authState.token && $appState.activeGistId) void refreshWorkspace();
+	if ($authState.token) void refreshWorkspace();
 });
 
 async function copyLink(url?: string) {
@@ -145,7 +149,7 @@ async function copyLink(url?: string) {
 async function deleteFile(filename: string) {
 	const token = $authState.token;
 	const gistId = $appState.activeGistId;
-	if (!token || !gistId || WORKSPACE_RESERVED_FILE_NAMES.has(filename)) return;
+	if (!token || !gistId || !canDeleteWorkspaceFile(filename)) return;
 
 	const confirmed = await requestConfirm({
 		title: $t("Delete File"),
@@ -368,7 +372,7 @@ async function resumeBootstrapInitialization() {
 										<button class="gh-btn gh-btn-sm" on:click={() => copyLink(gistFile.rawUrl)} title={$t("Copy Raw URL")}><Octicon icon={copy} className="h-3.5 w-3.5" /></button>
 										<a href={gistFile.rawUrl} target="_blank" class="gh-btn gh-btn-sm" title={$t("Open Raw")}><Octicon icon={linkExternal} className="h-3.5 w-3.5" /></a>
 									{/if}
-									{#if !WORKSPACE_RESERVED_FILE_NAMES.has(gistFile.filename)}
+									{#if canDeleteWorkspaceFile(gistFile.filename)}
 										<button class="gh-btn gh-btn-sm gh-btn-danger" on:click={() => deleteFile(gistFile.filename)} disabled={deleting} title={$t("Delete")}><Octicon icon={trash} className="h-3.5 w-3.5" /></button>
 									{:else if gistFile.filename === WORKSPACE_BOOTSTRAP_FILE_NAME && bootstrapStatus === "stale"}
 										<button class="gh-btn gh-btn-sm" on:click={cleanupBootstrapMarker} disabled={deleting} title={$t("Clean Up")}><Octicon icon={trash} className="h-3.5 w-3.5" /></button>

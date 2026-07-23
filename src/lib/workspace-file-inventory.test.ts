@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import {
+	canDeleteWorkspaceFile,
 	classifyWorkspaceFile,
 	getWorkspaceBootstrapStatus,
 } from "$lib/workspace-file-inventory";
@@ -33,5 +34,12 @@ describe("Workspace file inventory", () => {
 		expect(
 			getWorkspaceBootstrapStatus(["subman.bootstrap.json", "notes.txt"]),
 		).toBe("invalid");
+	});
+
+	it("allows ordinary deletion only for non-reserved files", () => {
+		expect(canDeleteWorkspaceFile("nodes.txt")).toBe(true);
+		expect(canDeleteWorkspaceFile("subman.json")).toBe(false);
+		expect(canDeleteWorkspaceFile("subman.v1.backup.json")).toBe(false);
+		expect(canDeleteWorkspaceFile("subman.bootstrap.json")).toBe(false);
 	});
 });

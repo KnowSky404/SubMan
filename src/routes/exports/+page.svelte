@@ -315,6 +315,15 @@ async function refreshPreview(): Promise<string> {
 	return result.content;
 }
 
+function formatPreviewWarning(warning: string): string {
+	const prefix = "excluded-tag-needs-review:";
+	return warning.startsWith(prefix)
+		? $t("Excluded tag value needs review: {tag}", {
+				tag: warning.slice(prefix.length),
+			})
+		: warning;
+}
+
 async function copyPreview(): Promise<void> {
 	const content = await refreshPreview();
 	if (!content) return;
@@ -721,7 +730,7 @@ async function publishPreview(): Promise<void> {
 						<h3 class="text-sm font-semibold">{$t("Warnings")}</h3>
 						<ul class="space-y-1 text-sm text-fg-muted">
 							{#each previewWarnings as warning}
-								<li>{warning}</li>
+								<li>{formatPreviewWarning(warning)}</li>
 							{/each}
 						</ul>
 					</div>

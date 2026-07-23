@@ -43,12 +43,20 @@ test("gists output deletion is submitted through the Workspace coordinator", () 
 	expect(gistsPageSource).not.toContain("deleteWorkspaceOutputFile");
 });
 
-test("gists page protects every reserved Workspace file", () => {
-	expect(gistsPageSource).toContain(
-		"WORKSPACE_RESERVED_FILE_NAMES.has(filename)",
+test("gists reads use the authoritative Workspace binding", () => {
+	const refresh = gistsPageSource.slice(
+		gistsPageSource.indexOf("async function refreshWorkspace()"),
+		gistsPageSource.indexOf("onMount(() =>"),
 	);
+	expect(refresh).toContain("requireWorkspaceIdentity(");
+	expect(refresh).toContain("getGist(token, identity.gistId)");
+	expect(refresh).not.toContain("getGist(token, gistId)");
+});
+
+test("gists page protects every reserved Workspace file", () => {
+	expect(gistsPageSource).toContain("canDeleteWorkspaceFile(filename)");
 	expect(gistsPageSource).toContain(
-		"!WORKSPACE_RESERVED_FILE_NAMES.has(gistFile.filename)",
+		"canDeleteWorkspaceFile(gistFile.filename)",
 	);
 	expect(gistsPageSource).toContain("V1 Migration Backup");
 	expect(gistsPageSource).toContain("Bootstrap Marker");

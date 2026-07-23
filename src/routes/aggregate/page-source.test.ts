@@ -99,3 +99,14 @@ test("aggregate publishing distinguishes drafts, saved state, and manual push", 
 	expect(aggregatePageSource).toContain("appState.set(localSnapshot)");
 	expect(aggregatePageSource).not.toContain("// Auto-save the rule");
 });
+
+test("aggregate rules migrate legacy tag IDs to stable labels with warnings", () => {
+	expect(aggregatePageSource).toContain("resolveLegacyExcludeTags(");
+	expect(aggregatePageSource).toContain("excludeTagMigrationWarnings");
+	expect(aggregatePageSource).toContain("excludeTagIdsMigrated");
+	expect(aggregatePageSource).toContain("parseTagLabels(excludeTags)");
+	expect(aggregatePageSource).toContain("handleExcludeTagsInput");
+	expect(aggregatePageSource).not.toContain(
+		"excludeTagMigrationWarnings = [];\n\t\t\t\t\t\t\t\t\texcludeTagIdsMigrated = false;",
+	);
+});

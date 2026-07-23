@@ -12,6 +12,7 @@ import type {
 	SourceType,
 	SubscriptionItem,
 } from "$lib/models";
+import { resolveLegacyExcludeTags } from "$lib/tags";
 import type { SyncBaselineEnvelope } from "$lib/workspace-data";
 
 export const WORKSPACE_SCHEMA_VERSION = 2 as const;
@@ -998,12 +999,23 @@ export function migrateWorkspaceDocumentV1ToV2(
 ): { document: WorkspaceDocumentV2; binding: LocalWorkspaceBinding } {
 	const gistId = string(options.gistId, "gistId");
 	const now = timestamp(options.now ?? new Date().toISOString(), "updatedAt");
-	const data = parseWorkspaceData({
+	const parsedData = parseWorkspaceData({
 		nodes: document.data.nodes,
 		subscriptions: document.data.subscriptions,
 		aggregates: document.data.aggregates,
 		publishTargets: document.data.publishTargets,
 		clientExports: document.data.clientExports,
+	});
+	const data = parseWorkspaceData({
+		...parsedData,
+		aggregates: parsedData.aggregates.map((aggregate) => ({
+			...aggregate,
+			excludeTagIds: resolveLegacyExcludeTags(
+				aggregate.excludeTagIds,
+				parsedData.nodes,
+				parsedData.subscriptions,
+			).values,
+		})),
 	});
 	return {
 		document: {

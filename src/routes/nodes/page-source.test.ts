@@ -104,3 +104,10 @@ test("resource editing opens a modal instead of expanding inline editors", () =>
 	expect(nodesPageSource).not.toContain("Inline Editor for Subscription");
 	expect(nodesPageSource).not.toContain("expandedId");
 });
+
+test("resource editing preserves tag IDs for unchanged labels", () => {
+	expect(nodesPageSource).toContain(
+		"tags: reconcileTags(draft.tags, original.tags)",
+	);
+	expect(nodesPageSource).not.toContain("function parseTags(");
+});

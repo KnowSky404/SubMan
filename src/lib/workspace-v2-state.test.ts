@@ -1,6 +1,9 @@
 import { describe, expect, it } from "bun:test";
 import type { NodeItem } from "$lib/models";
-import { createDefaultWorkspaceState } from "$lib/workspace-data";
+import {
+	createDefaultWorkspaceState,
+	mergeWorkspaceStateFromBaseline,
+} from "$lib/workspace-data";
 import type { WorkspaceDocumentV2 } from "$lib/workspace-document";
 import {
 	createWorkspaceV2LocalState,
@@ -204,5 +207,46 @@ describe("Workspace V2 local state", () => {
 		expect(hydrated.activeGistId).toBe("gist-1");
 		expect(hydrated.activeGistFile).toBe("subman.json");
 		expect(hydrated.lastUpdated).toBe(NOW);
+	});
+
+	it("keeps legacy exclusion IDs aligned with the committed baseline", () => {
+		const remote = document();
+		remote.data.nodes[0] = {
+			...remote.data.nodes[0],
+			tags: [{ id: "tag-blocked", label: "Blocked" }],
+		};
+		remote.data.aggregates = [
+			{
+				id: "aggregate-1",
+				name: "Aggregate",
+				nodeIds: ["remote"],
+				subscriptionIds: [],
+				excludeTagIds: ["tag-blocked", "missing-tag"],
+				renameMap: {},
+				allowedTypes: [],
+				updatedAt: NOW,
+			},
+		];
+
+		const hydrated = hydrateAppStateFromWorkspaceDocument(
+			createDefaultWorkspaceState(),
+			remote,
+			"gist-1",
+		);
+
+		expect(hydrated.aggregates[0]?.excludeTagIds).toEqual([
+			"tag-blocked",
+			"missing-tag",
+		]);
+		const baselineState = {
+			...hydrated,
+			aggregates: remote.data.aggregates,
+		};
+		const merged = mergeWorkspaceStateFromBaseline(
+			hydrated,
+			{ ...hydrated, aggregates: [] },
+			baselineState,
+		);
+		expect(merged.aggregates).toEqual([]);
 	});
 });

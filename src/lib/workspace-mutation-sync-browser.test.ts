@@ -115,14 +115,249 @@ async function waitFor<T>(promise: Promise<T>): Promise<T> {
 }
 
 describe("browser Workspace mutation scheduler", () => {
-	it("retries the same queued mutation after an offline failure", async () => {
-		const [workspaceData, queueModule, stateModule, sync] = await Promise.all([
+	it("reports local, queued, manual, conflict, and auth-required lifecycle states", async () => {
+		const [
+			workspaceData,
+			queueModule,
+			stateModule,
+			sync,
+			appStore,
+			statusModule,
+		] = await Promise.all([
 			import("$lib/workspace-data"),
 			import("$lib/workspace-mutation-queue"),
 			import("$lib/workspace-v2-state"),
 			import("$lib/workspace-mutation-sync-browser"),
+			import("$lib/stores/app"),
+			import("$lib/workspace-sync-status"),
 		]);
+
+		let latestLifecycle = statusModule.defaultWorkspaceSyncStatus.lifecycle;
+		const unsubscribeLatest = statusModule.workspaceSyncStatus.subscribe(
+			(status) => {
+				latestLifecycle = status.lifecycle;
+			},
+		);
+		appStore.appState.set(workspaceData.createDefaultWorkspaceState(NOW));
+		const localAction = appStore.upsertNode(node());
+		expect(localAction.accepted).toBe(true);
+		expect((await localAction.completion).status).toBe("local-saved");
+		expect(latestLifecycle).toBe("local-saved");
+		unsubscribeLatest();
+
+		async function expectIdleLifecycle(options: {
+			expected:
+				| "queued"
+				| "manual-local-only"
+				| "paused-conflict"
+				| "auth-required";
+			syncMode: "automatic" | "manual" | "paused-conflict";
+			token: string | null;
+			pending?: boolean;
+		}): Promise<void> {
+			statusModule.workspaceSyncStatus.set({
+				...statusModule.defaultWorkspaceSyncStatus,
+			});
+			const storage = new MemoryStorage();
+			const queue = new queueModule.WorkspaceMutationQueue(storage);
+			const stateStore = new stateModule.WorkspaceV2StateStore(storage);
+			stateStore.write(
+				stateModule.createWorkspaceV2LocalState(GIST_ID, {
+					baseline: document(1),
+					syncMode: options.syncMode,
+				}),
+			);
+			if (options.pending) await queue.enqueue(mutation());
+
+			let unsubscribeStatus = () => {};
+			const reached = new Promise<void>((resolve) => {
+				unsubscribeStatus = statusModule.workspaceSyncStatus.subscribe(
+					(status) => {
+						if (status.lifecycle === options.expected) resolve();
+					},
+				);
+			});
+			const stop = sync.startWorkspaceMutationSync({
+				enabled: true,
+				delayMs: 60_000,
+				queue,
+				stateStore,
+				getState: () => ({
+					...workspaceData.createDefaultWorkspaceState(NOW),
+					activeGistId: GIST_ID,
+				}),
+				setState: () => {},
+				subscribeAuth: (listener) => {
+					listener({ token: options.token });
+					return () => {};
+				},
+				subscribeEvents: () => () => {},
+			});
+
+			try {
+				await waitFor(reached);
+			} finally {
+				stop();
+				unsubscribeStatus();
+			}
+		}
+
+		await expectIdleLifecycle({
+			expected: "queued",
+			syncMode: "automatic",
+			token: "browser-token",
+			pending: true,
+		});
+		await expectIdleLifecycle({
+			expected: "manual-local-only",
+			syncMode: "manual",
+			token: "browser-token",
+		});
+		await expectIdleLifecycle({
+			expected: "paused-conflict",
+			syncMode: "paused-conflict",
+			token: "browser-token",
+		});
+		await expectIdleLifecycle({
+			expected: "auth-required",
+			syncMode: "automatic",
+			token: null,
+			pending: true,
+		});
+	});
+
+	it("reports a permanent synchronization error while preserving the mutation", async () => {
+		const [workspaceData, queueModule, stateModule, sync, statusModule] =
+			await Promise.all([
+				import("$lib/workspace-data"),
+				import("$lib/workspace-mutation-queue"),
+				import("$lib/workspace-v2-state"),
+				import("$lib/workspace-mutation-sync-browser"),
+				import("$lib/workspace-sync-status"),
+			]);
+		statusModule.workspaceSyncStatus.set({
+			...statusModule.defaultWorkspaceSyncStatus,
+		});
+		const storage = new MemoryStorage();
+		const queue = new queueModule.WorkspaceMutationQueue(storage);
+		const stateStore = new stateModule.WorkspaceV2StateStore(storage);
+		stateStore.write(
+			stateModule.createWorkspaceV2LocalState(GIST_ID, {
+				baseline: document(1),
+			}),
+		);
+		await queue.enqueue(mutation());
+		let unsubscribeStatus = () => {};
+		const permanentError = new Promise<void>((resolve) => {
+			unsubscribeStatus = statusModule.workspaceSyncStatus.subscribe(
+				(status) => {
+					if (status.lifecycle === "permanent-error") resolve();
+				},
+			);
+		});
+		const stop = sync.startWorkspaceMutationSync({
+			enabled: true,
+			delayMs: 0,
+			queue,
+			stateStore,
+			getState: () => ({
+				...workspaceData.createDefaultWorkspaceState(NOW),
+				activeGistId: GIST_ID,
+			}),
+			setState: () => {},
+			subscribeAuth: (listener) => {
+				listener({ token: "browser-token" });
+				return () => {};
+			},
+			subscribeEvents: () => () => {},
+			fetchImpl: async () =>
+				Response.json({ error: { code: "invalid_mutation" } }, { status: 400 }),
+		});
+
+		try {
+			await waitFor(permanentError);
+			expect(queue.list()).toEqual([mutation()]);
+		} finally {
+			stop();
+			unsubscribeStatus();
+		}
+	});
+
+	it("preserves pending work and stops delivery after authentication is cleared", async () => {
+		const [workspaceData, queueModule, stateModule, sync, statusModule] =
+			await Promise.all([
+				import("$lib/workspace-data"),
+				import("$lib/workspace-mutation-queue"),
+				import("$lib/workspace-v2-state"),
+				import("$lib/workspace-mutation-sync-browser"),
+				import("$lib/workspace-sync-status"),
+			]);
+		statusModule.workspaceSyncStatus.set({
+			...statusModule.defaultWorkspaceSyncStatus,
+		});
+		const storage = new MemoryStorage();
+		const queue = new queueModule.WorkspaceMutationQueue(storage);
+		const stateStore = new stateModule.WorkspaceV2StateStore(storage);
+		stateStore.write(
+			stateModule.createWorkspaceV2LocalState(GIST_ID, {
+				baseline: document(1),
+			}),
+		);
+		await queue.enqueue(mutation());
+		let authListener: (state: { token: string | null }) => void = () => {};
+		let fetchCalls = 0;
+		let unsubscribeStatus = () => {};
+		const authRequired = new Promise<void>((resolve) => {
+			unsubscribeStatus = statusModule.workspaceSyncStatus.subscribe(
+				(status) => {
+					if (status.lifecycle === "auth-required") resolve();
+				},
+			);
+		});
+		const stop = sync.startWorkspaceMutationSync({
+			enabled: true,
+			delayMs: 60_000,
+			queue,
+			stateStore,
+			getState: () => ({
+				...workspaceData.createDefaultWorkspaceState(NOW),
+				activeGistId: GIST_ID,
+			}),
+			setState: () => {},
+			subscribeAuth: (listener) => {
+				authListener = listener;
+				listener({ token: "browser-token" });
+				return () => {};
+			},
+			subscribeEvents: () => () => {},
+			fetchImpl: async () => {
+				fetchCalls += 1;
+				throw new Error("delivery must remain stopped");
+			},
+		});
+
+		try {
+			authListener({ token: null });
+			await waitFor(authRequired);
+			expect(queue.list()).toEqual([mutation()]);
+			expect(fetchCalls).toBe(0);
+		} finally {
+			stop();
+			unsubscribeStatus();
+		}
+	});
+
+	it("retries the same queued mutation after an offline failure", async () => {
+		const [workspaceData, queueModule, stateModule, sync, toastModule] =
+			await Promise.all([
+				import("$lib/workspace-data"),
+				import("$lib/workspace-mutation-queue"),
+				import("$lib/workspace-v2-state"),
+				import("$lib/workspace-mutation-sync-browser"),
+				import("$lib/stores/toast"),
+			]);
 		const { workspaceSyncStatus } = await import("$lib/workspace-sync-status");
+		toastModule.toastStore.set([]);
 		const lifecycle: string[] = [];
 		const unsubscribeStatus = workspaceSyncStatus.subscribe((status) => {
 			lifecycle.push(status.lifecycle);
@@ -200,6 +435,14 @@ describe("browser Workspace mutation scheduler", () => {
 			expect(lifecycle).toContain("syncing");
 			expect(lifecycle).toContain("retrying");
 			expect(lifecycle).toContain("committed");
+			let messages: string[] = [];
+			const unsubscribeToasts = toastModule.toastStore.subscribe((toasts) => {
+				messages = toasts.map((toast) => toast.message);
+			});
+			expect(messages.some((message) => message.includes("not saved"))).toBe(
+				false,
+			);
+			unsubscribeToasts();
 		} finally {
 			stop();
 			unsubscribeStatus();
