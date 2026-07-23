@@ -23,7 +23,7 @@ import {
 	workflow,
 	xCircleFill,
 } from "$lib/octicons";
-import { appState } from "$lib/stores/app";
+import { appState, initializeAppStatePersistence } from "$lib/stores/app";
 import { authState } from "$lib/stores/auth";
 import { confirmDialog, resolveConfirm } from "$lib/stores/confirm";
 import { startThemeSync, type ThemeMode, themeMode } from "$lib/stores/theme";
@@ -93,9 +93,18 @@ function handleThemeChange(nextTheme: ThemeMode) {
 }
 
 onMount(() => {
-	const stopAutoSync = startWorkspaceMutationSync();
+	let cancelled = false;
+	let stopAutoSync = () => {};
 	const stopThemeSync = startThemeSync();
+	void initializeAppStatePersistence()
+		.then(() => {
+			if (!cancelled) stopAutoSync = startWorkspaceMutationSync();
+		})
+		.catch(() => {
+			// Persistence initialization reports the actionable storage state.
+		});
 	return () => {
+		cancelled = true;
 		stopAutoSync();
 		stopThemeSync();
 	};

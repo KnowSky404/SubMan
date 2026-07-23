@@ -7,41 +7,30 @@ const appStoreSource = readFileSync(
 	"utf8",
 );
 
-test("store validation and identity gate local Workspace updates", () => {
-	const validation = appStoreSource.indexOf(
-		"validateAutomaticWorkspaceMutationDraft(draft)",
-	);
-	const localPersistence = appStoreSource.indexOf(
-		"localStorage.setItem(STORAGE_KEY, JSON.stringify(next))",
-	);
+test("store actions use the serialized transactional persistence boundary", () => {
+	const serialization = appStoreSource.indexOf("function serializedAction");
+	const commit = appStoreSource.indexOf("await commitBrowserWorkspaceAction({");
+	const publish = appStoreSource.indexOf("appState.set(next)", commit);
 
-	expect(validation).toBeGreaterThan(-1);
-	expect(localPersistence).toBeGreaterThan(validation);
-	expect(appStoreSource).toContain('identity.status === "mismatch"');
+	expect(serialization).toBeGreaterThan(-1);
+	expect(commit).toBeGreaterThan(serialization);
+	expect(publish).toBeGreaterThan(commit);
+	expect(appStoreSource).toContain(
+		'checkWorkspaceIdentity(current, binding).status === "mismatch"',
+	);
 	expect(appStoreSource).toContain("WorkspaceActionHandle");
 	expect(appStoreSource).toContain('localStatus: "local-saved"');
-	expect(appStoreSource).toContain("!get(authState).token");
 	expect(appStoreSource).toContain("Workspace change was not saved: {error}");
-	expect(appStoreSource).toContain(
-		"Saved locally; Workspace synchronization needs repair: {error}",
-	);
+	expect(appStoreSource).not.toContain("localStorage.setItem");
+	expect(appStoreSource).not.toContain("WorkspaceV2StateStore");
+	expect(appStoreSource).not.toContain("enqueueAutomaticWorkspaceMutation");
 });
 
-test("destructive Workspace actions defer local state until enqueue acceptance", () => {
+test("destructive Workspace actions share the commit-before-publish path", () => {
 	expect(appStoreSource).toContain("runDeferredWorkspaceAction");
-	const deferredStart = appStoreSource.indexOf(
-		"function runDeferredWorkspaceAction",
+	expect(appStoreSource).toContain(
+		"return runWorkspaceAction(kind, payload, update)",
 	);
-	const enqueue = appStoreSource.indexOf(
-		"await enqueueAutomaticWorkspaceMutation(draft)",
-		deferredStart,
-	);
-	const persist = appStoreSource.indexOf(
-		"localStorage.setItem(STORAGE_KEY, JSON.stringify(next))",
-		enqueue,
-	);
-	expect(enqueue).toBeGreaterThan(deferredStart);
-	expect(persist).toBeGreaterThan(enqueue);
 	expect(appStoreSource).toContain("cleanupUnreferencedOutputs");
 });
 

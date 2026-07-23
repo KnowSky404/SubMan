@@ -9,65 +9,38 @@ import type {
 	NodeItem,
 	SubscriptionItem,
 } from "$lib/models";
-import { authState } from "$lib/stores/auth";
 import { showToast } from "$lib/stores/toast";
 import { nowIso } from "$lib/utils/time";
 import {
-	type BrowserMutationEnqueueResult,
-	enqueueAutomaticWorkspaceMutation,
-	enqueueAutomaticWorkspaceReconcile,
-	validateAutomaticWorkspaceMutationDraft,
-	validateAutomaticWorkspaceReconcile,
-} from "$lib/workspace-browser-mutation";
-import {
 	createDefaultWorkspaceState,
+	getWorkspaceBusinessData,
 	reconcileWorkspaceState,
 } from "$lib/workspace-data";
 import { validateWorkspaceOutputFileName } from "$lib/workspace-document";
 import { checkWorkspaceIdentity } from "$lib/workspace-identity";
-import type { WorkspaceMutation } from "$lib/workspace-mutation";
+import {
+	parseWorkspaceMutation,
+	type WorkspaceMutation,
+} from "$lib/workspace-mutation";
 import {
 	getConflictingOutputOwners,
 	isCurrentPublishTargetOutputPublished,
 } from "$lib/workspace-output";
+import type { WorkspaceMutationDraft } from "$lib/workspace-persistence";
+import {
+	type BrowserWorkspaceCommitResult,
+	commitBrowserWorkspaceAction,
+	getBrowserWorkspaceBinding,
+	initializeBrowserWorkspacePersistence,
+} from "$lib/workspace-persistence-browser";
 import {
 	dispatchWorkspaceSyncEvent,
 	type WorkspacePersistenceLifecycle,
-	type WorkspaceQueueMetrics,
-	type WorkspaceSyncError,
-	workspaceSyncStatus,
 } from "$lib/workspace-sync-status";
-import { WorkspaceV2StateStore } from "$lib/workspace-v2-state";
-
-const STORAGE_KEY = "subman:state:v1";
+import type { WorkspaceV2LocalState } from "$lib/workspace-v2-state";
 
 export const defaultState: AppState = createDefaultWorkspaceState(nowIso());
-
-function loadInitialState(): AppState {
-	if (!browser) {
-		return defaultState;
-	}
-
-	const raw = localStorage.getItem(STORAGE_KEY);
-	if (!raw) {
-		return defaultState;
-	}
-
-	try {
-		const parsed = JSON.parse(raw) as AppState;
-		return { ...defaultState, ...parsed };
-	} catch {
-		return defaultState;
-	}
-}
-
-export const appState = writable<AppState>(loadInitialState());
-
-if (browser) {
-	appState.subscribe((value) => {
-		localStorage.setItem(STORAGE_KEY, JSON.stringify(value));
-	});
-}
+export const appState = writable<AppState>(defaultState);
 
 export type WorkspaceActionResult = {
 	status: WorkspacePersistenceLifecycle | "rejected";
@@ -87,218 +60,184 @@ export type WorkspaceActionHandle =
 			completion: Promise<WorkspaceActionResult>;
 	  };
 
-function currentQueueMetrics(activeDelta = 0): WorkspaceQueueMetrics {
-	const status = get(workspaceSyncStatus);
-	const activeQueueCount = Math.max(0, status.activeQueueCount + activeDelta);
-	return {
-		activeQueueCount,
-		totalQueueCount: Math.max(activeQueueCount, status.totalQueueCount),
-		orphanedWorkspaceCount: status.orphanedWorkspaceCount,
-		blockedMutationCount: status.blockedMutationCount,
-	};
+const VALIDATION_MUTATION_ID = "00000000-0000-4000-8000-000000000000";
+const VALIDATION_TIMESTAMP = "2000-01-01T00:00:00.000Z";
+const LOCAL_VALIDATION_WORKSPACE_ID = "gist:local-validation";
+let actionTail: Promise<void> = Promise.resolve();
+
+export async function initializeAppStatePersistence(): Promise<void> {
+	if (!browser) return;
+	await initializeBrowserWorkspacePersistence({
+		storage: localStorage,
+		hydrate: (snapshot) => appState.set(snapshot),
+	});
 }
 
-function currentActionMode(): "local" | "automatic" | "manual" {
-	if (!browser) return "local";
-	const mode = new WorkspaceV2StateStore().read()?.syncMode;
-	return mode === "manual" ? "manual" : mode ? "automatic" : "local";
+function serializedAction<T>(action: () => Promise<T>): Promise<T> {
+	const result = actionTail.then(action, action);
+	actionTail = result.then(
+		() => undefined,
+		() => undefined,
+	);
+	return result;
 }
 
-function operatorError(code: string, message: string): WorkspaceSyncError {
-	return { code, message, disposition: "operator-repair" };
+function createMutationDraft(
+	kind: WorkspaceMutation["kind"],
+	payload: unknown,
+	binding: WorkspaceV2LocalState | null,
+	options: { mutationId?: string; createdAt?: string } = {},
+): WorkspaceMutationDraft {
+	const mutation = parseWorkspaceMutation({
+		mutationId: options.mutationId ?? VALIDATION_MUTATION_ID,
+		workspaceId: binding?.workspaceId ?? LOCAL_VALIDATION_WORKSPACE_ID,
+		expectedRevision: binding?.revision ?? 0,
+		source: "browser",
+		createdAt: options.createdAt ?? VALIDATION_TIMESTAMP,
+		kind,
+		payload,
+	});
+	const { expectedRevision: _allocatedByPersistence, ...draft } = mutation;
+	return draft;
 }
 
-function mapEnqueueResult(
-	result: BrowserMutationEnqueueResult,
+function resultForCommit(
+	result: BrowserWorkspaceCommitResult,
 ): WorkspaceActionResult {
-	switch (result.status) {
-		case "queued":
-			dispatchWorkspaceSyncEvent({
-				type: "MUTATION_ENQUEUED",
-				queue: currentQueueMetrics(1),
-				mutation: {
-					mutationId: result.mutation.mutationId,
-					kind: result.mutation.kind,
-				},
-			});
-			return { status: "queued", mutationId: result.mutation.mutationId };
-		case "manual":
-			dispatchWorkspaceSyncEvent({
-				type: "LOCAL_COMMITTED",
-				mode: "manual",
-				queue: currentQueueMetrics(),
-			});
-			return { status: "manual-local-only" };
-		case "paused-conflict":
-			dispatchWorkspaceSyncEvent({
-				type: "SYNC_CONTEXT_LOADED",
-				mode: "paused-conflict",
-				authenticated: true,
-				revision: get(workspaceSyncStatus).lastCommittedRevision,
-				queue: currentQueueMetrics(),
-				blockedMutation: null,
-			});
-			return { status: "paused-conflict" };
-		case "uninitialized":
-			dispatchWorkspaceSyncEvent({
-				type: "OPERATOR_REPAIR_REQUIRED",
-				queue: currentQueueMetrics(),
-				error: operatorError(
-					"workspace_baseline_uninitialized",
-					"Workspace baseline is not initialized",
-				),
-				blockedMutation: null,
-			});
-			return {
-				status: "invalid-local-state",
-				error: "Workspace baseline is not initialized",
-			};
-		case "local-only":
-			dispatchWorkspaceSyncEvent({
-				type: "LOCAL_COMMITTED",
-				mode: "local",
-				queue: currentQueueMetrics(),
-			});
-			return { status: "local-saved" };
-	}
-}
-
-function disconnectedActionResult(
-	binding: ReturnType<WorkspaceV2StateStore["read"]>,
-): WorkspaceActionResult {
-	if (binding) {
+	if (result.mutation) {
 		dispatchWorkspaceSyncEvent({
-			type: "AUTH_LOST",
-			queue: currentQueueMetrics(),
+			type: "MUTATION_ENQUEUED",
+			queue: result.queue,
+			mutation: {
+				mutationId: result.mutation.mutationId,
+				kind: result.mutation.kind,
+			},
 		});
-		return { status: "auth-required" };
+		return { status: "queued", mutationId: result.mutation.mutationId };
+	}
+	if (result.binding?.syncMode === "manual") {
+		dispatchWorkspaceSyncEvent({
+			type: "LOCAL_COMMITTED",
+			mode: "manual",
+			queue: result.queue,
+		});
+		return { status: "manual-local-only" };
+	}
+	if (result.binding?.syncMode === "paused-conflict") {
+		dispatchWorkspaceSyncEvent({
+			type: "SYNC_CONTEXT_LOADED",
+			mode: "paused-conflict",
+			authenticated: false,
+			revision: result.binding.revision,
+			queue: result.queue,
+			blockedMutation: null,
+		});
+		return { status: "paused-conflict" };
 	}
 	dispatchWorkspaceSyncEvent({
 		type: "LOCAL_COMMITTED",
 		mode: "local",
-		queue: currentQueueMetrics(),
+		queue: result.queue,
 	});
 	return { status: "local-saved" };
 }
 
-function runWorkspaceAction(
-	kind: WorkspaceMutation["kind"],
-	payload: unknown,
-	update: (state: AppState) => AppState,
-): WorkspaceActionHandle {
-	const draft = { kind, payload };
-	try {
-		if (browser) {
-			const binding = new WorkspaceV2StateStore().read();
-			const identity = checkWorkspaceIdentity(get(appState), binding);
-			if (identity.status === "mismatch") {
-				throw new Error("Workspace identity requires repair");
-			}
-			validateAutomaticWorkspaceMutationDraft(draft);
-		}
-		const next = update(get(appState));
-		if (browser) localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
-		appState.set(next);
-		dispatchWorkspaceSyncEvent({
-			type: "LOCAL_COMMITTED",
-			mode: currentActionMode(),
-			queue: currentQueueMetrics(),
-		});
-	} catch (error) {
-		notifyRejectedWorkspaceMutation(error);
-		const result = {
-			status: "rejected" as const,
-			error: error instanceof Error ? error.message : String(error),
-		};
-		return {
-			accepted: false,
-			localStatus: "rejected",
-			completion: Promise.resolve(result),
-		};
-	}
+type PreparedAction = { next: AppState; payload: unknown };
 
-	const binding = browser ? new WorkspaceV2StateStore().read() : null;
-	const completion = browser
-		? !get(authState).token
-			? Promise.resolve(disconnectedActionResult(binding))
-			: enqueueAutomaticWorkspaceMutation(draft)
-					.then(mapEnqueueResult)
-					.catch((error) => {
-						const message =
-							error instanceof Error ? error.message : String(error);
-						dispatchWorkspaceSyncEvent({
-							type: "OPERATOR_REPAIR_REQUIRED",
-							queue: currentQueueMetrics(),
-							error: operatorError("mutation_enqueue_failed", message),
-							blockedMutation: null,
-						});
-						showToast(
-							get(t)(
-								"Saved locally; Workspace synchronization needs repair: {error}",
-								{
-									error: message,
-								},
-							),
-							"error",
-							6_000,
-						);
-						return { status: "permanent-error" as const, error: message };
-					})
-		: Promise.resolve({ status: "local-saved" as const });
-	return { accepted: true, localStatus: "local-saved", completion };
-}
-
-function runDeferredWorkspaceAction(
+function runPreparedWorkspaceAction(
 	kind: WorkspaceMutation["kind"],
-	payload: unknown,
-	update: (state: AppState) => AppState,
+	prepare: (
+		state: AppState,
+		binding: WorkspaceV2LocalState | null,
+		createdAt: string,
+	) => PreparedAction,
 ): WorkspaceActionHandle {
-	const draft = { kind, payload };
-	let next: AppState;
 	try {
-		if (browser) {
-			const binding = new WorkspaceV2StateStore().read();
-			const identity = checkWorkspaceIdentity(get(appState), binding);
-			if (identity.status === "mismatch") {
-				throw new Error("Workspace identity requires repair");
-			}
-			validateAutomaticWorkspaceMutationDraft(draft);
-		}
-		next = update(get(appState));
+		const binding = browser ? getBrowserWorkspaceBinding() : null;
+		const preliminary = prepare(get(appState), binding, VALIDATION_TIMESTAMP);
+		createMutationDraft(kind, preliminary.payload, binding);
 	} catch (error) {
 		notifyRejectedWorkspaceMutation(error);
 		return rejectedActionHandle(error);
 	}
 
-	const completion = (async (): Promise<WorkspaceActionResult> => {
+	if (!browser) {
 		try {
-			const binding = browser ? new WorkspaceV2StateStore().read() : null;
-			let result: WorkspaceActionResult;
-			if (!browser) {
-				result = { status: "local-saved" };
-			} else if (!get(authState).token) {
-				result = disconnectedActionResult(binding);
-			} else {
-				result = mapEnqueueResult(
-					await enqueueAutomaticWorkspaceMutation(draft),
-				);
-			}
-			if (result.status === "invalid-local-state") {
-				return result;
-			}
-			if (browser) localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
-			appState.set(next);
-			return result;
-		} catch (error) {
-			notifyRejectedWorkspaceMutation(error);
+			const prepared = prepare(get(appState), null, nowIso());
+			appState.set(prepared.next);
+			dispatchWorkspaceSyncEvent({
+				type: "LOCAL_COMMITTED",
+				mode: "local",
+				queue: {
+					activeQueueCount: 0,
+					totalQueueCount: 0,
+					orphanedWorkspaceCount: 0,
+					blockedMutationCount: 0,
+				},
+			});
 			return {
-				status: "rejected",
-				error: error instanceof Error ? error.message : String(error),
+				accepted: true,
+				localStatus: "local-saved",
+				completion: Promise.resolve({ status: "local-saved" }),
 			};
+		} catch (error) {
+			return rejectedActionHandle(error);
 		}
-	})();
+	}
 
+	const completion = serializedAction(
+		async (): Promise<WorkspaceActionResult> => {
+			try {
+				await initializeAppStatePersistence();
+				const binding = getBrowserWorkspaceBinding();
+				const current = get(appState);
+				if (checkWorkspaceIdentity(current, binding).status === "mismatch") {
+					throw new Error("Workspace identity requires repair");
+				}
+				const createdAt = nowIso();
+				const prepared = prepare(current, binding, createdAt);
+				const next = { ...prepared.next, lastUpdated: createdAt };
+				const validatedDraft = createMutationDraft(
+					kind,
+					prepared.payload,
+					binding,
+					{ mutationId: crypto.randomUUID(), createdAt },
+				);
+				const committed = await commitBrowserWorkspaceAction({
+					snapshot: next,
+					mutation: binding?.syncMode === "automatic" ? validatedDraft : null,
+				});
+				appState.set(next);
+				return resultForCommit(committed);
+			} catch (error) {
+				notifyRejectedWorkspaceMutation(error);
+				return {
+					status: "rejected",
+					error: error instanceof Error ? error.message : String(error),
+				};
+			}
+		},
+	);
 	return { accepted: true, localStatus: "local-saved", completion };
+}
+
+function runWorkspaceAction(
+	kind: WorkspaceMutation["kind"],
+	payload: unknown | ((createdAt: string) => unknown),
+	update: (state: AppState, createdAt: string) => AppState,
+): WorkspaceActionHandle {
+	return runPreparedWorkspaceAction(kind, (state, _binding, createdAt) => ({
+		next: update(state, createdAt),
+		payload: typeof payload === "function" ? payload(createdAt) : payload,
+	}));
+}
+
+function runDeferredWorkspaceAction(
+	kind: WorkspaceMutation["kind"],
+	payload: unknown | ((createdAt: string) => unknown),
+	update: (state: AppState, createdAt: string) => AppState,
+): WorkspaceActionHandle {
+	return runWorkspaceAction(kind, payload, update);
 }
 
 function rejectedActionHandle(error: unknown): WorkspaceActionHandle {
@@ -342,31 +281,42 @@ function notifyRejectedWorkspaceMutation(error: unknown): void {
 export function upsertNode(node: NodeItem): WorkspaceActionHandle {
 	return runWorkspaceAction(
 		"node.upsert",
-		{ operation: "replace", node },
-		(state) => {
+		(createdAt: string) => ({
+			operation: "replace",
+			node: { ...node, updatedAt: createdAt },
+		}),
+		(state, createdAt) => {
+			const committedNode = { ...node, updatedAt: createdAt };
 			const index = state.nodes.findIndex((item) => item.id === node.id);
 			if (index >= 0) {
 				const nodes = [...state.nodes];
-				nodes[index] = node;
-				return { ...state, nodes, lastUpdated: nowIso() };
+				nodes[index] = committedNode;
+				return { ...state, nodes, lastUpdated: createdAt };
 			}
-			return { ...state, nodes: [node, ...state.nodes], lastUpdated: nowIso() };
+			return {
+				...state,
+				nodes: [committedNode, ...state.nodes],
+				lastUpdated: createdAt,
+			};
 		},
 	);
 }
 
 export function removeNode(nodeId: string): WorkspaceActionHandle {
-	return runWorkspaceAction("node.delete", { id: nodeId }, (state) => {
-		const now = nowIso();
-		return reconcileWorkspaceState(
-			{
-				...state,
-				nodes: state.nodes.filter((node) => node.id !== nodeId),
-				lastUpdated: now,
-			},
-			now,
-		);
-	});
+	return runWorkspaceAction(
+		"node.delete",
+		{ id: nodeId },
+		(state, createdAt) => {
+			return reconcileWorkspaceState(
+				{
+					...state,
+					nodes: state.nodes.filter((node) => node.id !== nodeId),
+					lastUpdated: createdAt,
+				},
+				createdAt,
+			);
+		},
+	);
 }
 
 export function upsertSubscription(
@@ -374,20 +324,23 @@ export function upsertSubscription(
 ): WorkspaceActionHandle {
 	return runWorkspaceAction(
 		"subscription.upsert",
-		{ subscription },
-		(state) => {
+		(createdAt: string) => ({
+			subscription: { ...subscription, updatedAt: createdAt },
+		}),
+		(state, createdAt) => {
+			const committedSubscription = { ...subscription, updatedAt: createdAt };
 			const index = state.subscriptions.findIndex(
 				(item) => item.id === subscription.id,
 			);
 			if (index >= 0) {
 				const subscriptions = [...state.subscriptions];
-				subscriptions[index] = subscription;
-				return { ...state, subscriptions, lastUpdated: nowIso() };
+				subscriptions[index] = committedSubscription;
+				return { ...state, subscriptions, lastUpdated: createdAt };
 			}
 			return {
 				...state,
-				subscriptions: [subscription, ...state.subscriptions],
-				lastUpdated: nowIso(),
+				subscriptions: [committedSubscription, ...state.subscriptions],
+				lastUpdated: createdAt,
 			};
 		},
 	);
@@ -399,17 +352,16 @@ export function removeSubscription(
 	return runWorkspaceAction(
 		"subscription.delete",
 		{ id: subscriptionId },
-		(state) => {
-			const now = nowIso();
+		(state, createdAt) => {
 			return reconcileWorkspaceState(
 				{
 					...state,
 					subscriptions: state.subscriptions.filter(
 						(item) => item.id !== subscriptionId,
 					),
-					lastUpdated: now,
+					lastUpdated: createdAt,
 				},
-				now,
+				createdAt,
 			);
 		},
 	);
@@ -418,18 +370,19 @@ export function removeSubscription(
 export function upsertAggregate(rule: AggregateRule): WorkspaceActionHandle {
 	return runWorkspaceAction(
 		"aggregate.upsert",
-		{ aggregate: rule },
-		(state) => {
+		(createdAt: string) => ({ aggregate: { ...rule, updatedAt: createdAt } }),
+		(state, createdAt) => {
+			const committedRule = { ...rule, updatedAt: createdAt };
 			const index = state.aggregates.findIndex((item) => item.id === rule.id);
 			if (index >= 0) {
 				const aggregates = [...state.aggregates];
-				aggregates[index] = rule;
-				return { ...state, aggregates, lastUpdated: nowIso() };
+				aggregates[index] = committedRule;
+				return { ...state, aggregates, lastUpdated: createdAt };
 			}
 			return {
 				...state,
-				aggregates: [rule, ...state.aggregates],
-				lastUpdated: nowIso(),
+				aggregates: [committedRule, ...state.aggregates],
+				lastUpdated: createdAt,
 			};
 		},
 	);
@@ -442,7 +395,7 @@ export function removeAggregate(
 	return runDeferredWorkspaceAction(
 		"aggregate.delete",
 		{ id: ruleId, ...options },
-		(state) => ({
+		(state, createdAt) => ({
 			...state,
 			aggregates: state.aggregates.filter((item) => item.id !== ruleId),
 			publishTargets: state.publishTargets.filter(
@@ -451,7 +404,7 @@ export function removeAggregate(
 			clientExports: state.clientExports.filter(
 				(profile) => profile.ruleId !== ruleId,
 			),
-			lastUpdated: nowIso(),
+			lastUpdated: createdAt,
 		}),
 	);
 }
@@ -470,25 +423,29 @@ export function upsertPublishTarget(
 	const requested = { ...target, fileName };
 	return runWorkspaceAction(
 		"publish-target.upsert",
-		{ target: requested, ...options },
-		(state) => {
+		(createdAt: string) => ({
+			target: { ...requested, updatedAt: createdAt },
+			...options,
+		}),
+		(state, createdAt) => {
+			const committedTarget = { ...requested, updatedAt: createdAt };
 			assertLocalOutputOwnerAvailable(state, {
 				kind: "publish-target",
-				id: requested.id,
+				id: committedTarget.id,
 				fileName,
 			});
 			const index = state.publishTargets.findIndex(
-				(item) => item.id === requested.id,
+				(item) => item.id === committedTarget.id,
 			);
 			if (index >= 0) {
 				const existing = state.publishTargets[index];
 				if (!existing) throw new Error("Publish target not found");
 				const outputChanged =
 					existing.fileName !== fileName ||
-					existing.ruleId !== requested.ruleId;
+					existing.ruleId !== committedTarget.ruleId;
 				let merged: AggregatePublishTarget = {
 					...existing,
-					...requested,
+					...committedTarget,
 					lastPublishedAt: existing.lastPublishedAt,
 					lastPublishedUrl: existing.lastPublishedUrl,
 					lastPublishTransitionAt: existing.lastPublishTransitionAt,
@@ -497,7 +454,7 @@ export function upsertPublishTarget(
 					lastPublishTransitionToFileName:
 						existing.lastPublishTransitionToFileName,
 					lastPublishTransitionOutcome: existing.lastPublishTransitionOutcome,
-					updatedAt: outputChanged ? requested.updatedAt : existing.updatedAt,
+					updatedAt: outputChanged ? createdAt : existing.updatedAt,
 				};
 				if (existing.fileName !== fileName) {
 					const otherOwners = getConflictingOutputOwners(state, {
@@ -508,7 +465,7 @@ export function upsertPublishTarget(
 					const cleanup = options.previousFileCleanup ?? "keep";
 					merged = {
 						...merged,
-						lastPublishTransitionAt: requested.updatedAt,
+						lastPublishTransitionAt: createdAt,
 						lastPublishTransitionFromFileName: existing.fileName,
 						lastPublishTransitionToFileName: fileName,
 						lastPublishTransitionOutcome:
@@ -523,12 +480,12 @@ export function upsertPublishTarget(
 				}
 				const publishTargets = [...state.publishTargets];
 				publishTargets[index] = merged;
-				return { ...state, publishTargets, lastUpdated: nowIso() };
+				return { ...state, publishTargets, lastUpdated: createdAt };
 			}
 			return {
 				...state,
-				publishTargets: [requested, ...state.publishTargets],
-				lastUpdated: nowIso(),
+				publishTargets: [committedTarget, ...state.publishTargets],
+				lastUpdated: createdAt,
 			};
 		},
 	);
@@ -541,12 +498,12 @@ export function removePublishTarget(
 	return runDeferredWorkspaceAction(
 		"publish-target.delete",
 		{ id: targetId, ...options },
-		(state) => ({
+		(state, createdAt) => ({
 			...state,
 			publishTargets: state.publishTargets.filter(
 				(item) => item.id !== targetId,
 			),
-			lastUpdated: nowIso(),
+			lastUpdated: createdAt,
 		}),
 	);
 }
@@ -564,25 +521,47 @@ export function upsertClientExport(
 	const requested = { ...profile, fileName };
 	return runWorkspaceAction(
 		"client-export.upsert",
-		{ profile: requested },
-		(state) => {
+		(createdAt: string) => ({
+			profile: { ...requested, updatedAt: createdAt },
+		}),
+		(state, createdAt) => {
+			const existing = state.clientExports.find(
+				(item) => item.id === requested.id,
+			);
+			const outputChanged = Boolean(
+				existing &&
+					(existing.fileName !== requested.fileName ||
+						existing.ruleId !== requested.ruleId ||
+						JSON.stringify(existing.options) !==
+							JSON.stringify(requested.options)),
+			);
+			const committedProfile = {
+				...requested,
+				lastGeneratedAt:
+					existing && !outputChanged ? existing.lastGeneratedAt : null,
+				lastPublishedAt:
+					existing && !outputChanged ? existing.lastPublishedAt : null,
+				lastPublishedUrl:
+					existing && !outputChanged ? existing.lastPublishedUrl : null,
+				updatedAt: createdAt,
+			};
 			assertLocalOutputOwnerAvailable(state, {
 				kind: "client-export",
-				id: requested.id,
+				id: committedProfile.id,
 				fileName,
 			});
 			const index = state.clientExports.findIndex(
-				(item) => item.id === requested.id,
+				(item) => item.id === committedProfile.id,
 			);
 			if (index >= 0) {
 				const clientExports = [...state.clientExports];
-				clientExports[index] = requested;
-				return { ...state, clientExports, lastUpdated: nowIso() };
+				clientExports[index] = committedProfile;
+				return { ...state, clientExports, lastUpdated: createdAt };
 			}
 			return {
 				...state,
-				clientExports: [requested, ...state.clientExports],
-				lastUpdated: nowIso(),
+				clientExports: [committedProfile, ...state.clientExports],
+				lastUpdated: createdAt,
 			};
 		},
 	);
@@ -592,65 +571,34 @@ export function removeClientExport(profileId: string): WorkspaceActionHandle {
 	return runDeferredWorkspaceAction(
 		"client-export.delete",
 		{ id: profileId },
-		(state) => ({
+		(state, createdAt) => ({
 			...state,
 			clientExports: state.clientExports.filter(
 				(item) => item.id !== profileId,
 			),
-			lastUpdated: nowIso(),
+			lastUpdated: createdAt,
 		}),
 	);
 }
 
 export function replaceState(next: AppState): WorkspaceActionHandle {
-	const current = get(appState);
-	const state = {
-		...defaultState,
-		...next,
-		activeGistId: current.activeGistId,
-		activeGistFile: current.activeGistFile,
-		lastUpdated: nowIso(),
-	};
-	if (browser) {
-		try {
-			validateAutomaticWorkspaceReconcile(state);
-		} catch (error) {
-			notifyRejectedWorkspaceMutation(error);
-			return {
-				accepted: false,
-				localStatus: "rejected",
-				completion: Promise.resolve({
-					status: "rejected",
-					error: error instanceof Error ? error.message : String(error),
-				}),
+	return runPreparedWorkspaceAction(
+		"workspace.reconcile",
+		(current, binding, createdAt) => {
+			const state = {
+				...defaultState,
+				...next,
+				activeGistId: current.activeGistId,
+				activeGistFile: current.activeGistFile,
+				lastUpdated: createdAt,
 			};
-		}
-	}
-	try {
-		if (browser) localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-		appState.set(state);
-		dispatchWorkspaceSyncEvent({
-			type: "LOCAL_COMMITTED",
-			mode: currentActionMode(),
-			queue: currentQueueMetrics(),
-		});
-	} catch (error) {
-		notifyRejectedWorkspaceMutation(error);
-		return {
-			accepted: false,
-			localStatus: "rejected",
-			completion: Promise.resolve({
-				status: "rejected",
-				error: error instanceof Error ? error.message : String(error),
-			}),
-		};
-	}
-	const completion = browser
-		? get(authState).token
-			? enqueueAutomaticWorkspaceReconcile(state).then(mapEnqueueResult)
-			: Promise.resolve(
-					disconnectedActionResult(new WorkspaceV2StateStore().read()),
-				)
-		: Promise.resolve({ status: "local-saved" as const });
-	return { accepted: true, localStatus: "local-saved", completion };
+			return {
+				next: state,
+				payload: {
+					baselineRevision: binding?.revision ?? 0,
+					data: getWorkspaceBusinessData(state),
+				},
+			};
+		},
+	);
 }

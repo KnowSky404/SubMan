@@ -137,3 +137,21 @@ test("primary navigation includes exports between aggregate and gists", () => {
 	expect(exportsIndex).toBeGreaterThan(aggregateIndex);
 	expect(gistsIndex).toBeGreaterThan(exportsIndex);
 });
+
+test("browser persistence initializes before sync with synchronous cleanup", () => {
+	const initializeIndex = layoutSource.indexOf(
+		"initializeAppStatePersistence()",
+	);
+	const startIndex = layoutSource.indexOf(
+		"startWorkspaceMutationSync",
+		initializeIndex,
+	);
+	const cleanupIndex = layoutSource.indexOf("return () => {", initializeIndex);
+
+	expect(initializeIndex).toBeGreaterThan(-1);
+	expect(startIndex).toBeGreaterThan(initializeIndex);
+	expect(cleanupIndex).toBeGreaterThan(startIndex);
+	expect(layoutSource).toContain("void initializeAppStatePersistence()");
+	expect(layoutSource).toContain("if (!cancelled)");
+	expect(layoutSource).not.toContain("onMount(async");
+});
