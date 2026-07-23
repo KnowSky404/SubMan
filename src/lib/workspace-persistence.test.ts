@@ -1175,6 +1175,46 @@ describe("queue inspection and repair", () => {
 		).toBe(3);
 	});
 
+	it("atomically repairs a queue into a paused state conflict", async () => {
+		const paused = createWorkspaceV2LocalState(GIST_ID, {
+			baseline: document(),
+			syncMode: "paused-conflict",
+		});
+		const head = reconcileMutation();
+		const blocked = {
+			mutationId: head.mutationId,
+			kind: head.kind,
+			code: "revision_conflict",
+			disposition: "state-conflict" as const,
+			messageKey: "workspace.state-conflict",
+			createdAt: head.createdAt,
+			blockedAt: NOW,
+		};
+		const persistence = automaticPersistence();
+		await persistence.repairWorkspaceQueue({
+			snapshot: committedSnapshot(),
+			binding: paused,
+			mutations: [head],
+			blocked,
+		});
+		const stored = await persistence.read();
+		expect(stored.binding?.syncMode).toBe("paused-conflict");
+		expect(stored.workspaces[WORKSPACE_ID]?.delivery.blocked).toEqual(blocked);
+
+		const rollback = automaticPersistence();
+		const before = await rollback.read();
+		rollback.setFault("after-binding");
+		await captureError(
+			rollback.repairWorkspaceQueue({
+				snapshot: committedSnapshot(),
+				binding: paused,
+				mutations: [head],
+				blocked,
+			}),
+		);
+		expect(await rollback.read()).toEqual(before);
+	});
+
 	it("invalidates the previous Workspace lease when repair switches identity", async () => {
 		const nowMs = 100;
 		const persistence = automaticPersistence(() => nowMs);

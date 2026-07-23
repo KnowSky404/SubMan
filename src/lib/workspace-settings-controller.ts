@@ -23,7 +23,6 @@ import type {
 	WorkspacePersistenceRecord,
 	WorkspaceQueueInspection,
 } from "$lib/workspace-persistence";
-import { workspaceDispatcherLeaseName } from "$lib/workspace-persistence";
 import {
 	getBrowserWorkspacePersistence,
 	initializeBrowserWorkspacePersistence,
@@ -227,42 +226,16 @@ export function createWorkspaceSettingsController(
 			snapshot,
 			binding: paused,
 			mutations: [mutation],
+			blocked: {
+				mutationId: mutation.mutationId,
+				kind: mutation.kind,
+				code: "revision_conflict",
+				disposition: "state-conflict",
+				messageKey: "workspace.state-conflict",
+				createdAt: mutation.createdAt,
+				blockedAt: new Date().toISOString(),
+			},
 		});
-		const ownerId = crypto.randomUUID();
-		const leaseName = workspaceDispatcherLeaseName(paused.workspaceId);
-		const lease = await persistence().acquireLease({
-			name: leaseName,
-			ownerId,
-			now: Date.now(),
-			ttlMs: 30_000,
-		});
-		if (!lease.acquired)
-			throw new Error("Workspace conflict lease is unavailable");
-		const fence = {
-			ownerId,
-			fencingToken: lease.lease.fencingToken,
-		};
-		try {
-			await persistence().blockMutation(
-				paused.workspaceId,
-				{
-					mutationId: mutation.mutationId,
-					kind: mutation.kind,
-					code: "revision_conflict",
-					disposition: "state-conflict",
-					messageKey: "workspace.state-conflict",
-					createdAt: mutation.createdAt,
-					blockedAt: new Date().toISOString(),
-				},
-				fence,
-			);
-		} finally {
-			await persistence().releaseLease({
-				name: leaseName,
-				ownerId,
-				fencingToken: fence.fencingToken,
-			});
-		}
 		dependencies.setState(snapshot);
 		await refresh();
 		return conflict;

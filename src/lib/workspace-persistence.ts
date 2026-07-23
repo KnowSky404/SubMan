@@ -250,6 +250,7 @@ export interface BrowserWorkspacePersistence {
 		snapshot: AppState;
 		binding: WorkspaceV2LocalState;
 		mutations: WorkspaceMutation[];
+		blocked?: WorkspaceBlockedMutationMetadata;
 	}): Promise<void>;
 	quarantineWorkspaceQueue(input: {
 		workspaceId: string;
@@ -1889,6 +1890,7 @@ export class TransactionalWorkspacePersistence
 		snapshot: AppState;
 		binding: WorkspaceV2LocalState;
 		mutations: WorkspaceMutation[];
+		blocked?: WorkspaceBlockedMutationMetadata;
 	}): Promise<void> {
 		const snapshot = validateWorkspacePersistenceSnapshot(input.snapshot);
 		const binding = validatePersistenceBinding(input.binding);
@@ -1901,6 +1903,22 @@ export class TransactionalWorkspacePersistence
 		if (mutations.length > 0 && binding.revision === null) {
 			throw corrupt("Cannot repair a nonempty queue without a revision");
 		}
+		const blocked = input.blocked ? validateBlocked(input.blocked) : null;
+		if (blocked) {
+			const head = mutations[0];
+			if (
+				binding.syncMode !== "paused-conflict" ||
+				blocked.disposition !== "state-conflict" ||
+				!head ||
+				blocked.mutationId !== head.mutationId ||
+				blocked.kind !== head.kind ||
+				blocked.createdAt !== head.createdAt
+			) {
+				throw corrupt(
+					"Blocked queue repair must identify a paused state conflict",
+				);
+			}
+		}
 		ensureSnapshotMatchesQueue(snapshot, binding, mutations);
 		await this.backend.transact((draft, checkpoint) => {
 			const previousWorkspaceId = draft.binding?.workspaceId;
@@ -1908,10 +1926,9 @@ export class TransactionalWorkspacePersistence
 			checkpoint("after-snapshot");
 			draft.binding = binding;
 			checkpoint("after-binding");
-			draft.workspaces[binding.workspaceId] = createQueue(
-				binding.workspaceId,
-				mutations,
-			);
+			const queue = createQueue(binding.workspaceId, mutations);
+			queue.delivery.blocked = blocked;
+			draft.workspaces[binding.workspaceId] = queue;
 			if (previousWorkspaceId) {
 				delete draft.leases[workspaceDispatcherLeaseName(previousWorkspaceId)];
 			}
