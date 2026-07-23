@@ -1,3 +1,4 @@
+import { readBoundedJson } from "$lib/server/api/bounded-json";
 import { ApiError } from "$lib/server/api/errors";
 import { parseNodePatchPayload } from "$lib/server/api/nodes";
 import { handleApiError, requireApiAccess } from "$lib/server/api/routes";
@@ -42,7 +43,7 @@ export async function PATCH({
 }) {
 	try {
 		const githubToken = await requireApiAccess(request, platform);
-		const payload = parseNodePatchPayload(await request.json());
+		const payload = parseNodePatchPayload(await readBoundedJson(request));
 		const workspace = await loadServerWorkspace(githubToken);
 		const mutation = {
 			...createServerMutationIdentity(workspace),
