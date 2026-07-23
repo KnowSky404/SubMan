@@ -629,4 +629,443 @@ describe("browser Workspace mutation scheduler", () => {
 			unsubscribeStatus();
 		}
 	});
+
+	it("delivers through persisted storage, hydrates the committed snapshot, and broadcasts after commit", async () => {
+		const [workspaceData, persistenceModule, stateModule, sync, statusModule] =
+			await Promise.all([
+				import("$lib/workspace-data"),
+				import("$lib/workspace-persistence"),
+				import("$lib/workspace-v2-state"),
+				import("$lib/workspace-mutation-sync-browser"),
+				import("$lib/workspace-sync-status"),
+			]);
+		statusModule.workspaceSyncStatus.set({
+			...statusModule.defaultWorkspaceSyncStatus,
+		});
+		const baseline = document(1);
+		const binding = stateModule.createWorkspaceV2LocalState(GIST_ID, {
+			baseline,
+		});
+		const initialSnapshot = stateModule.hydrateAppStateFromWorkspaceDocument(
+			workspaceData.createDefaultWorkspaceState(NOW),
+			baseline,
+			GIST_ID,
+		);
+		const record = persistenceModule.createEmptyWorkspacePersistenceRecord();
+		record.snapshot = initialSnapshot;
+		record.binding = binding;
+		const persistence = new persistenceModule.InMemoryWorkspacePersistence(
+			record,
+		);
+		const { expectedRevision: _revision, ...draft } = mutation();
+		const optimisticSnapshot = stateModule.hydrateAppStateFromWorkspaceDocument(
+			initialSnapshot,
+			document(2),
+			GIST_ID,
+		);
+		await persistence.commitAutomaticAction({
+			snapshot: optimisticSnapshot,
+			binding,
+			mutation: draft,
+		});
+
+		let state = initialSnapshot;
+		const hydrated: AppState[] = [];
+		const broadcasts: WorkspaceEvent[] = [];
+		let unsubscribeStatus = () => {};
+		const committed = new Promise<void>((resolve) => {
+			unsubscribeStatus = statusModule.workspaceSyncStatus.subscribe(
+				(status) => {
+					if (
+						status.lifecycle === "committed" &&
+						status.lastCommittedRevision === 2
+					) {
+						resolve();
+					}
+				},
+			);
+		});
+		const stop = sync.startWorkspaceMutationSync({
+			enabled: true,
+			delayMs: 0,
+			persistence,
+			refreshPersistence: () => persistence.read(),
+			getState: () => state,
+			setState: (next) => {
+				state = next;
+				hydrated.push(next);
+			},
+			broadcast: (event) => broadcasts.push(event),
+			subscribeAuth: (listener) => {
+				listener({ token: "browser-token" });
+				return () => {};
+			},
+			subscribeEvents: () => () => {},
+			fetchImpl: async () =>
+				Response.json({
+					document: document(2),
+					mutationId: MUTATION_ID,
+					workspaceId: WORKSPACE_ID,
+					committedRevision: 2,
+					committedAt: NOW,
+					receipt: {
+						kind: "node.delete",
+						entityId: "node-1",
+						deleted: true,
+					},
+					status: "committed",
+				}),
+		});
+
+		try {
+			await waitFor(committed);
+			const stored = await persistence.read();
+			expect(stored.binding?.revision).toBe(2);
+			expect(stored.workspaces[WORKSPACE_ID]?.mutations).toEqual([]);
+			expect(hydrated.at(-1)).toEqual(stored.snapshot);
+			expect(state).toEqual(stored.snapshot);
+			expect(broadcasts).toEqual([
+				{
+					type: "workspace-v2-committed",
+					gistId: GIST_ID,
+					fileName: "subman.json",
+					mutationId: MUTATION_ID,
+					document: document(2),
+					status: "committed",
+				},
+			]);
+		} finally {
+			stop();
+			unsubscribeStatus();
+		}
+	});
+
+	it("refreshes persisted state for queue, commit, and conflict wake events before scheduling", async () => {
+		const [workspaceData, persistenceModule, stateModule, sync] =
+			await Promise.all([
+				import("$lib/workspace-data"),
+				import("$lib/workspace-persistence"),
+				import("$lib/workspace-v2-state"),
+				import("$lib/workspace-mutation-sync-browser"),
+			]);
+		const snapshots = ["queue", "commit", "conflict"].map((name, index) => ({
+			...stateModule.hydrateAppStateFromWorkspaceDocument(
+				workspaceData.createDefaultWorkspaceState(NOW),
+				document(1),
+				GIST_ID,
+			),
+			lastUpdated: `${NOW}:${index}:${name}`,
+		}));
+		const records = snapshots.map((snapshot, index) => {
+			const record = persistenceModule.createEmptyWorkspacePersistenceRecord();
+			record.snapshot = snapshot;
+			record.binding = stateModule.createWorkspaceV2LocalState(GIST_ID, {
+				baseline: document(1),
+				syncMode: index === 2 ? "paused-conflict" : "automatic",
+			});
+			return record;
+		});
+		const persistence = new persistenceModule.InMemoryWorkspacePersistence(
+			records[0],
+		);
+		let eventListener: (event: WorkspaceEvent) => void = () => {};
+		let refreshIndex = 0;
+		let state = workspaceData.createDefaultWorkspaceState(NOW);
+		const seen: string[] = [];
+		const stop = sync.startWorkspaceMutationSync({
+			enabled: true,
+			delayMs: 60_000,
+			persistence,
+			refreshPersistence: async () =>
+				structuredClone(records[Math.min(refreshIndex++, records.length - 1)]),
+			getState: () => state,
+			setState: (next) => {
+				state = next;
+				seen.push(next.lastUpdated);
+			},
+			subscribeAuth: (listener) => {
+				listener({ token: null });
+				return () => {};
+			},
+			subscribeEvents: (listener) => {
+				eventListener = listener;
+				return () => {};
+			},
+		});
+		const wakeEvents: WorkspaceEvent[] = [
+			{
+				type: "mutation-queue-changed",
+				gistId: GIST_ID,
+				fileName: "subman.json",
+			},
+			{
+				type: "workspace-v2-committed",
+				gistId: GIST_ID,
+				fileName: "subman.json",
+			},
+			{
+				type: "paused-conflict",
+				gistId: GIST_ID,
+				fileName: "subman.json",
+			},
+		];
+
+		try {
+			for (const [index, event] of wakeEvents.entries()) {
+				eventListener(event);
+				for (
+					let attempt = 0;
+					attempt < 20 && seen.length <= index;
+					attempt += 1
+				) {
+					await new Promise((resolve) => setTimeout(resolve, 0));
+				}
+			}
+			expect(seen).toEqual(snapshots.map((snapshot) => snapshot.lastUpdated));
+			expect(state).toEqual(snapshots.at(-1));
+		} finally {
+			stop();
+		}
+	});
+
+	it("settles persisted empty, blocked, and auth-cleared paths without remaining syncing", async () => {
+		const [workspaceData, persistenceModule, stateModule, sync, statusModule] =
+			await Promise.all([
+				import("$lib/workspace-data"),
+				import("$lib/workspace-persistence"),
+				import("$lib/workspace-v2-state"),
+				import("$lib/workspace-mutation-sync-browser"),
+				import("$lib/workspace-sync-status"),
+			]);
+		const binding = stateModule.createWorkspaceV2LocalState(GIST_ID, {
+			baseline: document(1),
+		});
+		const snapshot = stateModule.hydrateAppStateFromWorkspaceDocument(
+			workspaceData.createDefaultWorkspaceState(NOW),
+			document(1),
+			GIST_ID,
+		);
+		const queued = persistenceModule.createEmptyWorkspacePersistenceRecord();
+		queued.snapshot = snapshot;
+		queued.binding = binding;
+		queued.workspaces[WORKSPACE_ID] = {
+			workspaceId: WORKSPACE_ID,
+			mutations: [mutation()],
+			delivery: {
+				retry: { attempt: 0, nextAttemptAt: null, lastErrorCode: null },
+				blocked: null,
+				deadLetters: [],
+			},
+		};
+		const empty = structuredClone(queued);
+		empty.workspaces[WORKSPACE_ID].mutations = [];
+
+		for (const outcome of ["empty", "blocked"] as const) {
+			statusModule.workspaceSyncStatus.set({
+				...statusModule.defaultWorkspaceSyncStatus,
+			});
+			let reads = 0;
+			let latest = statusModule.defaultWorkspaceSyncStatus;
+			const unsubscribe = statusModule.workspaceSyncStatus.subscribe(
+				(status) => (latest = status),
+			);
+			const persistence = new persistenceModule.InMemoryWorkspacePersistence(
+				queued,
+			);
+			const stop = sync.startWorkspaceMutationSync({
+				enabled: true,
+				delayMs: 0,
+				persistence,
+				refreshPersistence: async () => {
+					reads += 1;
+					return structuredClone(
+						reads === 1 ? queued : outcome === "empty" ? empty : queued,
+					);
+				},
+				dispatchPersistence: async () => ({ status: outcome }),
+				getState: () => snapshot,
+				setState: () => {},
+				subscribeAuth: (listener) => {
+					listener({ token: "browser-token" });
+					return () => {};
+				},
+				subscribeEvents: () => () => {},
+			});
+			try {
+				for (
+					let attempt = 0;
+					attempt < 20 && latest.phase === "syncing";
+					attempt += 1
+				) {
+					await new Promise((resolve) => setTimeout(resolve, 0));
+				}
+				await new Promise((resolve) => setTimeout(resolve, 10));
+				expect(latest.phase).not.toBe("syncing");
+				expect(latest.phase).toBe(
+					outcome === "empty" ? "automatic-idle" : "queued",
+				);
+			} finally {
+				stop();
+				unsubscribe();
+			}
+		}
+
+		statusModule.workspaceSyncStatus.set({
+			...statusModule.defaultWorkspaceSyncStatus,
+		});
+		let authListener: (state: { token: string | null }) => void = () => {};
+		let latest = statusModule.defaultWorkspaceSyncStatus;
+		const unsubscribe = statusModule.workspaceSyncStatus.subscribe(
+			(status) => (latest = status),
+		);
+		const persistence = new persistenceModule.InMemoryWorkspacePersistence(
+			queued,
+		);
+		const stop = sync.startWorkspaceMutationSync({
+			enabled: true,
+			delayMs: 0,
+			persistence,
+			refreshPersistence: () => persistence.read(),
+			getState: () => snapshot,
+			setState: () => {},
+			subscribeAuth: (listener) => {
+				authListener = listener;
+				listener({ token: "browser-token" });
+				return () => {};
+			},
+			subscribeEvents: () => () => {},
+		});
+		try {
+			authListener({ token: null });
+			for (
+				let attempt = 0;
+				attempt < 20 && latest.phase !== "auth-required";
+				attempt += 1
+			) {
+				await new Promise((resolve) => setTimeout(resolve, 0));
+			}
+			expect(latest.phase).toBe("auth-required");
+		} finally {
+			stop();
+			unsubscribe();
+		}
+	});
+
+	it("reconstructs persisted blocked state and surfaces unexpected persistence failures", async () => {
+		const [workspaceData, persistenceModule, stateModule, sync, statusModule] =
+			await Promise.all([
+				import("$lib/workspace-data"),
+				import("$lib/workspace-persistence"),
+				import("$lib/workspace-v2-state"),
+				import("$lib/workspace-mutation-sync-browser"),
+				import("$lib/workspace-sync-status"),
+			]);
+		const snapshot = stateModule.hydrateAppStateFromWorkspaceDocument(
+			workspaceData.createDefaultWorkspaceState(NOW),
+			document(1),
+			GIST_ID,
+		);
+		const record = persistenceModule.createEmptyWorkspacePersistenceRecord();
+		record.snapshot = snapshot;
+		record.binding = stateModule.createWorkspaceV2LocalState(GIST_ID, {
+			baseline: document(1),
+		});
+		record.workspaces[WORKSPACE_ID] = {
+			workspaceId: WORKSPACE_ID,
+			mutations: [mutation()],
+			delivery: {
+				retry: { attempt: 0, nextAttemptAt: null, lastErrorCode: null },
+				blocked: {
+					mutationId: MUTATION_ID,
+					kind: "node.delete",
+					code: "duplicate_node_raw",
+					disposition: "domain-conflict",
+					messageKey: "workspace.domain-conflict",
+					createdAt: NOW,
+					blockedAt: NOW,
+				},
+				deadLetters: [],
+			},
+		};
+		const persistence = new persistenceModule.InMemoryWorkspacePersistence(
+			record,
+		);
+		statusModule.workspaceSyncStatus.set({
+			...statusModule.defaultWorkspaceSyncStatus,
+		});
+		let latest = statusModule.defaultWorkspaceSyncStatus;
+		const unsubscribe = statusModule.workspaceSyncStatus.subscribe(
+			(status) => (latest = status),
+		);
+		let dispatchCalls = 0;
+		const stop = sync.startWorkspaceMutationSync({
+			enabled: true,
+			delayMs: 0,
+			persistence,
+			refreshPersistence: () => persistence.read(),
+			dispatchPersistence: async () => {
+				dispatchCalls += 1;
+				return { status: "blocked" };
+			},
+			getState: () => snapshot,
+			setState: () => {},
+			subscribeAuth: (listener) => {
+				listener({ token: "browser-token" });
+				return () => {};
+			},
+			subscribeEvents: () => () => {},
+		});
+		try {
+			for (
+				let attempt = 0;
+				attempt < 20 && latest.phase !== "blocked-domain-conflict";
+				attempt += 1
+			) {
+				await new Promise((resolve) => setTimeout(resolve, 0));
+			}
+			expect(latest.phase).toBe("blocked-domain-conflict");
+			expect(latest.blockedMutation?.mutationId).toBe(MUTATION_ID);
+			expect(dispatchCalls).toBe(0);
+		} finally {
+			stop();
+			unsubscribe();
+		}
+
+		statusModule.workspaceSyncStatus.set({
+			...statusModule.defaultWorkspaceSyncStatus,
+		});
+		latest = statusModule.defaultWorkspaceSyncStatus;
+		const unsubscribeFailure = statusModule.workspaceSyncStatus.subscribe(
+			(status) => (latest = status),
+		);
+		const stopFailure = sync.startWorkspaceMutationSync({
+			enabled: true,
+			delayMs: 0,
+			persistence,
+			refreshPersistence: async () => {
+				throw new Error("injected read failure");
+			},
+			getState: () => snapshot,
+			setState: () => {},
+			subscribeAuth: (listener) => {
+				listener({ token: null });
+				return () => {};
+			},
+			subscribeEvents: () => () => {},
+		});
+		try {
+			for (
+				let attempt = 0;
+				attempt < 20 && latest.phase !== "invalid-local-storage";
+				attempt += 1
+			) {
+				await new Promise((resolve) => setTimeout(resolve, 0));
+			}
+			expect(latest.phase).toBe("invalid-local-storage");
+			expect(latest.recentError?.code).toBe("workspace_persistence_failed");
+		} finally {
+			stopFailure();
+			unsubscribeFailure();
+		}
+	});
 });

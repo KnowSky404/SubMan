@@ -1,11 +1,14 @@
 import { expect, test } from "bun:test";
 import { get } from "svelte/store";
 import { createDefaultWorkspaceState } from "$lib/workspace-data";
+import type { WorkspaceDocumentV2 } from "$lib/workspace-document";
+import type { WorkspaceEvent } from "$lib/workspace-events";
 import {
 	createEmptyWorkspacePersistenceRecord,
 	InMemoryWorkspacePersistence,
 } from "$lib/workspace-persistence";
 import {
+	commitBrowserWorkspaceAction,
 	getBrowserWorkspacePersistence,
 	getBrowserWorkspacePersistenceRecord,
 	initializeBrowserWorkspacePersistence,
@@ -16,8 +19,39 @@ import {
 	defaultWorkspaceSyncStatus,
 	workspaceSyncStatus,
 } from "$lib/workspace-sync-status";
+import {
+	createWorkspaceV2LocalState,
+	hydrateAppStateFromWorkspaceDocument,
+} from "$lib/workspace-v2-state";
 
 const NOW = "2026-07-23T08:00:00.000Z";
+const GIST_ID = "gist-1";
+const WORKSPACE_ID = `gist:${GIST_ID}`;
+
+function workspaceDocument(): WorkspaceDocumentV2 {
+	return {
+		version: 2,
+		schemaVersion: 2,
+		workspaceId: WORKSPACE_ID,
+		revision: 1,
+		updatedAt: NOW,
+		lastMutationId: null,
+		data: {
+			nodes: [],
+			subscriptions: [],
+			aggregates: [],
+			publishTargets: [],
+			clientExports: [],
+		},
+		tombstones: {
+			nodes: [],
+			subscriptions: [],
+			aggregates: [],
+			publishTargets: [],
+			clientExports: [],
+		},
+	};
+}
 
 class MemoryStorage implements Storage {
 	private readonly values = new Map<string, string>();
@@ -107,5 +141,59 @@ test("initialization failure enters invalid-local-storage without a legacy fallb
 	expect(get(workspaceSyncStatus).lifecycle).toBe("invalid-local-state");
 	expect(getBrowserWorkspacePersistenceRecord()).toBeNull();
 	expect(storage.length).toBe(0);
+	setBrowserWorkspacePersistenceForTest(null);
+});
+
+test("automatic actions broadcast only after the queue transaction commits", async () => {
+	const document = workspaceDocument();
+	const binding = createWorkspaceV2LocalState(GIST_ID, { baseline: document });
+	const record = createEmptyWorkspacePersistenceRecord();
+	record.binding = binding;
+	record.snapshot = hydrateAppStateFromWorkspaceDocument(
+		createDefaultWorkspaceState(NOW),
+		document,
+		GIST_ID,
+	);
+	const persistence = new InMemoryWorkspacePersistence(record);
+	const storage = new MemoryStorage();
+	setBrowserWorkspacePersistenceForTest(persistence);
+	await initializeBrowserWorkspacePersistence({ storage });
+	const events: WorkspaceEvent[] = [];
+	const input = {
+		snapshot: { ...record.snapshot, lastUpdated: NOW },
+		mutation: {
+			mutationId: "b0000000-0000-4000-8000-000000000001",
+			workspaceId: WORKSPACE_ID,
+			source: "browser" as const,
+			createdAt: NOW,
+			kind: "workspace.reconcile" as const,
+			payload: { baselineRevision: 1, data: document.data },
+		},
+		broadcast: (event: WorkspaceEvent) => events.push(event),
+	};
+
+	const committed = await commitBrowserWorkspaceAction(input);
+	expect(committed.queue.activeQueueCount).toBe(1);
+	expect(events).toEqual([
+		{
+			type: "mutation-queue-changed",
+			gistId: GIST_ID,
+			fileName: "subman.json",
+			mutationId: input.mutation.mutationId,
+			queueAction: "enqueued",
+		},
+	]);
+
+	await persistence.discardWorkspaceQueue({
+		workspaceId: WORKSPACE_ID,
+		snapshot: record.snapshot ?? undefined,
+		binding,
+	});
+	await refreshBrowserWorkspacePersistence();
+	persistence.setFault("after-queue");
+	const error = await captureError(commitBrowserWorkspaceAction(input));
+	expect(error.message).toContain("Injected persistence failure");
+	expect(events).toHaveLength(1);
+	expect((await persistence.read()).workspaces[WORKSPACE_ID]).toBe(undefined);
 	setBrowserWorkspacePersistenceForTest(null);
 });

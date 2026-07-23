@@ -1,4 +1,8 @@
 import type { AppState } from "$lib/models";
+import {
+	broadcastWorkspaceEvent,
+	type WorkspaceEvent,
+} from "$lib/workspace-events";
 import type { WorkspaceMutation } from "$lib/workspace-mutation";
 import {
 	type BrowserWorkspacePersistence,
@@ -162,6 +166,7 @@ export function getBrowserWorkspaceQueueMetrics(): WorkspaceQueueMetrics {
 export async function commitBrowserWorkspaceAction(input: {
 	snapshot: AppState;
 	mutation: WorkspaceMutationDraft | null;
+	broadcast?: (event: WorkspaceEvent) => void;
 }): Promise<BrowserWorkspaceCommitResult> {
 	if (!initializePromise) {
 		throw new Error("Browser Workspace persistence is not initialized");
@@ -186,6 +191,15 @@ export async function commitBrowserWorkspaceAction(input: {
 			});
 		}
 		const record = await readAndCache();
+		if (mutation && binding) {
+			(input.broadcast ?? broadcastWorkspaceEvent)({
+				type: "mutation-queue-changed",
+				gistId: binding.gistId,
+				fileName: binding.fileName,
+				mutationId: mutation.mutationId,
+				queueAction: "enqueued",
+			});
+		}
 		return {
 			binding: record.binding,
 			mutation,
