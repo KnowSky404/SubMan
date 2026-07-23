@@ -1,6 +1,10 @@
 import type { AppState } from "$lib/models";
 import type { WorkspaceFailureDisposition } from "$lib/workspace-failure-disposition";
 import type { WorkspaceMutation } from "$lib/workspace-mutation";
+import type {
+	BrowserWorkspacePersistence,
+	WorkspaceQueueInspection,
+} from "$lib/workspace-persistence";
 import type { WorkspaceSyncMode } from "$lib/workspace-sync-state-machine";
 
 const DIAGNOSTICS_KIND = "subman-workspace-diagnostics";
@@ -269,6 +273,87 @@ export async function exportWorkspaceDiagnosticsSnapshot(
 		})),
 	};
 	return JSON.stringify(diagnostics, null, 2);
+}
+
+function inspectionErrors(
+	inspection: WorkspaceQueueInspection,
+): WorkspaceDiagnosticsError[] {
+	return inspection.workspaces.flatMap((workspace) => [
+		...(workspace.blocked
+			? [
+					{
+						code: workspace.blocked.code,
+						disposition: workspace.blocked.disposition,
+					},
+				]
+			: []),
+		...workspace.deadLetters.map((deadLetter) => ({
+			code: deadLetter.code,
+			disposition: deadLetter.disposition,
+		})),
+	]);
+}
+
+export async function exportWorkspaceDiagnosticsFromPersistence(
+	persistence: BrowserWorkspacePersistence,
+	now: () => Date = () => new Date(),
+): Promise<string> {
+	const record = await persistence.read();
+	const activeWorkspaceId = record.binding?.workspaceId ?? null;
+	const inspection = await persistence.inspectQueues(activeWorkspaceId);
+	const snapshot = record.snapshot;
+	const activeQueue = inspection.workspaces.find(
+		(workspace) => workspace.active,
+	);
+	const mutations = await Promise.all(
+		Object.values(record.workspaces)
+			.flatMap((workspace) => workspace.mutations)
+			.sort(
+				(a, b) =>
+					a.workspaceId.localeCompare(b.workspaceId) ||
+					a.expectedRevision - b.expectedRevision ||
+					a.mutationId.localeCompare(b.mutationId),
+			)
+			.map(createWorkspaceMutationDiagnostics),
+	);
+
+	return exportWorkspaceDiagnosticsSnapshot(
+		{
+			workspace: record.binding
+				? {
+						workspaceId: record.binding.workspaceId,
+						revision: record.binding.revision,
+						mode: record.binding.syncMode,
+					}
+				: null,
+			counts: {
+				nodes: snapshot?.nodes.length ?? 0,
+				subscriptions: snapshot?.subscriptions.length ?? 0,
+				aggregates: snapshot?.aggregates.length ?? 0,
+				publishTargets: snapshot?.publishTargets.length ?? 0,
+				clientExports: snapshot?.clientExports.length ?? 0,
+				activeQueue: inspection.activeQueueCount,
+				totalQueue: inspection.totalQueueCount,
+				orphanedWorkspaces: inspection.orphanedWorkspaceCount,
+				blockedMutations: inspection.blockedCount,
+				deadLetters: inspection.deadLetterCount,
+			},
+			mutations,
+			retry: activeQueue
+				? {
+						...activeQueue.retry,
+						retryAfterMs: null,
+					}
+				: null,
+			errors: inspectionErrors(inspection),
+			quarantines: record.quarantines.map((quarantine) => ({
+				key: quarantine.id,
+				bytes: quarantine.bytes,
+				createdAt: quarantine.createdAt,
+			})),
+		},
+		now,
+	);
 }
 
 // Compatibility path until the UI is wired to the async persistence snapshot.

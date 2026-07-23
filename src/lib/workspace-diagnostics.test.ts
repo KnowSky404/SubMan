@@ -3,12 +3,19 @@ import { createDefaultWorkspaceState } from "$lib/workspace-data";
 import {
 	createWorkspaceMutationDiagnostics,
 	exportWorkspaceDiagnostics,
+	exportWorkspaceDiagnosticsFromPersistence,
 	exportWorkspaceDiagnosticsSnapshot,
 	type WorkspaceDiagnosticsError,
 	type WorkspaceDiagnosticsQuarantine,
 	type WorkspaceDiagnosticsSnapshot,
 } from "$lib/workspace-diagnostics";
 import type { WorkspaceMutation } from "$lib/workspace-mutation";
+import {
+	type BrowserWorkspacePersistence,
+	createEmptyWorkspacePersistenceRecord,
+	type WorkspaceQueueInspection,
+} from "$lib/workspace-persistence";
+import { createWorkspaceV2LocalState } from "$lib/workspace-v2-state";
 
 const T1 = "2026-07-23T12:00:00.000Z";
 const WORKSPACE_ID = "gist:diagnostic-workspace";
@@ -202,5 +209,205 @@ describe("Workspace diagnostics", () => {
 		const output = exportWorkspaceDiagnostics(state, () => new Date(T1));
 		expect(output).not.toContain(canary);
 		expect(JSON.parse(output).counts.nodes).toBe(1);
+	});
+
+	it("builds persisted diagnostics without reading tokens or quarantine payloads", async () => {
+		const canaries = {
+			proxy: "vless://persisted-user:persisted-pass@example.com",
+			subscription: "https://subscription.example?token=persisted-secret",
+			aggregate: "persisted-aggregate-output-secret",
+			client: "persisted-client-output-secret",
+			reconcile: "persisted-reconcile-secret",
+			auth: "github_pat_persisted_auth_secret",
+			session: "persisted-session-token-secret",
+			persistent: "persisted-local-token-secret",
+			quarantine: "persisted-quarantine-payload-secret",
+			errorMessage: "persisted-error-message-secret",
+			errorStack: "persisted-error-stack-secret",
+		};
+		const record = createEmptyWorkspacePersistenceRecord();
+		const state = createDefaultWorkspaceState(T1);
+		state.activeGistId = "diagnostic-workspace";
+		const persistedPayload = Object.values(canaries).join("|");
+		state.nodes.push({
+			id: "node-1",
+			name: "node",
+			type: "vless",
+			raw: persistedPayload,
+			tags: [],
+			enabled: true,
+			updatedAt: T1,
+			source: "single",
+		});
+		record.snapshot = state;
+		record.binding = createWorkspaceV2LocalState("diagnostic-workspace", {
+			syncMode: "automatic",
+			baseline: {
+				version: 2,
+				schemaVersion: 2,
+				workspaceId: WORKSPACE_ID,
+				revision: 0,
+				updatedAt: T1,
+				lastMutationId: null,
+				data: {
+					nodes: [],
+					subscriptions: [],
+					aggregates: [],
+					publishTargets: [],
+					clientExports: [],
+				},
+				tombstones: {
+					nodes: [],
+					subscriptions: [],
+					aggregates: [],
+					publishTargets: [],
+					clientExports: [],
+				},
+			},
+		});
+		const persistedMutation: WorkspaceMutation = {
+			...mutation(
+				"node.upsert",
+				{ operation: "replace", node: state.nodes[0] },
+				0,
+			),
+			source: "browser" as const,
+		};
+		record.workspaces[WORKSPACE_ID] = {
+			workspaceId: WORKSPACE_ID,
+			mutations: [persistedMutation],
+			delivery: {
+				retry: {
+					attempt: 3,
+					nextAttemptAt: 1_780_000_000_000,
+					lastErrorCode: "rate_limit",
+				},
+				blocked: null,
+				deadLetters: [],
+			},
+		};
+		record.quarantines.push({
+			id: "quarantine-one",
+			source: "queue:gist:diagnostic-workspace",
+			reason: "queue-corruption",
+			bytes: 512,
+			createdAt: T1,
+		});
+		let sensitiveReads = 0;
+		const blocked = {
+			mutationId: persistedMutation.mutationId,
+			kind: persistedMutation.kind,
+			code: "entity_exists",
+			disposition: "domain-conflict" as const,
+			messageKey: "workspace.domain-conflict",
+			createdAt: T1,
+			blockedAt: T1,
+			get message() {
+				sensitiveReads += 1;
+				return canaries.errorMessage;
+			},
+			get stack() {
+				sensitiveReads += 1;
+				return canaries.errorStack;
+			},
+		};
+		const deadLetter = {
+			mutationId: "10000000-0000-4000-8000-999999999999",
+			kind: "workspace.reconcile" as const,
+			code: "server_error",
+			disposition: "permanent-upstream" as const,
+			messageKey: "workspace.permanent-upstream",
+			createdAt: T1,
+			blockedAt: T1,
+			payloadBytes: 2_048,
+		};
+		const inspection: WorkspaceQueueInspection = {
+			activeWorkspaceId: WORKSPACE_ID,
+			activeQueueCount: 1,
+			totalQueueCount: 1,
+			orphanedWorkspaceCount: 0,
+			blockedCount: 1,
+			deadLetterCount: 1,
+			workspaces: [
+				{
+					workspaceId: WORKSPACE_ID,
+					active: true,
+					mutations: [
+						{
+							mutationId: persistedMutation.mutationId,
+							workspaceId: WORKSPACE_ID,
+							expectedRevision: 0,
+							createdAt: T1,
+							kind: persistedMutation.kind,
+							payloadBytes: 1_024,
+						},
+					],
+					retry: {
+						attempt: 3,
+						nextAttemptAt: 1_780_000_000_000,
+						lastErrorCode: "rate_limit",
+					},
+					blocked,
+					deadLetters: [deadLetter],
+				},
+			],
+		};
+		Object.defineProperties(record, {
+			authToken: {
+				get() {
+					sensitiveReads += 1;
+					return canaries.auth;
+				},
+			},
+			quarantinePayloads: {
+				get() {
+					sensitiveReads += 1;
+					return { "quarantine-one": canaries.quarantine };
+				},
+			},
+		});
+		const persistence = {
+			read: async () => record,
+			inspectQueues: async () => inspection,
+			readQuarantinePayloadForRepair: async () => {
+				sensitiveReads += 1;
+				return canaries.quarantine;
+			},
+		} as unknown as BrowserWorkspacePersistence;
+
+		const output = await exportWorkspaceDiagnosticsFromPersistence(
+			persistence,
+			() => new Date(T1),
+		);
+		const parsed = JSON.parse(output);
+
+		expect(sensitiveReads).toBe(0);
+		expect(parsed.counts.nodes).toBe(1);
+		expect(parsed.counts.activeQueue).toBe(1);
+		expect(parsed.counts.totalQueue).toBe(1);
+		expect(parsed.counts.blockedMutations).toBe(1);
+		expect(parsed.counts.deadLetters).toBe(1);
+		expect(parsed.retry).toEqual({
+			attempt: 3,
+			nextAttemptAt: 1_780_000_000_000,
+			retryAfterMs: null,
+			lastErrorCode: "rate_limit",
+		});
+		expect(parsed.errors).toEqual([
+			{ code: "entity_exists", disposition: "domain-conflict" },
+			{ code: "server_error", disposition: "permanent-upstream" },
+		]);
+		expect(parsed.quarantines).toEqual([
+			{ key: "quarantine-one", bytes: 512, createdAt: T1 },
+		]);
+		expect(parsed.mutations[0].mutationId).toBe(persistedMutation.mutationId);
+		expect(parsed.mutations[0].payloadBytes).toBeGreaterThan(0);
+		expect(/^[0-9a-f]{64}$/.test(parsed.mutations[0].payloadSha256)).toBe(true);
+		for (const canary of Object.values(canaries)) {
+			expect(output).not.toContain(canary);
+		}
+		expect(output).not.toContain("message");
+		expect(output).not.toContain("stack");
+		expect(output).not.toContain("quarantinePayloads");
 	});
 });
