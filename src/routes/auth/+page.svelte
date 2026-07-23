@@ -34,7 +34,12 @@ import { requestConfirm } from "$lib/stores/confirm";
 import { showToast } from "$lib/stores/toast";
 import { decideManualPush, mergeSyncStateFromBaseline } from "$lib/sync-guard";
 import { cn } from "$lib/utils/cn";
-import { ensureWorkspaceBootstrapGist, WORKSPACE_FILE } from "$lib/workspace";
+import {
+	discoverWorkspaceGist,
+	ensureWorkspaceBootstrapGist,
+	WORKSPACE_FILE,
+	type WorkspaceCandidate,
+} from "$lib/workspace";
 import {
 	type BrowserWorkspaceSnapshot,
 	persistBrowserWorkspaceSnapshot,
@@ -58,12 +63,19 @@ import { clearLegacyWorkspaceSyncState } from "$lib/workspace-v1-cleanup";
 import {
 	createWorkspaceV2LocalState,
 	hydrateAppStateFromWorkspaceDocument,
+	type WorkspaceV2LocalState,
 	WorkspaceV2StateStore,
 } from "$lib/workspace-v2-state";
 
 let tokenInput = "";
 let payload = "";
 let workspaceBusy = false;
+let workspaceCandidates: WorkspaceCandidate[] = [];
+let pendingConnection: {
+	token: string;
+	previousState: AppState;
+	previousBinding: WorkspaceV2LocalState | null;
+} | null = null;
 
 // Conflict State
 let conflict: {
@@ -195,106 +207,177 @@ function setStatus(
 	showToast(message, type);
 }
 
+function connectionErrorMessage(error: unknown): string {
+	const message = error instanceof Error ? error.message : "";
+	if (message.includes("migration_backup_conflict")) {
+		return $t(
+			"The immutable V1 migration backup does not match subman.json. Restore the matching backup before retrying.",
+		);
+	}
+	if (message.includes("invalid_bootstrap_marker")) {
+		return $t(
+			"The Workspace bootstrap marker is invalid. Repair or remove it in GitHub before resuming.",
+		);
+	}
+	return message || $t("Connection failed");
+}
+
+function candidateKindLabel(kind: WorkspaceCandidate["kind"]): string {
+	switch (kind) {
+		case "materialized-v2":
+			return $t("Workspace V2");
+		case "legacy-v1":
+			return $t("Legacy V1");
+		case "bootstrap-incomplete":
+			return $t("Initialization incomplete");
+		case "invalid":
+			return $t("Invalid Workspace");
+	}
+}
+
+function candidateUpdatedAt(candidate: WorkspaceCandidate): string {
+	return new Intl.DateTimeFormat(undefined, {
+		year: "numeric",
+		month: "short",
+		day: "numeric",
+		hour: "2-digit",
+		minute: "2-digit",
+	}).format(new Date(candidate.gist.updatedAt));
+}
+
+async function completeWorkspaceConnection(
+	token: string,
+	gist: WorkspaceCandidate["gist"],
+	created: boolean,
+	previousBinding: WorkspaceV2LocalState | null,
+) {
+	const stateStore = new WorkspaceV2StateStore();
+	const localSignature = getSyncStateSignature($appState);
+	const snapshot = await readBrowserWorkspaceSnapshot(token, gist, $appState);
+
+	if (created || snapshot.origin === "bootstrap") {
+		await reconcileSnapshot(
+			token,
+			gist.id,
+			snapshot.document,
+			$appState,
+			"automatic",
+		);
+		clearLegacyWorkspaceSyncState();
+		setToken(token);
+		setStatus($t("Workspace created and connected"), "success");
+		tokenInput = "";
+		workspaceCandidates = [];
+		pendingConnection = null;
+		return;
+	}
+
+	const remoteState = snapshot.state;
+	const remoteSignature = getSyncStateSignature(remoteState);
+
+	if (remoteSignature === localSignature) {
+		if (snapshot.origin === "v2") {
+			persistSnapshot(snapshot, gist.id, "automatic");
+		} else {
+			await reconcileSnapshot(
+				token,
+				gist.id,
+				snapshot.document,
+				remoteState,
+				"automatic",
+			);
+		}
+		clearLegacyWorkspaceSyncState();
+		setToken(token);
+		setStatus($t("Workspace connected (In Sync)"), "success");
+		tokenInput = "";
+	} else {
+		conflict = {
+			gistId: gist.id,
+			remoteDocument: snapshot.document,
+			remoteState,
+			remoteSignature,
+			localSignature,
+		};
+		const paused = createWorkspaceV2LocalState(gist.id, {
+			baseline: snapshot.document,
+			conflictBaseline:
+				previousBinding?.workspaceId === `gist:${gist.id}`
+					? (previousBinding.conflictBaseline ?? previousBinding.baseline)
+					: null,
+			syncMode: "paused-conflict",
+		});
+		stateStore.write(paused);
+		appState.set(withWorkspaceBinding($appState, paused));
+		clearLegacyWorkspaceSyncState();
+		setToken(token);
+		setStatus($t("Sync conflict detected"), "info");
+	}
+	workspaceCandidates = [];
+	pendingConnection = null;
+}
+
+async function connectCandidate(candidate: WorkspaceCandidate) {
+	if (!pendingConnection || candidate.kind === "invalid") return;
+	workspaceBusy = true;
+	conflict = null;
+	manualPushReview = null;
+	const attempt = pendingConnection;
+	try {
+		await completeWorkspaceConnection(
+			attempt.token,
+			candidate.gist,
+			false,
+			attempt.previousBinding,
+		);
+	} catch (error) {
+		const stateStore = new WorkspaceV2StateStore();
+		if (attempt.previousBinding) stateStore.write(attempt.previousBinding);
+		else stateStore.clear();
+		appState.set(attempt.previousState);
+		setStatus(connectionErrorMessage(error), "error");
+	} finally {
+		workspaceBusy = false;
+	}
+}
+
 async function handleTokenSave() {
 	const token = tokenInput.trim();
 	if (!token) return;
 	workspaceBusy = true;
 	conflict = null;
 	manualPushReview = null;
+	workspaceCandidates = [];
+	pendingConnection = null;
 	const previousState = $appState;
 	const stateStore = new WorkspaceV2StateStore();
 	const previousBinding = stateStore.read();
 	try {
-		const localSignature = getSyncStateSignature($appState);
-		let savedGistId = $appState.activeGistId;
-		try {
-			savedGistId = new WorkspaceV2StateStore().read()?.gistId ?? savedGistId;
-		} catch {
-			// Discovery can recover a workspace even when local V2 metadata is corrupt.
-		}
-		const { gist, created } = await ensureWorkspaceBootstrapGist(token, {
-			activeGistId: savedGistId,
-		});
-		const snapshot = await readBrowserWorkspaceSnapshot(token, gist, $appState);
-
-		if (created || snapshot.origin === "bootstrap") {
-			await reconcileSnapshot(
-				token,
-				gist.id,
-				snapshot.document,
-				$appState,
-				"automatic",
-			);
-			clearLegacyWorkspaceSyncState();
-			setToken(token);
-			setStatus($t("Workspace created and connected"), "success");
-			tokenInput = "";
+		const savedGistId = previousBinding?.gistId ?? $appState.activeGistId;
+		const discovery = await discoverWorkspaceGist(token, savedGistId);
+		if (discovery.status === "chooser") {
+			workspaceCandidates = discovery.candidates;
+			pendingConnection = { token, previousState, previousBinding };
+			setStatus($t("Choose a Workspace to continue."), "info");
 			return;
 		}
-
-		const remoteState = snapshot.state;
-		const remoteSignature = getSyncStateSignature(remoteState);
-
-		if (remoteSignature === localSignature) {
-			if (snapshot.origin === "v2") {
-				persistSnapshot(snapshot, gist.id, "automatic");
-			} else {
-				await reconcileSnapshot(
-					token,
-					gist.id,
-					snapshot.document,
-					remoteState,
-					"automatic",
-				);
-			}
-			clearLegacyWorkspaceSyncState();
-			setToken(token);
-			setStatus($t("Workspace connected (In Sync)"), "success");
-			tokenInput = "";
-		} else {
-			// Conflict!
-			conflict = {
-				gistId: gist.id,
-				remoteDocument: snapshot.document,
-				remoteState,
-				remoteSignature,
-				localSignature,
-			};
-			stateStore.write(
-				createWorkspaceV2LocalState(gist.id, {
-					baseline: snapshot.document,
-					conflictBaseline:
-						previousBinding?.workspaceId === `gist:${gist.id}`
-							? (previousBinding.conflictBaseline ?? previousBinding.baseline)
-							: null,
-					syncMode: "paused-conflict",
-				}),
-			);
-			appState.set(
-				withWorkspaceBinding(
-					$appState,
-					createWorkspaceV2LocalState(gist.id, {
-						baseline: snapshot.document,
-						conflictBaseline:
-							previousBinding?.workspaceId === `gist:${gist.id}`
-								? (previousBinding.conflictBaseline ?? previousBinding.baseline)
-								: null,
-						syncMode: "paused-conflict",
-					}),
-				),
-			);
-			clearLegacyWorkspaceSyncState();
-			setToken(token);
-			setStatus($t("Sync conflict detected"), "info");
-		}
-	} catch (err) {
+		const ensured =
+			discovery.status === "found"
+				? { gist: discovery.gist, created: false }
+				: await ensureWorkspaceBootstrapGist(token, {
+						activeGistId: savedGistId,
+					});
+		await completeWorkspaceConnection(
+			token,
+			ensured.gist,
+			ensured.created,
+			previousBinding,
+		);
+	} catch (error) {
 		if (previousBinding) stateStore.write(previousBinding);
 		else stateStore.clear();
 		appState.set(previousState);
-		setStatus(
-			err instanceof Error ? err.message : $t("Connection failed"),
-			"error",
-		);
+		setStatus(connectionErrorMessage(error), "error");
 	} finally {
 		workspaceBusy = false;
 	}
@@ -796,6 +879,48 @@ function handleImport() {
 					</button>
 				</div>
 			</div>
+		</section>
+	{/if}
+
+	{#if workspaceCandidates.length > 0}
+		<section class="gh-section" transition:slide>
+			<div class="gh-section-header">
+				<div>
+					<h2 class="gh-section-title"><Octicon icon={database} className="h-5 w-5" />{$t("Choose Workspace")}</h2>
+					<p class="gh-section-description">{$t("Multiple Workspace candidates were found. Select the one this device should use.")}</p>
+				</div>
+			</div>
+			<div class="divide-y divide-border-muted">
+				{#each workspaceCandidates as candidate}
+					<div class="flex flex-col gap-3 p-4 lg:flex-row lg:items-center lg:justify-between">
+						<div class="min-w-0 space-y-2">
+							<div class="flex flex-wrap items-center gap-2">
+								<code class="text-xs font-semibold">{candidate.gist.id}</code>
+								<span class={cn("gh-label", candidate.kind === "invalid" ? "gh-label-danger" : "gh-label-muted")}>{candidateKindLabel(candidate.kind)}</span>
+								{#if candidate.currentBinding}<span class="gh-label badge-success">{$t("Current binding")}</span>{/if}
+							</div>
+							<p class="text-xs text-fg-muted">{$t("Updated {time}", { time: candidateUpdatedAt(candidate) })}</p>
+							<p class="break-words text-xs text-fg-subtle">{$t("Files")}: {candidate.gist.files.map((file) => file.filename).join(", ") || $t("None")}</p>
+							{#if candidate.reason === "invalid_bootstrap_marker"}
+								<p class="text-xs text-[color:var(--danger-fg)]">{$t("The Workspace bootstrap marker is invalid.")}</p>
+							{:else if candidate.reason === "invalid_workspace_document"}
+								<p class="text-xs text-[color:var(--danger-fg)]">{$t("The Workspace configuration is invalid.")}</p>
+							{:else if candidate.reason === "bootstrap_has_extra_files"}
+								<p class="text-xs text-[color:var(--danger-fg)]">{$t("Bootstrap initialization requires the marker to be the only file.")}</p>
+							{/if}
+						</div>
+						<div class="gh-btn-group shrink-0">
+							<a class="gh-btn gh-btn-sm" href={candidate.gist.url} target="_blank"><Octicon icon={linkExternal} className="h-3.5 w-3.5" />{$t(candidate.kind === "bootstrap-incomplete" ? "Review cleanup" : "Open")}</a>
+							{#if candidate.kind !== "invalid"}
+								<button type="button" class="gh-btn gh-btn-primary gh-btn-sm" on:click={() => connectCandidate(candidate)} disabled={workspaceBusy}>
+									{candidate.kind === "bootstrap-incomplete" ? $t("Resume") : $t("Select")}
+								</button>
+							{/if}
+						</div>
+					</div>
+				{/each}
+			</div>
+			<div class="gh-section-footer text-xs text-fg-muted">{$t("SubMan never deletes an entire Gist automatically. Review unused bootstrap Gists in GitHub before removing them.")}</div>
 		</section>
 	{/if}
 

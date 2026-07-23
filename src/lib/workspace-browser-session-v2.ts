@@ -29,6 +29,18 @@ export type BrowserWorkspaceSnapshot = {
 	state: AppState;
 };
 
+function deliveryFailure(
+	prefix: string,
+	result: Exclude<
+		Awaited<ReturnType<typeof deliverQueuedWorkspaceMutation>>,
+		{ status: "committed" }
+	>,
+): Error {
+	return new Error(
+		`${prefix}: ${result.status}${"code" in result && result.code ? ` (${result.code})` : ""}`,
+	);
+}
+
 function emptyDocument(gistId: string, now: string): WorkspaceDocumentV2 {
 	return validateWorkspaceDocumentV2({
 		version: 2,
@@ -164,7 +176,7 @@ export async function reconcileBrowserWorkspace(
 				{ allowManual: true },
 			);
 			if (result.status !== "committed") {
-				throw new Error(`Pending Workspace delivery failed: ${result.status}`);
+				throw deliveryFailure("Pending Workspace delivery failed", result);
 			}
 			pending = dependencies.queue.list(workspaceId);
 		}
@@ -240,7 +252,7 @@ export async function reconcileBrowserWorkspace(
 			{ allowManual: true },
 		);
 		if (result.status !== "committed") {
-			throw new Error(`Workspace reconciliation failed: ${result.status}`);
+			throw deliveryFailure("Workspace reconciliation failed", result);
 		}
 	}
 	const committed = dependencies.stateStore.read();
@@ -312,7 +324,7 @@ export async function submitBrowserWorkspaceMutation(
 			{ allowManual: true },
 		);
 		if (result.status !== "committed") {
-			throw new Error(`Workspace mutation failed: ${result.status}`);
+			throw deliveryFailure("Workspace mutation failed", result);
 		}
 	}
 	return dependencies.getState();
@@ -350,7 +362,7 @@ export async function commitQueuedBrowserWorkspaceMutation(
 			{ allowManual: true },
 		);
 		if (result.status !== "committed") {
-			throw new Error(`Workspace mutation failed: ${result.status}`);
+			throw deliveryFailure("Workspace mutation failed", result);
 		}
 	}
 	return dependencies.getState();

@@ -36,6 +36,7 @@ const MUTATION_KINDS = new Set<WorkspaceMutation["kind"]>([
 	"aggregate.publish",
 	"client-export.publish",
 	"output.delete",
+	"workspace.bootstrap.cleanup",
 	"workspace.reconcile",
 ]);
 
@@ -63,7 +64,8 @@ export type WorkspaceMutationConflict = {
 };
 
 export type WorkspaceMutationDeliveryResult =
-	| { status: "empty" | "blocked" | "committed" | "conflict" }
+	| { status: "empty" | "blocked" | "committed" }
+	| { status: "conflict"; code?: string }
 	| {
 			status: "retryable-error" | "permanent-error";
 			statusCode?: number;
@@ -467,7 +469,7 @@ export async function deliverNextWorkspaceMutation(
 						options.workspaceId,
 					);
 					await options.onConflict?.(conflict);
-					return { status: "conflict" };
+					return { status: "conflict", code: conflict.code };
 				} catch {
 					return { status: "retryable-error", statusCode: response.status };
 				}

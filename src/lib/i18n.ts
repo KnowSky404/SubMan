@@ -791,6 +791,52 @@ const zhCN: Record<string, string> = {
 		"目标配置在上次发布后已更改。请重新发布以刷新输出和稳定链接。",
 	"Push local Workspace changes before publishing":
 		"发布前请先推送本地工作区更改",
+	"Choose a Workspace to continue.": "请选择一个工作区以继续。",
+	"The immutable V1 migration backup does not match subman.json. Restore the matching backup before retrying.":
+		"不可变的 V1 迁移备份与 subman.json 不匹配。请恢复匹配的备份后重试。",
+	"The Workspace bootstrap marker is invalid. Repair or remove it in GitHub before resuming.":
+		"工作区 Bootstrap 标记无效。请先在 GitHub 中修复或移除它，再继续初始化。",
+	"Workspace V2": "工作区 V2",
+	"Legacy V1": "旧版 V1",
+	"Initialization incomplete": "初始化未完成",
+	"Invalid Workspace": "无效工作区",
+	"Current binding": "当前绑定",
+	"The Workspace bootstrap marker is invalid.": "工作区 Bootstrap 标记无效。",
+	"The Workspace configuration is invalid.": "工作区配置无效。",
+	"Choose Workspace": "选择工作区",
+	"Multiple Workspace candidates were found. Select the one this device should use.":
+		"发现多个工作区候选项。请选择此设备要使用的工作区。",
+	"Review cleanup": "检查并清理",
+	Resume: "继续初始化",
+	Select: "选择",
+	"SubMan never deletes an entire Gist automatically. Review unused bootstrap Gists in GitHub before removing them.":
+		"SubMan 不会自动删除整个 Gist。请先在 GitHub 中检查未使用的 Bootstrap Gist，再手动移除。",
+	"Workspace Config": "工作区配置",
+	"V1 Migration Backup": "V1 迁移备份",
+	"Bootstrap Marker": "Bootstrap 标记",
+	"External File": "外部文件",
+	"Clean Up Bootstrap Marker": "清理 Bootstrap 标记",
+	"Remove the stale bootstrap marker? Workspace config and the immutable V1 backup will be preserved.":
+		"是否移除过期的 Bootstrap 标记？工作区配置和不可变的 V1 备份会保留。",
+	"Remove Stale Marker": "移除过期标记",
+	"Stale bootstrap marker removed": "已移除过期的 Bootstrap 标记",
+	"Bootstrap cleanup failed": "Bootstrap 清理失败",
+	"Stale marker": "过期标记",
+	"The Workspace is valid, but its bootstrap marker was not removed.":
+		"工作区有效，但 Bootstrap 标记尚未移除。",
+	"Resume setup to create the Workspace configuration atomically.":
+		"继续设置以原子方式创建工作区配置。",
+	"Clean Up": "清理",
+	"Resume Workspace Initialization": "继续工作区初始化",
+	"Create subman.json from the current local business data and remove the bootstrap marker?":
+		"是否根据当前本地业务数据创建 subman.json，并移除 Bootstrap 标记？",
+	"Workspace initialization completed": "工作区初始化已完成",
+	"Workspace initialization failed": "工作区初始化失败",
+	"Invalid bootstrap workspace": "无效的 Bootstrap 工作区",
+	"Bootstrap initialization requires the marker to be the only file.":
+		"Bootstrap 初始化要求该标记是 Gist 中唯一的文件。",
+	"Workspace identity requires repair before this action.":
+		"执行此操作前需要先修复工作区身份。",
 	"domestic, gaming...": "国内, 游戏...",
 	"{file} is protected.": "{file} 受保护。",
 };

@@ -1,6 +1,7 @@
 import type { GistMeta } from "$lib/models";
 import {
 	getWorkspaceContentSignature,
+	isValidWorkspaceBootstrapMarker,
 	migrateWorkspaceDocumentV1ToV2,
 	parseWorkspaceDocument,
 	serializeWorkspaceDocumentV2,
@@ -124,6 +125,7 @@ const MUTATION_KINDS = new Set<WorkspaceMutation["kind"]>([
 	"aggregate.publish",
 	"client-export.publish",
 	"output.delete",
+	"workspace.bootstrap.cleanup",
 	"workspace.reconcile",
 ]);
 
@@ -136,6 +138,7 @@ export type WorkspaceCoordinatorErrorCode =
 	| WorkspaceMutationErrorCode
 	| "workspace_not_found"
 	| "workspace_mismatch"
+	| "invalid_bootstrap_marker"
 	| "migration_backup_conflict"
 	| "mutation_id_reused"
 	| "mutation_recovery_failed"
@@ -251,6 +254,17 @@ async function loadWorkspace(
 		);
 	}
 	const baseDocumentHash = await getReservedStateHash(snapshot);
+	if (
+		hasGistFile(snapshot, WORKSPACE_BOOTSTRAP_FILE_NAME) &&
+		!isValidWorkspaceBootstrapMarker(
+			requireGistContent(snapshot, WORKSPACE_BOOTSTRAP_FILE_NAME),
+		)
+	) {
+		coordinatorError(
+			"invalid_bootstrap_marker",
+			"Workspace bootstrap marker is invalid",
+		);
+	}
 	if (!hasGistFile(snapshot, WORKSPACE_FILE_NAME)) {
 		if (!hasGistFile(snapshot, WORKSPACE_BOOTSTRAP_FILE_NAME)) {
 			coordinatorError(
@@ -273,7 +287,9 @@ async function loadWorkspace(
 		return {
 			document: parsed.document,
 			baseDocumentHash,
-			reservedFiles: {},
+			reservedFiles: hasGistFile(snapshot, WORKSPACE_BOOTSTRAP_FILE_NAME)
+				? { [WORKSPACE_BOOTSTRAP_FILE_NAME]: null }
+				: {},
 		};
 	}
 
@@ -292,9 +308,14 @@ async function loadWorkspace(
 	return {
 		document: migrated.document,
 		baseDocumentHash,
-		reservedFiles: hasGistFile(snapshot, WORKSPACE_V1_BACKUP_FILE_NAME)
-			? {}
-			: { [WORKSPACE_V1_BACKUP_FILE_NAME]: { content: raw } },
+		reservedFiles: {
+			...(hasGistFile(snapshot, WORKSPACE_V1_BACKUP_FILE_NAME)
+				? {}
+				: { [WORKSPACE_V1_BACKUP_FILE_NAME]: { content: raw } }),
+			...(hasGistFile(snapshot, WORKSPACE_BOOTSTRAP_FILE_NAME)
+				? { [WORKSPACE_BOOTSTRAP_FILE_NAME]: null }
+				: {}),
+		},
 	};
 }
 
@@ -585,6 +606,15 @@ export class WorkspaceCoordinatorCore {
 
 		const committedAt = pending?.committedAt ?? this.now();
 		const loaded = await loadWorkspace(snapshot, input.gistId, committedAt);
+		if (
+			mutation.kind === "workspace.bootstrap.cleanup" &&
+			!hasGistFile(snapshot, WORKSPACE_FILE_NAME)
+		) {
+			coordinatorError(
+				"workspace_not_found",
+				"A materialized Workspace is required before bootstrap cleanup",
+			);
+		}
 		if (
 			loaded.document.lastMutationId &&
 			!this.options.journal.getProcessed(loaded.document.lastMutationId)

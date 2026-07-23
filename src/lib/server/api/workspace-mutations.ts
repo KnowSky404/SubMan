@@ -45,6 +45,7 @@ export function getWorkspaceCoordinatorErrorStatus(
 	switch (code) {
 		case "invalid_mutation":
 		case "invalid_workspace_document":
+		case "invalid_bootstrap_marker":
 			return 400;
 		case "workspace_not_found":
 		case "entity_not_found":

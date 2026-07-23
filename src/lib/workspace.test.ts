@@ -1,8 +1,10 @@
 import * as bunTest from "bun:test";
 import type { GistMeta } from "$lib/models";
 import {
+	createWorkspaceBootstrapContent,
 	discoverWorkspaceGist,
 	ensureWorkspaceBootstrapGist,
+	isValidWorkspaceBootstrapMarker,
 	type WorkspaceGistApi,
 } from "$lib/workspace";
 import {
@@ -85,7 +87,15 @@ describe("workspace discovery", () => {
 			api: api({ listGists }),
 		});
 
-		expect(result).toEqual({ status: "found", gist: gist("saved") });
+		expect(result).toEqual({
+			status: "found",
+			gist: gist("saved"),
+			candidate: {
+				gist: gist("saved"),
+				kind: "legacy-v1",
+				currentBinding: true,
+			},
+		});
 		expect(listGists.mock.calls).toHaveLength(0);
 	});
 
@@ -105,10 +115,13 @@ describe("workspace discovery", () => {
 			}),
 		});
 
-		expect(result).toEqual({ status: "found", gist: gist("valid") });
+		expect(result.status).toBe("found");
+		expect(result.status === "found" && result.candidate.kind).toBe(
+			"legacy-v1",
+		);
 	});
 
-	it("recognizes valid V2 documents and bootstrap markers", async () => {
+	it("selects one materialized workspace without bootstrap ambiguity", async () => {
 		const bootstrap = gist("bootstrap", "SubMan-Data", "subman.bootstrap.json");
 		const v2 = gist("v2");
 		const result = await discoverWorkspaceGist("token", null, {
@@ -125,21 +138,142 @@ describe("workspace discovery", () => {
 			}),
 		});
 
-		expect(result).toEqual({
-			status: "ambiguous",
-			gists: [bootstrap, v2],
-		});
+		expect(result.status).toBe("found");
+		expect(result.status === "found" && result.gist.id).toBe("v2");
+		expect(result.status === "found" && result.candidate.kind).toBe(
+			"materialized-v2",
+		);
 	});
 
-	it("returns an explicit ambiguous result for multiple valid workspaces", async () => {
+	it("returns chooser candidates for multiple materialized workspaces", async () => {
 		const result = await discoverWorkspaceGist("token", null, {
 			api: api({ listGists: mock(async () => [gist("one"), gist("two")]) }),
 		});
 
-		expect(result).toEqual({
-			status: "ambiguous",
-			gists: [gist("one"), gist("two")],
+		expect(result.status).toBe("chooser");
+		expect(
+			result.status === "chooser"
+				? result.candidates.map((candidate) => candidate.kind)
+				: [],
+		).toEqual(["legacy-v1", "legacy-v1"]);
+	});
+
+	it("returns chooser data for multiple bootstrap-only workspaces", async () => {
+		const first = gist("bootstrap-1", "SubMan-Data", "subman.bootstrap.json");
+		const second = gist("bootstrap-2", "SubMan-Data", "subman.bootstrap.json");
+		const result = await discoverWorkspaceGist("token", null, {
+			api: api({
+				listGists: mock(async () => [first, second]),
+				getGistFileContent: mock(async () => JSON.stringify({ version: 1 })),
+			}),
 		});
+
+		expect(result.status).toBe("chooser");
+		expect(
+			result.status === "chooser"
+				? result.candidates.map((candidate) => candidate.kind)
+				: [],
+		).toEqual(["bootstrap-incomplete", "bootstrap-incomplete"]);
+	});
+
+	it("classifies an invalid bootstrap marker without selecting it", async () => {
+		const invalid = gist("invalid", "SubMan-Data", "subman.bootstrap.json");
+		const result = await discoverWorkspaceGist("token", null, {
+			api: api({
+				listGists: mock(async () => [invalid]),
+				getGistFileContent: mock(async () => JSON.stringify({ version: 2 })),
+			}),
+		});
+
+		expect(result).toEqual({
+			status: "chooser",
+			candidates: [
+				{
+					gist: invalid,
+					kind: "invalid",
+					currentBinding: false,
+					reason: "invalid_bootstrap_marker",
+				},
+			],
+		});
+	});
+
+	it("does not auto-resume a bootstrap marker with extra files", async () => {
+		const candidate = {
+			...gist("bootstrap-extra", "SubMan-Data", "subman.bootstrap.json"),
+			files: [
+				...gist("bootstrap-extra", "SubMan-Data", "subman.bootstrap.json")
+					.files,
+				{ filename: "notes.txt", language: "Text", size: 5 },
+			],
+		};
+		const result = await discoverWorkspaceGist("token", null, {
+			api: api({
+				listGists: mock(async () => [candidate]),
+				getGistFileContent: mock(async () => JSON.stringify({ version: 1 })),
+			}),
+		});
+
+		expect(result.status).toBe("chooser");
+		expect(
+			result.status === "chooser" ? result.candidates[0]?.reason : null,
+		).toBe("bootstrap_has_extra_files");
+	});
+
+	it("rejects an invalid stale marker beside valid V2 config", async () => {
+		const candidate = {
+			...gist("v2-with-marker"),
+			files: [
+				...gist("v2-with-marker").files,
+				{
+					filename: "subman.bootstrap.json",
+					language: "JSON",
+					size: 10,
+				},
+			],
+		};
+		const result = await discoverWorkspaceGist("token", null, {
+			api: api({
+				listGists: mock(async () => [candidate]),
+				getGistFileContent: mock(
+					async (_token: string, _gistId: string, fileName: string) =>
+						fileName === "subman.json"
+							? validV2Content.replace("gist:v2", "gist:v2-with-marker")
+							: JSON.stringify({ version: 2 }),
+				),
+			}),
+		});
+
+		expect(result.status).toBe("chooser");
+		expect(
+			result.status === "chooser" ? result.candidates[0]?.reason : null,
+		).toBe("invalid_bootstrap_marker");
+	});
+});
+
+describe("workspace bootstrap markers", () => {
+	it("accepts the legacy marker and the structured V2 marker", () => {
+		expect(
+			isValidWorkspaceBootstrapMarker(JSON.stringify({ version: 1 })),
+		).toBe(true);
+		expect(
+			isValidWorkspaceBootstrapMarker(
+				createWorkspaceBootstrapContent(
+					"2026-07-23T00:00:00.000Z",
+					"bootstrap-nonce",
+				),
+			),
+		).toBe(true);
+		expect(
+			isValidWorkspaceBootstrapMarker(
+				JSON.stringify({
+					kind: "subman-workspace-bootstrap",
+					bootstrapVersion: 2,
+					createdAt: "not-a-time",
+					nonce: "bootstrap-nonce",
+				}),
+			),
+		).toBe(false);
 	});
 });
 
@@ -160,6 +294,8 @@ describe("workspace creation", () => {
 
 		const result = await ensureWorkspaceBootstrapGist("token", {
 			api: workspaceApi,
+			now: () => "2026-07-23T00:00:00.000Z",
+			nonce: () => "bootstrap-nonce",
 		});
 
 		expect(result.created).toBe(true);
@@ -168,7 +304,10 @@ describe("workspace creation", () => {
 			isPublic: false,
 			files: {
 				"subman.bootstrap.json": {
-					content: JSON.stringify({ version: 1 }),
+					content: createWorkspaceBootstrapContent(
+						"2026-07-23T00:00:00.000Z",
+						"bootstrap-nonce",
+					),
 				},
 			},
 		});

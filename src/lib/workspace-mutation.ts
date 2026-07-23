@@ -116,6 +116,7 @@ export type WorkspaceMutation =
 			}
 	  >
 	| MutationBase<"output.delete", { fileName: string }>
+	| MutationBase<"workspace.bootstrap.cleanup", Record<string, never>>
 	| MutationBase<
 			"workspace.reconcile",
 			{ baselineRevision: number; data: WorkspaceData }
@@ -424,6 +425,7 @@ const MUTATION_KINDS = new Set<WorkspaceMutation["kind"]>([
 	"aggregate.publish",
 	"client-export.publish",
 	"output.delete",
+	"workspace.bootstrap.cleanup",
 	"workspace.reconcile",
 ]);
 
@@ -592,6 +594,11 @@ export function parseWorkspaceMutation(inputValue: unknown): WorkspaceMutation {
 					),
 				},
 			};
+		}
+		case "workspace.bootstrap.cleanup": {
+			const payload = record(input.payload, "payload");
+			exactKeys(payload, "payload", []);
+			return { ...base, kind, payload: {} };
 		}
 		case "workspace.reconcile": {
 			const payload = record(input.payload, "payload");
@@ -1388,6 +1395,10 @@ export function applyWorkspaceMutation(
 				),
 			};
 			files = { [fileName]: null };
+			receipt = { kind: mutation.kind, deleted: true };
+			break;
+		}
+		case "workspace.bootstrap.cleanup": {
 			receipt = { kind: mutation.kind, deleted: true };
 			break;
 		}

@@ -200,6 +200,7 @@ describe("Workspace mutation parsing", () => {
 				},
 			],
 			["output.delete", { fileName: "aggregate.txt" }],
+			["workspace.bootstrap.cleanup", {}],
 			["workspace.reconcile", { baselineRevision: 0, data: data() }],
 		];
 

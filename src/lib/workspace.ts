@@ -2,12 +2,18 @@ import { createGist, getGist, getGistFileContent, listGists } from "$lib/gist";
 import type { GistMeta } from "$lib/models";
 import { WORKSPACE_DESCRIPTION, WORKSPACE_FILE } from "$lib/workspace-data";
 import {
+	createWorkspaceBootstrapContent,
+	isValidWorkspaceBootstrapMarker,
 	parseWorkspaceDocument,
 	WORKSPACE_BOOTSTRAP_FILE_NAME,
 } from "$lib/workspace-document";
 import { withWorkspaceLock } from "$lib/workspace-lock";
 
 export { WORKSPACE_DESCRIPTION, WORKSPACE_FILE } from "$lib/workspace-data";
+export {
+	createWorkspaceBootstrapContent,
+	isValidWorkspaceBootstrapMarker,
+} from "$lib/workspace-document";
 
 export type WorkspaceGistApi = {
 	createGist: typeof createGist;
@@ -17,9 +23,25 @@ export type WorkspaceGistApi = {
 };
 
 export type WorkspaceDiscovery =
-	| { status: "found"; gist: GistMeta }
-	| { status: "not-found" }
-	| { status: "ambiguous"; gists: GistMeta[] };
+	| { status: "found"; gist: GistMeta; candidate: WorkspaceCandidate }
+	| { status: "not-found"; candidates: WorkspaceCandidate[] }
+	| { status: "chooser"; candidates: WorkspaceCandidate[] };
+
+export type WorkspaceCandidateKind =
+	| "materialized-v2"
+	| "legacy-v1"
+	| "bootstrap-incomplete"
+	| "invalid";
+
+export type WorkspaceCandidate = {
+	gist: GistMeta;
+	kind: WorkspaceCandidateKind;
+	currentBinding: boolean;
+	reason?:
+		| "invalid_workspace_document"
+		| "invalid_bootstrap_marker"
+		| "bootstrap_has_extra_files";
+};
 
 const defaultApi: WorkspaceGistApi = {
 	createGist,
@@ -28,14 +50,12 @@ const defaultApi: WorkspaceGistApi = {
 	listGists,
 };
 
-export const WORKSPACE_BOOTSTRAP_CONTENT = JSON.stringify({ version: 1 });
-
 export class WorkspaceAmbiguousError extends Error {
 	readonly gists: GistMeta[];
 
 	constructor(gists: GistMeta[]) {
 		super(
-			`Multiple valid SubMan workspaces found: ${gists.map((gist) => gist.id).join(", ")}`,
+			`SubMan Workspace selection is required: ${gists.map((gist) => gist.id).join(", ")}`,
 		);
 		this.name = "WorkspaceAmbiguousError";
 		this.gists = gists;
@@ -58,48 +78,90 @@ function hasWorkspaceIdentity(gist: GistMeta): boolean {
 	);
 }
 
-function isValidBootstrapMarker(content: string): boolean {
-	try {
-		const marker = JSON.parse(content) as unknown;
-		return (
-			typeof marker === "object" &&
-			marker !== null &&
-			!Array.isArray(marker) &&
-			Object.keys(marker).length === 1 &&
-			(marker as { version?: unknown }).version === 1
-		);
-	} catch {
-		return false;
-	}
-}
-
-async function isValidWorkspace(
+export async function classifyWorkspaceCandidate(
 	token: string,
 	gist: GistMeta,
-	api: WorkspaceGistApi,
-): Promise<boolean> {
-	if (!hasWorkspaceIdentity(gist)) return false;
+	options: {
+		api?: WorkspaceGistApi;
+		activeGistId?: string | null;
+	} = {},
+): Promise<WorkspaceCandidate> {
+	const api = options.api ?? defaultApi;
+	const currentBinding = gist.id === (options.activeGistId ?? null);
+	if (!hasWorkspaceIdentity(gist)) {
+		return {
+			gist,
+			kind: "invalid",
+			currentBinding,
+			reason: "invalid_workspace_document",
+		};
+	}
 	if (hasFile(gist, WORKSPACE_FILE)) {
 		try {
-			parseWorkspaceDocument(
+			const parsed = parseWorkspaceDocument(
 				await api.getGistFileContent(token, gist.id, WORKSPACE_FILE),
 				{ expectedWorkspaceId: `gist:${gist.id}` },
 			);
-			return true;
+			if (hasFile(gist, WORKSPACE_BOOTSTRAP_FILE_NAME)) {
+				const marker = await api.getGistFileContent(
+					token,
+					gist.id,
+					WORKSPACE_BOOTSTRAP_FILE_NAME,
+				);
+				if (!isValidWorkspaceBootstrapMarker(marker)) {
+					return {
+						gist,
+						kind: "invalid",
+						currentBinding,
+						reason: "invalid_bootstrap_marker",
+					};
+				}
+			}
+			return {
+				gist,
+				kind: parsed.schemaVersion === 2 ? "materialized-v2" : "legacy-v1",
+				currentBinding,
+			};
 		} catch {
-			return false;
+			return {
+				gist,
+				kind: "invalid",
+				currentBinding,
+				reason: "invalid_workspace_document",
+			};
 		}
 	}
+	if (gist.files.length !== 1) {
+		return {
+			gist,
+			kind: "invalid",
+			currentBinding,
+			reason: "bootstrap_has_extra_files",
+		};
+	}
 	try {
-		return isValidBootstrapMarker(
+		const valid = isValidWorkspaceBootstrapMarker(
 			await api.getGistFileContent(
 				token,
 				gist.id,
 				WORKSPACE_BOOTSTRAP_FILE_NAME,
 			),
 		);
+		return valid
+			? { gist, kind: "bootstrap-incomplete", currentBinding }
+			: {
+					gist,
+					kind: "invalid",
+					currentBinding,
+					reason: "invalid_bootstrap_marker",
+				};
 	} catch {
-		return false;
+		return {
+			gist,
+			kind: "invalid",
+			currentBinding,
+			reason: "invalid_bootstrap_marker",
+		};
 	}
 }
 
@@ -113,8 +175,12 @@ export async function discoverWorkspaceGist(
 	if (activeGistId) {
 		try {
 			const saved = await api.getGist(token, activeGistId);
-			if (await isValidWorkspace(token, saved, api)) {
-				return { status: "found", gist: saved };
+			const candidate = await classifyWorkspaceCandidate(token, saved, {
+				api,
+				activeGistId,
+			});
+			if (candidate.kind !== "invalid") {
+				return { status: "found", gist: saved, candidate };
 			}
 		} catch {
 			// Fall through to a complete discovery when the saved identity is stale.
@@ -122,20 +188,36 @@ export async function discoverWorkspaceGist(
 	}
 
 	const candidates = (await api.listGists(token)).filter(hasWorkspaceIdentity);
-	const validation = await Promise.all(
-		candidates.map(async (gist) => ({
-			gist,
-			valid: await isValidWorkspace(token, gist, api),
-		})),
+	const classified = await Promise.all(
+		candidates.map((gist) =>
+			classifyWorkspaceCandidate(token, gist, { api, activeGistId }),
+		),
 	);
-	const valid = validation
-		.filter((item) => item.valid)
-		.map((item) => item.gist);
-
-	if (valid.length === 0) return { status: "not-found" };
-	if (valid.length === 1)
-		return { status: "found", gist: valid[0] as GistMeta };
-	return { status: "ambiguous", gists: valid };
+	const materialized = classified.filter(
+		(candidate) =>
+			candidate.kind === "materialized-v2" || candidate.kind === "legacy-v1",
+	);
+	if (materialized.length === 1) {
+		const candidate = materialized[0] as WorkspaceCandidate;
+		return { status: "found", gist: candidate.gist, candidate };
+	}
+	if (materialized.length > 1) {
+		return { status: "chooser", candidates: classified };
+	}
+	const bootstraps = classified.filter(
+		(candidate) => candidate.kind === "bootstrap-incomplete",
+	);
+	if (bootstraps.length === 1) {
+		const candidate = bootstraps[0] as WorkspaceCandidate;
+		return { status: "found", gist: candidate.gist, candidate };
+	}
+	if (bootstraps.length > 1) {
+		return { status: "chooser", candidates: classified };
+	}
+	if (classified.length > 0) {
+		return { status: "chooser", candidates: classified };
+	}
+	return { status: "not-found", candidates: classified };
 }
 
 export async function findWorkspaceGist(
@@ -143,21 +225,31 @@ export async function findWorkspaceGist(
 	activeGistId: string | null = null,
 ): Promise<GistMeta | null> {
 	const result = await discoverWorkspaceGist(token, activeGistId);
-	if (result.status === "ambiguous") {
-		throw new WorkspaceAmbiguousError(result.gists);
+	if (result.status === "chooser") {
+		throw new WorkspaceAmbiguousError(
+			result.candidates.map((candidate) => candidate.gist),
+		);
 	}
 	return result.status === "found" ? result.gist : null;
 }
 
 export async function ensureWorkspaceBootstrapGist(
 	token: string,
-	options: { activeGistId?: string | null; api?: WorkspaceGistApi } = {},
+	options: {
+		activeGistId?: string | null;
+		api?: WorkspaceGistApi;
+		now?: () => string;
+		nonce?: () => string;
+	} = {},
 ): Promise<{ gist: GistMeta; created: boolean }> {
 	return ensureWorkspaceWithFiles(
 		token,
 		{
 			[WORKSPACE_BOOTSTRAP_FILE_NAME]: {
-				content: WORKSPACE_BOOTSTRAP_CONTENT,
+				content: createWorkspaceBootstrapContent(
+					(options.now ?? (() => new Date().toISOString()))(),
+					options.nonce ? options.nonce() : crypto.randomUUID(),
+				),
 			},
 		},
 		options,
@@ -179,8 +271,10 @@ async function ensureWorkspaceWithFiles(
 		if (discovery.status === "found") {
 			return { gist: discovery.gist, created: false };
 		}
-		if (discovery.status === "ambiguous") {
-			throw new WorkspaceAmbiguousError(discovery.gists);
+		if (discovery.status === "chooser") {
+			throw new WorkspaceAmbiguousError(
+				discovery.candidates.map((candidate) => candidate.gist),
+			);
 		}
 
 		const gist = await api.createGist(token, {

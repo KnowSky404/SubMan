@@ -59,3 +59,14 @@ test("auth page blocks stale manual push behind a remote-change review", () => {
 	expect(authPageSource).toContain('$t("Force Push")');
 	expect(authPageSource).toContain("handleManualPushReview('merge')");
 });
+
+test("auth page presents structured Workspace chooser candidates", () => {
+	expect(authPageSource).toContain("discoverWorkspaceGist");
+	expect(authPageSource).toContain('discovery.status === "chooser"');
+	expect(authPageSource).toContain("workspaceCandidates");
+	expect(authPageSource).toContain('$t("Choose Workspace")');
+	expect(authPageSource).toContain("candidate.gist.updatedAt");
+	expect(authPageSource).toContain("candidate.gist.files.map");
+	expect(authPageSource).toContain("candidate.currentBinding");
+	expect(authPageSource).toContain('$t("Resume")');
+});

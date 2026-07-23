@@ -25,6 +25,50 @@ export const WORKSPACE_RESERVED_FILE_NAMES = new Set([
 	WORKSPACE_BOOTSTRAP_FILE_NAME,
 ]);
 
+export function createWorkspaceBootstrapContent(
+	createdAt = new Date().toISOString(),
+	nonce: string = crypto.randomUUID(),
+): string {
+	return JSON.stringify({
+		kind: "subman-workspace-bootstrap",
+		bootstrapVersion: 2,
+		createdAt,
+		nonce,
+	});
+}
+
+export function isValidWorkspaceBootstrapMarker(content: string): boolean {
+	try {
+		const marker = JSON.parse(content) as unknown;
+		if (
+			typeof marker !== "object" ||
+			marker === null ||
+			Array.isArray(marker)
+		) {
+			return false;
+		}
+		const value = marker as Record<string, unknown>;
+		if (Object.keys(value).length === 1 && value.version === 1) return true;
+		if (
+			Object.keys(value).length !== 4 ||
+			value.kind !== "subman-workspace-bootstrap" ||
+			value.bootstrapVersion !== 2 ||
+			typeof value.createdAt !== "string" ||
+			typeof value.nonce !== "string" ||
+			value.nonce.length === 0
+		) {
+			return false;
+		}
+		const parsedAt = new Date(value.createdAt);
+		return (
+			!Number.isNaN(parsedAt.getTime()) &&
+			parsedAt.toISOString() === value.createdAt
+		);
+	} catch {
+		return false;
+	}
+}
+
 const PROXY_TYPES = new Set<ProxyType>([
 	"vless",
 	"vmess",

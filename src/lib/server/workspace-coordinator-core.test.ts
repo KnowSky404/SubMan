@@ -21,6 +21,7 @@ import {
 	type WorkspaceGistSnapshot,
 } from "$lib/server/workspace-coordinator-core";
 import {
+	createWorkspaceBootstrapContent,
 	serializeWorkspaceDocumentV2,
 	type WorkspaceData,
 	type WorkspaceDocumentV2,
@@ -688,6 +689,219 @@ describe("Workspace coordinator migration and recovery", () => {
 		expect(JSON.parse(gateway.files["subman.json"] ?? "{}").schemaVersion).toBe(
 			2,
 		);
+	});
+
+	it("turns a structured V2 bootstrap marker into a V2 workspace", async () => {
+		const gateway = new MemoryGateway({
+			"subman.bootstrap.json": createWorkspaceBootstrapContent(
+				T0,
+				"bootstrap-nonce",
+			),
+		});
+		const { core } = coordinator(gateway);
+
+		await core.mutate({
+			githubToken: TOKEN,
+			gistId: GIST_ID,
+			mutation: mutation(
+				"30000000-0000-4000-8000-000000000004",
+				0,
+				"workspace.reconcile",
+				{ baselineRevision: 0, data: data() },
+			),
+		});
+
+		expect(gateway.files["subman.bootstrap.json"] ?? null).toBeNull();
+		expect(JSON.parse(gateway.files["subman.json"] ?? "{}").schemaVersion).toBe(
+			2,
+		);
+	});
+
+	it("rejects an invalid bootstrap marker before writing", async () => {
+		const gateway = new MemoryGateway({
+			"subman.bootstrap.json": JSON.stringify({ version: 2 }),
+		});
+		const { core } = coordinator(gateway);
+
+		await expectCode(
+			core.mutate({
+				githubToken: TOKEN,
+				gistId: GIST_ID,
+				mutation: mutation(
+					"30000000-0000-4000-8000-000000000005",
+					0,
+					"workspace.reconcile",
+					{ baselineRevision: 0, data: data() },
+				),
+			}),
+			"invalid_bootstrap_marker",
+		);
+		expect(gateway.patches).toHaveLength(0);
+	});
+
+	it("rejects an invalid stale marker beside valid config before writing", async () => {
+		const gateway = new MemoryGateway({
+			"subman.json": serializeWorkspaceDocumentV2(document()),
+			"subman.bootstrap.json": JSON.stringify({ version: 2 }),
+		});
+		const { core } = coordinator(gateway);
+
+		await expectCode(
+			core.mutate({
+				githubToken: TOKEN,
+				gistId: GIST_ID,
+				mutation: mutation(
+					"30000000-0000-4000-8000-000000000012",
+					1,
+					"workspace.bootstrap.cleanup",
+					{},
+				),
+			}),
+			"invalid_bootstrap_marker",
+		);
+		expect(gateway.patches).toHaveLength(0);
+	});
+
+	it("removes a stale bootstrap marker beside V2 config in the same write", async () => {
+		const gateway = new MemoryGateway({
+			"subman.json": serializeWorkspaceDocumentV2(document()),
+			"subman.bootstrap.json": JSON.stringify({ version: 1 }),
+		});
+		const { core } = coordinator(gateway);
+
+		const result = await core.mutate({
+			githubToken: TOKEN,
+			gistId: GIST_ID,
+			mutation: mutation(
+				"30000000-0000-4000-8000-000000000006",
+				1,
+				"workspace.bootstrap.cleanup",
+				{},
+			),
+		});
+
+		expect(result.document.data).toEqual(document().data);
+		expect(gateway.patches[0]?.["subman.bootstrap.json"]).toBeNull();
+		expect(gateway.files["subman.bootstrap.json"] ?? null).toBeNull();
+		expect(gateway.files["subman.v1.backup.json"] ?? null).toBeNull();
+	});
+
+	it("makes stale marker cleanup idempotent and enforces its revision", async () => {
+		const gateway = new MemoryGateway({
+			"subman.json": serializeWorkspaceDocumentV2(document()),
+			"subman.bootstrap.json": JSON.stringify({ version: 1 }),
+		});
+		gateway.patchFailure = "after";
+		const { core } = coordinator(gateway);
+		const input = {
+			githubToken: TOKEN,
+			gistId: GIST_ID,
+			mutation: mutation(
+				"30000000-0000-4000-8000-000000000009",
+				1,
+				"workspace.bootstrap.cleanup",
+				{},
+			),
+		};
+
+		const committed = await core.mutate(input);
+		expect(committed.status).toBe("committed");
+		const retried = await core.mutate(input);
+		expect(retried.status).toBe("already-committed");
+		await expectCode(
+			core.mutate({
+				...input,
+				mutation: mutation(
+					"30000000-0000-4000-8000-000000000010",
+					1,
+					"workspace.bootstrap.cleanup",
+					{},
+				),
+			}),
+			"revision_conflict",
+		);
+		expect(gateway.patches).toHaveLength(1);
+	});
+
+	it("recovers stale marker cleanup after a coordinator restart", async () => {
+		const gateway = new MemoryGateway({
+			"subman.json": serializeWorkspaceDocumentV2(document()),
+			"subman.bootstrap.json": JSON.stringify({ version: 1 }),
+		});
+		const journal = new MemoryJournal();
+		journal.failNextCommit = true;
+		const input = {
+			githubToken: TOKEN,
+			gistId: GIST_ID,
+			mutation: mutation(
+				"30000000-0000-4000-8000-000000000011",
+				1,
+				"workspace.bootstrap.cleanup",
+				{},
+			),
+		};
+		await expectCode(
+			new WorkspaceCoordinatorCore({ gateway, journal, now: () => T1 }).mutate(
+				input,
+			),
+			"commit_index_failed",
+		);
+
+		const recovered = await new WorkspaceCoordinatorCore({
+			gateway,
+			journal,
+			now: () => T2,
+		}).mutate(input);
+		expect(recovered.status).toBe("already-committed");
+		expect(gateway.patches).toHaveLength(1);
+		expect(gateway.files["subman.bootstrap.json"] ?? null).toBeNull();
+	});
+
+	it("removes a stale marker during V1 migration without replacing its backup", async () => {
+		const v1 = JSON.stringify({ version: 1, data: data() });
+		const gateway = new MemoryGateway({
+			"subman.json": v1,
+			"subman.v1.backup.json": v1,
+			"subman.bootstrap.json": JSON.stringify({ version: 1 }),
+		});
+		const { core } = coordinator(gateway);
+
+		await core.mutate({
+			githubToken: TOKEN,
+			gistId: GIST_ID,
+			mutation: mutation(
+				"30000000-0000-4000-8000-000000000007",
+				0,
+				"workspace.reconcile",
+				{ baselineRevision: 0, data: data() },
+			),
+		});
+
+		expect(gateway.files["subman.bootstrap.json"] ?? null).toBeNull();
+		expect(gateway.files["subman.v1.backup.json"]).toBe(v1);
+		expect(gateway.patches[0]?.["subman.v1.backup.json"]).toBe(undefined);
+	});
+
+	it("does not treat cleanup as bootstrap initialization", async () => {
+		const gateway = new MemoryGateway({
+			"subman.bootstrap.json": JSON.stringify({ version: 1 }),
+		});
+		const { core } = coordinator(gateway);
+
+		await expectCode(
+			core.mutate({
+				githubToken: TOKEN,
+				gistId: GIST_ID,
+				mutation: mutation(
+					"30000000-0000-4000-8000-000000000008",
+					0,
+					"workspace.bootstrap.cleanup",
+					{},
+				),
+			}),
+			"workspace_not_found",
+		);
+		expect(gateway.patches).toHaveLength(0);
 	});
 
 	it("recovers a committed pending mutation after a restart", async () => {
