@@ -234,6 +234,7 @@ export interface BrowserWorkspacePersistence {
 		metadata: WorkspaceBlockedMutationMetadata,
 		fence: WorkspaceLeaseFence,
 	): Promise<void>;
+	resumeWorkspaceAfterAuth(workspaceId: string): Promise<boolean>;
 	inspectQueues(
 		activeWorkspaceId?: string | null,
 	): Promise<WorkspaceQueueInspection>;
@@ -1768,6 +1769,21 @@ export class TransactionalWorkspacePersistence
 			}
 			queue.delivery.blocked = blocked;
 			queue.delivery.retry = defaultRetry();
+		});
+	}
+
+	async resumeWorkspaceAfterAuth(workspaceId: string): Promise<boolean> {
+		workspaceId = canonicalWorkspaceId(workspaceId, "workspaceId");
+		return this.backend.transact((draft) => {
+			if (draft.binding?.workspaceId !== workspaceId) return false;
+			const queue = draft.workspaces[workspaceId];
+			if (queue?.delivery.blocked?.disposition !== "auth-required") {
+				return false;
+			}
+			queue.delivery.blocked = null;
+			queue.delivery.retry = defaultRetry();
+			delete draft.leases[workspaceDispatcherLeaseName(workspaceId)];
+			return true;
 		});
 	}
 

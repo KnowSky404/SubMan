@@ -1099,6 +1099,64 @@ describe("queue inspection and repair", () => {
 		});
 	});
 
+	it("resumes only an active auth-required queue without replacing its head", async () => {
+		const persistence = new InMemoryWorkspacePersistence(seededRecord());
+		const nowMs = Date.now();
+		const fence = await acquireFence(
+			persistence,
+			WORKSPACE_ID,
+			"auth-resume-test",
+			nowMs,
+		);
+		await persistence.blockMutation(
+			WORKSPACE_ID,
+			{
+				mutationId: MUTATION_ID,
+				kind: "node.delete",
+				code: "unauthorized",
+				disposition: "auth-required",
+				messageKey: "workspace.auth-required",
+				createdAt: NOW,
+				blockedAt: NOW,
+			},
+			fence,
+		);
+		await persistence.setRetryMetadata(
+			WORKSPACE_ID,
+			MUTATION_ID,
+			{
+				attempt: 2,
+				nextAttemptAt: nowMs + 60_000,
+				lastErrorCode: "unauthorized",
+			},
+			fence,
+		);
+
+		expect(await persistence.resumeWorkspaceAfterAuth(WORKSPACE_ID)).toBe(true);
+		const stored = await persistence.read();
+		expect(stored.workspaces[WORKSPACE_ID]?.mutations[0]?.mutationId).toBe(
+			MUTATION_ID,
+		);
+		expect(stored.workspaces[WORKSPACE_ID]?.delivery.blocked).toBeNull();
+		expect(stored.workspaces[WORKSPACE_ID]?.delivery.retry).toEqual({
+			attempt: 0,
+			nextAttemptAt: null,
+			lastErrorCode: null,
+		});
+		expect(
+			await persistence.renewLease({
+				name: workspaceDispatcherLeaseName(WORKSPACE_ID),
+				ownerId: fence.ownerId,
+				fencingToken: fence.fencingToken,
+				now: nowMs + 1,
+				ttlMs: 100,
+			}),
+		).toBeNull();
+		expect(await persistence.resumeWorkspaceAfterAuth(WORKSPACE_ID)).toBe(
+			false,
+		);
+	});
+
 	it("discards only a whole Workspace queue and keeps other queues intact", async () => {
 		const persistence = new InMemoryWorkspacePersistence(seededRecord());
 		expect(

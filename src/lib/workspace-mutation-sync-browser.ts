@@ -222,10 +222,32 @@ function startPersistenceWorkspaceMutationSync(
 		running = true;
 		let nextDelay: number | null = null;
 		try {
-			const before = await refresh();
+			let before = await refresh();
 			lastRecord = before;
 			if (stopped) return;
 			hydrate(before);
+			const authenticatedBinding = before.binding;
+			const authenticatedQueue = authenticatedBinding
+				? before.workspaces[authenticatedBinding.workspaceId]
+				: undefined;
+			if (
+				githubToken &&
+				authenticatedBinding &&
+				authenticatedQueue?.delivery.blocked?.disposition === "auth-required" &&
+				(await persistence.resumeWorkspaceAfterAuth(
+					authenticatedBinding.workspaceId,
+				))
+			) {
+				before = await refresh();
+				lastRecord = before;
+				hydrate(before);
+				if (get(workspaceSyncStatus).phase === "auth-required") {
+					dispatchWorkspaceSyncEvent({
+						type: "AUTH_RESTORED",
+						queue: persistedQueueMetrics(before),
+					});
+				}
+			}
 			const binding = before.binding;
 			const head = binding
 				? before.workspaces[binding.workspaceId]?.mutations[0]

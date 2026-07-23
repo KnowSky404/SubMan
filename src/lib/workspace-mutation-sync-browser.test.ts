@@ -1068,4 +1068,98 @@ describe("browser Workspace mutation scheduler", () => {
 			unsubscribeFailure();
 		}
 	});
+
+	it("resumes the same persisted queue head after authentication is restored", async () => {
+		const [workspaceData, persistenceModule, stateModule, sync, statusModule] =
+			await Promise.all([
+				import("$lib/workspace-data"),
+				import("$lib/workspace-persistence"),
+				import("$lib/workspace-v2-state"),
+				import("$lib/workspace-mutation-sync-browser"),
+				import("$lib/workspace-sync-status"),
+			]);
+		const snapshot = stateModule.hydrateAppStateFromWorkspaceDocument(
+			workspaceData.createDefaultWorkspaceState(NOW),
+			document(1),
+			GIST_ID,
+		);
+		const record = persistenceModule.createEmptyWorkspacePersistenceRecord();
+		record.snapshot = snapshot;
+		record.binding = stateModule.createWorkspaceV2LocalState(GIST_ID, {
+			baseline: document(1),
+		});
+		record.workspaces[WORKSPACE_ID] = {
+			workspaceId: WORKSPACE_ID,
+			mutations: [mutation()],
+			delivery: {
+				retry: { attempt: 0, nextAttemptAt: null, lastErrorCode: null },
+				blocked: {
+					mutationId: MUTATION_ID,
+					kind: "node.delete",
+					code: "unauthorized",
+					disposition: "auth-required",
+					messageKey: "workspace.auth-required",
+					createdAt: NOW,
+					blockedAt: NOW,
+				},
+				deadLetters: [],
+			},
+		};
+		const persistence = new persistenceModule.InMemoryWorkspacePersistence(
+			record,
+		);
+		statusModule.workspaceSyncStatus.set({
+			...statusModule.defaultWorkspaceSyncStatus,
+		});
+		let authListener: (state: { token: string | null }) => void = () => {};
+		let latest = statusModule.defaultWorkspaceSyncStatus;
+		const unsubscribe = statusModule.workspaceSyncStatus.subscribe(
+			(status) => (latest = status),
+		);
+		let dispatchCalls = 0;
+		const stop = sync.startWorkspaceMutationSync({
+			enabled: true,
+			delayMs: 0,
+			persistence,
+			refreshPersistence: () => persistence.read(),
+			dispatchPersistence: async () => {
+				dispatchCalls += 1;
+				return { status: "blocked" };
+			},
+			getState: () => snapshot,
+			setState: () => {},
+			subscribeAuth: (listener) => {
+				authListener = listener;
+				listener({ token: null });
+				return () => {};
+			},
+			subscribeEvents: () => () => {},
+		});
+		try {
+			for (
+				let attempt = 0;
+				attempt < 20 && latest.phase !== "auth-required";
+				attempt += 1
+			) {
+				await new Promise((resolve) => setTimeout(resolve, 0));
+			}
+			expect(latest.phase).toBe("auth-required");
+			expect(dispatchCalls).toBe(0);
+
+			authListener({ token: "replacement-token" });
+			for (let attempt = 0; attempt < 20 && dispatchCalls === 0; attempt += 1) {
+				await new Promise((resolve) => setTimeout(resolve, 0));
+			}
+			const stored = await persistence.read();
+			expect(dispatchCalls).toBe(1);
+			expect(stored.workspaces[WORKSPACE_ID]?.mutations[0]?.mutationId).toBe(
+				MUTATION_ID,
+			);
+			expect(stored.workspaces[WORKSPACE_ID]?.delivery.blocked).toBeNull();
+			expect(latest.phase).toBe("queued");
+		} finally {
+			stop();
+			unsubscribe();
+		}
+	});
 });
