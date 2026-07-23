@@ -29,6 +29,9 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      - name: Install Chromium
+        run: bunx playwright install --with-deps chromium
+
       - name: Run unit tests
         run: bun test
 
@@ -43,3 +46,6 @@ jobs:
 
       - name: Run Cloudflare integration tests
         run: bun run test:cf
+
+      - name: Run browser tests
+        run: bun run test:e2e

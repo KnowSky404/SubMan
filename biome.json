@@ -6,6 +6,8 @@
 			"!node_modules",
 			"!build",
 			"!dist",
+			"!playwright-report",
+			"!test-results",
 			"!.svelte-kit",
 			"!.wrangler"
 		]

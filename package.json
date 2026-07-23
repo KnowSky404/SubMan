@@ -9,6 +9,7 @@
 		"dev": "vite dev",
 		"test": "bun test",
 		"test:cf": "bun run build && vitest run --config vitest.config.ts",
+		"test:e2e": "playwright test",
 		"build": "vite build",
 		"preview": "vite preview",
 		"dev:cf": "wrangler dev",
@@ -22,6 +23,7 @@
 	"devDependencies": {
 		"@biomejs/biome": "^2.4.4",
 		"@cloudflare/vitest-pool-workers": "^0.18.7",
+		"@playwright/test": "1.61.0",
 		"@sveltejs/adapter-cloudflare": "^7.2.8",
 		"@sveltejs/kit": "^2.50.2",
 		"@sveltejs/vite-plugin-svelte": "^6.2.4",
