@@ -250,7 +250,7 @@ export async function reconcileBrowserWorkspace(
 export async function submitBrowserWorkspaceMutation(
 	input: {
 		token: string;
-		kind: "aggregate.publish" | "client-export.publish";
+		kind: "aggregate.publish" | "client-export.publish" | "output.delete";
 		payload: unknown;
 	},
 	dependencies: {
@@ -303,7 +303,7 @@ export async function submitBrowserWorkspaceMutation(
 			{ allowManual: true },
 		);
 		if (result.status !== "committed") {
-			throw new Error(`Workspace publication failed: ${result.status}`);
+			throw new Error(`Workspace mutation failed: ${result.status}`);
 		}
 	}
 	return dependencies.getState();

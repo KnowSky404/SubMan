@@ -929,6 +929,39 @@ describe("Workspace coordinator write verification and security", () => {
 });
 
 describe("Workspace coordinator mixed mutations", () => {
+	it("serializes output deletion and clears published metadata", async () => {
+		const publishedDocument = document();
+		publishedDocument.data.publishTargets[0] = {
+			...publishedDocument.data.publishTargets[0]!,
+			lastPublishedAt: T0,
+			lastPublishedUrl: "https://example.com/aggregate.txt",
+		};
+		const gateway = new MemoryGateway({
+			"subman.json": serializeWorkspaceDocumentV2(publishedDocument),
+			"aggregate.txt": "published",
+		});
+		const { core } = coordinator(gateway);
+		const result = await core.mutate({
+			githubToken: TOKEN,
+			gistId: GIST_ID,
+			mutation: mutation(
+				"60000000-0000-4000-8000-000000000000",
+				1,
+				"output.delete",
+				{ fileName: "aggregate.txt" },
+			),
+		});
+
+		expect(gateway.files["aggregate.txt"]).toBe(undefined);
+		expect(result.document.revision).toBe(2);
+		expect(
+			result.document.data.publishTargets[0]?.lastPublishedAt,
+		).toBeNull();
+		expect(
+			result.document.data.publishTargets[0]?.lastPublishedUrl,
+		).toBeNull();
+	});
+
 	it("preserves publication output before a Server API node mutation", async () => {
 		const gateway = new MemoryGateway({
 			"subman.json": serializeWorkspaceDocumentV2(document()),

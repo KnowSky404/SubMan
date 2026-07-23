@@ -199,6 +199,7 @@ describe("Workspace mutation parsing", () => {
 					output: { fileName: "client.json", content: "{}" },
 				},
 			],
+			["output.delete", { fileName: "aggregate.txt" }],
 			["workspace.reconcile", { baselineRevision: 0, data: data() }],
 		];
 
@@ -605,6 +606,57 @@ describe("Workspace mutation domain behavior", () => {
 		).document;
 		expect(deleted.data.clientExports[0]?.lastPublishedAt).toBe(T1);
 		expect(deleted.tombstones.nodes[0]?.id).toBe("node-1");
+	});
+
+	it("deletes an output and clears every matching publication reference", () => {
+		const current = document({
+			data: data({
+				publishTargets: [
+					{
+						...target(),
+						lastPublishedAt: T0,
+						lastPublishedUrl: "https://example.com/aggregate.txt",
+					},
+				],
+				clientExports: [
+					{
+						...profile(),
+						fileName: "aggregate.txt",
+						lastPublishedAt: T0,
+						lastPublishedUrl: "https://example.com/aggregate.txt",
+					},
+				],
+			}),
+		});
+		const result = applyWorkspaceMutation(
+			current,
+			parseWorkspaceMutation(
+				mutation("output.delete", { fileName: "aggregate.txt" }),
+			),
+			context,
+		);
+
+		expect(result.files).toEqual({ "aggregate.txt": null });
+		expect(result.document.revision).toBe(2);
+		const updatedTarget = result.document.data.publishTargets[0];
+		expect(updatedTarget?.lastPublishedAt).toBeNull();
+		expect(updatedTarget?.lastPublishedUrl).toBeNull();
+		expect(updatedTarget?.updatedAt).toBe(T1);
+		const updatedProfile = result.document.data.clientExports[0];
+		expect(updatedProfile?.lastPublishedAt).toBeNull();
+		expect(updatedProfile?.lastPublishedUrl).toBeNull();
+		expect(updatedProfile?.lastGeneratedAt).toBeNull();
+		expect(updatedProfile?.updatedAt).toBe(T1);
+	});
+
+	it("rejects deleting reserved Workspace files", () => {
+		expectCode(
+			() =>
+				parseWorkspaceMutation(
+					mutation("output.delete", { fileName: "subman.json" }),
+				),
+			"invalid_mutation",
+		);
 	});
 
 	it("reconcile converts every omitted live entity into a tombstone", () => {

@@ -30,6 +30,7 @@ const MUTATION_KINDS = new Set<WorkspaceMutation["kind"]>([
 	"client-export.delete",
 	"aggregate.publish",
 	"client-export.publish",
+	"output.delete",
 	"workspace.reconcile",
 ]);
 

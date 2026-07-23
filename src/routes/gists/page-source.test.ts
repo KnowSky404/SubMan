@@ -36,3 +36,9 @@ test("gists page shows an explicit loading state while workspace files load", ()
 		'{loading ? $t("Refreshing...") : $t("Refresh")}',
 	);
 });
+
+test("gists output deletion is submitted through the Workspace coordinator", () => {
+	expect(gistsPageSource).toContain("submitBrowserWorkspaceMutation");
+	expect(gistsPageSource).toContain('kind: "output.delete"');
+	expect(gistsPageSource).not.toContain("deleteWorkspaceOutputFile");
+});

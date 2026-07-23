@@ -64,9 +64,7 @@ function filesMatching(pattern: RegExp): string[] {
 describe("Workspace single-writer boundary", () => {
 	test("generic Gist mutations stay behind protected adapters", () => {
 		expect(importers("$lib/gist", "createGist")).toEqual(["lib/workspace.ts"]);
-		expect(importers("$lib/gist", "updateGist")).toEqual([
-			"lib/workspace-output-files.ts",
-		]);
+		expect(importers("$lib/gist", "updateGist")).toEqual([]);
 
 		const workspaceSource = readFileSync(
 			resolve(sourceRoot, "lib/workspace.ts"),

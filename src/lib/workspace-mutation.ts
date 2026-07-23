@@ -95,6 +95,7 @@ export type WorkspaceMutation =
 				output: { fileName: string; content: string };
 			}
 	  >
+	| MutationBase<"output.delete", { fileName: string }>
 	| MutationBase<
 			"workspace.reconcile",
 			{ baselineRevision: number; data: WorkspaceData }
@@ -373,6 +374,7 @@ const MUTATION_KINDS = new Set<WorkspaceMutation["kind"]>([
 	"client-export.delete",
 	"aggregate.publish",
 	"client-export.publish",
+	"output.delete",
 	"workspace.reconcile",
 ]);
 
@@ -510,6 +512,22 @@ export function parseWorkspaceMutation(inputValue: unknown): WorkspaceMutation {
 				payload: {
 					profileId: nonempty(payload.profileId, "payload.profileId"),
 					output: parseOutput(payload.output, "payload.output"),
+				},
+			};
+		}
+		case "output.delete": {
+			const payload = record(input.payload, "payload");
+			exactKeys(payload, "payload", ["fileName"]);
+			return {
+				...base,
+				kind,
+				payload: {
+					fileName: documentValue(() =>
+						validateWorkspaceOutputFileName(
+							payload.fileName,
+							"payload.fileName",
+						),
+					),
 				},
 			};
 		}
@@ -1132,6 +1150,35 @@ export function applyWorkspaceMutation(
 				[entity.fileName]: { content: mutation.payload.output.content },
 			};
 			receipt = { kind: mutation.kind, entityId: entity.id };
+			break;
+		}
+		case "output.delete": {
+			const fileName = mutation.payload.fileName;
+			data = {
+				...data,
+				publishTargets: data.publishTargets.map((target) =>
+					target.fileName === fileName
+						? {
+								...target,
+								lastPublishedAt: null,
+								lastPublishedUrl: null,
+								updatedAt: committedAt,
+							}
+						: target,
+				),
+				clientExports: data.clientExports.map((profile) =>
+					profile.fileName === fileName
+						? {
+								...profile,
+								lastPublishedAt: null,
+								lastPublishedUrl: null,
+								updatedAt: committedAt,
+							}
+						: profile,
+				),
+			};
+			files = { [fileName]: null };
+			receipt = { kind: mutation.kind, deleted: true };
 			break;
 		}
 		case "workspace.reconcile": {

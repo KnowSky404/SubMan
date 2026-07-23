@@ -20,8 +20,10 @@ import { authState } from "$lib/stores/auth";
 import { requestConfirm } from "$lib/stores/confirm";
 import { showToast } from "$lib/stores/toast";
 import { cn } from "$lib/utils/cn";
+import { submitBrowserWorkspaceMutation } from "$lib/workspace-browser-session-v2";
 import { WORKSPACE_FILE } from "$lib/workspace";
-import { deleteWorkspaceOutputFile } from "$lib/workspace-output-files";
+import { WorkspaceMutationQueue } from "$lib/workspace-mutation-queue";
+import { WorkspaceV2StateStore } from "$lib/workspace-v2-state";
 
 let workspace: GistMeta | null = null;
 let loading = false;
@@ -97,7 +99,25 @@ async function deleteFile(filename: string) {
 
 	deleting = true;
 	try {
-		workspace = await deleteWorkspaceOutputFile(token, gistId, filename);
+		await submitBrowserWorkspaceMutation(
+			{
+				token,
+				kind: "output.delete",
+				payload: { fileName: filename },
+			},
+			{
+				queue: new WorkspaceMutationQueue(),
+				stateStore: new WorkspaceV2StateStore(),
+				getState: () => $appState,
+				setState: (state) => appState.set(state),
+			},
+		);
+		if (workspace) {
+			workspace = {
+				...workspace,
+				files: workspace.files.filter((file) => file.filename !== filename),
+			};
+		}
 		setStatus($t("Deleted file successfully"), "success");
 	} catch (err) {
 		setStatus($t("Delete failed"), "error");
