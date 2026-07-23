@@ -476,6 +476,83 @@ test("keeps one mutation ID across offline enqueue, reload, and recovery", async
 	);
 });
 
+test("replaces a rejected token and resumes the same queued mutation", async ({
+	context,
+	page,
+}) => {
+	const pending = reconcileMutation();
+	await seedIndexedDb(
+		page,
+		persistenceRecord({
+			workspaces: { [WORKSPACE_ID]: queue(WORKSPACE_ID, [pending]) },
+		}),
+	);
+	await seedAuth(page, { session: "rejected-token" });
+	const attempts: {
+		authorization: string | undefined;
+		mutation: JsonRecord;
+	}[] = [];
+	await context.route("**/api/workspaces/**/mutations", async (route) => {
+		const authorization = route.request().headers().authorization;
+		const mutation = route.request().postDataJSON() as JsonRecord;
+		attempts.push({ authorization, mutation });
+		if (authorization === "Bearer rejected-token") {
+			await route.fulfill({
+				status: 401,
+				json: {
+					error: {
+						code: "unauthorized",
+						message: "E2E rejected token",
+						disposition: "auth-required",
+					},
+				},
+			});
+			return;
+		}
+		expect(authorization).toBe("Bearer replacement-token");
+		await fulfillCommitted(route, mutation);
+	});
+
+	await page.goto("/auth");
+	const recovery = page.getByTestId("auth-recovery");
+	await expect(recovery).toBeVisible();
+	await expect(recovery).toContainText("Pending changes remain queued");
+	await recovery
+		.getByLabel("Replacement personal access token")
+		.fill("replacement-token");
+	await recovery
+		.getByRole("button", { name: "Replace Token & Resume" })
+		.click();
+
+	await expect
+		.poll(
+			async () => {
+				const record = await readIndexedDb(page);
+				return (
+					((record.workspaces as JsonRecord)[WORKSPACE_ID] as JsonRecord)
+						.mutations as JsonRecord[]
+				).length;
+			},
+			{ timeout: 5_000 },
+		)
+		.toBe(0);
+	await expect(recovery).toHaveCount(0);
+	expect(attempts.map(({ mutation }) => mutation.mutationId)).toEqual([
+		pending.mutationId,
+		pending.mutationId,
+	]);
+	expect(attempts.map(({ authorization }) => authorization)).toEqual([
+		"Bearer rejected-token",
+		"Bearer replacement-token",
+	]);
+	const storedAuth = await page.evaluate(
+		(key) => sessionStorage.getItem(key),
+		SESSION_AUTH_KEY,
+	);
+	expect(storedAuth).toContain("replacement-token");
+	expect(storedAuth).not.toContain("rejected-token");
+});
+
 test("allows one tab to take over an expired lease without duplicate submission", async ({
 	context,
 	page,

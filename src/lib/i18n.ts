@@ -892,6 +892,12 @@ const zhCN: Record<string, string> = {
 		"持久存储会将 Token 保存在此设备上，同源 JavaScript 可以读取它。活动型 XSS 可窃取 Token，浏览器端加密也无法防止此类攻击。",
 	"A previously saved token was moved to this browser session. Choose Remember token to keep it on this device after the session ends.":
 		"之前保存的 Token 已迁移到当前浏览器会话。如需在会话结束后继续保留，请选择在此设备上记住 Token。",
+	"Replacement personal access token": "替换用的个人访问 Token",
+	"The current token was rejected. Pending changes remain queued and will resume with the replacement token.":
+		"当前 Token 已被拒绝。待处理更改仍保留在队列中，并将在替换 Token 后继续同步。",
+	"Replace Token & Resume": "替换 Token 并继续",
+	"Token replaced; Workspace sync is resuming":
+		"Token 已替换，工作区同步正在继续",
 	"{file} is protected.": "{file} 受保护。",
 };
 

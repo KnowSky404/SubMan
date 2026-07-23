@@ -99,6 +99,18 @@ test("auth token persistence is opt-in and follows a successful connection", () 
 	expect(tokenCommit).toBeGreaterThan(snapshot);
 });
 
+test("auth-required state exposes a direct replacement-token recovery path", () => {
+	expect(authPageSource).toContain(
+		'$workspaceSyncStatus.phase === "auth-required"',
+	);
+	expect(authPageSource).toContain('data-testid="auth-recovery"');
+	expect(authPageSource).toContain("function handleTokenReplacement()");
+	expect(authPageSource).toContain(
+		"setToken(token, { remember: rememberToken });",
+	);
+	expect(authPageSource).toContain('$t("Replace Token & Resume")');
+});
+
 test("auth resolution keeps migration and bootstrap failures actionable", () => {
 	expect(authPageSource).toContain("migration_backup_conflict");
 	expect(authPageSource).toContain("invalid_bootstrap_marker");

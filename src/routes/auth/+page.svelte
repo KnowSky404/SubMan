@@ -42,6 +42,7 @@ import {
 	type WorkspaceSettingsConflict,
 	type WorkspaceSettingsView,
 } from "$lib/workspace-settings-controller";
+import { workspaceSyncStatus } from "$lib/workspace-sync-status";
 import { clearLegacyWorkspaceSyncState } from "$lib/workspace-v1-cleanup";
 import type { WorkspaceV2LocalState } from "$lib/workspace-v2-state";
 
@@ -602,6 +603,14 @@ function handleTokenClear() {
 	manualPushReview = null;
 }
 
+function handleTokenReplacement() {
+	const token = tokenInput.trim();
+	if (!token) return;
+	setToken(token, { remember: rememberToken });
+	tokenInput = "";
+	setStatus($t("Token replaced; Workspace sync is resuming"), "info");
+}
+
 function handleExport() {
 	payload = exportState($appState);
 	setStatus($t("Config exported"), "success");
@@ -953,6 +962,21 @@ function handleImport() {
 				</a>
 			{:else}
 				<div class="flex flex-col gap-3">
+					{#if $workspaceSyncStatus.phase === "auth-required"}
+						<form class="space-y-3 rounded-md border border-attention-muted bg-attention-subtle p-3" data-testid="auth-recovery" on:submit|preventDefault={handleTokenReplacement}>
+							<div>
+								<label class="gh-form-label" for="replacement-github-token">{$t("Replacement personal access token")}</label>
+								<p class="gh-form-caption">{$t("The current token was rejected. Pending changes remain queued and will resume with the replacement token.")}</p>
+							</div>
+							<div class="flex flex-col gap-2 sm:flex-row">
+								<input id="replacement-github-token" type="password" class="gh-input flex-1 font-mono" placeholder="ghp_xxxxxxxxxxxx" bind:value={tokenInput} autocomplete="off" />
+								<button type="submit" class="gh-btn gh-btn-primary" disabled={!tokenInput.trim()}>
+									<Octicon icon={sync} className="h-4 w-4" />
+									{$t("Replace Token & Resume")}
+								</button>
+							</div>
+						</form>
+					{/if}
 					{#if $authState.migratedLegacyToken}
 						<div class="flex items-start gap-2 rounded-md border border-attention-muted bg-attention-subtle p-3 text-sm text-attention-fg">
 							<Octicon icon={alert} className="mt-0.5 h-4 w-4 shrink-0" />
