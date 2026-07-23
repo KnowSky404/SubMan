@@ -14,6 +14,7 @@ import {
 } from "$lib/workspace-mutation";
 import {
 	createWorkspaceV2LocalState,
+	hydrateAppStateFromWorkspaceDocument,
 	validateWorkspaceV2LocalState,
 	type WorkspaceV2LocalState,
 } from "$lib/workspace-v2-state";
@@ -192,6 +193,11 @@ export interface BrowserWorkspacePersistence {
 		binding: WorkspaceV2LocalState;
 		mutation: WorkspaceMutationDraft;
 	}): Promise<WorkspaceMutation>;
+	commitExplicitAction(input: {
+		binding: WorkspaceV2LocalState;
+		mutation: WorkspaceMutationDraft;
+		snapshot?: AppState;
+	}): Promise<WorkspaceMutation>;
 	commitLocalAction(input: {
 		snapshot: AppState;
 		binding: WorkspaceV2LocalState | null;
@@ -207,6 +213,14 @@ export interface BrowserWorkspacePersistence {
 		mutationId: string;
 		document: WorkspaceDocumentV2;
 		metadata: WorkspaceBlockedMutationMetadata;
+		fence: WorkspaceLeaseFence;
+	}): Promise<void>;
+	commitRecoveredDelivery(input: {
+		snapshot: AppState;
+		binding: WorkspaceV2LocalState;
+		mutationId: string;
+		committedBaseline: WorkspaceDocumentV2;
+		blocked: WorkspaceBlockedMutationMetadata | null;
 		fence: WorkspaceLeaseFence;
 	}): Promise<void>;
 	setRetryMetadata(
@@ -1399,6 +1413,85 @@ export class TransactionalWorkspacePersistence
 		});
 	}
 
+	async commitExplicitAction(input: {
+		binding: WorkspaceV2LocalState;
+		mutation: WorkspaceMutationDraft;
+		snapshot?: AppState;
+	}): Promise<WorkspaceMutation> {
+		const binding = validatePersistenceBinding(input.binding);
+		const snapshot =
+			input.snapshot === undefined
+				? undefined
+				: validateWorkspacePersistenceSnapshot(input.snapshot);
+		if (
+			(binding.syncMode !== "automatic" && binding.syncMode !== "manual") ||
+			binding.revision === null ||
+			binding.baseline === null
+		) {
+			throw corrupt(
+				"Explicit actions require an initialized active Workspace binding",
+			);
+		}
+		const baseline = binding.baseline;
+		const bindingRevision = binding.revision;
+		if (snapshot) ensureIdentity(snapshot, binding);
+		return this.backend.transact((draft, checkpoint) => {
+			if (!draft.binding || !workspaceBindingsEqual(draft.binding, binding)) {
+				throw corrupt("Explicit action uses a stale Workspace binding");
+			}
+			const queue =
+				draft.workspaces[binding.workspaceId] ??
+				createQueue(binding.workspaceId);
+			const expected =
+				queue.mutations.at(-1)?.expectedRevision === undefined
+					? bindingRevision
+					: (queue.mutations.at(-1)?.expectedRevision as number) + 1;
+			const mutation = validateMutation({
+				...input.mutation,
+				expectedRevision: expected,
+			});
+			if (mutation.workspaceId !== binding.workspaceId) {
+				throw corrupt("Mutation and binding identities differ");
+			}
+			if (
+				Object.values(draft.workspaces).some((workspace) =>
+					workspace.mutations.some(
+						(item) => item.mutationId === mutation.mutationId,
+					),
+				)
+			) {
+				throw corrupt("Mutation ID is already persisted");
+			}
+			const snapshotSource = snapshot ?? draft.snapshot;
+			if (!snapshotSource) {
+				throw corrupt("Explicit action requires a persisted snapshot");
+			}
+			const optimisticDocument = replayWorkspaceMutations(
+				snapshotSource,
+				baseline,
+				[...queue.mutations, mutation],
+			);
+			const committedSnapshot =
+				snapshot ??
+				hydrateAppStateFromWorkspaceDocument(
+					snapshotSource,
+					optimisticDocument,
+					binding.gistId,
+				);
+			if (snapshot) {
+				ensureSnapshotMatchesDocument(snapshot, binding, optimisticDocument);
+			}
+			draft.snapshot = committedSnapshot;
+			checkpoint("after-snapshot");
+			draft.binding = binding;
+			checkpoint("after-binding");
+			queue.mutations.push(mutation);
+			draft.workspaces[binding.workspaceId] = queue;
+			checkpoint("after-queue");
+			return mutation;
+		});
+	}
+
 	async commitLocalAction(input: {
 		snapshot: AppState;
 		binding: WorkspaceV2LocalState | null;
@@ -1516,6 +1609,121 @@ export class TransactionalWorkspacePersistence
 			queue.delivery.blocked = blocked;
 			queue.delivery.retry = defaultRetry();
 			delete draft.leases[workspaceDispatcherLeaseName(workspaceId)];
+			checkpoint("after-queue");
+		});
+	}
+
+	async commitRecoveredDelivery(input: {
+		snapshot: AppState;
+		binding: WorkspaceV2LocalState;
+		mutationId: string;
+		committedBaseline: WorkspaceDocumentV2;
+		blocked: WorkspaceBlockedMutationMetadata | null;
+		fence: WorkspaceLeaseFence;
+	}): Promise<void> {
+		const snapshot = validateWorkspacePersistenceSnapshot(input.snapshot);
+		const binding = validatePersistenceBinding(input.binding);
+		const committedBaseline = validateWorkspaceDocumentV2(
+			input.committedBaseline,
+			{ expectedWorkspaceId: binding.workspaceId },
+		);
+		const blocked =
+			input.blocked === null ? null : validateBlocked(input.blocked);
+		if (binding.revision === null || binding.baseline === null) {
+			throw corrupt("Recovered delivery requires an initialized binding");
+		}
+		const bindingRevision = binding.revision;
+		ensureIdentity(snapshot, binding);
+		await this.backend.transact((draft, checkpoint) => {
+			const active = draft.binding;
+			const queue = draft.workspaces[binding.workspaceId];
+			const mutation = queue?.mutations[0];
+			if (
+				!active ||
+				active.workspaceId !== binding.workspaceId ||
+				(active.syncMode !== "automatic" && active.syncMode !== "manual") ||
+				active.revision !== mutation?.expectedRevision ||
+				active.baseline === null ||
+				!mutation ||
+				mutation.mutationId !== input.mutationId
+			) {
+				throw corrupt("Recovered delivery uses a stale Workspace binding");
+			}
+			assertActiveWorkspaceFence(
+				draft,
+				binding.workspaceId,
+				input.fence,
+				this.nowMs(),
+			);
+			const gist: Pick<GistMeta, "id" | "ownerLogin" | "files"> =
+				snapshot.gists.find((entry) => entry.id === active.gistId) ?? {
+					id: active.gistId,
+					files: [],
+				};
+			let recoveredHead: WorkspaceDocumentV2;
+			try {
+				recoveredHead = applyWorkspaceMutation(active.baseline, mutation, {
+					committedAt: committedBaseline.updatedAt,
+					gist,
+				}).document;
+			} catch (error) {
+				throw corrupt("Recovered delivery head cannot be replayed", error);
+			}
+			if (JSON.stringify(recoveredHead) !== JSON.stringify(committedBaseline)) {
+				throw corrupt("Recovered delivery does not prove the queue head");
+			}
+			const remaining = queue.mutations.slice(1);
+			if (remaining.length === 0) {
+				if (
+					blocked !== null ||
+					binding.syncMode !== active.syncMode ||
+					binding.conflictBaseline !== null ||
+					binding.baseline === null ||
+					bindingRevision <= mutation.expectedRevision + 1
+				) {
+					throw corrupt("Recovered delivery state is invalid");
+				}
+				ensureSnapshotMatchesQueue(snapshot, binding, []);
+			} else {
+				const recoveredBaseline = binding.conflictBaseline;
+				const next = remaining[0];
+				if (
+					binding.syncMode !== "paused-conflict" ||
+					binding.baseline === null ||
+					bindingRevision <= mutation.expectedRevision + 1 ||
+					!recoveredBaseline ||
+					JSON.stringify(recoveredBaseline) !==
+						JSON.stringify(committedBaseline) ||
+					!blocked ||
+					blocked.disposition !== "state-conflict" ||
+					blocked.mutationId !== next?.mutationId ||
+					blocked.kind !== next.kind ||
+					blocked.createdAt !== next.createdAt
+				) {
+					throw corrupt("Recovered delivery conflict state is invalid");
+				}
+				validateWorkspaceMutationSequence(
+					remaining,
+					binding.workspaceId,
+					recoveredBaseline.revision,
+				);
+				const optimisticDocument = replayWorkspaceMutations(
+					snapshot,
+					recoveredBaseline,
+					remaining,
+				);
+				ensureSnapshotMatchesDocument(snapshot, binding, optimisticDocument);
+			}
+			draft.snapshot = snapshot;
+			checkpoint("after-snapshot");
+			draft.binding = binding;
+			checkpoint("after-binding");
+			queue.mutations.shift();
+			queue.delivery.retry = defaultRetry();
+			queue.delivery.blocked = blocked;
+			if (blocked) {
+				delete draft.leases[workspaceDispatcherLeaseName(binding.workspaceId)];
+			}
 			checkpoint("after-queue");
 		});
 	}

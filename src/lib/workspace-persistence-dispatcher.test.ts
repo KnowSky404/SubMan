@@ -9,6 +9,7 @@ import {
 	InMemoryWorkspacePersistenceBackend,
 	TransactionalWorkspacePersistence,
 	type WorkspacePersistenceRecord,
+	workspaceDispatcherLeaseName,
 } from "$lib/workspace-persistence";
 import { dispatchPersistedWorkspaceMutation } from "$lib/workspace-persistence-dispatcher";
 import { createWorkspaceV2LocalState } from "$lib/workspace-v2-state";
@@ -154,6 +155,33 @@ function committedResponse(
 	);
 }
 
+function advancedAlreadyCommitted(
+	mutationValue = mutation(),
+): WorkspaceMutationSubmissionResult {
+	const base = committed(mutationValue, "already-committed");
+	if (base.status !== "committed") {
+		throw new Error("Expected a committed submission fixture");
+	}
+	return {
+		...base,
+		result: {
+			...base.result,
+			document: document(3, MUTATION_ID_3, NOW_2),
+			status: "already-committed",
+		},
+	};
+}
+
+async function waitUntil(
+	check: () => boolean | Promise<boolean>,
+): Promise<void> {
+	for (let attempt = 0; attempt < 100; attempt += 1) {
+		if (await check()) return;
+		await new Promise((resolve) => setTimeout(resolve, 2));
+	}
+	throw new Error("Timed out waiting for test condition");
+}
+
 describe("persistence-backed Workspace dispatcher", () => {
 	it("commits the head and replays the remaining optimistic queue", async () => {
 		const second = mutation(MUTATION_ID_2, 1, NOW_2);
@@ -217,7 +245,7 @@ describe("persistence-backed Workspace dispatcher", () => {
 		expect(submits).toBe(1);
 	});
 
-	it("lets an expired lease be taken over and rejects the stale response", async () => {
+	it("heartbeats its fence while a long submit is in flight", async () => {
 		let now = NOW_MS;
 		const shared = backend();
 		const first = client(shared, () => now);
@@ -226,20 +254,27 @@ describe("persistence-backed Workspace dispatcher", () => {
 		const gate = new Promise<void>((resolve) => {
 			release = resolve;
 		});
-		const staleDispatch = dispatchPersistedWorkspaceMutation({
+		const firstDispatch = dispatchPersistedWorkspaceMutation({
 			persistence: first,
 			githubToken: "token",
 			ownerId: "tab-a",
 			leaseTtlMs: 50,
+			leaseHeartbeatIntervalMs: 2,
 			now: () => now,
 			submit: async () => {
 				await gate;
 				return committed();
 			},
 		});
-		await Promise.resolve();
-		await Promise.resolve();
-		now += 51;
+		const leaseName = workspaceDispatcherLeaseName(WORKSPACE_ID);
+		await waitUntil(async () =>
+			Boolean((await first.read()).leases[leaseName]),
+		);
+		now += 40;
+		await waitUntil(
+			async () => (await first.read()).leases[leaseName]?.heartbeatAt === now,
+		);
+		now += 20;
 
 		expect(
 			await dispatchPersistedWorkspaceMutation({
@@ -247,15 +282,76 @@ describe("persistence-backed Workspace dispatcher", () => {
 				githubToken: "token",
 				ownerId: "tab-b",
 				leaseTtlMs: 50,
+				leaseHeartbeatIntervalMs: 2,
+				now: () => now,
+				submit: async () => committed(),
+			}),
+		).toEqual({ status: "busy" });
+		release();
+		expect(await firstDispatch).toEqual({ status: "committed" });
+		expect((await first.read()).workspaces[WORKSPACE_ID]?.mutations).toEqual(
+			[],
+		);
+	});
+
+	it("stops heartbeating before commit and permits expiry takeover", async () => {
+		let now = NOW_MS;
+		const shared = backend();
+		const first = client(shared, () => now);
+		const second = client(shared, () => now);
+		let releaseCommit = () => {};
+		let signalCommit = () => {};
+		const commitGate = new Promise<void>((resolve) => {
+			releaseCommit = resolve;
+		});
+		const commitStarted = new Promise<void>((resolve) => {
+			signalCommit = resolve;
+		});
+		const delayedCommit = new Proxy(first, {
+			get(target, property) {
+				if (property === "commitDeliverySuccess") {
+					return async (
+						...args: Parameters<typeof target.commitDeliverySuccess>
+					) => {
+						signalCommit();
+						await commitGate;
+						return target.commitDeliverySuccess(...args);
+					};
+				}
+				const value = Reflect.get(target, property);
+				return typeof value === "function" ? value.bind(target) : value;
+			},
+		}) as BrowserWorkspacePersistence;
+		const firstDispatch = dispatchPersistedWorkspaceMutation({
+			persistence: delayedCommit,
+			githubToken: "token",
+			ownerId: "tab-a",
+			leaseTtlMs: 50,
+			leaseHeartbeatIntervalMs: 2,
+			now: () => now,
+			submit: async () => committed(),
+		});
+		await commitStarted;
+		const leaseName = workspaceDispatcherLeaseName(WORKSPACE_ID);
+		const stoppedLease = (await first.read()).leases[leaseName];
+		now += 20;
+		await new Promise((resolve) => setTimeout(resolve, 8));
+		expect((await first.read()).leases[leaseName]).toEqual(stoppedLease);
+		now += 31;
+
+		expect(
+			await dispatchPersistedWorkspaceMutation({
+				persistence: second,
+				githubToken: "token",
+				ownerId: "tab-b",
+				leaseTtlMs: 50,
+				leaseHeartbeatIntervalMs: 2,
 				now: () => now,
 				submit: async () => committed(),
 			}),
 		).toEqual({ status: "committed" });
-		release();
-		expect(await staleDispatch).toEqual({ status: "stale" });
-		expect((await first.read()).workspaces[WORKSPACE_ID]?.mutations).toEqual(
-			[],
-		);
+		releaseCommit();
+		expect(await firstDispatch).toEqual({ status: "stale" });
 	});
 
 	it("does not quarantine when the lease expires immediately before commit", async () => {
@@ -482,5 +578,62 @@ describe("persistence-backed Workspace dispatcher", () => {
 		expect(
 			(await persistence.read()).workspaces[WORKSPACE_ID]?.mutations,
 		).toEqual([]);
+	});
+
+	it("adopts a newer document after an already-committed head with no tail", async () => {
+		const shared = backend();
+		const persistence = client(shared, () => NOW_MS);
+
+		expect(
+			await dispatchPersistedWorkspaceMutation({
+				persistence,
+				githubToken: "token",
+				ownerId: "tab-a",
+				now: () => NOW_MS,
+				submit: async () => advancedAlreadyCommitted(),
+			}),
+		).toEqual({ status: "committed" });
+
+		const stored = await persistence.read();
+		expect(stored.binding?.revision).toBe(3);
+		expect(stored.binding?.syncMode).toBe("automatic");
+		expect(stored.binding?.conflictBaseline).toBeNull();
+		expect(stored.snapshot?.lastUpdated).toBe(NOW_2);
+		expect(stored.workspaces[WORKSPACE_ID]?.mutations).toEqual([]);
+	});
+
+	it("dequeues a proven head and pauses only its tail after remote advance", async () => {
+		const secondMutation = mutation(MUTATION_ID_2, 1, NOW_2);
+		const shared = backend(
+			seededRecord({ mutations: [mutation(), secondMutation] }),
+		);
+		const persistence = client(shared, () => NOW_MS);
+
+		expect(
+			await dispatchPersistedWorkspaceMutation({
+				persistence,
+				githubToken: "token",
+				ownerId: "tab-a",
+				now: () => NOW_MS,
+				submit: async () => advancedAlreadyCommitted(),
+			}),
+		).toEqual({
+			status: "conflict",
+			code: "revision_conflict",
+			disposition: "state-conflict",
+		});
+
+		const stored = await persistence.read();
+		expect(stored.binding?.revision).toBe(3);
+		expect(stored.binding?.syncMode).toBe("paused-conflict");
+		expect(stored.binding?.conflictBaseline?.revision).toBe(1);
+		expect(stored.binding?.conflictBaseline?.lastMutationId).toBe(MUTATION_ID);
+		expect(stored.workspaces[WORKSPACE_ID]?.mutations).toEqual([
+			secondMutation,
+		]);
+		expect(stored.workspaces[WORKSPACE_ID]?.delivery.blocked?.mutationId).toBe(
+			MUTATION_ID_2,
+		);
+		expect(stored.leases).toEqual({});
 	});
 });

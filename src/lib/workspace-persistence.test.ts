@@ -8,6 +8,7 @@ import {
 	createEmptyWorkspacePersistenceRecord,
 	IndexedDbWorkspacePersistenceBackend,
 	InMemoryWorkspacePersistence,
+	InMemoryWorkspacePersistenceBackend,
 	LEGACY_APP_STATE_KEY,
 	LEGACY_MUTATION_QUEUE_KEY,
 	LEGACY_WORKSPACE_STATE_KEY,
@@ -447,6 +448,70 @@ describe("transactional Workspace persistence", () => {
 		).toBe("corrupt-data");
 	});
 
+	it("allocates concurrent explicit manual revisions with a coherent snapshot", async () => {
+		const record = createEmptyWorkspacePersistenceRecord();
+		record.snapshot = committedSnapshot();
+		record.binding = manualBinding();
+		const shared = new InMemoryWorkspacePersistenceBackend(record);
+		const first = new TransactionalWorkspacePersistence(shared);
+		const second = new TransactionalWorkspacePersistence(shared);
+		const committed = await Promise.all([
+			first.commitExplicitAction({
+				binding: manualBinding(),
+				mutation: mutationDraft(reconcileMutation(MUTATION_ID)),
+			}),
+			second.commitExplicitAction({
+				binding: manualBinding(),
+				mutation: mutationDraft(
+					reconcileMutation(MUTATION_ID_2, 0, WORKSPACE_ID, NOW_2),
+				),
+			}),
+		]);
+
+		expect(committed.map((item) => item.expectedRevision).sort()).toEqual([
+			0, 1,
+		]);
+		const stored = await first.read();
+		expect(stored.snapshot?.lastUpdated).toBe(NOW_2);
+		expect(stored.snapshot?.nodes).toEqual([]);
+		expect(
+			stored.workspaces[WORKSPACE_ID]?.mutations.map(
+				(item) => item.expectedRevision,
+			),
+		).toEqual([0, 1]);
+		expect(stored.binding).toEqual(manualBinding());
+	});
+
+	it("rejects an explicit enqueue from a stale or paused binding", async () => {
+		const persistence = manualPersistence();
+		expect(
+			(
+				await captureError(
+					persistence.commitExplicitAction({
+						binding: manualBinding(1),
+						mutation: mutationDraft(reconcileMutation()),
+					}),
+				)
+			).code,
+		).toBe("corrupt-data");
+
+		const paused = createWorkspaceV2LocalState(GIST_ID, {
+			baseline: document(1),
+			conflictBaseline: document(),
+			syncMode: "paused-conflict",
+		});
+		expect(
+			(
+				await captureError(
+					persistence.commitExplicitAction({
+						binding: paused,
+						mutation: mutationDraft(reconcileMutation()),
+					}),
+				)
+			).code,
+		).toBe("corrupt-data");
+	});
+
 	it("classifies large-payload quota failure without a partial snapshot or queue", async () => {
 		const persistence = automaticPersistence();
 		persistence.setFault("before-commit", "quota-exceeded");
@@ -533,6 +598,102 @@ describe("transactional Workspace persistence", () => {
 			"revision_conflict",
 		);
 		expect(stored.leases).toEqual({});
+	});
+
+	it("atomically dequeues a recovered head and anchors its conflicted tail", async () => {
+		const persistence = automaticPersistence();
+		await persistence.commitAutomaticAction({
+			snapshot: committedSnapshot(),
+			binding: binding(),
+			mutation: mutationDraft(reconcileMutation()),
+		});
+		await persistence.commitAutomaticAction({
+			snapshot: { ...committedSnapshot(), lastUpdated: NOW_2 },
+			binding: binding(),
+			mutation: mutationDraft(
+				reconcileMutation(MUTATION_ID_2, 0, WORKSPACE_ID, NOW_2),
+			),
+		});
+		const fence = await acquireFence(persistence);
+		const recoveredBaseline = document(1);
+		const latest = {
+			...document(3),
+			updatedAt: NOW_2,
+			lastMutationId: MUTATION_ID_3,
+		};
+
+		await persistence.commitRecoveredDelivery({
+			snapshot: { ...committedSnapshot(), lastUpdated: NOW_2 },
+			binding: createWorkspaceV2LocalState(GIST_ID, {
+				baseline: latest,
+				conflictBaseline: recoveredBaseline,
+				syncMode: "paused-conflict",
+			}),
+			mutationId: MUTATION_ID,
+			committedBaseline: recoveredBaseline,
+			blocked: {
+				mutationId: MUTATION_ID_2,
+				kind: "workspace.reconcile",
+				code: "revision_conflict",
+				disposition: "state-conflict",
+				messageKey: "workspace.state-conflict",
+				createdAt: NOW_2,
+				blockedAt: NOW_2,
+			},
+			fence,
+		});
+
+		const stored = await persistence.read();
+		expect(stored.binding?.revision).toBe(3);
+		expect(stored.binding?.conflictBaseline).toEqual(recoveredBaseline);
+		expect(stored.workspaces[WORKSPACE_ID]?.mutations).toHaveLength(1);
+		expect(stored.workspaces[WORKSPACE_ID]?.mutations[0]?.mutationId).toBe(
+			MUTATION_ID_2,
+		);
+		expect(
+			stored.workspaces[WORKSPACE_ID]?.mutations[0]?.expectedRevision,
+		).toBe(1);
+		expect(stored.workspaces[WORKSPACE_ID]?.delivery.blocked?.mutationId).toBe(
+			MUTATION_ID_2,
+		);
+		expect(stored.leases).toEqual({});
+	});
+
+	it("refuses to dequeue a recovered head without an exact replay proof", async () => {
+		const persistence = automaticPersistence();
+		await persistence.commitAutomaticAction({
+			snapshot: committedSnapshot(),
+			binding: binding(),
+			mutation: mutationDraft(reconcileMutation()),
+		});
+		const fence = await acquireFence(persistence);
+		const latest = {
+			...document(3),
+			updatedAt: NOW_2,
+			lastMutationId: MUTATION_ID_3,
+		};
+		const error = await captureError(
+			persistence.commitRecoveredDelivery({
+				snapshot: { ...committedSnapshot(), lastUpdated: NOW_2 },
+				binding: createWorkspaceV2LocalState(GIST_ID, {
+					baseline: latest,
+					syncMode: "automatic",
+				}),
+				mutationId: MUTATION_ID,
+				committedBaseline: {
+					...document(1),
+					lastMutationId: MUTATION_ID_2,
+				},
+				blocked: null,
+				fence,
+			}),
+		);
+
+		expect(error.code).toBe("corrupt-data");
+		expect(
+			(await persistence.read()).workspaces[WORKSPACE_ID]?.mutations[0]
+				?.mutationId,
+		).toBe(MUTATION_ID);
 	});
 
 	it("rejects stale fences and unproven delivery commits", async () => {

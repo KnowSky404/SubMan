@@ -12,6 +12,7 @@ import {
 	submitWorkspaceMutation,
 	type WorkspaceMutationDeliveryResult,
 	type WorkspaceMutationSubmissionOptions,
+	type WorkspaceMutationSubmissionResult,
 } from "$lib/workspace-mutation-queue";
 import {
 	type BrowserWorkspacePersistence,
@@ -67,12 +68,48 @@ export type WorkspacePersistenceDispatcherOptions = {
 	allowManual?: boolean;
 	ownerId?: string;
 	leaseTtlMs?: number;
+	leaseHeartbeatIntervalMs?: number;
 	fetchImpl?: typeof fetch;
 	timeoutMs?: number;
 	now?: () => number;
 	random?: () => number;
 	submit?: typeof submitWorkspaceMutation;
 };
+
+function startLeaseHeartbeat(
+	renew: () => Promise<boolean>,
+	intervalMs: number,
+): () => Promise<boolean> {
+	let active = true;
+	let healthy = true;
+	let failure: unknown;
+	let timer: ReturnType<typeof setTimeout> | null = null;
+	let pending: Promise<void> | null = null;
+	const schedule = () => {
+		timer = setTimeout(() => {
+			if (!active) return;
+			pending = (async () => {
+				try {
+					healthy = await renew();
+				} catch (error) {
+					failure = error;
+					healthy = false;
+				} finally {
+					pending = null;
+					if (active && healthy) schedule();
+				}
+			})();
+		}, intervalMs);
+	};
+	schedule();
+	return async () => {
+		active = false;
+		if (timer !== null) clearTimeout(timer);
+		if (pending) await pending;
+		if (failure !== undefined) throw failure;
+		return healthy;
+	};
+}
 
 function dispatcherOwnerId(): string {
 	return `dispatcher-${crypto.randomUUID()}`;
@@ -129,6 +166,17 @@ export async function dispatchPersistedWorkspaceMutation(
 	const submit = options.submit ?? submitWorkspaceMutation;
 	const ownerId = options.ownerId ?? dispatcherOwnerId();
 	const leaseTtlMs = options.leaseTtlMs ?? DEFAULT_LEASE_TTL_MS;
+	const leaseHeartbeatIntervalMs =
+		options.leaseHeartbeatIntervalMs ?? Math.max(1, Math.floor(leaseTtlMs / 3));
+	if (
+		!Number.isSafeInteger(leaseHeartbeatIntervalMs) ||
+		leaseHeartbeatIntervalMs <= 0 ||
+		leaseHeartbeatIntervalMs >= leaseTtlMs
+	) {
+		throw new TypeError(
+			"Workspace dispatcher lease heartbeat must be shorter than the lease TTL",
+		);
+	}
 	const initial = await options.persistence.read();
 	const binding = initial.binding;
 	if (!options.githubToken || !binding || binding.revision === null) {
@@ -185,14 +233,30 @@ export async function dispatchPersistedWorkspaceMutation(
 			fetchImpl: options.fetchImpl,
 			timeoutMs: options.timeoutMs,
 		};
-		const submission = await submit(submissionOptions);
+		const stopHeartbeat = startLeaseHeartbeat(
+			renewFence,
+			leaseHeartbeatIntervalMs,
+		);
+		let submission: WorkspaceMutationSubmissionResult;
+		let heartbeatHealthy = true;
+		try {
+			submission = await submit(submissionOptions);
+		} finally {
+			heartbeatHealthy = await stopHeartbeat();
+		}
+		if (!heartbeatHealthy) return { status: "stale" };
 		if (!(await renewFence())) return { status: "stale" };
 
 		if (submission.status === "committed") {
-			if (
-				submission.result.document.revision !== mutation.expectedRevision + 1 ||
-				submission.result.document.lastMutationId !== mutation.mutationId
-			) {
+			const exactHead =
+				submission.result.document.revision === mutation.expectedRevision + 1 &&
+				submission.result.document.lastMutationId === mutation.mutationId;
+			const recoveredAfterAdvance =
+				submission.result.status === "already-committed" &&
+				submission.result.committedRevision === mutation.expectedRevision + 1 &&
+				submission.result.document.revision >
+					submission.result.committedRevision;
+			if (!exactHead && !recoveredAfterAdvance) {
 				await options.persistence.commitDeliveryConflict({
 					workspaceId: binding.workspaceId,
 					mutationId: mutation.mutationId,
@@ -225,18 +289,73 @@ export async function dispatchPersistedWorkspaceMutation(
 			}
 			let snapshot: AppState;
 			let committedBinding: WorkspaceV2LocalState;
+			let recoveredBaseline: WorkspaceDocumentV2 | null = null;
 			try {
 				const remaining = currentQueue.mutations.slice(1);
-				snapshot = replayOptimisticSnapshot(
-					current.snapshot,
-					submission.result.document,
-					remaining,
-					currentBinding.gistId,
-				);
-				committedBinding = createWorkspaceV2LocalState(currentBinding.gistId, {
-					baseline: submission.result.document,
-					syncMode: currentBinding.syncMode,
-				});
+				if (recoveredAfterAdvance) {
+					if (!currentBinding.baseline) {
+						throw new Error("Recovered delivery requires a baseline");
+					}
+					const gist: Pick<GistMeta, "id" | "ownerLogin" | "files"> =
+						current.snapshot.gists.find(
+							(entry) => entry.id === currentBinding.gistId,
+						) ?? { id: currentBinding.gistId, files: [] };
+					recoveredBaseline = applyWorkspaceMutation(
+						currentBinding.baseline,
+						mutation,
+						{ committedAt: submission.result.committedAt, gist },
+					).document;
+					if (
+						recoveredBaseline.revision !==
+							submission.result.committedRevision ||
+						recoveredBaseline.lastMutationId !== mutation.mutationId
+					) {
+						throw new Error("Recovered delivery proof is invalid");
+					}
+					if (remaining.length === 0) {
+						snapshot = hydrateAppStateFromWorkspaceDocument(
+							current.snapshot,
+							submission.result.document,
+							currentBinding.gistId,
+						);
+						committedBinding = createWorkspaceV2LocalState(
+							currentBinding.gistId,
+							{
+								baseline: submission.result.document,
+								syncMode: currentBinding.syncMode,
+							},
+						);
+					} else {
+						snapshot = replayOptimisticSnapshot(
+							current.snapshot,
+							recoveredBaseline,
+							remaining,
+							currentBinding.gistId,
+						);
+						committedBinding = createWorkspaceV2LocalState(
+							currentBinding.gistId,
+							{
+								baseline: submission.result.document,
+								conflictBaseline: recoveredBaseline,
+								syncMode: "paused-conflict",
+							},
+						);
+					}
+				} else {
+					snapshot = replayOptimisticSnapshot(
+						current.snapshot,
+						submission.result.document,
+						remaining,
+						currentBinding.gistId,
+					);
+					committedBinding = createWorkspaceV2LocalState(
+						currentBinding.gistId,
+						{
+							baseline: submission.result.document,
+							syncMode: currentBinding.syncMode,
+						},
+					);
+				}
 			} catch {
 				await options.persistence.quarantineWorkspaceQueue({
 					workspaceId: binding.workspaceId,
@@ -251,6 +370,31 @@ export async function dispatchPersistedWorkspaceMutation(
 				};
 			}
 			try {
+				if (recoveredAfterAdvance) {
+					const next = currentQueue.mutations[1];
+					await options.persistence.commitRecoveredDelivery({
+						snapshot,
+						binding: committedBinding,
+						mutationId: mutation.mutationId,
+						committedBaseline: recoveredBaseline as WorkspaceDocumentV2,
+						blocked: next
+							? blockedMetadata(
+									next,
+									"state-conflict",
+									"revision_conflict",
+									new Date(now()).toISOString(),
+								)
+							: null,
+						fence,
+					});
+					return next
+						? {
+								status: "conflict",
+								code: "revision_conflict",
+								disposition: "state-conflict",
+							}
+						: { status: "committed" };
+				}
 				await options.persistence.commitDeliverySuccess({
 					snapshot,
 					binding: committedBinding,
