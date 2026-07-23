@@ -1,4 +1,6 @@
 import { getBearerToken } from "$lib/server/api/auth";
+import { readBoundedJson } from "$lib/server/api/bounded-json";
+import { ApiError } from "$lib/server/api/errors";
 import type {
 	WorkspaceCoordinatorCommand,
 	WorkspaceCoordinatorRpcError,
@@ -25,7 +27,12 @@ export type WorkspaceCoordinatorNamespace = {
 
 function errorResponse(
 	status: number,
-	code: WorkspaceCoordinatorRpcErrorCode | "unauthorized" | "invalid_mutation",
+	code:
+		| WorkspaceCoordinatorRpcErrorCode
+		| "unauthorized"
+		| "invalid_json"
+		| "payload_too_large"
+		| "unsupported_media_type",
 	message: string,
 	details?: Pick<
 		WorkspaceCoordinatorRpcError,
@@ -153,9 +160,21 @@ export async function handleBrowserWorkspaceMutation(
 
 	let body: unknown;
 	try {
-		body = await request.json();
-	} catch {
-		return errorResponse(400, "invalid_mutation", "Request body must be JSON");
+		body = await readBoundedJson(request);
+	} catch (error) {
+		if (
+			error instanceof ApiError &&
+			(error.code === "invalid_json" ||
+				error.code === "payload_too_large" ||
+				error.code === "unsupported_media_type")
+		) {
+			return errorResponse(error.status, error.code, error.message);
+		}
+		return errorResponse(
+			400,
+			"invalid_json",
+			"Request body must be valid JSON",
+		);
 	}
 
 	let mutation: WorkspaceMutation;

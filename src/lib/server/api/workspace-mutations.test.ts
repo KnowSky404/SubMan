@@ -5,6 +5,7 @@ import {
 } from "$lib/server/api/workspace-mutations";
 import type { WorkspaceCoordinatorRpcResponse } from "$lib/server/workspace-coordinator";
 import type { WorkspaceDocumentV2 } from "$lib/workspace-document";
+import { WORKSPACE_LIMITS } from "$lib/workspace-limits";
 import type { WorkspaceMutation } from "$lib/workspace-mutation";
 
 const TOKEN = "browser-github-token";
@@ -173,6 +174,75 @@ describe("browser workspace mutation endpoint", () => {
 			unused,
 		);
 		expect(wrongSource.status).toBe(400);
+	});
+
+	it("rejects invalid media types, malformed JSON, and oversized bodies before dispatch", async () => {
+		const cases = [
+			{
+				request: new Request(
+					"https://subman.example/api/workspaces/mutations",
+					{
+						method: "POST",
+						headers: { Authorization: `Bearer ${TOKEN}` },
+						body: "{}",
+					},
+				),
+				status: 415,
+				code: "unsupported_media_type",
+			},
+			{
+				request: new Request(
+					"https://subman.example/api/workspaces/mutations",
+					{
+						method: "POST",
+						headers: {
+							Authorization: `Bearer ${TOKEN}`,
+							"Content-Type": "application/json",
+						},
+						body: "{",
+					},
+				),
+				status: 400,
+				code: "invalid_json",
+			},
+			{
+				request: new Request(
+					"https://subman.example/api/workspaces/mutations",
+					{
+						method: "POST",
+						headers: {
+							Authorization: `Bearer ${TOKEN}`,
+							"Content-Type": "application/json",
+							"Content-Length": String(
+								WORKSPACE_LIMITS.mutationRequestBytes + 1,
+							),
+						},
+						body: "{}",
+					},
+				),
+				status: 413,
+				code: "payload_too_large",
+			},
+		] as const;
+
+		for (const item of cases) {
+			const calls: Array<{ name: string; command: unknown; token: string }> =
+				[];
+			const response = await handleBrowserWorkspaceMutation(
+				item.request,
+				WORKSPACE_ID,
+				namespaceReturning(
+					{ ok: false, error: { code: "server_error", message: "unused" } },
+					calls,
+				),
+			);
+			expect(response.status).toBe(item.status);
+			const body = JSON.parse(await response.text()) as {
+				error: { code: string };
+			};
+			expect(body.error.code).toBe(item.code);
+			expect(calls).toHaveLength(0);
+		}
 	});
 
 	it("maps stable coordinator failures to public HTTP statuses", async () => {
