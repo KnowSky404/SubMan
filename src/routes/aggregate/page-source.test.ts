@@ -96,8 +96,26 @@ test("aggregate publishing distinguishes drafts, saved state, and manual push", 
 	expect(aggregatePageSource).toContain(
 		'action.previousFileCleanup === "delete-if-unreferenced"',
 	);
-	expect(aggregatePageSource).toContain("appState.set(localSnapshot)");
 	expect(aggregatePageSource).not.toContain("// Auto-save the rule");
+});
+
+test("aggregate Workspace delivery uses the transactional browser persistence", () => {
+	expect(aggregatePageSource).toContain("getBrowserWorkspaceBinding()");
+	expect(aggregatePageSource).toContain(
+		"await commitQueuedBrowserWorkspaceMutation({",
+	);
+	expect(aggregatePageSource).toContain(
+		"await submitBrowserWorkspaceMutation(",
+	);
+	expect(aggregatePageSource).toContain("{ allowManual: true }");
+	expect(aggregatePageSource).not.toContain("WorkspaceMutationQueue");
+	expect(aggregatePageSource).not.toContain("WorkspaceV2StateStore");
+	expect(aggregatePageSource).not.toContain("workspaceDependencies");
+});
+
+test("aggregate failures never roll back only the Svelte store", () => {
+	expect(aggregatePageSource).not.toContain("appState.set(localSnapshot)");
+	expect(aggregatePageSource).not.toContain("appState.set(");
 });
 
 test("aggregate rules migrate legacy tag IDs to stable labels with warnings", () => {

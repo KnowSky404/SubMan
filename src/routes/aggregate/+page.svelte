@@ -60,14 +60,13 @@ import {
 	reconcileBrowserWorkspace,
 	submitBrowserWorkspaceMutation,
 } from "$lib/workspace-browser-session-v2";
-import { WorkspaceMutationQueue } from "$lib/workspace-mutation-queue";
 import {
 	analyzeAggregateDelete,
 	analyzePublishTargetDelete,
 	findWorkspaceOutputConflicts,
 } from "$lib/workspace-output";
+import { getBrowserWorkspaceBinding } from "$lib/workspace-persistence-browser";
 import { workspaceSyncStatus } from "$lib/workspace-sync-status";
-import { WorkspaceV2StateStore } from "$lib/workspace-v2-state";
 
 let ruleName = "";
 let selectedNodeIds: string[] = [];
@@ -407,15 +406,6 @@ type PendingWorkspaceAction = {
 	previousFileCleanup?: "keep" | "delete-if-unreferenced";
 };
 
-function workspaceDependencies() {
-	return {
-		queue: new WorkspaceMutationQueue(),
-		stateStore: new WorkspaceV2StateStore(),
-		getState: () => $appState,
-		setState: (state: typeof $appState) => appState.set(state),
-	};
-}
-
 function actionSaved(result: WorkspaceActionResult): boolean {
 	return !["rejected", "permanent-error", "invalid-local-state"].includes(
 		result.status,
@@ -447,16 +437,16 @@ async function commitPendingAction(
 		throw new Error(result.error ?? "Workspace change was not saved");
 	}
 	if (result.status === "queued" && result.mutationId) {
-		await commitQueuedBrowserWorkspaceMutation(
-			{ token, mutationId: result.mutationId },
-			workspaceDependencies(),
-		);
+		await commitQueuedBrowserWorkspaceMutation({
+			token,
+			mutationId: result.mutationId,
+		});
 		return;
 	}
 	if (result.status === "manual-local-only" && allowManual) {
 		await submitBrowserWorkspaceMutation(
 			{ token, kind: action.kind, payload: action.payload },
-			{ ...workspaceDependencies(), allowManual: true },
+			{ allowManual: true },
 		);
 		return;
 	}
@@ -608,7 +598,6 @@ async function saveTarget(): Promise<void> {
 			await commitPendingAction(action, true);
 			showToast($t("Saved to Workspace"), "success");
 		} catch (error) {
-			appState.set(localSnapshot);
 			showToast(
 				$t("Workspace change was not saved: {error}", {
 					error: error instanceof Error ? error.message : String(error),
@@ -631,7 +620,7 @@ async function submitManualDelete(
 		await pushSelectedManualConfiguration($appState);
 		await submitBrowserWorkspaceMutation(
 			{ token, kind, payload },
-			{ ...workspaceDependencies(), allowManual: true },
+			{ allowManual: true },
 		);
 		return true;
 	} catch (error) {
@@ -790,21 +779,17 @@ async function pushSelectedManualConfiguration(
 ): Promise<void> {
 	const token = $authState.token;
 	const gistId = $appState.activeGistId;
-	const stateStore = new WorkspaceV2StateStore();
-	const binding = stateStore.read();
+	const binding = getBrowserWorkspaceBinding();
 	if (!token || !gistId || !binding?.baseline) {
 		throw new Error($t("Missing workspace authorization."));
 	}
-	await reconcileBrowserWorkspace(
-		{
-			token,
-			gistId,
-			baseline: binding.baseline,
-			resolvedState,
-			syncMode: "manual",
-		},
-		{ ...workspaceDependencies(), stateStore },
-	);
+	await reconcileBrowserWorkspace({
+		token,
+		gistId,
+		baseline: binding.baseline,
+		resolvedState,
+		syncMode: "manual",
+	});
 }
 
 async function publishSaved(allowManual = false): Promise<void> {
@@ -838,10 +823,7 @@ async function publishSaved(allowManual = false): Promise<void> {
 					output: { fileName: target.fileName, content: output.content },
 				},
 			},
-			{
-				...workspaceDependencies(),
-				allowManual,
-			},
+			{ allowManual },
 		);
 		publishUrl =
 			$appState.publishTargets.find((target) => target.id === selectedTargetId)
@@ -889,13 +871,8 @@ async function saveAndPublish(): Promise<void> {
 			const manualReconcileState = targetAction
 				? manualStateBeforeTargetAction(localSnapshot, targetAction)
 				: localSnapshot;
-			try {
-				await pushSelectedManualConfiguration(manualReconcileState);
-				if (targetAction) await commitPendingAction(targetAction, true);
-			} catch (error) {
-				appState.set(localSnapshot);
-				throw error;
-			}
+			await pushSelectedManualConfiguration(manualReconcileState);
+			if (targetAction) await commitPendingAction(targetAction, true);
 		}
 		publishing = false;
 		await publishSaved(workspaceIsManual);
