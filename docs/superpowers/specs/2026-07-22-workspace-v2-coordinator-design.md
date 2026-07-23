@@ -13,6 +13,12 @@ binding state, and routes every `subman.json` mutation through one Cloudflare
 Durable Object per workspace. The Durable Object is the only runtime component
 allowed to commit the configuration file.
 
+The reliability hardening contract in
+`docs/superpowers/plans/2026-07-23-workspace-v2-hardening.md` supersedes this
+document's original localStorage queue, timestamp merge, generic retry, and
+coarse error behavior. This document incorporates those mandatory corrections;
+the deferred protocols in ADR 0001 remain design-only.
+
 ## Goals
 
 - Preserve all V1 workspace entities during migration.
@@ -117,8 +123,10 @@ and later readers.
 
 The remote document never contains `activeGistId`, `activeGistFile`, `gists`,
 UI state, a pending mutation queue, or local synchronization state. Existing
-localStorage data is migrated separately into `WorkspaceData` plus a
-`LocalWorkspaceBinding`.
+browser data is migrated into the `subman-workspace` IndexedDB v1 transactional
+root: validated snapshot, binding/baselines, per-Workspace queues, retry/blocked
+metadata, leases, quarantine metadata, and migration evidence. GitHub tokens
+remain outside that database.
 
 ## Workspace Identity
 
@@ -226,6 +234,8 @@ type WorkspaceMutation = {
     | "client-export.delete"
     | "aggregate.publish"
     | "client-export.publish"
+    | "output.delete"
+    | "workspace.bootstrap.cleanup"
     | "workspace.reconcile";
   payload: unknown;
 };
@@ -400,46 +410,67 @@ complete workspace state.
 
 Successful browser mutation responses contain the committed V2 document,
 revision, mutation ID, and publication metadata when applicable. Server API
-routes project the coordinator result back to their existing least-privilege
-shape: the affected node plus workspace Gist/file/revision metadata. They never
-return unrelated node URIs, subscriptions, or the complete document. Errors use
-stable codes:
+routes project the coordinator result to the affected node plus safe Workspace
+metadata; they never return unrelated resources or the complete document.
 
-- `400 invalid_mutation` or `invalid_workspace_document`
-- `401 unauthorized`
-- `404 workspace_not_found` or `entity_not_found`
-- `409 revision_conflict`, `entity_deleted`, or
-  `migration_backup_conflict`
-- `409 mutation_id_reused`
-- `422 unsupported_schema`
-- `502 gist_read_failed` or `gist_write_failed`
-
-A conflict response includes the latest safe document and revision so the
-browser can enter conflict handling. Responses never echo credentials.
+Every failure has a stable code and one disposition: `state-conflict`,
+`domain-conflict`, `auth-required`, `queue-corruption`, `operator-repair`,
+`retryable-upstream`, `permanent-upstream`, or `invalid-request`. Unknown codes
+fail closed as `operator-repair`. Only `state-conflict` may include a validated
+latest document/revision. GitHub failures add only bounded operation, status,
+category, request ID, retry-after, and rate-limit metadata. Credentials, GitHub
+bodies, arbitrary messages, and stacks never cross the response boundary.
 
 ## Browser Synchronization
 
-The browser remains optimistic locally but no longer writes `subman.json`
-directly:
+The browser remains optimistic but no longer writes `subman.json` directly. An
+automatic business action validates the next snapshot and mutation, then
+atomically commits snapshot, binding, and queue entry to IndexedDB before
+updating Svelte memory. Delivery success atomically removes the head, advances
+the binding/baseline, clears retry/blocked state, and stores the replayed
+optimistic snapshot before peers are notified.
 
-1. A business action creates a mutation and updates UI state.
-2. The mutation is inserted into a persistent localStorage queue before send.
-3. The browser sends the queue head to the Worker mutation endpoint.
-4. Success replaces local workspace data with the committed document, updates
-   the revision and baseline, then removes that mutation from the queue.
-5. Network and retryable server failures retain the same mutation ID and retry
-   in order after recovery.
-6. A `409` keeps the mutation, sets `syncMode` to `paused-conflict`, and opens
-   the existing conflict flow.
+Queues are grouped by Workspace. Discard, rebind, and repair operate on a whole
+queue; head-only deletion is forbidden unless remaining revisions are atomically
+rebased or replaced by an explicit reconcile. Active and orphan Workspace counts
+remain inspectable. A fenced IndexedDB lease with owner ID, monotonic token,
+expiry, and heartbeat permits one sender. Web Locks and BroadcastChannel may
+reduce contention or wake peers but are never correctness boundaries.
 
-BroadcastChannel communicates committed state and queue changes between tabs.
-Only one tab attempts queue delivery at a time using the existing browser
-coordination lease, but server correctness never depends on that lease.
+Network, timeout, 408/429, and GitHub 5xx failures retain the mutation ID and use
+persisted bounded exponential backoff with jitter and server retry timing.
+Authentication stops delivery; domain/state conflicts block for their specific
+repair flows; corruption and operator failures remain fail-closed. Merge is a
+tombstone-aware three-way comparison against a trusted baseline. Timestamps do
+not grant overwrite authority.
 
 Manual mode may enqueue only after an explicit sync action. Bind-only and
 `paused-conflict` modes enqueue and send no automatic mutation. Local mode has
 no remote queue. A logout or token removal preserves unsent mutations but
 cannot send them until authentication is restored.
+
+## Browser Persistence Hardening
+
+The IndexedDB migration imports `subman:state:v1`,
+`subman:workspace-state:v2`, `subman:workspace-mutation-queue:v1`, and legacy
+quarantines through `not-started`, `copied`, `validated`, and `confirmed`
+transactions. Legacy keys remain rollback sources until confirmation and are
+then removed. Invalid identity, mutation sequence, or stored data is quarantined.
+Unsupported storage, quota, upgrade, transaction, and corrupt-data failures enter
+`invalid-local-storage`; the application never falls back to split-key writes.
+
+Incoming mutation JSON is streamed through a 9 MiB bounded reader. Domain limits
+cover output content, node raw, subscription URL, names, labels, external keys,
+tags, collection entities, rename maps, and canonical serialized Workspace
+documents. Only created or edited values are subject to current creation limits;
+unchanged oversized legacy values remain readable and repairable. Tombstone
+counts are observability thresholds, not a compaction rule.
+
+Production responses must include CSP with `frame-ancestors`, Referrer-Policy,
+X-Content-Type-Options, and Permissions-Policy. The inline first-paint theme path
+must use a build-tested nonce or hash. Browser token storage is session-only by
+default; persistent opt-in copy explicitly states that active XSS can read the
+token and browser encryption does not remove that risk.
 
 ## Token and Logging Boundary
 
@@ -454,6 +485,10 @@ cannot send them until authentication is restored.
   status codes, and sanitized GitHub status information only.
 - Authorization headers and RPC token arguments are explicitly redacted from
   diagnostic helpers.
+- Diagnostics export only counts; safe Workspace/revision/mode metadata;
+  mutation identity plus payload bytes/SHA-256; retry/disposition metadata; and
+  quarantine key/bytes/time. They never read quarantine raw values or export
+  payloads, outputs, complete documents, messages, or stacks.
 - `subman.json`, `subman.v1.backup.json`, and `subman.bootstrap.json` are
   reserved filenames. Aggregate and client export validation rejects them,
   case-insensitively, so publication cannot replace configuration or recovery
@@ -556,5 +591,6 @@ Unit and integration coverage must prove:
 14. Server API routes do not perform full-state saves.
 15. Every `subman.json` write originates in `WorkspaceCoordinator`.
 
-The final gate is `bun test`, `bun run check`, `bun run lint`, `bun run build`,
-and `bun run dev:cf` with local Durable Object integration checks.
+The final local gate is `bun test`, `bun run check`, `bun run lint`,
+`bun run build`, `bun run test:cf`, and `bun run test:e2e`. GitHub Actions runs
+the same verification with read-only permission and no secrets or deployment.

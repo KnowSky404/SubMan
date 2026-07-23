@@ -9,11 +9,17 @@ rollback for the Workspace Schema V2 coordinator.
 - One `WorkspaceCoordinator` Durable Object is addressed by `gist:<gist-id>`.
 - Every Workspace-mode browser and Server API mutation that can change
   `subman.json` goes through that coordinator.
-- Automatic Workspace-mode browser mutations are persisted in a local queue
-  and sent in revision order. Local-only, bind-only, and paused modes do not
-  send automatic mutations.
+- Browser state is committed through `WorkspacePersistence` into the
+  `subman-workspace` IndexedDB v1 database. Snapshot, binding, per-Workspace
+  queues, delivery metadata, and leases share one transaction boundary.
+- Automatic Workspace-mode mutations are sent in revision order. Local-only,
+  bind-only, manual-local-only, and paused modes do not send automatically.
 - `subman.v1.backup.json` and `subman.bootstrap.json` are reserved recovery
   files. Generated outputs cannot replace or delete them.
+- The coordinator accepts node, subscription, aggregate, publish-target, and
+  client-export upserts/deletes; aggregate/client publication; `output.delete`;
+  `workspace.bootstrap.cleanup`; and explicit `workspace.reconcile`. No browser
+  page or Server API route may PATCH `subman.json` directly.
 
 The checked-in Wrangler configuration binds `WORKSPACE_COORDINATOR` and creates
 the SQLite-backed class with migration tag `v1`. Migration tags are immutable
@@ -29,6 +35,7 @@ bun run check
 bun run lint
 bun run build
 bun run test:cf
+bun run test:e2e
 bun wrangler deploy --dry-run
 ```
 
@@ -48,6 +55,11 @@ storage by default. Without local secrets, health returns HTTP 200 with
 `bun run test:cf` gate exercises an authenticated Worker mutation through the
 real Durable Object and SQLite journal with mocked GitHub I/O. Do not use
 production GitHub credentials for disposable local migration fixtures.
+
+The checked-in GitHub Actions workflow runs the same test, check, lint, build,
+Cloudflare integration, and browser-test gates with read-only repository
+permission. It receives no deployment credentials and never deploys or touches a
+real Gist.
 
 ## Production Deployment
 
@@ -88,6 +100,117 @@ A new Workspace starts with only `subman.bootstrap.json`. Its first coordinator
 mutation creates V2 `subman.json` and deletes the bootstrap marker in the same
 verified PATCH.
 
+## Browser Persistence Migration
+
+The browser database is `subman-workspace`, version 1, with one transactional
+`workspace-state` root. It contains:
+
+- The validated business snapshot and Workspace binding/baselines.
+- Per-Workspace ordered mutations plus retry, blocked, and dead-letter metadata.
+- Dispatcher leases and the next fencing token.
+- Safe quarantine metadata and separately inaccessible repair payloads.
+- Migration phase and timestamps.
+
+GitHub tokens are never fields in this database. Session storage is the default;
+localStorage is used for a token only after Remember token is explicitly enabled.
+That persistent choice remains readable to same-origin JavaScript and therefore
+does not protect against active XSS.
+
+Initialization imports `subman:state:v1`, `subman:workspace-state:v2`,
+`subman:workspace-mutation-queue:v1`, and legacy quarantine records. Each of
+`not-started`, `copied`, `validated`, and `confirmed` is a transaction boundary.
+Identity, mutation schema, unique IDs, and contiguous expected revisions are
+validated before confirmation. Invalid legacy records are quarantined rather
+than silently discarded.
+
+Before confirmation, untouched legacy keys are rollback sources. After
+confirmation, the legacy keys are removed and IndexedDB plus its migration
+evidence are authoritative. If IndexedDB is unsupported, upgrade fails, quota is
+exhausted, a transaction aborts, or stored data is corrupt, keep the application
+in `invalid-local-storage` read-only repair mode. Do not clear storage, create a
+new localStorage fallback, or resume delivery until the cause and retained
+metadata have been inspected.
+
+## Queue Inspection And Repair
+
+Queue inspection groups work by Workspace and reports active, total, orphan,
+blocked, and dead-letter counts. A Workspace can become orphaned after a switch
+or disconnect; its mutations remain preserved until an explicit action is taken.
+
+- **Retry** clears only eligible persisted retry state and wakes delivery.
+- **Discard** removes the complete selected Workspace queue transactionally.
+- **Rebind** requires an identity-checked snapshot and binding before making the
+  selected Workspace active.
+- **Repair** replaces the complete queue with a validated, contiguous sequence or
+  an explicit reconcile. Never delete only the head and leave a revision gap.
+- **Quarantine** freezes corrupt queue data and retains only safe metadata in
+  normal inspection and diagnostics.
+
+Domain conflicts keep the head blocked for edit, discard, or realign. State
+conflicts keep the trusted latest document for tombstone-aware Pull, Merge, or
+Use Local. Merge is a three-way comparison against the trusted baseline;
+`updatedAt` is not overwrite authority, and a remote tombstone cannot be removed
+by an ordinary upsert or reconcile.
+
+## Leases, Retry, And Upstream Failures
+
+Each Workspace dispatcher acquires a persisted lease with a random owner ID,
+monotonic fencing token, expiry, and heartbeat. It checks the fence before a
+request and after every await. An expired or superseded owner cannot send the
+next mutation. Web Locks may reduce contention and BroadcastChannel may wake
+peers, but neither is required for correctness.
+
+Retryable network, timeout, HTTP 408/429, and GitHub 5xx failures retain the same
+mutation ID and use persisted bounded exponential backoff with jitter. Safe
+`Retry-After` and rate-limit reset metadata provide the lower bound. GitHub
+metadata, truncated raw-file reads, PATCH requests, and browser mutation requests
+have explicit timeouts so one stalled operation cannot hold the queue forever.
+Authentication failures stop delivery until reconnect; permanent upstream,
+domain, queue-corruption, and operator-repair failures are never treated as
+generic 5xx retries.
+
+## Failure Dispositions
+
+| Disposition | Typical cause | Operator action |
+| --- | --- | --- |
+| `state-conflict` | Revision/identity conflict with a trusted latest document | Pull, tombstone-aware Merge, or Use Local. |
+| `domain-conflict` | Duplicate resource, output ownership, or existing entity | Edit, discard, or realign the blocked mutation. |
+| `auth-required` | GitHub 401/403 or missing/revoked browser token | Reconnect; do not 5xx-retry. |
+| `queue-corruption` | Reused mutation ID, invalid response, or revision gap | Freeze and explicitly repair/quarantine the queue. |
+| `operator-repair` | Backup, recovery, commit-index, journal, or unknown internal failure | Remain read-only and follow the runbook. |
+| `retryable-upstream` | Network, timeout, 408, 429, or GitHub 5xx | Keep the queue and use persisted backoff. |
+| `permanent-upstream` | GitHub 404 or non-domain 409/422 | Stop delivery and repair Workspace/upstream state. |
+| `invalid-request` | Invalid JSON/schema/mutation or a request/domain limit | Correct the input; do not retry unchanged data. |
+
+Only `state-conflict` may include a validated latest document and revision. Error
+responses expose stable codes/dispositions and bounded gateway metadata, never
+GitHub bodies, credentials, arbitrary exception messages, or stacks.
+
+## Limits, Diagnostics, And Headers
+
+Incoming JSON must use `application/json` or a `+json` media type and is limited
+to 9 MiB, including streamed/chunked bodies. Stable failures are 415
+`unsupported_media_type`, 400 `invalid_json`, and 413 `payload_too_large`.
+
+Current UTF-8/count limits are: output 1 MiB, node raw 16 KiB, subscription URL
+8 KiB, name 256 bytes, label 128 bytes, external key 256 bytes, 64 tags per
+entity, 5,000 entities per collection, 1,000 rename entries/64 KiB per rename
+map, and 8 MiB for canonical serialized `subman.json`. New and edited values must
+fit. Unchanged oversized legacy fields remain readable and can be reduced;
+tombstones above 10,000 per collection produce an observability warning but are
+not rejected or compacted.
+
+Diagnostics export only counts; safe Workspace, revision, and mode metadata;
+mutation ID/kind/revision/time plus payload byte length and SHA-256; retry and
+disposition metadata; and quarantine key/bytes/time. They never read quarantine
+raw values or export proxy/subscription data, output content, complete documents,
+tokens, arbitrary errors, messages, or stacks.
+
+Production responses must carry CSP with `frame-ancestors`, Referrer-Policy,
+X-Content-Type-Options, and Permissions-Policy. The first-paint theme script must
+use the build-tested nonce/hash path. Treat missing headers, a blocked theme
+script, or persistent-token copy that omits active-XSS risk as a release failure.
+
 ## Verification Evidence
 
 The pre-deployment gate proves retry idempotency, SQLite credential exclusion,
@@ -100,6 +223,12 @@ controlled production Workspace, verify:
   export.
 - A browser publication and a Server API node update both remain present.
 - API responses contain no unrelated Workspace data or credentials.
+- Browser diagnostics contain no canary payloads, quarantine raw values, tokens,
+  arbitrary error messages, or stacks.
+- A two-tab lease test proves one sender, expiry takeover, stale-fence rejection,
+  and persisted retry timing without relying on Web Locks/BroadcastChannel.
+- Exact-limit and one-byte-over tests cover request and domain limits; generated
+  Worker responses contain the required security headers.
 - Repeating the same controlled external-key Server API operation keeps one
   node with the same identity. Each accepted HTTP request may still advance the
   Workspace revision because it has a new mutation ID and update timestamp.
@@ -108,6 +237,12 @@ controlled production Workspace, verify:
 
 Rollback is an operator-controlled data restoration, not a Wrangler migration
 reversal:
+
+For browser persistence, an interruption before `confirmed` may restart from the
+untouched legacy keys. After confirmation and cleanup, do not recreate split-key
+writes: retain/export safe migration metadata and recover the last validated
+snapshot from IndexedDB. Tokens follow their independent session/persistent
+choice and are not part of persistence rollback.
 
 1. Stop or disable V2 writers so a compatibility Worker cannot race the
    coordinator.

@@ -13,6 +13,14 @@ versions and compatibility proofs. None of the fields or cleanup algorithms in
 this ADR may enter the production path without a follow-up ADR, migration plan,
 and the tests listed below.
 
+The current hardening release may ship transactional browser persistence,
+per-Workspace queue inspection/repair, fenced browser dispatcher leases,
+bounded retry, safe diagnostics, tombstone count warnings, and the existing
+authenticated application health/config repair UI. Those features do not
+implement the coordinator recovery, publication evidence, compaction watermark,
+device acknowledgement, journal checkpoint, audit chain, or pruning protocols
+designed here.
+
 ## Publication Freshness
 
 A future publication record should distinguish the Workspace revision used to
@@ -132,3 +140,11 @@ Storage growth and unknown publication freshness remain visible operational
 limitations. The follow-up protocols can be reviewed independently without
 weakening Workspace V2 revision, tombstone, backup, journal, request-hash, or
 idempotency guarantees.
+
+A tombstone warning threshold is observability only: it does not authorize
+deletion. Browser lease expiry does not establish device acknowledgement or a
+compaction horizon. Queue repair does not authorize skipping journal continuity,
+and diagnostics payload hashes are not the signed checkpoints proposed for
+processed-mutation retention. Operators must use
+`docs/workspace-v2-operations.md` for current behavior and treat every protocol
+in this ADR as unavailable.

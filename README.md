@@ -2,8 +2,9 @@
 
 [English README](README.en.md)
 
-Gist-first 的纯前端代理订阅管理工具，支持 VLESS / VMess 等节点与订阅聚合。
-核心目标是在一个固定的 GitHub Workspace Gist 内完成数据管理与稳定订阅发布。
+Gist-first、浏览器优先的代理订阅管理工具，支持 VLESS / VMess 等节点与订阅聚合。
+SvelteKit 运行在 Cloudflare Workers 上，并由每个 Workspace 一个的 Durable Object
+串行协调写入。核心目标是在一个固定的 GitHub Workspace Gist 内完成数据管理与稳定订阅发布。
 
 默认 Workspace 标识：
 - 描述：`SubMan-Data`
@@ -11,9 +12,10 @@ Gist-first 的纯前端代理订阅管理工具，支持 VLESS / VMess 等节点
 
 ## 主要能力
 - Workspace Gist：保存 Token 后自动查找或创建固定标识的 Gist，并绑定为工作区
-- 本地与远端双模式：无 Token 仅 localStorage；有 Token 自动与 Gist 同步
+- 本地与远端双模式：业务数据保存在浏览器 IndexedDB；有 Token 时可自动与 Gist 同步
 - 冲突处理与修复：本地覆盖远端、远端覆盖本地、合并保存、仅绑定；提供健康检查与配置修复
 - 自动同步：浏览器改动先进入持久化队列，再由 Cloudflare Durable Object 按版本顺序写入 Workspace
+- 队列恢复：可区分活动与孤立 Workspace 队列，并按完整队列执行重试、丢弃、重新绑定或修复
 - 节点与订阅管理：新增、编辑、启用/停用、标签、搜索与过滤
 - 批量导入：支持多行导入节点或订阅，自动去重与预览；支持解析 base64 订阅内容
 - 聚合规则：按节点/订阅选择、排除标签、协议类型过滤、正则表达式重命名、自动区域旗标
@@ -49,6 +51,7 @@ Gist-first 的纯前端代理订阅管理工具，支持 VLESS / VMess 等节点
 - 保存 Token 后自动查找固定标识的 Gist；新 Gist 先创建 bootstrap 标记，首次协调器提交再写入 `subman.json`
 - 数据统一写入同一 Workspace Gist，配置文件受保护不可在 UI 中删除
 - 浏览器与 Server API 的配置变更统一交给每个 Workspace 一个的 Durable Object 串行提交
+- `subman.json` 只能由协调器写入；配置、发布输出与删除输出均通过带版本的 mutation 提交
 - 旧版 Workspace 在首次 V2 提交时保留字节级 `subman.v1.backup.json` 后再迁移
 - 冲突处理支持本地覆盖、远端覆盖、合并保存或仅绑定
 - 提供健康检查与配置修复入口
@@ -79,7 +82,7 @@ Gist-first 的纯前端代理订阅管理工具，支持 VLESS / VMess 等节点
 
 - Pull Remote / 远端覆盖本地：用远端数据替换本地视图。
 - Push Local / 本地覆盖远端：把当前本地数据写入 Gist。
-- Merge & Save / 合并保存：按条目 `updatedAt` 合并本地和远端后保存。
+- Merge & Save / 合并保存：基于可信同步基线进行三方合并；删除墓碑优先，`updatedAt` 不授予覆盖权限。
 - Bind only / 仅绑定：只绑定 Workspace，不立即同步数据。
 
 ## 开发与构建
@@ -88,6 +91,20 @@ bun install
 bun run dev
 bun run preview
 ```
+
+完整本地检查：
+
+```bash
+bun test
+bun run check
+bun run lint
+bun run build
+bun run test:cf
+bun run test:e2e
+```
+
+GitHub Actions 在 `main` push 和 pull request 上执行同一检查链，不读取仓库 Secret，
+也不执行部署或真实 Gist 操作。
 
 ## Cloudflare Workers 部署
 ```bash
@@ -146,6 +163,24 @@ curl -sS -X PUT "https://subman.example.com/api/nodes/by-key/vps-1-vless" \
 
 `GITHUB_TOKEN` 只保存在 Cloudflare Secrets 中，外部脚本不需要也不应该持有 GitHub Token。
 第一版 API 面向可信后端脚本调用，不默认开放浏览器跨域访问。
+
+## 浏览器存储与安全
+
+- Workspace 快照、绑定、每个 Workspace 的队列、重试/阻塞状态、租约和迁移证据原子保存在
+  `subman-workspace` IndexedDB v1 中。
+- 旧 localStorage 数据按 `copied -> validated -> confirmed` 阶段迁移；存储不可用、升级失败、
+  配额不足或数据损坏时进入只读修复状态，不会回退到非原子写入。
+- GitHub Token 不进入 IndexedDB、mutation、诊断、日志或 Durable Object SQLite。
+  默认仅保存在当前 session；只有显式选择 Remember token 才持久化。
+- 持久化 Token 可被同源 JavaScript 读取，活动型 XSS 能窃取它；浏览器端加密不能消除该风险。
+- 诊断导出仅包含计数、安全元数据、payload 长度与 SHA-256、重试/错误分类及隔离区元数据，
+  不读取或导出隔离原文、代理 URI、订阅 Token、输出内容、错误堆栈或凭据。
+- Worker 响应使用 CSP、`frame-ancestors`、Referrer-Policy、X-Content-Type-Options 和
+  Permissions-Policy。请求与 Workspace 字段均有 UTF-8 字节/数量限制；旧版超限字段可保留，
+  但新建或编辑字段必须满足当前限制。
+
+浏览器迁移、队列修复、诊断、安全检查和回滚细节见
+[Workspace V2 Operations](docs/workspace-v2-operations.md)。
 
 ## AI / Agent 适配
 本仓库提供面向 Codex、Hermes agents 等自动化 agent 的项目上下文与 skill：

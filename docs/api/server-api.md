@@ -209,10 +209,31 @@ Error responses:
 {
   "error": {
     "code": "unauthorized",
-    "message": "Unauthorized"
+    "message": "Unauthorized",
+    "disposition": "auth-required"
   }
 }
 ```
+
+Errors always use a stable `code` and `disposition`. A GitHub failure may add a
+bounded `gateway` object containing only operation, status, category, request ID,
+retry-after, and rate-limit reset. Raw GitHub response bodies, credentials,
+exception messages, and stacks are never returned. Only `state-conflict` may
+include a validated latest Workspace document and revision.
+
+## Request And Domain Limits
+
+JSON writes require `application/json` or a `+json` media type. The Worker counts
+streamed bytes rather than trusting only `Content-Length`; the request limit is 9
+MiB. Invalid media type, malformed JSON, and oversize bodies return stable 415,
+400, and 413 errors respectively.
+
+Created or edited values use UTF-8/count limits: node raw 16 KiB, subscription URL
+8 KiB, names 256 bytes, labels 128 bytes, external keys 256 bytes, 64 tags per
+entity, 5,000 entities per collection, rename maps of at most 1,000 entries and
+64 KiB, output content 1 MiB, and canonical Workspace documents 8 MiB. Unchanged
+oversized legacy fields remain readable and may be reduced; unrelated changes do
+not reject them.
 
 ## Endpoints
 
@@ -422,15 +443,22 @@ curl -fsS -X PUT "${SUBMAN_BASE_URL}/api/nodes/by-key/${NODE_KEY}" \
 | `200` | - | Read, update, delete, or upsert succeeded. |
 | `201` | - | Node created by `POST /api/nodes`. |
 | `400` | `bad_request` | Invalid JSON body or unsupported field value. |
+| `400` | `invalid_json` | The request body is missing, malformed, or invalid UTF-8 JSON. |
 | `401` | `unauthorized` | Missing or invalid `SUBMAN_API_TOKEN`. |
+| `401` / `403` | `gist_read_failed` / `gist_write_failed` | GitHub authentication or permission failed; reconnect or repair the Worker secret. |
 | `404` | `not_found` | Requested node id does not exist. |
+| `404` | `workspace_not_found` | The configured Workspace Gist no longer exists. |
 | `409` | `duplicate_node_raw` | Submitted raw URI already belongs to another node. |
 | `409` | `revision_conflict` | Another mutation committed after this request loaded the Workspace; retry from the latest revision. |
 | `409` | `entity_deleted` | A stale write attempted to restore a tombstoned entity. |
 | `409` | `migration_backup_conflict` | The existing V1 backup does not match the current V1 config. |
 | `422` | `unsupported_schema` | The Workspace uses a newer unsupported schema. |
+| `413` | `payload_too_large` | The streamed JSON body exceeds 9 MiB. |
+| `415` | `unsupported_media_type` | The request is not JSON. |
+| `429` | `gist_read_failed` / `gist_write_failed` | GitHub rate limited the operation; honor safe retry metadata. |
 | `500` | `server_error` | A required Worker secret or coordinator binding is missing, or an unexpected failure occurred. |
-| `502` | `gist_read_failed` / `gist_write_failed` | GitHub I/O failed without a verified commit. |
+| `502` | `gist_read_failed` / `gist_write_failed` / `write_verification_failed` | Network, invalid response, or upstream GitHub I/O failed without a verified commit. |
+| `504` | `gist_read_failed` / `gist_write_failed` | A bounded GitHub request timed out. |
 
 ## Operational Notes
 
@@ -438,7 +466,10 @@ curl -fsS -X PUT "${SUBMAN_BASE_URL}/api/nodes/by-key/${NODE_KEY}" \
 - Give backend scripts only `SUBMAN_API_TOKEN`.
 - Rotate `SUBMAN_API_TOKEN` if a script host is compromised.
 - The Durable Object serializes concurrent mutations and rejects stale
-  revisions, but GitHub Gist remains a low-frequency storage backend. Callers
-  should retry `revision_conflict` with bounded backoff.
+  revisions, but GitHub Gist remains a low-frequency storage backend.
+- Retry only `retryable-upstream` responses with bounded backoff and safe
+  `Retry-After`/rate-limit metadata. A `revision_conflict` is `state-conflict`:
+  reload current state and deliberately reissue an idempotent operation rather
+  than blindly replaying an old revision. Prefer external-key upsert for retries.
 - CORS is intentionally not opened for arbitrary browser origins in this API
   version.

@@ -37,17 +37,52 @@ Reserved Gist files are:
 
 ## Browser Persistence
 
-The current V2 baseline persists the business snapshot, Workspace binding, and
-all Workspace queues in separate localStorage records. This is a known
-non-atomic boundary being replaced by the transactional persistence design in
-`docs/superpowers/plans/2026-07-23-workspace-v2-hardening.md`. Do not add another
-browser storage key or bypass that migration boundary.
+Browser business state uses the `subman-workspace` IndexedDB database, schema
+version 1. Its single transactional root contains the validated snapshot,
+Workspace binding and baseline, per-Workspace mutation queues, retry and blocked
+metadata, dispatcher leases, quarantine metadata, and migration evidence.
+Business actions commit the snapshot, binding, and queue change atomically before
+Svelte memory is updated. Do not add another browser storage path or bypass the
+`WorkspacePersistence` boundary.
+
+Initialization migrates these legacy keys without writing new business state to
+them:
+
+- `subman:state:v1`
+- `subman:workspace-state:v2`
+- `subman:workspace-mutation-queue:v1`
+
+Migration progresses through `not-started`, `copied`, `validated`, and
+`confirmed`. Unsupported IndexedDB, quota, upgrade, transaction, or corrupt-data
+failures enter a fail-closed repair state; they never fall back to split
+localStorage writes. Corrupt records retain separately inaccessible raw data and
+safe quarantine metadata. Diagnostics never read or export quarantine contents.
 
 GitHub authentication remains outside that database:
 
 - Session-only is the default and uses `sessionStorage`.
 - Persistent storage uses `localStorage` only after explicit user opt-in.
 - Persistent browser storage does not protect a token from active XSS.
+
+## Delivery And Repair
+
+- Queue order and `expectedRevision` are preserved per Workspace. Active and
+  orphan Workspace queues remain visible to repair tooling.
+- Discard, rebind, and repair operate on a complete Workspace queue. Never remove
+  only the head unless the remaining revisions are atomically rebased or replaced
+  by an explicit reconcile.
+- One dispatcher owns a persisted lease with an owner ID, monotonically allocated
+  fencing token, expiry, and heartbeat. Web Locks and BroadcastChannel are
+  optional coordination aids, not correctness boundaries.
+- Retryable upstream failures use persisted bounded exponential backoff with
+  jitter and honor safe GitHub retry timing. Authentication and explicit Retry
+  actions reset only eligible retry state.
+- `state-conflict`, `domain-conflict`, `auth-required`, `queue-corruption`,
+  `operator-repair`, `retryable-upstream`, `permanent-upstream`, and
+  `invalid-request` are distinct dispositions. Unknown failures fail closed.
+- Merge and Use Local are tombstone-aware. Client timestamps never grant
+  overwrite authority, and remote tombstoned IDs are not restored by ordinary
+  upsert or reconcile mutations.
 
 ## Migration And Recovery
 
@@ -56,6 +91,10 @@ GitHub authentication remains outside that database:
   `subman.v1.backup.json`; a mismatching existing backup stops migration.
 - Corrupt browser records are quarantined as metadata plus inaccessible raw
   storage. Diagnostics never export quarantine contents.
+- Diagnostics contain only counts, safe Workspace/revision/mode metadata,
+  mutation identity plus payload byte length/hash, retry/disposition metadata,
+  and quarantine key/bytes/time. Raw payloads, messages, stacks, documents,
+  outputs, and credentials are excluded.
 - Tombstone compaction and processed-mutation pruning require a separate protocol
   design and must not be implemented as time-based deletion.
 
@@ -66,16 +105,24 @@ GitHub authentication remains outside that database:
   - `src/lib/workspace-mutation-queue.ts`
   - `src/lib/workspace-mutation-sync.ts`
   - `src/lib/workspace-mutation-sync-browser.ts`
+  - `src/lib/workspace-persistence.ts`
+  - `src/lib/workspace-sync-state-machine.ts`
   - `src/lib/workspace-sync-status.ts`
 - Workspace protocol:
   - `src/lib/workspace-document.ts`
   - `src/lib/workspace-mutation.ts`
   - `src/lib/workspace-data.ts`
+  - `src/lib/workspace-merge.ts`
+  - `src/lib/workspace-limits.ts`
 - Coordinator and GitHub gateway:
   - `src/lib/server/workspace-coordinator.ts`
   - `src/lib/server/workspace-coordinator-core.ts`
   - `src/lib/server/workspace-coordinator-journal.ts`
   - `src/lib/server/workspace-gist.ts`
+  - `src/lib/server/api/bounded-json.ts`
+- Security and diagnostics:
+  - `src/lib/workspace-diagnostics.ts`
+  - `src/hooks.server.ts`
 - UI:
   - `src/routes/auth/+page.svelte`
   - `src/routes/gists/+page.svelte`
@@ -94,6 +141,7 @@ bun run check
 bun run lint
 bun run build
 bun run test:cf
+bun run test:e2e
 ```
 
 Use `bun add`, `bun add -d`, and `bun remove` for dependency changes.
@@ -109,6 +157,11 @@ Use `bun add`, `bun add -d`, and `bun remove` for dependency changes.
   Workspace identity, backup, request-hash, or idempotency checks.
 - Do not log credentials, raw mutation payloads, full outputs, or full Workspace
   documents.
+- Enforce byte/count limits on new or edited values while allowing unrelated
+  changes to preserve oversized legacy fields. Tombstone thresholds are
+  observability warnings, not permission to compact them.
+- Preserve the response security-header contract, including CSP and
+  `frame-ancestors`; keep the first-paint theme script compatible with that CSP.
 - By default, do not deploy, run `wrangler deploy`, access or mutate a real Gist,
   push commits, create releases, or use production secrets. Those operations
   require explicit user authorization.
