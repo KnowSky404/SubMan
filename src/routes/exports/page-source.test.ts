@@ -89,3 +89,20 @@ test("exports page exposes gist live link publishing for remote profiles", () =>
 	expect(exportsPageSource).toContain("remote profile URL");
 	expect(exportsPageSource).toContain("Connect to Publish");
 });
+
+test("exports page blocks dirty or conflicting profile publication", () => {
+	expect(exportsPageSource).toContain("profileDirty");
+	expect(exportsPageSource).toContain("selectedOutputConflict");
+	expect(exportsPageSource).toContain("findWorkspaceOutputConflicts");
+	expect(exportsPageSource).toContain("profile.fileName = `sing-box-client-");
+	expect(exportsPageSource).toContain("$" + "{suffix}.json`");
+});
+
+test("exports page resets deletion state only after deferred acceptance", () => {
+	expect(exportsPageSource).toContain("const result = await handle.completion");
+	expect(exportsPageSource).toContain('result.status === "rejected"');
+	expect(exportsPageSource).toContain(
+		"showDeleteActionFeedback(result.status)",
+	);
+	expect(exportsPageSource).toContain('status === "queued"');
+});

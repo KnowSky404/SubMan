@@ -33,6 +33,13 @@ import {
 	type WorkspaceTombstone,
 	type WorkspaceTombstones,
 } from "$lib/workspace-document";
+import {
+	findWorkspaceOutputConflicts,
+	getConflictingOutputOwners,
+	getWorkspaceOutputOwners,
+	isCurrentClientExportOutputPublished,
+	isCurrentPublishTargetOutputPublished,
+} from "$lib/workspace-output";
 
 export type WorkspaceMutationSource = "browser" | "server-api";
 
@@ -46,6 +53,7 @@ export type WorkspaceNodeInput = {
 };
 
 export type WorkspaceNodePatch = Partial<WorkspaceNodeInput>;
+export type WorkspaceOutputCleanupPolicy = "keep" | "delete-if-unreferenced";
 
 type MutationBase<Kind extends string, Payload> = {
 	mutationId: string;
@@ -76,9 +84,21 @@ export type WorkspaceMutation =
 	| MutationBase<"subscription.upsert", { subscription: SubscriptionItem }>
 	| MutationBase<"subscription.delete", { id: string }>
 	| MutationBase<"aggregate.upsert", { aggregate: AggregateRule }>
-	| MutationBase<"aggregate.delete", { id: string }>
-	| MutationBase<"publish-target.upsert", { target: AggregatePublishTarget }>
-	| MutationBase<"publish-target.delete", { id: string }>
+	| MutationBase<
+			"aggregate.delete",
+			{ id: string; cleanupUnreferencedOutputs?: boolean }
+	  >
+	| MutationBase<
+			"publish-target.upsert",
+			{
+				target: AggregatePublishTarget;
+				previousFileCleanup?: WorkspaceOutputCleanupPolicy;
+			}
+	  >
+	| MutationBase<
+			"publish-target.delete",
+			{ id: string; cleanupUnreferencedOutputs?: boolean }
+	  >
 	| MutationBase<"client-export.upsert", { profile: ClientExportProfile }>
 	| MutationBase<"client-export.delete", { id: string }>
 	| MutationBase<
@@ -129,6 +149,7 @@ export type WorkspaceMutationErrorCode =
 	| "entity_exists"
 	| "duplicate_node_raw"
 	| "duplicate_subscription_url"
+	| "output_file_conflict"
 	| "publication_file_mismatch";
 
 export class WorkspaceMutationError extends Error {
@@ -296,6 +317,34 @@ function parseDeletePayload(value: unknown, path: string): { id: string } {
 	return { id: nonempty(input.id, `${path}.id`) };
 }
 
+function parseCleanupDeletePayload(
+	value: unknown,
+	path: string,
+): { id: string; cleanupUnreferencedOutputs?: boolean } {
+	const input = record(value, path);
+	exactKeys(input, path, ["id"], ["cleanupUnreferencedOutputs"]);
+	if (
+		input.cleanupUnreferencedOutputs !== undefined &&
+		typeof input.cleanupUnreferencedOutputs !== "boolean"
+	) {
+		invalid(`${path}.cleanupUnreferencedOutputs must be a boolean`);
+	}
+	return {
+		id: nonempty(input.id, `${path}.id`),
+		...(input.cleanupUnreferencedOutputs === undefined
+			? {}
+			: { cleanupUnreferencedOutputs: input.cleanupUnreferencedOutputs }),
+	};
+}
+
+function parseOutputCleanupPolicy(
+	value: unknown,
+	path: string,
+): WorkspaceOutputCleanupPolicy {
+	if (value === "keep" || value === "delete-if-unreferenced") return value;
+	return invalid(`${path} is unsupported`);
+}
+
 function parseOutput(
 	value: unknown,
 	path: string,
@@ -431,13 +480,18 @@ export function parseWorkspaceMutation(inputValue: unknown): WorkspaceMutation {
 			};
 		case "node.delete":
 		case "subscription.delete":
-		case "aggregate.delete":
-		case "publish-target.delete":
 		case "client-export.delete":
 			return {
 				...base,
 				kind,
 				payload: parseDeletePayload(input.payload, "payload"),
+			};
+		case "aggregate.delete":
+		case "publish-target.delete":
+			return {
+				...base,
+				kind,
+				payload: parseCleanupDeletePayload(input.payload, "payload"),
 			};
 		case "subscription.upsert": {
 			const payload = record(input.payload, "payload");
@@ -467,7 +521,7 @@ export function parseWorkspaceMutation(inputValue: unknown): WorkspaceMutation {
 		}
 		case "publish-target.upsert": {
 			const payload = record(input.payload, "payload");
-			exactKeys(payload, "payload", ["target"]);
+			exactKeys(payload, "payload", ["target"], ["previousFileCleanup"]);
 			return {
 				...base,
 				kind,
@@ -475,6 +529,14 @@ export function parseWorkspaceMutation(inputValue: unknown): WorkspaceMutation {
 					target: documentValue(() =>
 						validateWorkspacePublishTarget(payload.target),
 					),
+					...(payload.previousFileCleanup === undefined
+						? {}
+						: {
+								previousFileCleanup: parseOutputCleanupPolicy(
+									payload.previousFileCleanup,
+									"payload.previousFileCleanup",
+								),
+							}),
 				},
 			};
 		}
@@ -723,6 +785,24 @@ function stableRawUrl(
 		toStableGistRawUrl(
 			gist.files.find((file) => file.filename === fileName)?.rawUrl,
 		) ?? null
+	);
+}
+
+function assertOutputOwnerAvailable(
+	data: WorkspaceData,
+	owner: {
+		kind: "publish-target" | "client-export";
+		id: string;
+		fileName: string;
+	},
+): void {
+	const conflicts = getConflictingOutputOwners(data, owner);
+	if (conflicts.length === 0) return;
+	fail(
+		"output_file_conflict",
+		`Output file ${owner.fileName} is already owned by ${conflicts
+			.map((conflict) => `${conflict.kind}:${conflict.name}`)
+			.join(", ")}`,
 	);
 }
 
@@ -986,7 +1066,7 @@ export function applyWorkspaceMutation(
 			const exports = data.clientExports.filter(
 				(item) => item.ruleId === entity.id,
 			);
-			data = {
+			const nextData = {
 				...data,
 				aggregates: data.aggregates.filter((item) => item.id !== entity.id),
 				publishTargets: data.publishTargets.filter(
@@ -996,6 +1076,26 @@ export function applyWorkspaceMutation(
 					(item) => item.ruleId !== entity.id,
 				),
 			};
+			if (mutation.payload.cleanupUnreferencedOutputs) {
+				const removedOwners = [...targets, ...exports];
+				for (const fileName of new Set(
+					removedOwners.map((item) => item.fileName),
+				)) {
+					const wasPublished = removedOwners.some((item) => {
+						if (item.fileName !== fileName) return false;
+						return "lastPublishTransitionAt" in item
+							? isCurrentPublishTargetOutputPublished(item)
+							: isCurrentClientExportOutputPublished(item);
+					});
+					if (
+						wasPublished &&
+						getWorkspaceOutputOwners(nextData, fileName).length === 0
+					) {
+						files[fileName] = null;
+					}
+				}
+			}
+			data = nextData;
 			tombstones = appendTombstone(
 				tombstones,
 				"aggregates",
@@ -1028,8 +1128,71 @@ export function applyWorkspaceMutation(
 			break;
 		}
 		case "publish-target.upsert": {
-			const entity = { ...mutation.payload.target, updatedAt: committedAt };
-			requireNotDeleted(tombstones, "publishTargets", entity.id);
+			const requested = mutation.payload.target;
+			requireNotDeleted(tombstones, "publishTargets", requested.id);
+			assertOutputOwnerAvailable(data, {
+				kind: "publish-target",
+				id: requested.id,
+				fileName: requested.fileName,
+			});
+			const existing = data.publishTargets.find(
+				(item) => item.id === requested.id,
+			);
+			let entity: AggregatePublishTarget = {
+				...requested,
+				lastPublishedAt: null,
+				lastPublishedUrl: null,
+				lastPublishTransitionAt: null,
+				lastPublishTransitionFromFileName: null,
+				lastPublishTransitionToFileName: null,
+				lastPublishTransitionOutcome: null,
+				updatedAt: committedAt,
+			};
+			if (existing) {
+				const outputChanged =
+					existing.fileName !== requested.fileName ||
+					existing.ruleId !== requested.ruleId;
+				entity = {
+					...existing,
+					...requested,
+					lastPublishedAt: existing.lastPublishedAt,
+					lastPublishedUrl: existing.lastPublishedUrl,
+					lastPublishTransitionAt: existing.lastPublishTransitionAt,
+					lastPublishTransitionFromFileName:
+						existing.lastPublishTransitionFromFileName,
+					lastPublishTransitionToFileName:
+						existing.lastPublishTransitionToFileName,
+					lastPublishTransitionOutcome: existing.lastPublishTransitionOutcome,
+					updatedAt: outputChanged ? committedAt : existing.updatedAt,
+				};
+				if (existing.fileName !== requested.fileName) {
+					const otherOwners = getConflictingOutputOwners(data, {
+						kind: "publish-target",
+						id: existing.id,
+						fileName: existing.fileName,
+					});
+					const cleanup = mutation.payload.previousFileCleanup ?? "keep";
+					let outcome: AggregatePublishTarget["lastPublishTransitionOutcome"] =
+						"kept_manual";
+					if (cleanup === "delete-if-unreferenced") {
+						if (otherOwners.length > 0) {
+							outcome = "kept_shared";
+						} else if (isCurrentPublishTargetOutputPublished(existing)) {
+							files[existing.fileName] = null;
+							outcome = "auto_deleted";
+						} else {
+							outcome = "kept_external";
+						}
+					}
+					entity = {
+						...entity,
+						lastPublishTransitionAt: committedAt,
+						lastPublishTransitionFromFileName: existing.fileName,
+						lastPublishTransitionToFileName: requested.fileName,
+						lastPublishTransitionOutcome: outcome,
+					};
+				}
+			}
 			data = {
 				...data,
 				publishTargets: upsertById(data.publishTargets, entity),
@@ -1045,6 +1208,18 @@ export function applyWorkspaceMutation(
 				mutation.payload.id,
 				"Publish target",
 			);
+			const otherOwners = getConflictingOutputOwners(data, {
+				kind: "publish-target",
+				id: entity.id,
+				fileName: entity.fileName,
+			});
+			if (
+				mutation.payload.cleanupUnreferencedOutputs &&
+				isCurrentPublishTargetOutputPublished(entity) &&
+				otherOwners.length === 0
+			) {
+				files[entity.fileName] = null;
+			}
 			data = {
 				...data,
 				publishTargets: data.publishTargets.filter(
@@ -1063,8 +1238,33 @@ export function applyWorkspaceMutation(
 			break;
 		}
 		case "client-export.upsert": {
-			const entity = { ...mutation.payload.profile, updatedAt: committedAt };
-			requireNotDeleted(tombstones, "clientExports", entity.id);
+			const requested = mutation.payload.profile;
+			requireNotDeleted(tombstones, "clientExports", requested.id);
+			assertOutputOwnerAvailable(data, {
+				kind: "client-export",
+				id: requested.id,
+				fileName: requested.fileName,
+			});
+			const existing = data.clientExports.find(
+				(item) => item.id === requested.id,
+			);
+			const outputChanged = Boolean(
+				existing &&
+					(existing.fileName !== requested.fileName ||
+						existing.ruleId !== requested.ruleId ||
+						JSON.stringify(existing.options) !==
+							JSON.stringify(requested.options)),
+			);
+			const entity: ClientExportProfile = {
+				...requested,
+				lastGeneratedAt:
+					existing && !outputChanged ? existing.lastGeneratedAt : null,
+				lastPublishedAt:
+					existing && !outputChanged ? existing.lastPublishedAt : null,
+				lastPublishedUrl:
+					existing && !outputChanged ? existing.lastPublishedUrl : null,
+				updatedAt: committedAt,
+			};
 			data = {
 				...data,
 				clientExports: upsertById(data.clientExports, entity),
@@ -1108,6 +1308,11 @@ export function applyWorkspaceMutation(
 			if (entity.fileName !== mutation.payload.output.fileName) {
 				fail("publication_file_mismatch", "Publication filename changed");
 			}
+			assertOutputOwnerAvailable(data, {
+				kind: "publish-target",
+				id: entity.id,
+				fileName: entity.fileName,
+			});
 			const updated = {
 				...entity,
 				lastPublishedAt: committedAt,
@@ -1135,6 +1340,11 @@ export function applyWorkspaceMutation(
 			if (entity.fileName !== mutation.payload.output.fileName) {
 				fail("publication_file_mismatch", "Publication filename changed");
 			}
+			assertOutputOwnerAvailable(data, {
+				kind: "client-export",
+				id: entity.id,
+				fileName: entity.fileName,
+			});
 			const updated = {
 				...entity,
 				lastGeneratedAt: committedAt,
@@ -1182,7 +1392,80 @@ export function applyWorkspaceMutation(
 			break;
 		}
 		case "workspace.reconcile": {
-			const resolved = mutation.payload.data;
+			const requested = mutation.payload.data;
+			const resolved: WorkspaceData = {
+				...requested,
+				publishTargets: requested.publishTargets.map((target) => {
+					const existing = data.publishTargets.find(
+						(item) => item.id === target.id,
+					);
+					if (!existing) {
+						return {
+							...target,
+							lastPublishedAt: null,
+							lastPublishedUrl: null,
+							lastPublishTransitionAt: null,
+							lastPublishTransitionFromFileName: null,
+							lastPublishTransitionToFileName: null,
+							lastPublishTransitionOutcome: null,
+						};
+					}
+					return {
+						...target,
+						lastPublishedAt: existing.lastPublishedAt,
+						lastPublishedUrl: existing.lastPublishedUrl,
+						lastPublishTransitionAt:
+							existing.fileName === target.fileName
+								? existing.lastPublishTransitionAt
+								: committedAt,
+						lastPublishTransitionFromFileName:
+							existing.fileName === target.fileName
+								? existing.lastPublishTransitionFromFileName
+								: existing.fileName,
+						lastPublishTransitionToFileName:
+							existing.fileName === target.fileName
+								? existing.lastPublishTransitionToFileName
+								: target.fileName,
+						lastPublishTransitionOutcome:
+							existing.fileName === target.fileName
+								? existing.lastPublishTransitionOutcome
+								: "kept_manual",
+						updatedAt:
+							existing.fileName !== target.fileName ||
+							existing.ruleId !== target.ruleId
+								? committedAt
+								: existing.updatedAt,
+					};
+				}),
+				clientExports: requested.clientExports.map((profile) => {
+					const existing = data.clientExports.find(
+						(item) => item.id === profile.id,
+					);
+					const outputChanged = Boolean(
+						existing &&
+							(existing.fileName !== profile.fileName ||
+								existing.ruleId !== profile.ruleId ||
+								JSON.stringify(existing.options) !==
+									JSON.stringify(profile.options)),
+					);
+					return {
+						...profile,
+						lastGeneratedAt:
+							existing && !outputChanged ? existing.lastGeneratedAt : null,
+						lastPublishedAt:
+							existing && !outputChanged ? existing.lastPublishedAt : null,
+						lastPublishedUrl:
+							existing && !outputChanged ? existing.lastPublishedUrl : null,
+					};
+				}),
+			};
+			const outputConflicts = findWorkspaceOutputConflicts(resolved);
+			if (outputConflicts.length > 0) {
+				fail(
+					"output_file_conflict",
+					`Output file ${outputConflicts[0]?.fileName ?? "unknown"} has multiple owners`,
+				);
+			}
 			for (const collection of Object.keys(resolved) as EntityCollection[]) {
 				for (const item of resolved[collection]) {
 					requireNotDeleted(tombstones, collection, item.id);

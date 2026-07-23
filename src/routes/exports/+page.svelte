@@ -26,6 +26,7 @@ import {
 	appState,
 	removeClientExport,
 	upsertClientExport,
+	type WorkspaceActionResult,
 } from "$lib/stores/app";
 import { authState } from "$lib/stores/auth";
 import { requestConfirm } from "$lib/stores/confirm";
@@ -34,6 +35,8 @@ import { cn } from "$lib/utils/cn";
 import { nowIso } from "$lib/utils/time";
 import { submitBrowserWorkspaceMutation } from "$lib/workspace-browser-session-v2";
 import { WorkspaceMutationQueue } from "$lib/workspace-mutation-queue";
+import { findWorkspaceOutputConflicts } from "$lib/workspace-output";
+import { workspaceSyncStatus } from "$lib/workspace-sync-status";
 import { WorkspaceV2StateStore } from "$lib/workspace-v2-state";
 
 let selectedProfileId = "";
@@ -92,6 +95,33 @@ $: currentSignature = selectedProfile
 			lastUpdated: $appState.lastUpdated,
 		})
 	: "";
+$: profileDirty = selectedProfile
+	? JSON.stringify({
+			name: draftName.trim() || "sing-box Client",
+			fileName: normalizeExportFileName(draftFileName),
+			ruleId: draftRuleId.trim(),
+			listenAddress: draftListenAddress.trim(),
+			listenPort: draftListenPort,
+			selectorTag: draftSelectorTag.trim(),
+			urlTestTag: draftUrlTestTag.trim(),
+			includeExperimental: draftIncludeExperimental,
+		}) !==
+		JSON.stringify({
+			name: selectedProfile.name,
+			fileName: selectedProfile.fileName,
+			ruleId: selectedProfile.ruleId,
+			listenAddress: selectedProfile.options.listenAddress,
+			listenPort: String(selectedProfile.options.listenPort),
+			selectorTag: selectedProfile.options.selectorTag,
+			urlTestTag: selectedProfile.options.urlTestTag,
+			includeExperimental: selectedProfile.options.includeExperimental,
+		})
+	: false;
+$: outputConflicts = findWorkspaceOutputConflicts($appState);
+$: selectedOutputConflict = outputConflicts.find(
+	(conflict) => conflict.fileName === selectedProfile?.fileName,
+);
+$: workspaceIsManual = $workspaceSyncStatus.mode === "manual";
 $: publishDisabled =
 	!$authState.token ||
 	!$appState.activeGistId ||
@@ -100,6 +130,9 @@ $: publishDisabled =
 	!previewContent ||
 	outboundCount <= 0 ||
 	previewErrors.length > 0 ||
+	profileDirty ||
+	Boolean(selectedOutputConflict) ||
+	workspaceIsManual ||
 	publishing;
 
 $: if (
@@ -138,6 +171,19 @@ function clearPreview(): void {
 	skippedCount = 0;
 }
 
+function showDeleteActionFeedback(
+	status: WorkspaceActionResult["status"],
+): void {
+	showToast(
+		status === "committed"
+			? $t("Deleted export profile")
+			: status === "queued"
+				? $t("Queued")
+				: $t("Saved locally"),
+		"success",
+	);
+}
+
 function getProfileRuleName(profile: ClientExportProfile): string {
 	return (
 		$appState.aggregates.find((rule) => rule.id === profile.ruleId)?.name ||
@@ -159,6 +205,15 @@ function createProfile(): void {
 	if (!firstRule) return;
 
 	const profile = createDefaultSingBoxClientProfile(firstRule.id, nowIso());
+	const ownedFileNames = new Set([
+		...$appState.publishTargets.map((target) => target.fileName),
+		...$appState.clientExports.map((item) => item.fileName),
+	]);
+	let suffix = 1;
+	while (ownedFileNames.has(profile.fileName)) {
+		suffix += 1;
+		profile.fileName = `sing-box-client-${suffix}.json`;
+	}
 	if (!upsertClientExport(profile).accepted) return;
 	selectedProfileId = profile.id;
 	syncDraftFromProfile(profile);
@@ -218,12 +273,20 @@ async function deleteProfile(profile: ClientExportProfile): Promise<void> {
 	});
 	if (!confirmed) return;
 
-	if (!removeClientExport(profile.id).accepted) return;
+	const handle = removeClientExport(profile.id);
+	if (!handle.accepted) return;
+	const result = await handle.completion;
+	if (
+		result.status === "rejected" ||
+		result.status === "permanent-error" ||
+		result.status === "invalid-local-state"
+	)
+		return;
 	if (selectedProfileId === profile.id) {
 		selectedProfileId = "";
 	}
 	clearPreview();
-	showToast($t("Deleted export profile"), "success");
+	showDeleteActionFeedback(result.status);
 }
 
 async function refreshPreview(): Promise<string> {
@@ -379,7 +442,18 @@ async function publishPreview(): Promise<void> {
 				{publishing ? $t("Publishing...") : $t("Publish")}
 			</button>
 		</div>
-	</header>
+</header>
+
+{#if outputConflicts.length > 0}
+	<div class="gh-alert gh-alert-warning mb-4 flex-col items-start">
+		<strong>{$t("Output filename conflicts need repair")}</strong>
+		{#each outputConflicts as conflict}
+			<span class="text-xs">
+				<code>{conflict.fileName}</code>: {conflict.owners.map((owner) => `${owner.kind}: ${owner.name}`).join(", ")}
+			</span>
+		{/each}
+	</div>
+{/if}
 
 	<div class="gh-layout-sidebar lg:grid-cols-[minmax(0,1fr)_360px]">
 		<div class="gh-layout-main">
@@ -604,6 +678,11 @@ async function publishPreview(): Promise<void> {
 					<p class="text-xs leading-relaxed text-fg-muted">
 						{$t("Publish the generated JSON to the workspace gist, then copy the raw URL as a remote profile URL for compatible sing-box clients.")}
 					</p>
+					{#if workspaceIsManual}
+						<div class="gh-alert gh-alert-warning text-xs">
+							{$t("Push local Workspace changes before publishing")}
+						</div>
+					{/if}
 					{#if $authState.token}
 						<button
 							type="button"

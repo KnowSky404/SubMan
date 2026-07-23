@@ -120,7 +120,7 @@ describe("automatic browser mutation enqueue", () => {
 		).toThrow("selectorTag must be a non-empty string");
 	});
 
-	it("keeps local and manual drafts outside automatic mutation validation", () => {
+	it("validates local and manual drafts without enqueueing them", () => {
 		const localStore = new WorkspaceV2StateStore(new MemoryStorage());
 		const { stateStore: manualStore } = stores("manual");
 		const invalidDraft = {
@@ -128,12 +128,16 @@ describe("automatic browser mutation enqueue", () => {
 			payload: { fileName: "subman.json" },
 		};
 
-		validateAutomaticWorkspaceMutationDraft(invalidDraft, {
-			stateStore: localStore,
-		});
-		validateAutomaticWorkspaceMutationDraft(invalidDraft, {
-			stateStore: manualStore,
-		});
+		expect(() =>
+			validateAutomaticWorkspaceMutationDraft(invalidDraft, {
+				stateStore: localStore,
+			}),
+		).toThrow();
+		expect(() =>
+			validateAutomaticWorkspaceMutationDraft(invalidDraft, {
+				stateStore: manualStore,
+			}),
+		).toThrow();
 	});
 
 	it("allocates revisions after the committed baseline and pending queue", async () => {

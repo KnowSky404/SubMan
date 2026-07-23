@@ -10,7 +10,10 @@ import {
 	type WorkspaceDocumentV2,
 } from "$lib/workspace-document";
 import { requireWorkspaceIdentity } from "$lib/workspace-identity";
-import { parseWorkspaceMutation } from "$lib/workspace-mutation";
+import {
+	parseWorkspaceMutation,
+	type WorkspaceMutation,
+} from "$lib/workspace-mutation";
 import type { WorkspaceMutationQueue } from "$lib/workspace-mutation-queue";
 import { deliverQueuedWorkspaceMutation } from "$lib/workspace-mutation-sync";
 import {
@@ -251,7 +254,7 @@ export async function reconcileBrowserWorkspace(
 export async function submitBrowserWorkspaceMutation(
 	input: {
 		token: string;
-		kind: "aggregate.publish" | "client-export.publish" | "output.delete";
+		kind: WorkspaceMutation["kind"];
 		payload: unknown;
 	},
 	dependencies: {
@@ -262,6 +265,7 @@ export async function submitBrowserWorkspaceMutation(
 		fetchImpl?: typeof fetch;
 		mutationId?: () => string;
 		now?: () => string;
+		allowManual?: boolean;
 	},
 ): Promise<AppState> {
 	const binding = dependencies.stateStore.read();
@@ -272,7 +276,7 @@ export async function submitBrowserWorkspaceMutation(
 	if (binding.syncMode === "paused-conflict") {
 		throw new Error("Workspace synchronization is paused by a conflict");
 	}
-	if (binding.syncMode === "manual") {
+	if (binding.syncMode === "manual" && !dependencies.allowManual) {
 		throw new Error("Push local Workspace changes before publishing");
 	}
 	const mutationId = (dependencies.mutationId ?? crypto.randomUUID)();
@@ -295,6 +299,44 @@ export async function submitBrowserWorkspaceMutation(
 		dependencies.queue
 			.list(binding.workspaceId)
 			.some((mutation) => mutation.mutationId === mutationId)
+	) {
+		const result = await deliverQueuedWorkspaceMutation(
+			{
+				queue: dependencies.queue,
+				stateStore: dependencies.stateStore,
+				githubToken: input.token,
+				getState: dependencies.getState,
+				setState: dependencies.setState,
+				fetchImpl: dependencies.fetchImpl,
+			},
+			{ allowManual: true },
+		);
+		if (result.status !== "committed") {
+			throw new Error(`Workspace mutation failed: ${result.status}`);
+		}
+	}
+	return dependencies.getState();
+}
+
+export async function commitQueuedBrowserWorkspaceMutation(
+	input: { token: string; mutationId: string },
+	dependencies: {
+		queue: WorkspaceMutationQueue;
+		stateStore: WorkspaceV2StateStore;
+		getState: () => AppState;
+		setState: (state: AppState) => void;
+		fetchImpl?: typeof fetch;
+	},
+): Promise<AppState> {
+	const binding = dependencies.stateStore.read();
+	if (!binding || binding.revision === null || binding.baseline === null) {
+		throw new Error("Workspace V2 is not initialized");
+	}
+	requireWorkspaceIdentity(dependencies.getState(), binding);
+	while (
+		dependencies.queue
+			.list(binding.workspaceId)
+			.some((mutation) => mutation.mutationId === input.mutationId)
 	) {
 		const result = await deliverQueuedWorkspaceMutation(
 			{

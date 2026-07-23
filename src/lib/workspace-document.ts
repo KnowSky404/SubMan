@@ -374,9 +374,27 @@ function parseAggregate(
 }
 
 function assertOutputFileName(value: unknown, path: string): string {
-	const fileName = string(value, path);
-	const normalized = fileName.trim().replace(/^\/+/, "").toLowerCase();
-	if (WORKSPACE_RESERVED_FILE_NAMES.has(normalized)) {
+	const fileName = string(value, path).trim();
+	if (
+		[...fileName].some((character) => {
+			const code = character.charCodeAt(0);
+			return code <= 31 || code === 127;
+		})
+	) {
+		invalid(`${path} contains control characters`);
+	}
+	if (/[\\/]/.test(fileName)) {
+		invalid(`${path} cannot contain path separators`);
+	}
+	if (fileName === "." || fileName === "..") {
+		invalid(`${path} cannot be a relative path segment`);
+	}
+	const normalized = fileName.toLowerCase();
+	if (
+		[...WORKSPACE_RESERVED_FILE_NAMES].some(
+			(reserved) => reserved.toLowerCase() === normalized,
+		)
+	) {
 		invalid(`${path} is reserved for workspace coordination`);
 	}
 	return fileName;

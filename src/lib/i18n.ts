@@ -756,6 +756,41 @@ const zhCN: Record<string, string> = {
 	"Workspace overview": "工作区概览",
 	"Your local data and the cloud workspace don't match. Please choose how to resolve this.":
 		"你的本地数据与云端工作区不一致，请选择处理方式。",
+	"Output filename conflicts need repair": "输出文件名冲突需要修复",
+	"Change output file": "修改输出文件",
+	"Delete current rule": "删除当前规则",
+	Continue: "继续",
+	"Previous output file": "旧输出文件",
+	"Delete the previous output file if no other target or export profile references it?":
+		"如果没有其他目标或导出配置引用旧输出文件，是否将其删除？",
+	"Delete old file": "删除旧文件",
+	"Keep old file": "保留旧文件",
+	Yes: "是",
+	No: "否",
+	"Output filename is invalid": "输出文件名无效",
+	"Delete target {name}?\nRule: {rule}\nOutput: {file}\nPublished: {published}\nOther owners: {owners}":
+		"删除目标 {name}？\n规则：{rule}\n输出：{file}\n已发布：{published}\n其他所有者：{owners}",
+	"Output file": "输出文件",
+	"Also delete unreferenced output file {file}?":
+		"是否同时删除无引用的输出文件 {file}？",
+	"Delete target and file": "删除目标和文件",
+	"Keep output file": "保留输出文件",
+	"Delete rule {name}?\nPublish targets: {targets}\nClient exports: {exports}\nOutput files: {files}":
+		"删除规则 {name}？\n发布目标：{targets}\n客户端导出：{exports}\n输出文件：{files}",
+	"Output files": "输出文件",
+	"Also delete unreferenced published output files?\n{files}":
+		"是否同时删除无引用的已发布输出文件？\n{files}",
+	"Delete rule and files": "删除规则和文件",
+	"Keep output files": "保留输出文件",
+	"Rule deleted.": "规则已删除。",
+	"Draft Preview": "草稿预览",
+	"Saved Rule Preview": "已保存规则预览",
+	"Push and Publish": "推送并发布",
+	"Save and Publish": "保存并发布",
+	"Target configuration changed after its last publish. Publish again to refresh the output and stable link.":
+		"目标配置在上次发布后已更改。请重新发布以刷新输出和稳定链接。",
+	"Push local Workspace changes before publishing":
+		"发布前请先推送本地工作区更改",
 	"domestic, gaming...": "国内, 游戏...",
 	"{file} is protected.": "{file} 受保护。",
 };

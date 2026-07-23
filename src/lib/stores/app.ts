@@ -23,8 +23,13 @@ import {
 	createDefaultWorkspaceState,
 	reconcileWorkspaceState,
 } from "$lib/workspace-data";
+import { validateWorkspaceOutputFileName } from "$lib/workspace-document";
 import { checkWorkspaceIdentity } from "$lib/workspace-identity";
 import type { WorkspaceMutation } from "$lib/workspace-mutation";
+import {
+	getConflictingOutputOwners,
+	isCurrentPublishTargetOutputPublished,
+} from "$lib/workspace-output";
 import {
 	updateWorkspaceSyncStatus,
 	type WorkspacePersistenceLifecycle,
@@ -198,6 +203,87 @@ function runWorkspaceAction(
 	return { accepted: true, localStatus: "local-saved", completion };
 }
 
+function runDeferredWorkspaceAction(
+	kind: WorkspaceMutation["kind"],
+	payload: unknown,
+	update: (state: AppState) => AppState,
+): WorkspaceActionHandle {
+	const draft = { kind, payload };
+	let next: AppState;
+	try {
+		if (browser) {
+			const binding = new WorkspaceV2StateStore().read();
+			const identity = checkWorkspaceIdentity(get(appState), binding);
+			if (identity.status === "mismatch") {
+				throw new Error("Workspace identity requires repair");
+			}
+			validateAutomaticWorkspaceMutationDraft(draft);
+		}
+		next = update(get(appState));
+	} catch (error) {
+		notifyRejectedWorkspaceMutation(error);
+		return rejectedActionHandle(error);
+	}
+
+	const completion = (async (): Promise<WorkspaceActionResult> => {
+		try {
+			const binding = browser ? new WorkspaceV2StateStore().read() : null;
+			let result: WorkspaceActionResult;
+			if (!browser) {
+				result = { status: "local-saved" };
+			} else if (!get(authState).token) {
+				result = disconnectedActionResult(binding);
+			} else {
+				result = mapEnqueueResult(
+					await enqueueAutomaticWorkspaceMutation(draft),
+				);
+			}
+			if (result.status === "invalid-local-state") {
+				return result;
+			}
+			if (browser) localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+			appState.set(next);
+			return result;
+		} catch (error) {
+			notifyRejectedWorkspaceMutation(error);
+			return {
+				status: "rejected",
+				error: error instanceof Error ? error.message : String(error),
+			};
+		}
+	})();
+
+	return { accepted: true, localStatus: "local-saved", completion };
+}
+
+function rejectedActionHandle(error: unknown): WorkspaceActionHandle {
+	return {
+		accepted: false,
+		localStatus: "rejected",
+		completion: Promise.resolve({
+			status: "rejected",
+			error: error instanceof Error ? error.message : String(error),
+		}),
+	};
+}
+
+function assertLocalOutputOwnerAvailable(
+	state: AppState,
+	owner: {
+		kind: "publish-target" | "client-export";
+		id: string;
+		fileName: string;
+	},
+): void {
+	const conflicts = getConflictingOutputOwners(state, owner);
+	if (conflicts.length === 0) return;
+	throw new Error(
+		`Output file ${owner.fileName} is already owned by ${conflicts
+			.map((conflict) => `${conflict.kind}:${conflict.name}`)
+			.join(", ")}`,
+	);
+}
+
 function notifyRejectedWorkspaceMutation(error: unknown): void {
 	showToast(
 		get(t)("Workspace change was not saved: {error}", {
@@ -304,44 +390,112 @@ export function upsertAggregate(rule: AggregateRule): WorkspaceActionHandle {
 	);
 }
 
-export function removeAggregate(ruleId: string): WorkspaceActionHandle {
-	return runWorkspaceAction("aggregate.delete", { id: ruleId }, (state) => ({
-		...state,
-		aggregates: state.aggregates.filter((item) => item.id !== ruleId),
-		publishTargets: state.publishTargets.filter(
-			(target) => target.ruleId !== ruleId,
-		),
-		clientExports: state.clientExports.filter(
-			(profile) => profile.ruleId !== ruleId,
-		),
-		lastUpdated: nowIso(),
-	}));
+export function removeAggregate(
+	ruleId: string,
+	options: { cleanupUnreferencedOutputs?: boolean } = {},
+): WorkspaceActionHandle {
+	return runDeferredWorkspaceAction(
+		"aggregate.delete",
+		{ id: ruleId, ...options },
+		(state) => ({
+			...state,
+			aggregates: state.aggregates.filter((item) => item.id !== ruleId),
+			publishTargets: state.publishTargets.filter(
+				(target) => target.ruleId !== ruleId,
+			),
+			clientExports: state.clientExports.filter(
+				(profile) => profile.ruleId !== ruleId,
+			),
+			lastUpdated: nowIso(),
+		}),
+	);
 }
 
 export function upsertPublishTarget(
 	target: AggregatePublishTarget,
+	options: { previousFileCleanup?: "keep" | "delete-if-unreferenced" } = {},
 ): WorkspaceActionHandle {
-	return runWorkspaceAction("publish-target.upsert", { target }, (state) => {
-		const index = state.publishTargets.findIndex(
-			(item) => item.id === target.id,
-		);
-		if (index >= 0) {
-			const publishTargets = [...state.publishTargets];
-			publishTargets[index] = target;
-			return { ...state, publishTargets, lastUpdated: nowIso() };
-		}
-		return {
-			...state,
-			publishTargets: [target, ...state.publishTargets],
-			lastUpdated: nowIso(),
-		};
-	});
+	let fileName: string;
+	try {
+		fileName = validateWorkspaceOutputFileName(target.fileName);
+	} catch (error) {
+		notifyRejectedWorkspaceMutation(error);
+		return rejectedActionHandle(error);
+	}
+	const requested = { ...target, fileName };
+	return runWorkspaceAction(
+		"publish-target.upsert",
+		{ target: requested, ...options },
+		(state) => {
+			assertLocalOutputOwnerAvailable(state, {
+				kind: "publish-target",
+				id: requested.id,
+				fileName,
+			});
+			const index = state.publishTargets.findIndex(
+				(item) => item.id === requested.id,
+			);
+			if (index >= 0) {
+				const existing = state.publishTargets[index];
+				if (!existing) throw new Error("Publish target not found");
+				const outputChanged =
+					existing.fileName !== fileName ||
+					existing.ruleId !== requested.ruleId;
+				let merged: AggregatePublishTarget = {
+					...existing,
+					...requested,
+					lastPublishedAt: existing.lastPublishedAt,
+					lastPublishedUrl: existing.lastPublishedUrl,
+					lastPublishTransitionAt: existing.lastPublishTransitionAt,
+					lastPublishTransitionFromFileName:
+						existing.lastPublishTransitionFromFileName,
+					lastPublishTransitionToFileName:
+						existing.lastPublishTransitionToFileName,
+					lastPublishTransitionOutcome: existing.lastPublishTransitionOutcome,
+					updatedAt: outputChanged ? requested.updatedAt : existing.updatedAt,
+				};
+				if (existing.fileName !== fileName) {
+					const otherOwners = getConflictingOutputOwners(state, {
+						kind: "publish-target",
+						id: existing.id,
+						fileName: existing.fileName,
+					});
+					const cleanup = options.previousFileCleanup ?? "keep";
+					merged = {
+						...merged,
+						lastPublishTransitionAt: requested.updatedAt,
+						lastPublishTransitionFromFileName: existing.fileName,
+						lastPublishTransitionToFileName: fileName,
+						lastPublishTransitionOutcome:
+							cleanup === "keep"
+								? "kept_manual"
+								: otherOwners.length > 0
+									? "kept_shared"
+									: isCurrentPublishTargetOutputPublished(existing)
+										? "auto_deleted"
+										: "kept_external",
+					};
+				}
+				const publishTargets = [...state.publishTargets];
+				publishTargets[index] = merged;
+				return { ...state, publishTargets, lastUpdated: nowIso() };
+			}
+			return {
+				...state,
+				publishTargets: [requested, ...state.publishTargets],
+				lastUpdated: nowIso(),
+			};
+		},
+	);
 }
 
-export function removePublishTarget(targetId: string): WorkspaceActionHandle {
-	return runWorkspaceAction(
+export function removePublishTarget(
+	targetId: string,
+	options: { cleanupUnreferencedOutputs?: boolean } = {},
+): WorkspaceActionHandle {
+	return runDeferredWorkspaceAction(
 		"publish-target.delete",
-		{ id: targetId },
+		{ id: targetId, ...options },
 		(state) => ({
 			...state,
 			publishTargets: state.publishTargets.filter(
@@ -355,25 +509,42 @@ export function removePublishTarget(targetId: string): WorkspaceActionHandle {
 export function upsertClientExport(
 	profile: ClientExportProfile,
 ): WorkspaceActionHandle {
-	return runWorkspaceAction("client-export.upsert", { profile }, (state) => {
-		const index = state.clientExports.findIndex(
-			(item) => item.id === profile.id,
-		);
-		if (index >= 0) {
-			const clientExports = [...state.clientExports];
-			clientExports[index] = profile;
-			return { ...state, clientExports, lastUpdated: nowIso() };
-		}
-		return {
-			...state,
-			clientExports: [profile, ...state.clientExports],
-			lastUpdated: nowIso(),
-		};
-	});
+	let fileName: string;
+	try {
+		fileName = validateWorkspaceOutputFileName(profile.fileName);
+	} catch (error) {
+		notifyRejectedWorkspaceMutation(error);
+		return rejectedActionHandle(error);
+	}
+	const requested = { ...profile, fileName };
+	return runWorkspaceAction(
+		"client-export.upsert",
+		{ profile: requested },
+		(state) => {
+			assertLocalOutputOwnerAvailable(state, {
+				kind: "client-export",
+				id: requested.id,
+				fileName,
+			});
+			const index = state.clientExports.findIndex(
+				(item) => item.id === requested.id,
+			);
+			if (index >= 0) {
+				const clientExports = [...state.clientExports];
+				clientExports[index] = requested;
+				return { ...state, clientExports, lastUpdated: nowIso() };
+			}
+			return {
+				...state,
+				clientExports: [requested, ...state.clientExports],
+				lastUpdated: nowIso(),
+			};
+		},
+	);
 }
 
 export function removeClientExport(profileId: string): WorkspaceActionHandle {
-	return runWorkspaceAction(
+	return runDeferredWorkspaceAction(
 		"client-export.delete",
 		{ id: profileId },
 		(state) => ({

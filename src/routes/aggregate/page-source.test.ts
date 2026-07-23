@@ -51,9 +51,7 @@ test("aggregate publish action directs local-only users to workspace setup", () 
 	expect(aggregatePageSource).toContain("isWorkspaceConnected");
 	expect(aggregatePageSource).toContain("Connect to Publish");
 	expect(aggregatePageSource).toContain('href="/auth"');
-	expect(aggregatePageSource).toContain(
-		"disabled={publishing || !isWorkspaceConnected}",
-	);
+	expect(aggregatePageSource).toContain("disabled={ordinaryPublishDisabled}");
 });
 
 test("aggregate preview generation does not show a success toast", () => {
@@ -65,6 +63,39 @@ test("aggregate preview generation does not show a success toast", () => {
 });
 
 test("aggregate save feedback requires an accepted Workspace mutation", () => {
-	expect(aggregatePageSource).toContain("!upsertAggregate({");
-	expect(aggregatePageSource).toContain("!upsertPublishTarget({");
+	expect(aggregatePageSource).toContain("const handle = upsertAggregate(rule)");
+	expect(aggregatePageSource).toContain("if (!handle.accepted) return null");
+	expect(aggregatePageSource).toContain("const handle = upsertPublishTarget(");
+});
+
+test("aggregate destructive actions are confirmed and reset only after acceptance", () => {
+	expect(aggregatePageSource).toContain("analyzePublishTargetDelete");
+	expect(aggregatePageSource).toContain("analyzeAggregateDelete");
+	expect(aggregatePageSource).toContain("await handle.completion");
+	expect(aggregatePageSource).toContain("if (!actionSaved(result)) return;");
+	expect(aggregatePageSource).toContain("cleanupUnreferencedOutputs");
+	expect(aggregatePageSource).toContain("showDeleteActionFeedback");
+	expect(aggregatePageSource).toContain('result.status === "queued"');
+	expect(aggregatePageSource).toContain("resetBoundTarget");
+	expect(aggregatePageSource).toContain(
+		"if (resetBoundTarget) resetTargetForm()",
+	);
+});
+
+test("aggregate publishing distinguishes drafts, saved state, and manual push", () => {
+	expect(aggregatePageSource).toContain("ruleDirty");
+	expect(aggregatePageSource).toContain("targetDirty");
+	expect(aggregatePageSource).toContain("Draft Preview");
+	expect(aggregatePageSource).toContain("Saved Rule Preview");
+	expect(aggregatePageSource).toContain("Save and Publish");
+	expect(aggregatePageSource).toContain("Push and Publish");
+	expect(aggregatePageSource).toContain("pushSelectedManualConfiguration");
+	expect(aggregatePageSource).toContain("reconcileBrowserWorkspace");
+	expect(aggregatePageSource).toContain("manualReconcileState");
+	expect(aggregatePageSource).toContain("manualStateBeforeTargetAction");
+	expect(aggregatePageSource).toContain(
+		'action.previousFileCleanup === "delete-if-unreferenced"',
+	);
+	expect(aggregatePageSource).toContain("appState.set(localSnapshot)");
+	expect(aggregatePageSource).not.toContain("// Auto-save the rule");
 });

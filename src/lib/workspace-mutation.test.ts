@@ -479,6 +479,327 @@ describe("Workspace mutation conflicts and tombstones", () => {
 });
 
 describe("Workspace mutation domain behavior", () => {
+	it("preserves target publication metadata on ordinary edits", () => {
+		const publishedTarget = {
+			...target(),
+			lastPublishedAt: T0,
+			lastPublishedUrl: "https://example.com/aggregate.txt",
+			lastPublishTransitionAt: T0,
+			lastPublishTransitionFromFileName: "old.txt",
+			lastPublishTransitionToFileName: "aggregate.txt",
+			lastPublishTransitionOutcome: "kept_manual" as const,
+		};
+		const result = applyWorkspaceMutation(
+			document({ data: data({ publishTargets: [publishedTarget] }) }),
+			parseWorkspaceMutation(
+				mutation("publish-target.upsert", {
+					target: {
+						...publishedTarget,
+						name: "Renamed target",
+						ruleId: "aggregate-1",
+					},
+				}),
+			),
+			context,
+		).document.data.publishTargets[0];
+
+		expect(result?.name).toBe("Renamed target");
+		expect(result?.lastPublishedAt).toBe(T0);
+		expect(result?.lastPublishedUrl).toBe("https://example.com/aggregate.txt");
+		expect(result?.lastPublishTransitionFromFileName).toBe("old.txt");
+		expect(result?.lastPublishTransitionOutcome).toBe("kept_manual");
+		expect(result?.updatedAt).toBe(T0);
+	});
+
+	it("does not trust publication metadata claimed by newly created owners", () => {
+		const claimedTarget = {
+			...target("target-2"),
+			fileName: "claimed.txt",
+			lastPublishedAt: T0,
+			lastPublishedUrl: "https://example.com/claimed.txt",
+			lastPublishTransitionAt: T0,
+			lastPublishTransitionFromFileName: "before.txt",
+			lastPublishTransitionToFileName: "claimed.txt",
+			lastPublishTransitionOutcome: "auto_deleted" as const,
+		};
+		const targetCreated = applyWorkspaceMutation(
+			document(),
+			parseWorkspaceMutation(
+				mutation("publish-target.upsert", { target: claimedTarget }),
+			),
+			context,
+		).document.data.publishTargets.find((item) => item.id === "target-2");
+		expect(targetCreated?.lastPublishedAt).toBeNull();
+		expect(targetCreated?.lastPublishedUrl).toBeNull();
+		expect(targetCreated?.lastPublishTransitionAt).toBeNull();
+
+		const claimedProfile = {
+			...profile("export-2"),
+			fileName: "claimed.json",
+			lastGeneratedAt: T0,
+			lastPublishedAt: T0,
+			lastPublishedUrl: "https://example.com/claimed.json",
+		};
+		const profileCreated = applyWorkspaceMutation(
+			document(),
+			parseWorkspaceMutation(
+				mutation("client-export.upsert", { profile: claimedProfile }),
+			),
+			context,
+		).document.data.clientExports.find((item) => item.id === "export-2");
+		expect(profileCreated?.lastGeneratedAt).toBeNull();
+		expect(profileCreated?.lastPublishedAt).toBeNull();
+		expect(profileCreated?.lastPublishedUrl).toBeNull();
+	});
+
+	it("preserves export publication metadata only for output-equivalent edits", () => {
+		const publishedProfile = {
+			...profile(),
+			lastGeneratedAt: T0,
+			lastPublishedAt: T0,
+			lastPublishedUrl: "https://example.com/client.json",
+		};
+		const renamed = applyWorkspaceMutation(
+			document({ data: data({ clientExports: [publishedProfile] }) }),
+			parseWorkspaceMutation(
+				mutation("client-export.upsert", {
+					profile: { ...publishedProfile, name: "Renamed export" },
+				}),
+			),
+			context,
+		).document.data.clientExports[0];
+		expect(renamed?.lastPublishedAt).toBe(T0);
+		expect(renamed?.lastPublishedUrl).toBe("https://example.com/client.json");
+
+		const changed = applyWorkspaceMutation(
+			document({ data: data({ clientExports: [publishedProfile] }) }),
+			parseWorkspaceMutation(
+				mutation("client-export.upsert", {
+					profile: { ...publishedProfile, fileName: "changed.json" },
+				}),
+			),
+			context,
+		).document.data.clientExports[0];
+		expect(changed?.lastGeneratedAt).toBeNull();
+		expect(changed?.lastPublishedAt).toBeNull();
+		expect(changed?.lastPublishedUrl).toBeNull();
+	});
+
+	it("records filename transitions and applies the requested cleanup policy", () => {
+		const publishedTarget = {
+			...target(),
+			lastPublishedAt: T0,
+			lastPublishedUrl: "https://example.com/aggregate.txt",
+		};
+		const result = applyWorkspaceMutation(
+			document({ data: data({ publishTargets: [publishedTarget] }) }),
+			parseWorkspaceMutation(
+				mutation("publish-target.upsert", {
+					target: { ...publishedTarget, fileName: "renamed.txt" },
+					previousFileCleanup: "delete-if-unreferenced",
+				}),
+			),
+			context,
+		);
+		const updated = result.document.data.publishTargets[0];
+
+		expect(result.files).toEqual({ "aggregate.txt": null });
+		expect(updated?.lastPublishedAt).toBe(T0);
+		expect(updated?.lastPublishedUrl).toBe("https://example.com/aggregate.txt");
+		expect(updated?.lastPublishTransitionAt).toBe(T1);
+		expect(updated?.lastPublishTransitionFromFileName).toBe("aggregate.txt");
+		expect(updated?.lastPublishTransitionToFileName).toBe("renamed.txt");
+		expect(updated?.lastPublishTransitionOutcome).toBe("auto_deleted");
+		expect(updated?.updatedAt).toBe(T1);
+	});
+
+	it("keeps a renamed target output when another owner still references it", () => {
+		const publishedTarget = {
+			...target(),
+			lastPublishedAt: T0,
+			lastPublishedUrl: "https://example.com/aggregate.txt",
+		};
+		const result = applyWorkspaceMutation(
+			document({
+				data: data({
+					publishTargets: [publishedTarget],
+					clientExports: [{ ...profile(), fileName: "aggregate.txt" }],
+				}),
+			}),
+			parseWorkspaceMutation(
+				mutation("publish-target.upsert", {
+					target: { ...publishedTarget, fileName: "renamed.txt" },
+					previousFileCleanup: "delete-if-unreferenced",
+				}),
+			),
+			context,
+		);
+
+		expect(result.files).toEqual({});
+		expect(
+			result.document.data.publishTargets[0]?.lastPublishTransitionOutcome,
+		).toBe("kept_shared");
+	});
+
+	it("atomically deletes target configuration and only unreferenced published output", () => {
+		const publishedTarget = {
+			...target(),
+			lastPublishedAt: T0,
+			lastPublishedUrl: "https://example.com/aggregate.txt",
+		};
+		const retained = applyWorkspaceMutation(
+			document({ data: data({ publishTargets: [publishedTarget] }) }),
+			parseWorkspaceMutation(
+				mutation("publish-target.delete", {
+					id: publishedTarget.id,
+					cleanupUnreferencedOutputs: false,
+				}),
+			),
+			context,
+		);
+		expect(retained.document.data.publishTargets).toEqual([]);
+		expect(retained.files).toEqual({});
+
+		const deleted = applyWorkspaceMutation(
+			document({ data: data({ publishTargets: [publishedTarget] }) }),
+			parseWorkspaceMutation(
+				mutation("publish-target.delete", {
+					id: publishedTarget.id,
+					cleanupUnreferencedOutputs: true,
+				}),
+			),
+			context,
+		);
+		expect(deleted.document.data.publishTargets).toEqual([]);
+		expect(deleted.files).toEqual({ "aggregate.txt": null });
+	});
+
+	it("keeps target output cleanup when another owner references the filename", () => {
+		const result = applyWorkspaceMutation(
+			document({
+				data: data({
+					publishTargets: [{ ...target(), lastPublishedAt: T0 }],
+					clientExports: [{ ...profile(), fileName: "aggregate.txt" }],
+				}),
+			}),
+			parseWorkspaceMutation(
+				mutation("publish-target.delete", {
+					id: "target-1",
+					cleanupUnreferencedOutputs: true,
+				}),
+			),
+			context,
+		);
+
+		expect(result.files).toEqual({});
+		expect(result.document.data.clientExports).toHaveLength(1);
+	});
+
+	it("does not delete a renamed target filename before it has been published", () => {
+		const publishedTarget = {
+			...target(),
+			lastPublishedAt: T0,
+			lastPublishedUrl: "https://example.com/aggregate.txt",
+		};
+		const renamed = applyWorkspaceMutation(
+			document({ data: data({ publishTargets: [publishedTarget] }) }),
+			parseWorkspaceMutation(
+				mutation("publish-target.upsert", {
+					target: { ...publishedTarget, fileName: "renamed.txt" },
+					previousFileCleanup: "keep",
+				}),
+			),
+			context,
+		).document;
+		const deleted = applyWorkspaceMutation(
+			renamed,
+			parseWorkspaceMutation(
+				mutation(
+					"publish-target.delete",
+					{
+						id: "target-1",
+						cleanupUnreferencedOutputs: true,
+					},
+					{
+						expectedRevision: 2,
+						mutationId: "10000000-0000-4000-8000-000000000002",
+					},
+				),
+			),
+			context,
+		);
+
+		expect(deleted.files).toEqual({});
+	});
+
+	it("atomically cleans published outputs while deleting an aggregate", () => {
+		const result = applyWorkspaceMutation(
+			document({
+				data: data({
+					publishTargets: [
+						{
+							...target(),
+							lastPublishedAt: T0,
+							lastPublishedUrl: "https://example.com/aggregate.txt",
+						},
+					],
+					clientExports: [{ ...profile(), lastPublishedAt: T0 }],
+				}),
+			}),
+			parseWorkspaceMutation(
+				mutation("aggregate.delete", {
+					id: "aggregate-1",
+					cleanupUnreferencedOutputs: true,
+				}),
+			),
+			context,
+		);
+
+		expect(result.document.data.aggregates).toEqual([]);
+		expect(result.document.data.publishTargets).toEqual([]);
+		expect(result.document.data.clientExports).toEqual([]);
+		expect(result.files).toEqual({
+			"aggregate.txt": null,
+			"client.json": null,
+		});
+	});
+
+	it("blocks new output ownership conflicts and publication of legacy conflicts", () => {
+		const conflicting = document({
+			data: data({
+				publishTargets: [target()],
+				clientExports: [{ ...profile(), fileName: "aggregate.txt" }],
+			}),
+		});
+		expectCode(
+			() =>
+				applyWorkspaceMutation(
+					document(),
+					parseWorkspaceMutation(
+						mutation("client-export.upsert", {
+							profile: { ...profile(), fileName: "aggregate.txt" },
+						}),
+					),
+					context,
+				),
+			"output_file_conflict",
+		);
+		expectCode(
+			() =>
+				applyWorkspaceMutation(
+					conflicting,
+					parseWorkspaceMutation(
+						mutation("aggregate.publish", {
+							targetId: "target-1",
+							output: { fileName: "aggregate.txt", content: "value" },
+						}),
+					),
+					context,
+				),
+			"output_file_conflict",
+		);
+	});
+
 	it("preserves external-key upsert ID and deterministic naming", () => {
 		const nodeInput = {
 			name: "node-1",
@@ -681,6 +1002,80 @@ describe("Workspace mutation domain behavior", () => {
 		expect(reconciled.tombstones.aggregates[0]?.id).toBe("aggregate-1");
 		expect(reconciled.tombstones.publishTargets[0]?.id).toBe("target-1");
 		expect(reconciled.tombstones.clientExports[0]?.id).toBe("export-1");
+	});
+
+	it("reconcile preserves only server-established publication metadata", () => {
+		const publishedTarget = {
+			...target(),
+			lastPublishedAt: T0,
+			lastPublishedUrl: "https://example.com/aggregate.txt",
+		};
+		const publishedProfile = {
+			...profile(),
+			lastGeneratedAt: T0,
+			lastPublishedAt: T0,
+			lastPublishedUrl: "https://example.com/client.json",
+		};
+		const current = document({
+			data: data({
+				publishTargets: [publishedTarget],
+				clientExports: [publishedProfile],
+			}),
+		});
+		const resolved = data({
+			publishTargets: [
+				{
+					...publishedTarget,
+					fileName: "renamed.txt",
+					lastPublishedAt: T1,
+					lastPublishedUrl: "https://example.com/renamed.txt",
+				},
+				{
+					...target("target-2"),
+					fileName: "claimed.txt",
+					lastPublishedAt: T1,
+					lastPublishedUrl: "https://example.com/claimed.txt",
+				},
+			],
+			clientExports: [
+				{
+					...publishedProfile,
+					name: "Renamed profile",
+					lastPublishedAt: T1,
+					lastPublishedUrl: "https://example.com/forged.json",
+				},
+			],
+		});
+		const reconciled = applyWorkspaceMutation(
+			current,
+			parseWorkspaceMutation(
+				mutation("workspace.reconcile", {
+					baselineRevision: 1,
+					data: resolved,
+				}),
+			),
+			context,
+		).document.data;
+		const renamedTarget = reconciled.publishTargets.find(
+			(item) => item.id === "target-1",
+		);
+		expect(renamedTarget?.lastPublishedAt).toBe(T0);
+		expect(renamedTarget?.lastPublishedUrl).toBe(
+			"https://example.com/aggregate.txt",
+		);
+		expect(renamedTarget?.lastPublishTransitionFromFileName).toBe(
+			"aggregate.txt",
+		);
+		expect(renamedTarget?.lastPublishTransitionToFileName).toBe("renamed.txt");
+		expect(renamedTarget?.lastPublishTransitionOutcome).toBe("kept_manual");
+		expect(
+			reconciled.publishTargets.find((item) => item.id === "target-2")
+				?.lastPublishedAt,
+		).toBeNull();
+		expect(reconciled.clientExports[0]?.lastPublishedAt).toBe(T0);
+		expect(reconciled.clientExports[0]?.lastPublishedUrl).toBe(
+			"https://example.com/client.json",
+		);
 	});
 
 	it("is deterministic and leaves the document and mutation untouched", () => {

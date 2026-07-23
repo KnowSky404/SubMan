@@ -18,6 +18,7 @@ export type BrowserMutationEnqueueResult =
 
 const VALIDATION_MUTATION_ID = "00000000-0000-4000-8000-000000000000";
 const VALIDATION_TIMESTAMP = "2000-01-01T00:00:00.000Z";
+const LOCAL_VALIDATION_WORKSPACE_ID = "gist:local-validation";
 
 function validateDraft(
 	draft: BrowserMutationDraft,
@@ -40,15 +41,11 @@ export function validateAutomaticWorkspaceMutationDraft(
 	options: { stateStore?: WorkspaceV2StateStore } = {},
 ): void {
 	const binding = (options.stateStore ?? new WorkspaceV2StateStore()).read();
-	if (
-		!binding ||
-		binding.revision === null ||
-		binding.baseline === null ||
-		binding.syncMode !== "automatic"
-	) {
-		return;
-	}
-	validateDraft(draft, binding.workspaceId, binding.revision);
+	validateDraft(
+		draft,
+		binding?.workspaceId ?? LOCAL_VALIDATION_WORKSPACE_ID,
+		binding?.revision ?? 0,
+	);
 }
 
 export function validateAutomaticWorkspaceReconcile(

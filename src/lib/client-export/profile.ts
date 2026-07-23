@@ -3,6 +3,7 @@ import type {
 	SingBoxClientExportOptions,
 } from "$lib/models";
 import { createId } from "$lib/utils/id";
+import { validateWorkspaceOutputFileName } from "$lib/workspace-document";
 
 export const DEFAULT_SING_BOX_CLIENT_OPTIONS: SingBoxClientExportOptions = {
 	listenAddress: "127.0.0.1",
@@ -34,7 +35,7 @@ export function createDefaultSingBoxClientProfile(
 }
 
 export function normalizeExportFileName(value: string): string {
-	return value.trim().replace(/^\/+/, "");
+	return value.trim();
 }
 
 export function hasClientExportOutputChanged(
@@ -63,8 +64,16 @@ export function validateSingBoxClientProfile(profile: ClientExportProfile): {
 	if (!fileName) {
 		errors.push("Output filename is required");
 	}
-	if (fileName.toLowerCase() === "subman.json") {
-		errors.push("Output filename cannot replace subman.json");
+	if (fileName) {
+		try {
+			validateWorkspaceOutputFileName(fileName);
+		} catch {
+			errors.push(
+				fileName.toLowerCase() === "subman.json"
+					? "Output filename cannot replace subman.json"
+					: "Output filename is invalid",
+			);
+		}
 	}
 	if (
 		!Number.isInteger(profile.options.listenPort) ||

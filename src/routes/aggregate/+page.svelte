@@ -13,6 +13,7 @@ import { t } from "$lib/i18n";
 import type {
 	AggregatePublishTarget,
 	AggregateRule,
+	AppState,
 	ProxyType,
 	SortMode,
 } from "$lib/models";
@@ -38,6 +39,8 @@ import {
 	removePublishTarget,
 	upsertAggregate,
 	upsertPublishTarget,
+	type WorkspaceActionHandle,
+	type WorkspaceActionResult,
 } from "$lib/stores/app";
 import { authState } from "$lib/stores/auth";
 import { requestConfirm } from "$lib/stores/confirm";
@@ -45,8 +48,18 @@ import { showToast } from "$lib/stores/toast";
 import { cn } from "$lib/utils/cn";
 import { createId } from "$lib/utils/id";
 import { nowIso } from "$lib/utils/time";
-import { submitBrowserWorkspaceMutation } from "$lib/workspace-browser-session-v2";
+import {
+	commitQueuedBrowserWorkspaceMutation,
+	reconcileBrowserWorkspace,
+	submitBrowserWorkspaceMutation,
+} from "$lib/workspace-browser-session-v2";
 import { WorkspaceMutationQueue } from "$lib/workspace-mutation-queue";
+import {
+	analyzeAggregateDelete,
+	analyzePublishTargetDelete,
+	findWorkspaceOutputConflicts,
+} from "$lib/workspace-output";
+import { workspaceSyncStatus } from "$lib/workspace-sync-status";
 import { WorkspaceV2StateStore } from "$lib/workspace-v2-state";
 
 let ruleName = "";
@@ -81,13 +94,12 @@ type PreviewEntry = {
 let previewEntries: PreviewEntry[] = [];
 let previewLoading = false;
 let previewGeneratedAt: string | null = null;
+let previewSource: "draft" | "saved" = "draft";
 
 let selectedTargetId = "";
 let publishTargetName = "";
 let publishTargetRuleId = "";
 let publishTargetFile = "subman-aggregate.txt";
-let publishTargetDescription = "SubMan aggregate";
-let publishTargetPublic = false;
 let publishUrl: string | null = null;
 let publishing = false;
 let editingRuleId = "";
@@ -104,9 +116,9 @@ const fieldIds = {
 	sortPriority: "aggregate-sort-priority",
 	customRegionFlagMap: "aggregate-region-flag-map",
 	prependRegionFlags: "aggregate-prepend-region-flags",
-	publishTargetPublic: "aggregate-publish-target-public",
 	builtInRegionMapSearch: "aggregate-region-map-search",
 	targetSelect: "aggregate-target-select",
+	targetName: "aggregate-target-name",
 	targetRule: "aggregate-target-rule",
 	targetFile: "aggregate-target-file",
 };
@@ -192,6 +204,111 @@ $: targetRuleOptions = $appState.aggregates.map((rule) => ({
 	value: rule.id,
 	label: rule.name,
 }));
+$: selectedSavedRule =
+	$appState.aggregates.find((rule) => rule.id === editingRuleId) ?? null;
+$: selectedSavedTarget =
+	$appState.publishTargets.find((target) => target.id === selectedTargetId) ??
+	null;
+$: ruleDirty = selectedSavedRule
+	? getSavedRuleSignature(selectedSavedRule) !== getRuleDraftSignature()
+	: hasRuleDraft();
+$: targetDirty = selectedSavedTarget
+	? getSavedTargetSignature(selectedSavedTarget) !== getTargetDraftSignature()
+	: hasTargetDraft();
+$: outputConflicts = findWorkspaceOutputConflicts($appState);
+$: selectedOutputConflict = outputConflicts.find(
+	(conflict) => conflict.fileName === publishTargetFile.trim(),
+);
+$: workspaceIsManual = $workspaceSyncStatus.mode === "manual";
+$: selectedTargetRule = $appState.aggregates.find(
+	(rule) => rule.id === selectedSavedTarget?.ruleId,
+);
+$: selectedTargetNeedsRepublish = Boolean(
+	selectedSavedTarget?.lastPublishedAt &&
+		(selectedSavedTarget.updatedAt !== selectedSavedTarget.lastPublishedAt ||
+			(selectedTargetRule?.updatedAt ?? "") >
+				selectedSavedTarget.lastPublishedAt),
+);
+$: ordinaryPublishDisabled =
+	publishing ||
+	!isWorkspaceConnected ||
+	!selectedTargetId ||
+	ruleDirty ||
+	targetDirty ||
+	workspaceIsManual ||
+	Boolean(selectedOutputConflict);
+
+function getSavedRuleSignature(rule: AggregateRule): string {
+	return JSON.stringify({
+		name: rule.name,
+		nodeIds: rule.nodeIds,
+		subscriptionIds: rule.subscriptionIds,
+		excludeTagIds: rule.excludeTagIds,
+		renameRules: rule.renameRules ?? [],
+		customRegionFlagMap: rule.customRegionFlagMap ?? "",
+		allowedTypes: rule.allowedTypes,
+		prependRegionFlags: rule.prependRegionFlags ?? true,
+		sortMode: rule.sortMode ?? "none",
+		sortPriority: rule.sortPriority ?? "",
+	});
+}
+
+function getRuleDraftSignature(): string {
+	return JSON.stringify({
+		name: ruleName.trim(),
+		nodeIds: selectedNodeIds,
+		subscriptionIds: selectedSubscriptionIds,
+		excludeTagIds: excludeTags
+			.split(",")
+			.map((tag) => tag.trim())
+			.filter(Boolean),
+		renameRules: renameMap
+			.split("\n")
+			.map((line) => line.trim())
+			.filter(Boolean),
+		customRegionFlagMap,
+		allowedTypes,
+		prependRegionFlags,
+		sortMode,
+		sortPriority,
+	});
+}
+
+function hasRuleDraft(): boolean {
+	return Boolean(
+		ruleName.trim() ||
+			selectedNodeIds.length ||
+			selectedSubscriptionIds.length ||
+			excludeTags.trim() ||
+			renameMap.trim() ||
+			customRegionFlagMap.trim() ||
+			allowedTypes.length ||
+			sortMode !== "none" ||
+			sortPriority.trim(),
+	);
+}
+
+function getSavedTargetSignature(target: AggregatePublishTarget): string {
+	return JSON.stringify({
+		name: target.name,
+		ruleId: target.ruleId,
+		fileName: target.fileName,
+	});
+}
+
+function getTargetDraftSignature(): string {
+	return JSON.stringify({
+		name: publishTargetName.trim() || publishTargetFile.trim(),
+		ruleId: publishTargetRuleId,
+		fileName: publishTargetFile.trim(),
+	});
+}
+
+function hasTargetDraft(): boolean {
+	return Boolean(
+		publishTargetName.trim() || publishTargetRuleId || publishTargetFile.trim(),
+	);
+}
 
 function loadRule(rule: AggregateRule | undefined) {
 	if (!rule) return;
@@ -250,8 +367,6 @@ function loadPublishTarget(target: AggregatePublishTarget) {
 	publishTargetName = target.name;
 	publishTargetRuleId = target.ruleId;
 	publishTargetFile = target.fileName;
-	publishTargetDescription = target.description;
-	publishTargetPublic = target.isPublic;
 	publishUrl = target.lastPublishedUrl;
 }
 
@@ -260,78 +375,422 @@ function resetTargetForm() {
 	publishTargetName = "";
 	publishTargetRuleId = $appState.aggregates[0]?.id || "";
 	publishTargetFile = "aggregate.txt";
-	publishTargetDescription = "SubMan aggregate";
-	publishTargetPublic = false;
 	publishUrl = null;
 }
 
-async function saveRule() {
-	if (!ruleName.trim()) return;
-	const id = editingRuleId || createId("agg");
+type PendingWorkspaceAction = {
+	handle: WorkspaceActionHandle;
+	kind: "aggregate.upsert" | "publish-target.upsert";
+	payload: unknown;
+	targetId?: string;
+	targetBeforeSave?: AggregatePublishTarget | null;
+	previousFileCleanup?: "keep" | "delete-if-unreferenced";
+};
 
-	// Ensure we only save IDs that actually exist in the global state
-	const finalNodeIds = selectedNodeIds.filter((id) =>
-		$appState.nodes.some((n) => n.id === id),
-	);
-	const finalSubIds = selectedSubscriptionIds.filter((id) =>
-		$appState.subscriptions.some((s) => s.id === id),
-	);
-	const renameRules = renameMap
-		.split("\n")
-		.map((l) => l.trim())
-		.filter(Boolean);
-
-	if (
-		!upsertAggregate({
-			id,
-			name: ruleName.trim(),
-			nodeIds: finalNodeIds,
-			subscriptionIds: finalSubIds,
-			excludeTagIds: excludeTags
-				.split(",")
-				.map((t) => t.trim())
-				.filter(Boolean),
-			renameMap: {}, // Migrate to renameRules
-			renameRules,
-			customRegionFlagMap,
-			allowedTypes,
-			prependRegionFlags,
-			sortMode,
-			sortPriority,
-			updatedAt: nowIso(),
-		}).accepted
-	)
-		return;
-	editingRuleId = id;
-	showToast($t("Rule saved successfully"), "success");
+function workspaceDependencies() {
+	return {
+		queue: new WorkspaceMutationQueue(),
+		stateStore: new WorkspaceV2StateStore(),
+		getState: () => $appState,
+		setState: (state: typeof $appState) => appState.set(state),
+	};
 }
 
-async function saveTarget() {
-	if (!publishTargetFile.trim() || !publishTargetRuleId) return;
+function actionSaved(result: WorkspaceActionResult): boolean {
+	return !["rejected", "permanent-error", "invalid-local-state"].includes(
+		result.status,
+	);
+}
+
+function showDeleteActionFeedback(
+	result: WorkspaceActionResult,
+	committedMessage: string,
+): void {
+	showToast(
+		result.status === "committed"
+			? committedMessage
+			: result.status === "queued"
+				? $t("Queued")
+				: $t("Saved locally"),
+		"success",
+	);
+}
+
+async function commitPendingAction(
+	action: PendingWorkspaceAction,
+	allowManual: boolean,
+): Promise<void> {
+	const token = $authState.token;
+	if (!token) throw new Error("Missing GitHub token");
+	const result = await action.handle.completion;
+	if (!actionSaved(result)) {
+		throw new Error(result.error ?? "Workspace change was not saved");
+	}
+	if (result.status === "queued" && result.mutationId) {
+		await commitQueuedBrowserWorkspaceMutation(
+			{ token, mutationId: result.mutationId },
+			workspaceDependencies(),
+		);
+		return;
+	}
+	if (result.status === "manual-local-only" && allowManual) {
+		await submitBrowserWorkspaceMutation(
+			{ token, kind: action.kind, payload: action.payload },
+			{ ...workspaceDependencies(), allowManual: true },
+		);
+		return;
+	}
+	if (result.status !== "committed") {
+		throw new Error("Push local Workspace changes before publishing");
+	}
+}
+
+async function awaitPendingLocalAction(
+	action: PendingWorkspaceAction,
+): Promise<void> {
+	const result = await action.handle.completion;
+	if (!actionSaved(result)) {
+		throw new Error(result.error ?? "Workspace change was not saved");
+	}
+}
+
+function createRuleDraft(id: string): AggregateRule {
+	const finalNodeIds = selectedNodeIds.filter((nodeId) =>
+		$appState.nodes.some((node) => node.id === nodeId),
+	);
+	const finalSubIds = selectedSubscriptionIds.filter((subscriptionId) =>
+		$appState.subscriptions.some(
+			(subscription) => subscription.id === subscriptionId,
+		),
+	);
+	return {
+		id,
+		name: ruleName.trim(),
+		nodeIds: finalNodeIds,
+		subscriptionIds: finalSubIds,
+		excludeTagIds: excludeTags
+			.split(",")
+			.map((tag) => tag.trim())
+			.filter(Boolean),
+		renameMap: {},
+		renameRules: renameMap
+			.split("\n")
+			.map((line) => line.trim())
+			.filter(Boolean),
+		customRegionFlagMap,
+		allowedTypes,
+		prependRegionFlags,
+		sortMode,
+		sortPriority,
+		updatedAt: nowIso(),
+	};
+}
+
+function saveRuleDraft(): PendingWorkspaceAction | null {
+	if (!ruleName.trim()) return null;
+	const id = editingRuleId || createId("agg");
+	const rule = createRuleDraft(id);
+	const handle = upsertAggregate(rule);
+	if (!handle.accepted) return null;
+	editingRuleId = id;
+	if (!publishTargetRuleId) publishTargetRuleId = id;
+	return {
+		handle,
+		kind: "aggregate.upsert",
+		payload: { aggregate: rule },
+	};
+}
+
+async function saveRule(): Promise<void> {
+	const action = saveRuleDraft();
+	if (!action) return;
+	showToast($t("Saved locally"), "success");
+}
+
+async function choosePreviousFileCleanup(
+	existing: AggregatePublishTarget | null,
+	nextFileName: string,
+): Promise<"keep" | "delete-if-unreferenced" | null> {
+	if (!existing || existing.fileName === nextFileName) return "keep";
+	const proceed = await requestConfirm({
+		title: $t("Change output file"),
+		message: $t(
+			'Publishing to "{next}" will create a new stable link. Current published file: {current}. Existing clients using the old link must be updated manually.',
+			{ next: nextFileName, current: existing.fileName },
+		),
+		confirmText: $t("Continue"),
+	});
+	if (!proceed) return null;
+	const cleanup = await requestConfirm({
+		title: $t("Previous output file"),
+		message: $t(
+			"Delete the previous output file if no other target or export profile references it?",
+		),
+		confirmText: $t("Delete old file"),
+		cancelText: $t("Keep old file"),
+		danger: true,
+	});
+	return cleanup ? "delete-if-unreferenced" : "keep";
+}
+
+async function saveTargetDraft(): Promise<PendingWorkspaceAction | null> {
+	const fileName = publishTargetFile.trim();
+	if (!fileName || !publishTargetRuleId) return null;
 	const id = selectedTargetId || createId("pub");
-	if (
-		!upsertPublishTarget({
-			id,
-			name: publishTargetName.trim() || publishTargetFile,
-			ruleId: publishTargetRuleId,
-			fileName: publishTargetFile.trim(),
-			description: publishTargetDescription.trim(),
-			isPublic: publishTargetPublic,
+	const existing =
+		$appState.publishTargets.find((target) => target.id === id) ?? null;
+	const previousFileCleanup = await choosePreviousFileCleanup(
+		existing,
+		fileName,
+	);
+	if (previousFileCleanup === null) return null;
+	const target: AggregatePublishTarget = {
+		...(existing ?? {
 			lastPublishedAt: null,
 			lastPublishedUrl: null,
 			lastPublishTransitionAt: null,
 			lastPublishTransitionFromFileName: null,
 			lastPublishTransitionToFileName: null,
 			lastPublishTransitionOutcome: null,
-			updatedAt: nowIso(),
-		}).accepted
-	)
-		return;
+		}),
+		id,
+		name: publishTargetName.trim() || fileName,
+		ruleId: publishTargetRuleId,
+		fileName,
+		description: existing?.description ?? "",
+		isPublic: existing?.isPublic ?? false,
+		updatedAt: nowIso(),
+	};
+	const payload = { target, previousFileCleanup };
+	const handle = upsertPublishTarget(target, { previousFileCleanup });
+	if (!handle.accepted) return null;
 	selectedTargetId = id;
-	showToast($t("Publish target saved"), "success");
+	return {
+		handle,
+		kind: "publish-target.upsert",
+		payload,
+		targetId: id,
+		targetBeforeSave: existing,
+		previousFileCleanup,
+	};
 }
 
-async function publish() {
+async function saveTarget(): Promise<void> {
+	const action = await saveTargetDraft();
+	if (!action) return;
+	if (
+		workspaceIsManual &&
+		action.previousFileCleanup === "delete-if-unreferenced"
+	) {
+		const localSnapshot = $appState;
+		try {
+			await awaitPendingLocalAction(action);
+			await pushSelectedManualConfiguration(
+				manualStateBeforeTargetAction(localSnapshot, action),
+			);
+			await commitPendingAction(action, true);
+			showToast($t("Saved to Workspace"), "success");
+		} catch (error) {
+			appState.set(localSnapshot);
+			showToast(
+				$t("Workspace change was not saved: {error}", {
+					error: error instanceof Error ? error.message : String(error),
+				}),
+				"error",
+			);
+		}
+		return;
+	}
+	showToast($t("Saved locally"), "success");
+}
+
+async function submitManualDelete(
+	kind: "aggregate.delete" | "publish-target.delete",
+	payload: unknown,
+): Promise<boolean> {
+	const token = $authState.token;
+	if (!token) return false;
+	try {
+		await pushSelectedManualConfiguration($appState);
+		await submitBrowserWorkspaceMutation(
+			{ token, kind, payload },
+			{ ...workspaceDependencies(), allowManual: true },
+		);
+		return true;
+	} catch (error) {
+		showToast(
+			$t("Workspace change was not saved: {error}", {
+				error: error instanceof Error ? error.message : String(error),
+			}),
+			"error",
+		);
+		return false;
+	}
+}
+
+async function deleteTarget(): Promise<void> {
+	if (!selectedTargetId) return;
+	const impact = analyzePublishTargetDelete($appState, selectedTargetId);
+	const ownerSummary = impact.otherOwners.length
+		? impact.otherOwners
+				.map((owner) => `${owner.kind}: ${owner.name}`)
+				.join(", ")
+		: $t("None");
+	const confirmed = await requestConfirm({
+		title: $t("Delete Target"),
+		message: $t(
+			"Delete target {name}?\nRule: {rule}\nOutput: {file}\nPublished: {published}\nOther owners: {owners}",
+			{
+				name: impact.target.name,
+				rule: impact.ruleName,
+				file: impact.target.fileName,
+				published: impact.target.lastPublishedAt ? $t("Yes") : $t("No"),
+				owners: ownerSummary,
+			},
+		),
+		confirmText: $t("Continue"),
+		danger: true,
+	});
+	if (!confirmed) return;
+	let cleanupUnreferencedOutputs = false;
+	if (impact.canDeleteOutput && isWorkspaceConnected) {
+		cleanupUnreferencedOutputs = await requestConfirm({
+			title: $t("Output file"),
+			message: $t("Also delete unreferenced output file {file}?", {
+				file: impact.target.fileName,
+			}),
+			confirmText: $t("Delete target and file"),
+			cancelText: $t("Keep output file"),
+			danger: true,
+		});
+	}
+	if (
+		cleanupUnreferencedOutputs &&
+		workspaceIsManual &&
+		!(await submitManualDelete("publish-target.delete", {
+			id: selectedTargetId,
+			cleanupUnreferencedOutputs,
+		}))
+	)
+		return;
+	if (cleanupUnreferencedOutputs && workspaceIsManual) {
+		resetTargetForm();
+		showToast($t("Publish target deleted."), "success");
+		return;
+	}
+	const handle = removePublishTarget(selectedTargetId, {
+		cleanupUnreferencedOutputs,
+	});
+	if (!handle.accepted) return;
+	const result = await handle.completion;
+	if (!actionSaved(result)) return;
+	resetTargetForm();
+	showDeleteActionFeedback(result, $t("Publish target deleted."));
+}
+
+async function deleteRule(): Promise<void> {
+	if (!editingRuleId) return;
+	const impact = analyzeAggregateDelete($appState, editingRuleId);
+	const fileList = impact.fileNames.length
+		? impact.fileNames.join(", ")
+		: $t("None");
+	const confirmed = await requestConfirm({
+		title: $t("Delete current rule"),
+		message: $t(
+			"Delete rule {name}?\nPublish targets: {targets}\nClient exports: {exports}\nOutput files: {files}",
+			{
+				name: impact.aggregate.name,
+				targets: impact.targets.length,
+				exports: impact.exports.length,
+				files: fileList,
+			},
+		),
+		confirmText: $t("Continue"),
+		danger: true,
+	});
+	if (!confirmed) return;
+	const resetBoundTarget =
+		impact.targets.some((target) => target.id === selectedTargetId) ||
+		publishTargetRuleId === editingRuleId;
+	let cleanupUnreferencedOutputs = false;
+	if (impact.fileNames.length > 0 && isWorkspaceConnected) {
+		cleanupUnreferencedOutputs = await requestConfirm({
+			title: $t("Output files"),
+			message: $t("Also delete unreferenced published output files?\n{files}", {
+				files: fileList,
+			}),
+			confirmText: $t("Delete rule and files"),
+			cancelText: $t("Keep output files"),
+			danger: true,
+		});
+	}
+	if (
+		cleanupUnreferencedOutputs &&
+		workspaceIsManual &&
+		!(await submitManualDelete("aggregate.delete", {
+			id: editingRuleId,
+			cleanupUnreferencedOutputs,
+		}))
+	)
+		return;
+	if (cleanupUnreferencedOutputs && workspaceIsManual) {
+		resetRuleForm();
+		if (resetBoundTarget) resetTargetForm();
+		showToast($t("Rule deleted."), "success");
+		return;
+	}
+	const handle = removeAggregate(editingRuleId, {
+		cleanupUnreferencedOutputs,
+	});
+	if (!handle.accepted) return;
+	const result = await handle.completion;
+	if (!actionSaved(result)) return;
+	resetRuleForm();
+	if (resetBoundTarget) resetTargetForm();
+	showDeleteActionFeedback(result, $t("Rule deleted."));
+}
+
+function manualStateBeforeTargetAction(
+	localSnapshot: AppState,
+	action: PendingWorkspaceAction,
+): AppState {
+	if (!action.targetId) return localSnapshot;
+	const targetBeforeSave = action.targetBeforeSave;
+	return {
+		...localSnapshot,
+		publishTargets: targetBeforeSave
+			? localSnapshot.publishTargets.map((target) =>
+					target.id === action.targetId ? targetBeforeSave : target,
+				)
+			: localSnapshot.publishTargets.filter(
+					(target) => target.id !== action.targetId,
+				),
+	};
+}
+
+async function pushSelectedManualConfiguration(
+	resolvedState: AppState = $appState,
+): Promise<void> {
+	const token = $authState.token;
+	const gistId = $appState.activeGistId;
+	const stateStore = new WorkspaceV2StateStore();
+	const binding = stateStore.read();
+	if (!token || !gistId || !binding?.baseline) {
+		throw new Error($t("Missing workspace authorization."));
+	}
+	await reconcileBrowserWorkspace(
+		{
+			token,
+			gistId,
+			baseline: binding.baseline,
+			resolvedState,
+			syncMode: "manual",
+		},
+		{ ...workspaceDependencies(), stateStore },
+	);
+}
+
+async function publishSaved(allowManual = false): Promise<void> {
 	const token = $authState.token;
 	const gistId = $appState.activeGistId;
 	if (!token || !gistId || !selectedTargetId) return;
@@ -363,10 +822,8 @@ async function publish() {
 				},
 			},
 			{
-				queue: new WorkspaceMutationQueue(),
-				stateStore: new WorkspaceV2StateStore(),
-				getState: () => $appState,
-				setState: (state) => appState.set(state),
+				...workspaceDependencies(),
+				allowManual,
 			},
 		);
 		publishUrl =
@@ -377,6 +834,58 @@ async function publish() {
 		showToast(
 			$t("Publish failed: {error}", {
 				error: err instanceof Error ? err.message : String(err),
+			}),
+			"error",
+		);
+	} finally {
+		publishing = false;
+	}
+}
+
+async function publish(): Promise<void> {
+	if (ruleDirty || targetDirty) {
+		showToast($t("Save target changes before publishing."), "error");
+		return;
+	}
+	await publishSaved(false);
+}
+
+async function saveAndPublish(): Promise<void> {
+	if (!isWorkspaceConnected) return;
+	publishing = true;
+	try {
+		let targetAction: PendingWorkspaceAction | null = null;
+		if (ruleDirty) {
+			const ruleAction = saveRuleDraft();
+			if (!ruleAction) throw new Error($t("Rule name is required."));
+			if (workspaceIsManual) await awaitPendingLocalAction(ruleAction);
+			else await commitPendingAction(ruleAction, false);
+		}
+		if (targetDirty || !selectedTargetId) {
+			targetAction = await saveTargetDraft();
+			if (!targetAction) throw new Error($t("Failed to save publish target."));
+			if (workspaceIsManual) await awaitPendingLocalAction(targetAction);
+			else await commitPendingAction(targetAction, false);
+		}
+		if (workspaceIsManual) {
+			const localSnapshot = $appState;
+			const manualReconcileState = targetAction
+				? manualStateBeforeTargetAction(localSnapshot, targetAction)
+				: localSnapshot;
+			try {
+				await pushSelectedManualConfiguration(manualReconcileState);
+				if (targetAction) await commitPendingAction(targetAction, true);
+			} catch (error) {
+				appState.set(localSnapshot);
+				throw error;
+			}
+		}
+		publishing = false;
+		await publishSaved(workspaceIsManual);
+	} catch (error) {
+		showToast(
+			$t("Publish failed: {error}", {
+				error: error instanceof Error ? error.message : String(error),
 			}),
 			"error",
 		);
@@ -439,7 +948,10 @@ async function buildPreview() {
 		});
 		if (previewEntries.length === 0)
 			showToast($t("No nodes matched criteria"), "info");
-		else previewGeneratedAt = new Date().toISOString();
+		else {
+			previewGeneratedAt = new Date().toISOString();
+			previewSource = ruleDirty ? "draft" : "saved";
+		}
 	} catch (err) {
 		showToast($t("Preview failed"), "error");
 	} finally {
@@ -470,10 +982,7 @@ function handlePreviewDndConsider(e: CustomEvent<DndEvent<PreviewEntry>>) {
 
 function handlePreviewDndFinalize(e: CustomEvent<DndEvent<PreviewEntry>>) {
 	previewEntries = e.detail.items;
-	// Update sortPriority with the actual order of names
 	sortPriority = previewEntries.map((entry) => entry.name).join("\n");
-	// Auto-save the rule to make it permanent
-	saveRule();
 }
 </script>
 
@@ -502,7 +1011,18 @@ function handlePreviewDndFinalize(e: CustomEvent<DndEvent<PreviewEntry>>) {
 				{$t("Save Rule")}
 			</button>
 		</div>
-	</header>
+</header>
+
+{#if outputConflicts.length > 0}
+	<div class="gh-alert gh-alert-warning mb-4 flex-col items-start">
+		<strong>{$t("Output filename conflicts need repair")}</strong>
+		{#each outputConflicts as conflict}
+			<span class="text-xs">
+				<code>{conflict.fileName}</code>: {conflict.owners.map((owner) => `${owner.kind}: ${owner.name}`).join(", ")}
+			</span>
+		{/each}
+	</div>
+{/if}
 
 	<div class="gh-layout-sidebar lg:grid-cols-[minmax(0,1fr)_340px]">
 		<!-- Main Rule Editor -->
@@ -710,7 +1230,7 @@ function handlePreviewDndFinalize(e: CustomEvent<DndEvent<PreviewEntry>>) {
 				<div class="gh-section-footer">
 					<div class="gh-btn-group">
 						{#if editingRuleId}
-							<button type="button" class="gh-btn gh-btn-danger" on:click={() => { removeAggregate(editingRuleId); resetRuleForm(); }} aria-label={$t("Delete current rule")} title={$t("Delete current rule")}><Octicon icon={trash} className="h-4 w-4" /></button>
+							<button type="button" class="gh-btn gh-btn-danger" on:click={deleteRule} aria-label={$t("Delete current rule")} title={$t("Delete current rule")}><Octicon icon={trash} className="h-4 w-4" /></button>
 						{/if}
 						<button type="button" class="gh-btn" on:click={buildPreview} disabled={previewLoading}>
 							{#if previewLoading}<Octicon icon={sync} className="mr-1 h-4 w-4 animate-spin" />{:else}<Octicon icon={eye} className="mr-1 h-4 w-4" />{/if}
@@ -728,6 +1248,7 @@ function handlePreviewDndFinalize(e: CustomEvent<DndEvent<PreviewEntry>>) {
 							<Octicon icon={fileCode} className="h-4 w-4" />
 							<span>{$t("Preview Results")}</span>
 							<span class="badge ml-2">{previewEntries.length} {$t("Nodes")}</span>
+							<span class="badge">{previewSource === "draft" ? $t("Draft Preview") : $t("Saved Rule Preview")}</span>
 							{#if previewGeneratedText}
 								<span class="text-xs font-normal text-fg-muted">{$t("Preview generated {time}", { time: previewGeneratedText })}</span>
 							{/if}
@@ -778,6 +1299,11 @@ function handlePreviewDndFinalize(e: CustomEvent<DndEvent<PreviewEntry>>) {
 						</div>
 
 						<div class="flex flex-col gap-1.5">
+							<label class="gh-form-label" for={fieldIds.targetName}>{$t("Target name")}</label>
+							<input id={fieldIds.targetName} class="gh-input" placeholder={$t("Target name")} bind:value={publishTargetName} />
+						</div>
+
+						<div class="flex flex-col gap-1.5">
 							<label class="gh-form-label" for={fieldIds.targetRule}>{$t("Binding Rule")}</label>
 							<GitHubSelect id={fieldIds.targetRule} bind:value={publishTargetRuleId} options={targetRuleOptions} placeholder={$t("Select an Aggregate rule")} />
 						</div>
@@ -786,18 +1312,28 @@ function handlePreviewDndFinalize(e: CustomEvent<DndEvent<PreviewEntry>>) {
 							<label class="gh-form-label" for={fieldIds.targetFile}>{$t("Output File")}</label>
 							<input id={fieldIds.targetFile} class="gh-input font-mono" placeholder="nodes.txt" bind:value={publishTargetFile} />
 						</div>
-
-					<div class="gh-checkbox-row">
-						<input id={fieldIds.publishTargetPublic} type="checkbox" class="rounded border-border-default" bind:checked={publishTargetPublic} />
-						<label class="text-sm font-medium" for={fieldIds.publishTargetPublic}>{$t("Public Gist")}</label>
-					</div>
+						{#if selectedTargetNeedsRepublish}
+							<div class="gh-alert gh-alert-warning text-xs">
+								{$t("Target configuration changed after its last publish. Publish again to refresh the output and stable link.")}
+							</div>
+						{/if}
 
 						<div class="flex flex-col gap-2 pt-2 border-t border-border-default">
 							<button type="button" class="gh-btn w-full" on:click={saveTarget}>{$t("Save Target")}</button>
+							{#if selectedTargetId}
+								<button type="button" class="gh-btn gh-btn-danger w-full" on:click={deleteTarget}>
+									<Octicon icon={trash} className="h-4 w-4" />
+									{$t("Delete Target")}
+								</button>
+							{/if}
 							{#if isWorkspaceConnected}
-								<button type="button" class="gh-btn gh-btn-primary w-full py-3 h-auto" on:click={publish} disabled={publishing || !isWorkspaceConnected}>
+								<button type="button" class="gh-btn gh-btn-primary w-full py-3 h-auto" on:click={publish} disabled={ordinaryPublishDisabled}>
 									{#if publishing}<Octicon icon={sync} className="h-4 w-4 animate-spin" />{:else}<Octicon icon={upload} className="h-4 w-4" />{/if}
 									{$t("Publish")}
+								</button>
+								<button type="button" class="gh-btn w-full" on:click={saveAndPublish} disabled={publishing || Boolean(selectedOutputConflict)}>
+									<Octicon icon={upload} className="h-4 w-4" />
+									{workspaceIsManual ? $t("Push and Publish") : $t("Save and Publish")}
 								</button>
 							{:else}
 								<a href="/auth" class="gh-btn gh-btn-primary w-full py-3 h-auto">
