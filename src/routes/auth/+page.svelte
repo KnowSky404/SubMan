@@ -606,7 +606,7 @@ function handleTokenClear() {
 function handleTokenReplacement() {
 	const token = tokenInput.trim();
 	if (!token) return;
-	setToken(token, { remember: rememberToken });
+	setToken(token, { remember: $authState.persistence === "persistent" });
 	tokenInput = "";
 	setStatus($t("Token replaced; Workspace sync is resuming"), "info");
 }

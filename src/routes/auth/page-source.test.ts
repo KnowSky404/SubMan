@@ -106,7 +106,7 @@ test("auth-required state exposes a direct replacement-token recovery path", () 
 	expect(authPageSource).toContain('data-testid="auth-recovery"');
 	expect(authPageSource).toContain("function handleTokenReplacement()");
 	expect(authPageSource).toContain(
-		"setToken(token, { remember: rememberToken });",
+		'setToken(token, { remember: $authState.persistence === "persistent" });',
 	);
 	expect(authPageSource).toContain('$t("Replace Token & Resume")');
 });

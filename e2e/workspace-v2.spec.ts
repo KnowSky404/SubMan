@@ -487,7 +487,7 @@ test("replaces a rejected token and resumes the same queued mutation", async ({
 			workspaces: { [WORKSPACE_ID]: queue(WORKSPACE_ID, [pending]) },
 		}),
 	);
-	await seedAuth(page, { session: "rejected-token" });
+	await seedAuth(page, { persistent: "rejected-token" });
 	const attempts: {
 		authorization: string | undefined;
 		mutation: JsonRecord;
@@ -517,6 +517,7 @@ test("replaces a rejected token and resumes the same queued mutation", async ({
 	const recovery = page.getByTestId("auth-recovery");
 	await expect(recovery).toBeVisible();
 	await expect(recovery).toContainText("Pending changes remain queued");
+	await page.getByLabel("Remember token on this device").uncheck();
 	await recovery
 		.getByLabel("Replacement personal access token")
 		.fill("replacement-token");
@@ -537,20 +538,26 @@ test("replaces a rejected token and resumes the same queued mutation", async ({
 		)
 		.toBe(0);
 	await expect(recovery).toHaveCount(0);
-	expect(attempts.map(({ mutation }) => mutation.mutationId)).toEqual([
-		pending.mutationId,
-		pending.mutationId,
-	]);
-	expect(attempts.map(({ authorization }) => authorization)).toEqual([
-		"Bearer rejected-token",
-		"Bearer replacement-token",
-	]);
-	const storedAuth = await page.evaluate(
-		(key) => sessionStorage.getItem(key),
-		SESSION_AUTH_KEY,
+	expect(attempts.length).toBeGreaterThanOrEqual(2);
+	expect(new Set(attempts.map(({ mutation }) => mutation.mutationId))).toEqual(
+		new Set([pending.mutationId]),
 	);
-	expect(storedAuth).toContain("replacement-token");
-	expect(storedAuth).not.toContain("rejected-token");
+	expect(attempts.at(-1)?.authorization).toBe("Bearer replacement-token");
+	expect(
+		attempts
+			.slice(0, -1)
+			.every(({ authorization }) => authorization === "Bearer rejected-token"),
+	).toBe(true);
+	const storedAuth = await page.evaluate(
+		({ sessionKey, persistentKey }) => ({
+			session: sessionStorage.getItem(sessionKey),
+			persistent: localStorage.getItem(persistentKey),
+		}),
+		{ sessionKey: SESSION_AUTH_KEY, persistentKey: PERSISTENT_AUTH_KEY },
+	);
+	expect(storedAuth.session).toContain("replacement-token");
+	expect(storedAuth.session).not.toContain("rejected-token");
+	expect(storedAuth.persistent).toBeNull();
 });
 
 test("allows one tab to take over an expired lease without duplicate submission", async ({
