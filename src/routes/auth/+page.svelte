@@ -1003,12 +1003,16 @@ function handleImport() {
 						</button>
 					</div>
 					<label class="flex items-start gap-2 text-sm text-fg-muted" for="remember-token">
-						<input id="remember-token" type="checkbox" class="mt-0.5 rounded border-border-default" bind:checked={rememberToken} />
+						<input id="remember-token" type="checkbox" class="mt-0.5 rounded border-border-default" aria-describedby="remember-token-risk" bind:checked={rememberToken} />
 						<span>
 							<span class="block font-medium text-fg-default">{$t("Remember token on this device")}</span>
 							<span class="block text-xs">{$t("Off by default. The token otherwise stays in this browser session only.")}</span>
 						</span>
 					</label>
+					<p id="remember-token-risk" class="flex items-start gap-1.5 text-xs text-attention-fg">
+						<Octicon icon={alert} className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+						<span>{$t("Persistent storage keeps the token on this device where same-origin JavaScript can read it. Active XSS can steal it; browser-side encryption would not prevent that.")}</span>
+					</p>
 				</div>
 				<a href="https://github.com/settings/tokens/new?description=SubMan&scopes=gist" target="_blank" class="gh-link flex items-center gap-1 text-xs">
 					<Octicon icon={linkExternal} className="h-3 w-3" /> {$t("Generate a new token on GitHub")}
@@ -1050,6 +1054,7 @@ function handleImport() {
 							id="remember-connected-token"
 							type="checkbox"
 							class="rounded border-border-default"
+							aria-describedby="remember-connected-token-risk"
 							checked={$authState.persistence === "persistent"}
 							on:change={(event) =>
 								setToken($authState.token, {
@@ -1058,6 +1063,10 @@ function handleImport() {
 						/>
 						<span>{$t("Remember token on this device")}</span>
 					</label>
+					<p id="remember-connected-token-risk" class="flex items-start gap-1.5 text-xs text-attention-fg">
+						<Octicon icon={alert} className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+						<span>{$t("Persistent storage keeps the token on this device where same-origin JavaScript can read it. Active XSS can steal it; browser-side encryption would not prevent that.")}</span>
+					</p>
 					<p class="gh-form-caption">
 						{$t("Auto-sync is enabled for local changes.")}
 					</p>

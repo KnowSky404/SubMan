@@ -846,6 +846,8 @@ const zhCN: Record<string, string> = {
 	"Remember token on this device": "在此设备上记住 Token",
 	"Off by default. The token otherwise stays in this browser session only.":
 		"默认关闭。否则 Token 仅保留在当前浏览器会话中。",
+	"Persistent storage keeps the token on this device where same-origin JavaScript can read it. Active XSS can steal it; browser-side encryption would not prevent that.":
+		"持久存储会将 Token 保存在此设备上，同源 JavaScript 可以读取它。活动型 XSS 可窃取 Token，浏览器端加密也无法防止此类攻击。",
 	"A previously saved token was moved to this browser session. Choose Remember token to keep it on this device after the session ends.":
 		"之前保存的 Token 已迁移到当前浏览器会话。如需在会话结束后继续保留，请选择在此设备上记住 Token。",
 	"{file} is protected.": "{file} 受保护。",

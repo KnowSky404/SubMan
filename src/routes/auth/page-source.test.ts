@@ -71,6 +71,10 @@ test("auth page presents structured Workspace chooser candidates", () => {
 test("auth token persistence is opt-in and follows a successful connection", () => {
 	expect(authPageSource).toContain("let rememberToken = false;");
 	expect(authPageSource).toContain('$t("Remember token on this device")');
+	expect(authPageSource).toContain('aria-describedby="remember-token-risk"');
+	expect(authPageSource).toContain(
+		"Active XSS can steal it; browser-side encryption would not prevent that.",
+	);
 	expect(authPageSource).toContain("setToken(token, { remember });");
 	expect(authPageSource).toContain("migratedLegacyToken");
 

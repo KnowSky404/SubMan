@@ -1,5 +1,6 @@
 import { appendFileSync, existsSync } from "node:fs";
 import adapter from "@sveltejs/adapter-cloudflare";
+import { contentSecurityPolicy } from "./security-policy.js";
 
 const WORKER_ENTRYPOINT = ".svelte-kit/cloudflare/_worker.js";
 
@@ -27,6 +28,7 @@ function adapterWithWorkspaceCoordinator() {
 const config = {
 	kit: {
 		adapter: adapterWithWorkspaceCoordinator(),
+		csp: contentSecurityPolicy,
 	},
 };
 
