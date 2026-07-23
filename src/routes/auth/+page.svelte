@@ -36,54 +36,22 @@ import { cn } from "$lib/utils/cn";
 import {
 	discoverWorkspaceGist,
 	ensureWorkspaceBootstrapGist,
-	WORKSPACE_FILE,
 	type WorkspaceCandidate,
 } from "$lib/workspace";
-import {
-	type BrowserWorkspaceSnapshot,
-	persistBrowserWorkspaceSnapshot,
-	readBrowserWorkspaceSnapshot,
-	reconcileBrowserWorkspace,
-} from "$lib/workspace-browser-session-v2";
-import { getWorkspaceBusinessData } from "$lib/workspace-data";
-import { exportWorkspaceDiagnosticsFromPersistence } from "$lib/workspace-diagnostics";
-import type {
-	WorkspaceData,
-	WorkspaceDocumentV2,
-} from "$lib/workspace-document";
+import { readBrowserWorkspaceSnapshot } from "$lib/workspace-browser-session-v2";
+import type { WorkspaceDocumentV2 } from "$lib/workspace-document";
 import { subscribeWorkspaceEvents } from "$lib/workspace-events";
-import {
-	requireWorkspaceIdentity,
-	withWorkspaceBinding,
-} from "$lib/workspace-identity";
-import {
-	mergeWorkspaceData,
-	projectLocalWorkspaceAgainstTombstones,
-} from "$lib/workspace-merge";
 import type {
 	WorkspacePersistenceRecord,
 	WorkspaceQueueInspection,
 } from "$lib/workspace-persistence";
 import {
-	getBrowserWorkspaceBinding,
-	getBrowserWorkspacePersistence,
-	getBrowserWorkspaceQueueMetrics,
-	initializeBrowserWorkspacePersistence,
-	refreshBrowserWorkspacePersistence,
-} from "$lib/workspace-persistence-browser";
-import {
-	discardInspectedWorkspaceQueue,
-	rebindInspectedWorkspace,
-	refreshWorkspaceQueueInspection,
-} from "$lib/workspace-queue-inspector";
-import { bindWorkspaceOnly } from "$lib/workspace-session";
-import { dispatchWorkspaceSyncEvent } from "$lib/workspace-sync-status";
+	createWorkspaceSettingsController,
+	type WorkspaceSettingsConflict,
+	type WorkspaceSettingsView,
+} from "$lib/workspace-settings-controller";
 import { clearLegacyWorkspaceSyncState } from "$lib/workspace-v1-cleanup";
-import {
-	createWorkspaceV2LocalState,
-	hydrateAppStateFromWorkspaceDocument,
-	type WorkspaceV2LocalState,
-} from "$lib/workspace-v2-state";
+import type { WorkspaceV2LocalState } from "$lib/workspace-v2-state";
 
 let tokenInput = "";
 let rememberToken = false;
@@ -102,58 +70,31 @@ let pendingConnection: {
 } | null = null;
 
 // Conflict State
-let conflict: {
-	gistId: string;
-	remoteDocument: WorkspaceDocumentV2;
-	remoteState: AppState;
-	remoteSignature: string;
-	localSignature: string;
-} | null = null;
+let conflict: WorkspaceSettingsConflict | null = null;
 
-function restoreConflict(document: WorkspaceDocumentV2, gistId: string) {
-	const remoteState = hydrateAppStateFromWorkspaceDocument(
-		$appState,
-		document,
-		gistId,
-	);
-	conflict = {
-		gistId,
-		remoteDocument: document,
-		remoteState,
-		remoteSignature: getSyncStateSignature(remoteState),
-		localSignature: getSyncStateSignature($appState),
-	};
+const workspaceController = createWorkspaceSettingsController({
+	getState: () => $appState,
+	setState: (state) => appState.set(state),
+});
+
+function applyPersistenceView(view: WorkspaceSettingsView) {
+	persistenceRecord = view.record;
+	queueInspection = view.inspection;
+	return view;
 }
 
 async function refreshPersistenceView() {
-	persistenceRecord = await refreshBrowserWorkspacePersistence();
-	queueInspection = await refreshWorkspaceQueueInspection(
-		getBrowserWorkspacePersistence(),
-	);
-	return persistenceRecord;
-}
-
-function restorePersistedConflict(record: WorkspacePersistenceRecord) {
-	const binding = record.binding;
-	const activeQueue = binding
-		? record.workspaces[binding.workspaceId]
-		: undefined;
-	if (
-		binding?.syncMode === "paused-conflict" &&
-		binding.baseline &&
-		activeQueue?.delivery.blocked?.disposition === "state-conflict"
-	) {
-		restoreConflict(binding.baseline, binding.gistId);
-	}
+	return applyPersistenceView(await workspaceController.refresh());
 }
 
 onMount(() => {
 	rememberToken = $authState.persistence === "persistent";
-	void initializeBrowserWorkspacePersistence({
-		hydrate: (state) => appState.set(state),
-	})
-		.then(refreshPersistenceView)
-		.then(restorePersistedConflict)
+	void workspaceController
+		.initialize()
+		.then(applyPersistenceView)
+		.then((view) => {
+			conflict = workspaceController.persistedConflict(view);
+		})
 		.catch((error) => {
 			queueResult = {
 				type: "error",
@@ -162,7 +103,10 @@ onMount(() => {
 		});
 	const unsubscribe = subscribeWorkspaceEvents((event) => {
 		if (event.type === "paused-conflict" && event.document && event.gistId) {
-			restoreConflict(event.document, event.gistId);
+			conflict = workspaceController.createConflict(
+				event.document,
+				event.gistId,
+			);
 		}
 		void refreshPersistenceView().catch(() => undefined);
 	});
@@ -177,9 +121,7 @@ let manualPushReview: {
 } | null = null;
 
 function currentSyncMode(): "automatic" | "manual" {
-	return getBrowserWorkspaceBinding()?.syncMode === "manual"
-		? "manual"
-		: "automatic";
+	return workspaceController.syncMode();
 }
 
 async function loadWorkspaceSnapshot(token: string, gistId: string) {
@@ -190,12 +132,7 @@ async function loadWorkspaceSnapshot(token: string, gistId: string) {
 async function confirmDiscardPendingMutations(
 	workspaceId: string,
 ): Promise<boolean> {
-	const inspection = await refreshWorkspaceQueueInspection(
-		getBrowserWorkspacePersistence(),
-	);
-	const count =
-		inspection.workspaces.find((item) => item.workspaceId === workspaceId)
-			?.mutations.length ?? 0;
+	const count = await workspaceController.pendingCount(workspaceId);
 	if (count === 0) return true;
 	return requestConfirm({
 		title: $t("Discard Pending Changes"),
@@ -207,62 +144,6 @@ async function confirmDiscardPendingMutations(
 		),
 		confirmText: $t("Discard {count} Changes", { count }),
 		danger: true,
-	});
-}
-
-async function persistSnapshot(
-	snapshot: BrowserWorkspaceSnapshot,
-	gistId: string,
-	syncMode: "automatic" | "manual",
-) {
-	const state = await persistBrowserWorkspaceSnapshot(
-		snapshot,
-		gistId,
-		syncMode,
-	);
-	await refreshPersistenceView();
-	return state;
-}
-
-async function reconcileSnapshot(
-	token: string,
-	gistId: string,
-	baseline: WorkspaceDocumentV2,
-	resolvedState: AppState,
-	syncMode: "automatic" | "manual",
-	replacePending = false,
-) {
-	const state = await reconcileBrowserWorkspace({
-		token,
-		gistId,
-		baseline,
-		resolvedState,
-		syncMode,
-		replacePending,
-	});
-	await refreshPersistenceView();
-	return state;
-}
-
-async function commitBindingSnapshot(
-	snapshot: AppState,
-	binding: WorkspaceV2LocalState,
-) {
-	await getBrowserWorkspacePersistence().rebindWorkspace({ snapshot, binding });
-	appState.set(snapshot);
-	await refreshPersistenceView();
-}
-
-function dispatchPersistedWorkspaceState(
-	type: "WORKSPACE_BOUND" | "REPAIR_SUCCEEDED",
-) {
-	const binding = getBrowserWorkspaceBinding();
-	if (!binding) return;
-	dispatchWorkspaceSyncEvent({
-		type,
-		mode: binding.syncMode === "manual" ? "manual" : "automatic",
-		revision: binding.revision,
-		queue: getBrowserWorkspaceQueueMetrics(),
 	});
 }
 
@@ -321,70 +202,32 @@ async function completeWorkspaceConnection(
 	previousBinding: WorkspaceV2LocalState | null,
 	remember: boolean,
 ) {
-	const localSignature = getSyncStateSignature($appState);
 	const snapshot = await readBrowserWorkspaceSnapshot(token, gist, $appState);
-
-	if (created || snapshot.origin === "bootstrap") {
-		await reconcileSnapshot(
-			token,
-			gist.id,
-			snapshot.document,
-			$appState,
-			"automatic",
-		);
-		clearLegacyWorkspaceSyncState();
-		dispatchPersistedWorkspaceState("WORKSPACE_BOUND");
-		setToken(token, { remember });
-		setStatus($t("Workspace created and connected"), "success");
-		tokenInput = "";
-		workspaceCandidates = [];
-		pendingConnection = null;
-		return;
-	}
-
-	const remoteState = snapshot.state;
-	const remoteSignature = getSyncStateSignature(remoteState);
-
-	if (remoteSignature === localSignature) {
-		if (snapshot.origin === "v2") {
-			await persistSnapshot(snapshot, gist.id, "automatic");
-		} else {
-			await reconcileSnapshot(
-				token,
-				gist.id,
-				snapshot.document,
-				remoteState,
-				"automatic",
-			);
-		}
-		clearLegacyWorkspaceSyncState();
-		dispatchPersistedWorkspaceState("WORKSPACE_BOUND");
-		setToken(token, { remember });
-		setStatus($t("Workspace connected (In Sync)"), "success");
-		tokenInput = "";
-	} else {
-		conflict = {
-			gistId: gist.id,
-			remoteDocument: snapshot.document,
-			remoteState,
-			remoteSignature,
-			localSignature,
-		};
-		const paused = createWorkspaceV2LocalState(gist.id, {
-			baseline: snapshot.document,
-			conflictBaseline:
-				previousBinding?.workspaceId === `gist:${gist.id}`
-					? (previousBinding.conflictBaseline ?? previousBinding.baseline)
-					: null,
-			syncMode: "paused-conflict",
-		});
-		await commitBindingSnapshot(
-			withWorkspaceBinding($appState, paused),
-			paused,
-		);
-		clearLegacyWorkspaceSyncState();
-		setToken(token, { remember });
+	const result = await workspaceController.connect({
+		token,
+		gistId: gist.id,
+		created,
+		snapshot,
+		previousBinding,
+	});
+	applyPersistenceView(
+		workspaceController.currentView() as WorkspaceSettingsView,
+	);
+	clearLegacyWorkspaceSyncState();
+	setToken(token, { remember });
+	if (result.status === "conflict") {
+		conflict = result.conflict;
 		setStatus($t("Sync conflict detected"), "info");
+	} else {
+		setStatus(
+			$t(
+				result.status === "created"
+					? "Workspace created and connected"
+					: "Workspace connected (In Sync)",
+			),
+			"success",
+		);
+		tokenInput = "";
 	}
 	workspaceCandidates = [];
 	pendingConnection = null;
@@ -419,7 +262,7 @@ async function handleTokenSave() {
 	manualPushReview = null;
 	workspaceCandidates = [];
 	pendingConnection = null;
-	const previousBinding = getBrowserWorkspaceBinding();
+	const previousBinding = workspaceController.binding();
 	try {
 		const savedGistId = previousBinding?.gistId ?? $appState.activeGistId;
 		const discovery = await discoverWorkspaceGist(token, savedGistId);
@@ -472,28 +315,13 @@ function getConflictConfirmation(action: "local" | "remote" | "merge") {
 	};
 }
 
-function appStateWithWorkspaceData(
-	data: WorkspaceData,
-	gistId: string,
-): AppState {
-	return {
-		...$appState,
-		...data,
-		activeGistId: gistId,
-		activeGistFile: WORKSPACE_FILE,
-	};
-}
-
 async function handleBindOnly() {
 	if (!conflict) return;
-	const bound = bindWorkspaceOnly($appState, conflict.gistId, WORKSPACE_FILE);
-	const binding = createWorkspaceV2LocalState(conflict.gistId, {
-		baseline: conflict.remoteDocument,
-		syncMode: "manual",
-	});
-	await commitBindingSnapshot(bound, binding);
+	await workspaceController.bindOnly(conflict);
+	applyPersistenceView(
+		workspaceController.currentView() as WorkspaceSettingsView,
+	);
 	clearLegacyWorkspaceSyncState();
-	dispatchPersistedWorkspaceState("WORKSPACE_BOUND");
 	conflict = null;
 	manualPushReview = null;
 	tokenInput = "";
@@ -515,72 +343,41 @@ async function handleResolveConflict(action: "local" | "remote" | "merge") {
 	workspaceBusy = true;
 	try {
 		const currentConflict = conflict;
-		if (action === "remote") {
-			await persistSnapshot(
-				{
-					origin: "v2",
-					document: currentConflict.remoteDocument,
-					state: currentConflict.remoteState,
-				},
-				currentConflict.gistId,
-				"automatic",
+		const result = await workspaceController.resolveConflict({
+			token: $authState.token,
+			conflict: currentConflict,
+			action,
+		});
+		applyPersistenceView(
+			workspaceController.currentView() as WorkspaceSettingsView,
+		);
+		if (result.status === "needs-choice") {
+			setStatus(
+				$t(
+					"Entity conflicts require choosing Use Local or Use Remote before saving",
+				),
+				"info",
 			);
+			return;
+		}
+		if (action === "remote") {
 			setStatus($t("Remote data loaded"), "success");
 		} else if (action === "local") {
-			const projected = projectLocalWorkspaceAgainstTombstones(
-				getWorkspaceBusinessData($appState),
-				currentConflict.remoteDocument,
-			);
-			await reconcileSnapshot(
-				$authState.token,
-				currentConflict.gistId,
-				currentConflict.remoteDocument,
-				appStateWithWorkspaceData(projected.data, currentConflict.gistId),
-				"automatic",
-				true,
-			);
 			setStatus(
-				projected.notices.length > 0
+				result.notices.length > 0
 					? $t("Local data pushed; remote deletions were preserved")
 					: $t("Local data pushed to Gist"),
 				"success",
 			);
 			tombstoneNotice =
-				projected.notices.length > 0
+				result.notices.length > 0
 					? $t(
 							"Remote tombstones were preserved; deleted items were not restored.",
 						)
 					: null;
 		} else {
-			const localBinding = getBrowserWorkspaceBinding();
-			const merged = mergeWorkspaceData({
-				local: getWorkspaceBusinessData($appState),
-				remote: currentConflict.remoteDocument,
-				baseline: localBinding?.conflictBaseline ?? null,
-			});
-			if (merged.status === "needs-choice") {
-				setStatus(
-					$t(
-						"Entity conflicts require choosing Use Local or Use Remote before saving",
-					),
-					"info",
-				);
-				return;
-			}
-			const mergedState = appStateWithWorkspaceData(
-				merged.data,
-				currentConflict.gistId,
-			);
-			await reconcileSnapshot(
-				$authState.token,
-				currentConflict.gistId,
-				currentConflict.remoteDocument,
-				mergedState,
-				"automatic",
-				true,
-			);
 			tombstoneNotice =
-				merged.notices.length > 0
+				result.notices.length > 0
 					? $t(
 							"Remote tombstones were preserved; deleted items were not restored.",
 						)
@@ -590,7 +387,6 @@ async function handleResolveConflict(action: "local" | "remote" | "merge") {
 		conflict = null;
 		manualPushReview = null;
 		tokenInput = "";
-		dispatchPersistedWorkspaceState("REPAIR_SUCCEEDED");
 	} catch (error) {
 		setStatus(connectionErrorMessage(error), "error");
 	} finally {
@@ -604,17 +400,19 @@ async function handleManualPull() {
 
 	workspaceBusy = true;
 	try {
-		const { gistId } = requireWorkspaceIdentity(
-			$appState,
-			getBrowserWorkspaceBinding(),
-		);
+		const { gistId } = workspaceController.requireIdentity();
 		const snapshot = await loadWorkspaceSnapshot(token, gistId);
 		const remoteState = snapshot.state;
 		const remoteSignature = getSyncStateSignature(remoteState);
 		const localSignature = getSyncStateSignature($appState);
 
 		if (remoteSignature === localSignature) {
-			await persistSnapshot(snapshot, gistId, currentSyncMode());
+			await workspaceController.persistSnapshot(
+				snapshot,
+				gistId,
+				currentSyncMode(),
+			);
+			await refreshPersistenceView();
 			setStatus($t("Already in sync"), "info");
 		} else {
 			const confirmed = await requestConfirm({
@@ -624,7 +422,12 @@ async function handleManualPull() {
 			});
 			if (confirmed) {
 				if (!(await confirmDiscardPendingMutations(`gist:${gistId}`))) return;
-				await persistSnapshot(snapshot, gistId, currentSyncMode());
+				await workspaceController.persistSnapshot(
+					snapshot,
+					gistId,
+					currentSyncMode(),
+				);
+				await refreshPersistenceView();
 				setStatus($t("Pulled successfully"), "success");
 			}
 		}
@@ -641,18 +444,20 @@ async function handleManualPush() {
 
 	workspaceBusy = true;
 	try {
-		const { gistId } = requireWorkspaceIdentity(
-			$appState,
-			getBrowserWorkspaceBinding(),
-		);
+		const { gistId } = workspaceController.requireIdentity();
 		const snapshot = await loadWorkspaceSnapshot(token, gistId);
 		const remoteState = snapshot.state;
 		const localSignature = getSyncStateSignature($appState);
 		const remoteSignature = getSyncStateSignature(remoteState);
-		const binding = getBrowserWorkspaceBinding();
+		const binding = workspaceController.binding();
 
 		if (remoteSignature === localSignature) {
-			await persistSnapshot(snapshot, gistId, currentSyncMode());
+			await workspaceController.persistSnapshot(
+				snapshot,
+				gistId,
+				currentSyncMode(),
+			);
+			await refreshPersistenceView();
 			manualPushReview = null;
 			setStatus($t("Already in sync"), "info");
 			return;
@@ -681,13 +486,14 @@ async function handleManualPush() {
 		});
 		if (!confirmed) return;
 
-		await reconcileSnapshot(
+		await workspaceController.reconcile({
 			token,
 			gistId,
-			snapshot.document,
-			$appState,
-			currentSyncMode(),
-		);
+			baseline: snapshot.document,
+			resolvedState: $appState,
+			syncMode: currentSyncMode(),
+		});
+		await refreshPersistenceView();
 		manualPushReview = null;
 		setStatus($t("Pushed successfully"), "success");
 	} catch (error) {
@@ -711,15 +517,13 @@ async function handleManualPushReview(action: "remote" | "merge" | "force") {
 			!(await confirmDiscardPendingMutations(`gist:${manualPushReview.gistId}`))
 		)
 			return;
-		await persistSnapshot(
-			{
-				origin: "v2",
-				document: manualPushReview.remoteDocument,
-				state: manualPushReview.remoteState,
-			},
-			manualPushReview.gistId,
-			currentSyncMode(),
-		);
+		await workspaceController.resolveConflict({
+			token: $authState.token,
+			conflict: manualPushReview,
+			action: "remote",
+			syncMode: currentSyncMode(),
+		});
+		await refreshPersistenceView();
 		manualPushReview = null;
 		setStatus($t("Pulled successfully"), "success");
 		return;
@@ -743,13 +547,14 @@ async function handleManualPushReview(action: "remote" | "merge" | "force") {
 
 	workspaceBusy = true;
 	try {
-		const localBinding = getBrowserWorkspaceBinding();
-		const merged = mergeWorkspaceData({
-			local: getWorkspaceBusinessData($appState),
-			remote: manualPushReview.remoteDocument,
-			baseline: localBinding?.baseline ?? null,
+		const result = await workspaceController.resolveConflict({
+			token: $authState.token,
+			conflict: manualPushReview,
+			action: "merge",
+			baselineMode: "current",
+			syncMode: currentSyncMode(),
 		});
-		if (merged.status === "needs-choice") {
+		if (result.status === "needs-choice") {
 			setStatus(
 				$t(
 					"Entity conflicts require choosing Force Push or Pull Remote before saving",
@@ -758,19 +563,14 @@ async function handleManualPushReview(action: "remote" | "merge" | "force") {
 			);
 			return;
 		}
-		const mergedState = appStateWithWorkspaceData(
-			merged.data,
-			manualPushReview.gistId,
-		);
-		await reconcileSnapshot(
-			$authState.token,
-			manualPushReview.gistId,
-			manualPushReview.remoteDocument,
-			mergedState,
-			currentSyncMode(),
-			true,
-		);
+		await refreshPersistenceView();
 		manualPushReview = null;
+		tombstoneNotice =
+			result.notices.length > 0
+				? $t(
+						"Remote tombstones were preserved; deleted items were not restored.",
+					)
+				: null;
 		setStatus($t("Merged data saved."), "success");
 	} catch (error) {
 		setStatus(connectionErrorMessage(error), "error");
@@ -796,27 +596,22 @@ async function handleManualForcePush() {
 
 	workspaceBusy = true;
 	try {
-		const projected = projectLocalWorkspaceAgainstTombstones(
-			getWorkspaceBusinessData($appState),
-			manualPushReview.remoteDocument,
-		);
-		await reconcileSnapshot(
-			$authState.token,
-			manualPushReview.gistId,
-			manualPushReview.remoteDocument,
-			appStateWithWorkspaceData(projected.data, manualPushReview.gistId),
-			currentSyncMode(),
-			true,
-		);
+		const result = await workspaceController.resolveConflict({
+			token: $authState.token,
+			conflict: manualPushReview,
+			action: "local",
+			syncMode: currentSyncMode(),
+		});
+		await refreshPersistenceView();
 		manualPushReview = null;
 		setStatus(
-			projected.notices.length > 0
+			result.notices.length > 0
 				? $t("Pushed successfully; remote deletions were preserved")
 				: $t("Pushed successfully"),
 			"success",
 		);
 		tombstoneNotice =
-			projected.notices.length > 0
+			result.notices.length > 0
 				? $t(
 						"Remote tombstones were preserved; deleted items were not restored.",
 					)
@@ -829,13 +624,8 @@ async function handleManualForcePush() {
 }
 
 function handleTokenClear() {
-	const queue = getBrowserWorkspaceQueueMetrics();
 	clearAuth();
-	dispatchWorkspaceSyncEvent(
-		queue.totalQueueCount > 0
-			? { type: "AUTH_LOST", queue }
-			: { type: "WORKSPACE_DISCONNECTED", queue },
-	);
+	workspaceController.disconnect();
 	setStatus($t("Logged out"), "info");
 	conflict = null;
 	manualPushReview = null;
@@ -848,9 +638,7 @@ function handleExport() {
 
 async function handleDiagnosticsExport() {
 	try {
-		payload = await exportWorkspaceDiagnosticsFromPersistence(
-			getBrowserWorkspacePersistence(),
-		);
+		payload = await workspaceController.exportDiagnostics();
 		setStatus($t("Diagnostics exported"), "success");
 	} catch (error) {
 		setStatus(connectionErrorMessage(error), "error");
@@ -859,7 +647,7 @@ async function handleDiagnosticsExport() {
 
 async function handleRepairSyncState() {
 	const token = $authState.token;
-	const binding = getBrowserWorkspaceBinding();
+	const binding = workspaceController.binding();
 	const gistId = binding?.gistId ?? $appState.activeGistId;
 	if (!token || !gistId) {
 		setStatus($t("Reconnect GitHub before repairing Workspace sync."), "error");
@@ -867,8 +655,9 @@ async function handleRepairSyncState() {
 	}
 	workspaceBusy = true;
 	try {
-		const inspection = await refreshWorkspaceQueueInspection(
-			getBrowserWorkspacePersistence(),
+		const inspection = (await workspaceController.refresh()).inspection;
+		applyPersistenceView(
+			workspaceController.currentView() as WorkspaceSettingsView,
 		);
 		const blocked = inspection.workspaces.find(
 			(item) => item.workspaceId === `gist:${gistId}`,
@@ -902,8 +691,13 @@ async function handleRepairSyncState() {
 				});
 				if (!confirmed) return;
 			}
-			await persistSnapshot(snapshot, gistId, currentSyncMode());
-			dispatchPersistedWorkspaceState("REPAIR_SUCCEEDED");
+			await workspaceController.persistSnapshot(
+				snapshot,
+				gistId,
+				currentSyncMode(),
+			);
+			workspaceController.dispatchPersistedState("REPAIR_SUCCEEDED");
+			await refreshPersistenceView();
 			queueResult = {
 				type: "success",
 				message: $t("Workspace sync state repaired"),
@@ -911,34 +705,11 @@ async function handleRepairSyncState() {
 			setStatus($t("Workspace sync state repaired"), "success");
 			return;
 		}
-		conflict = {
+		conflict = await workspaceController.pauseForRepair(
+			snapshot.document,
 			gistId,
-			remoteDocument: snapshot.document,
-			remoteState: snapshot.state,
-			remoteSignature,
-			localSignature,
-		};
-		const paused = createWorkspaceV2LocalState(gistId, {
-			baseline: snapshot.document,
-			conflictBaseline:
-				binding?.workspaceId === `gist:${gistId}`
-					? (binding.conflictBaseline ?? binding.baseline)
-					: null,
-			syncMode: "paused-conflict",
-		});
-		await commitBindingSnapshot(
-			withWorkspaceBinding($appState, paused),
-			paused,
 		);
-		const queue = getBrowserWorkspaceQueueMetrics();
-		dispatchWorkspaceSyncEvent({
-			type: "SYNC_CONTEXT_LOADED",
-			mode: "paused-conflict",
-			authenticated: true,
-			revision: paused.revision,
-			queue,
-			blockedMutation: null,
-		});
+		await refreshPersistenceView();
 		setStatus(
 			$t("Choose Pull, Merge, or Push to repair synchronization."),
 			"info",
@@ -985,41 +756,11 @@ async function handleQueueDiscard(workspaceId: string) {
 	queueActionWorkspaceId = workspaceId;
 	queueResult = null;
 	try {
-		const persistence = getBrowserWorkspacePersistence();
-		let result: Awaited<ReturnType<typeof discardInspectedWorkspaceQueue>>;
-		if (workspace.active) {
-			const binding = getBrowserWorkspaceBinding();
-			if (!binding?.baseline || binding.workspaceId !== workspaceId) {
-				throw new Error("Active Workspace baseline is unavailable");
-			}
-			const realignedBinding = createWorkspaceV2LocalState(binding.gistId, {
-				baseline: binding.baseline,
-				syncMode: binding.syncMode === "manual" ? "manual" : "automatic",
-			});
-			const realignedSnapshot = hydrateAppStateFromWorkspaceDocument(
-				$appState,
-				binding.baseline,
-				binding.gistId,
-			);
-			result = await discardInspectedWorkspaceQueue(persistence, {
-				workspaceId,
-				realignment: {
-					snapshot: realignedSnapshot,
-					binding: realignedBinding,
-				},
-			});
-			appState.set(realignedSnapshot);
+		const result = await workspaceController.discardQueue(workspaceId);
+		applyPersistenceView(result.view);
+		if (result.active) {
 			conflict = null;
 			manualPushReview = null;
-		} else {
-			result = await discardInspectedWorkspaceQueue(persistence, {
-				workspaceId,
-			});
-		}
-		queueInspection = result.inspection;
-		persistenceRecord = await refreshBrowserWorkspacePersistence();
-		if (workspace.active) {
-			dispatchPersistedWorkspaceState("REPAIR_SUCCEEDED");
 		}
 		queueResult = {
 			type: "success",
@@ -1045,17 +786,9 @@ async function handleQueueRebind(workspaceId: string) {
 	try {
 		const gistId = workspaceId.slice("gist:".length);
 		const snapshot = await loadWorkspaceSnapshot($authState.token, gistId);
-		const binding = createWorkspaceV2LocalState(gistId, {
-			baseline: snapshot.document,
-			syncMode: "automatic",
-		});
-		queueInspection = await rebindInspectedWorkspace(
-			getBrowserWorkspacePersistence(),
-			{ workspaceId, snapshot: snapshot.state, binding },
+		applyPersistenceView(
+			await workspaceController.rebindOrphan({ workspaceId, snapshot }),
 		);
-		appState.set(snapshot.state);
-		persistenceRecord = await refreshBrowserWorkspacePersistence();
-		dispatchPersistedWorkspaceState("WORKSPACE_BOUND");
 		queueResult = {
 			type: "success",
 			message: $t("Workspace rebound after identity and revision validation."),

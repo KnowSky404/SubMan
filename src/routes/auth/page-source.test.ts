@@ -6,6 +6,10 @@ const authPageSource = readFileSync(
 	new URL("./+page.svelte", import.meta.url),
 	"utf8",
 );
+const controllerSource = readFileSync(
+	new URL("../../lib/workspace-settings-controller.ts", import.meta.url),
+	"utf8",
+);
 
 test("auth page uses the showToast helper for status notifications", () => {
 	expect(authPageSource).toContain(
@@ -40,8 +44,9 @@ test("auth conflict actions require confirmation before writing state", () => {
 	expect(authPageSource).toContain('confirmText: $t("Pull Remote")');
 	expect(authPageSource).toContain('confirmText: $t("Push Local")');
 	expect(authPageSource).toContain('confirmText: $t("Merge & Save")');
-	expect(authPageSource).toContain("mergeWorkspaceData({");
-	expect(authPageSource).toContain("projectLocalWorkspaceAgainstTombstones(");
+	expect(authPageSource).toContain("workspaceController.resolveConflict({");
+	expect(controllerSource).toContain("mergeWorkspaceData({");
+	expect(controllerSource).toContain("projectLocalWorkspaceAgainstTombstones(");
 	expect(authPageSource).not.toContain("mergeSyncStateFromBaseline(");
 	expect(authPageSource).toContain("handleResolveConflict('merge')");
 });
@@ -118,41 +123,45 @@ test("manual sync validates the authoritative Workspace identity before reads", 
 			authPageSource.indexOf(start),
 			authPageSource.indexOf(end),
 		);
-		expect(handler.indexOf("requireWorkspaceIdentity(")).toBeGreaterThan(-1);
+		expect(
+			handler.indexOf("workspaceController.requireIdentity()"),
+		).toBeGreaterThan(-1);
 		expect(
 			handler.indexOf("loadWorkspaceSnapshot(token, gistId)"),
-		).toBeGreaterThan(handler.indexOf("requireWorkspaceIdentity("));
+		).toBeGreaterThan(handler.indexOf("workspaceController.requireIdentity()"));
 	}
 });
 
 test("auth page uses only initialized transactional Workspace persistence", () => {
-	expect(authPageSource).toContain("initializeBrowserWorkspacePersistence({");
-	expect(authPageSource).toContain("getBrowserWorkspacePersistence()");
-	expect(authPageSource).toContain("getBrowserWorkspaceBinding()");
+	expect(authPageSource).toContain("createWorkspaceSettingsController({");
+	expect(authPageSource).toContain(".initialize()");
+	expect(authPageSource).not.toContain(
+		"initializeBrowserWorkspacePersistence({",
+	);
+	expect(authPageSource).not.toContain("getBrowserWorkspacePersistence()");
+	expect(authPageSource).not.toContain("getBrowserWorkspaceBinding()");
 	expect(authPageSource).not.toContain("WorkspaceV2StateStore");
 	expect(authPageSource).not.toContain("WorkspaceMutationQueue");
 	expect(authPageSource).not.toContain("workspaceDependencies()");
-
-	const commit = authPageSource.slice(
-		authPageSource.indexOf("async function commitBindingSnapshot("),
-		authPageSource.indexOf("function setStatus("),
+	expect(controllerSource).toContain(
+		"await persistence().repairWorkspaceQueue({",
 	);
 	expect(
-		commit.indexOf("await getBrowserWorkspacePersistence().rebindWorkspace"),
-	).toBeGreaterThan(-1);
-	expect(commit.indexOf("appState.set(snapshot)")).toBeGreaterThan(
-		commit.indexOf("await getBrowserWorkspacePersistence()"),
+		controllerSource.indexOf("dependencies.setState(queuedSnapshot)"),
+	).toBeGreaterThan(
+		controllerSource.indexOf("await persistence().repairWorkspaceQueue({"),
 	);
 });
 
 test("persisted state conflict restore excludes domain conflicts", () => {
-	const restore = authPageSource.slice(
-		authPageSource.indexOf("function restorePersistedConflict("),
-		authPageSource.indexOf("onMount("),
+	expect(authPageSource).toContain(
+		"workspaceController.persistedConflict(view)",
 	);
-	expect(restore).toContain('binding?.syncMode === "paused-conflict"');
-	expect(restore).toContain(
-		'activeQueue?.delivery.blocked?.disposition === "state-conflict"',
+	expect(controllerSource).toContain(
+		'persistedBinding?.syncMode !== "paused-conflict"',
+	);
+	expect(controllerSource).toContain(
+		'activeQueue?.delivery.blocked?.disposition !== "state-conflict"',
 	);
 
 	const repair = authPageSource.slice(
@@ -164,7 +173,7 @@ test("persisted state conflict restore excludes domain conflicts", () => {
 	);
 	expect(
 		repair.indexOf('blockedMetadata?.disposition === "domain-conflict"'),
-	).toBeLessThan(repair.indexOf("conflict = {"));
+	).toBeLessThan(repair.indexOf("workspaceController.pauseForRepair("));
 });
 
 test("queue inspector groups safe persisted metadata and only discards whole queues", () => {
@@ -173,40 +182,45 @@ test("queue inspector groups safe persisted metadata and only discards whole que
 	expect(authPageSource).toContain('"orphan-workspace-queue"');
 	expect(authPageSource).toContain('data-testid="blocked-queue-metadata"');
 	expect(authPageSource).toContain("workspace.deadLetters");
-	expect(authPageSource).toContain("discardInspectedWorkspaceQueue(");
+	expect(authPageSource).toContain(
+		"workspaceController.discardQueue(workspaceId)",
+	);
+	expect(controllerSource).toContain("discardInspectedWorkspaceQueue(");
 	expect(authPageSource).toContain('$t("Discard Complete Queue")');
 	expect(authPageSource).not.toContain(".remove(mutation.mutationId)");
 	expect(authPageSource).not.toContain("discardPendingMutations(");
 });
 
 test("queue repair and rebind expose result feedback and validate identity", () => {
-	expect(authPageSource).toContain("rebindInspectedWorkspace(");
-	expect(authPageSource).toContain(
-		"{ workspaceId, snapshot: snapshot.state, binding }",
+	expect(authPageSource).toContain("workspaceController.rebindOrphan({");
+	expect(controllerSource).toContain(
+		"rebindInspectedWorkspace(persistence(), {",
 	);
 	expect(authPageSource).toContain('data-testid="queue-action-result"');
 	expect(authPageSource).toContain('$t("Repair / Reconcile")');
 	expect(authPageSource).toContain('$t("Validate & Rebind")');
 	expect(authPageSource).toContain(
-		'dispatchPersistedWorkspaceState("REPAIR_SUCCEEDED")',
+		'workspaceController.dispatchPersistedState("REPAIR_SUCCEEDED")',
 	);
 });
 
 test("diagnostics and logout use persisted safe metadata", () => {
 	expect(authPageSource).toContain(
-		"await exportWorkspaceDiagnosticsFromPersistence(",
+		"await workspaceController.exportDiagnostics()",
+	);
+	expect(controllerSource).toContain(
+		"return exportWorkspaceDiagnosticsFromPersistence(persistence())",
 	);
 	expect(authPageSource).not.toContain("exportWorkspaceDiagnostics($appState)");
-	expect(authPageSource).toContain(
-		"const queue = getBrowserWorkspaceQueueMetrics();",
-	);
-	expect(authPageSource).toContain('{ type: "AUTH_LOST", queue }');
+	expect(authPageSource).toContain("workspaceController.disconnect()");
+	expect(controllerSource).toContain('{ type: "AUTH_LOST", queue }');
 });
 
 test("tombstone-aware actions provide a visible preservation notice", () => {
 	expect(authPageSource).toContain('data-testid="tombstone-notice"');
-	expect(authPageSource).toContain("projected.notices.length > 0");
-	expect(authPageSource).toContain("merged.notices.length > 0");
+	expect(authPageSource).toContain("result.notices.length > 0");
+	expect(controllerSource).toContain("projected.notices");
+	expect(controllerSource).toContain("merged.notices");
 	expect(authPageSource).toContain(
 		"Remote tombstones were preserved; deleted items were not restored.",
 	);
