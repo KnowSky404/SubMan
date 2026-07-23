@@ -7,6 +7,7 @@ import {
 
 const EXPECTED = {
 	invalid_mutation: "invalid-request",
+	workspace_size_limit: "operator-repair",
 	workspace_mismatch: "operator-repair",
 	revision_conflict: "state-conflict",
 	entity_deleted: "state-conflict",

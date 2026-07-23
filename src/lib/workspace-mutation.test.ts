@@ -10,6 +10,12 @@ import type {
 	WorkspaceData,
 	WorkspaceDocumentV2,
 } from "$lib/workspace-document";
+import { serializeWorkspaceDocumentV2 } from "$lib/workspace-document";
+import {
+	getWorkspaceTombstoneWarnings,
+	utf8ByteLength,
+	WORKSPACE_LIMITS,
+} from "$lib/workspace-limits";
 import {
 	applyWorkspaceMutation,
 	getWorkspaceMutationSignature,
@@ -33,6 +39,11 @@ function node(id = "node-1", raw = `vless://${id}`): NodeItem {
 		updatedAt: T0,
 		source: "single",
 	};
+}
+
+function nodeInput(id = "node-1", raw = `vless://${id}`) {
+	const { id: _id, updatedAt: _updatedAt, ...input } = node(id, raw);
+	return input;
 }
 
 function subscription(id = "subscription-1"): SubscriptionItem {
@@ -310,6 +321,581 @@ describe("Workspace mutation parsing", () => {
 				),
 			),
 		).not.toBe(firstSignature);
+	});
+});
+
+describe("Workspace mutation domain limits", () => {
+	it("rejects oversized node, subscription, and external-key fields", () => {
+		expectCode(
+			() =>
+				parseWorkspaceMutation(
+					mutation("node.upsert", {
+						operation: "create",
+						nodeId: "node-2",
+						node: {
+							...nodeInput("node-2"),
+							raw: "x".repeat(WORKSPACE_LIMITS.nodeRawBytes + 1),
+						},
+					}),
+				),
+			"invalid_mutation",
+		);
+		expectCode(
+			() =>
+				applyWorkspaceMutation(
+					document(),
+					parseWorkspaceMutation(
+						mutation("subscription.upsert", {
+							subscription: {
+								...subscription(),
+								url: "x".repeat(WORKSPACE_LIMITS.subscriptionUrlBytes + 1),
+							},
+						}),
+					),
+					context,
+				),
+			"invalid_mutation",
+		);
+		expectCode(
+			() =>
+				parseWorkspaceMutation(
+					mutation(
+						"node.upsert",
+						{
+							operation: "upsert-by-external-key",
+							nodeId: "node-2",
+							externalKey: "x".repeat(WORKSPACE_LIMITS.externalKeyBytes + 1),
+							node: nodeInput("node-2"),
+						},
+						{ source: "server-api" },
+					),
+				),
+			"invalid_mutation",
+		);
+	});
+
+	it("rejects oversized names, labels, and tag counts", () => {
+		const oversizedName = "n".repeat(WORKSPACE_LIMITS.nameBytes + 1);
+		for (const [kind, payload] of [
+			[
+				"node.upsert",
+				{ operation: "replace", node: { ...node(), name: oversizedName } },
+			],
+			[
+				"subscription.upsert",
+				{ subscription: { ...subscription(), name: oversizedName } },
+			],
+			[
+				"aggregate.upsert",
+				{ aggregate: { ...aggregate(), name: oversizedName } },
+			],
+			[
+				"publish-target.upsert",
+				{ target: { ...target(), name: oversizedName } },
+			],
+			[
+				"client-export.upsert",
+				{ profile: { ...profile(), name: oversizedName } },
+			],
+		] as const) {
+			expectCode(
+				() =>
+					applyWorkspaceMutation(
+						document(),
+						parseWorkspaceMutation(mutation(kind, payload)),
+						context,
+					),
+				"invalid_mutation",
+			);
+		}
+		expectCode(
+			() =>
+				applyWorkspaceMutation(
+					document(),
+					parseWorkspaceMutation(
+						mutation("node.upsert", {
+							operation: "replace",
+							node: {
+								...node(),
+								tags: [
+									{
+										id: "tag",
+										label: "x".repeat(WORKSPACE_LIMITS.labelBytes + 1),
+									},
+								],
+							},
+						}),
+					),
+					context,
+				),
+			"invalid_mutation",
+		);
+		expectCode(
+			() =>
+				applyWorkspaceMutation(
+					document(),
+					parseWorkspaceMutation(
+						mutation("node.upsert", {
+							operation: "replace",
+							node: {
+								...node(),
+								tags: Array.from(
+									{ length: WORKSPACE_LIMITS.tagsPerEntity + 1 },
+									(_, index) => ({ id: `tag-${index}`, label: `tag-${index}` }),
+								),
+							},
+						}),
+					),
+					context,
+				),
+			"invalid_mutation",
+		);
+	});
+
+	it("rejects oversized rename maps and published outputs", () => {
+		expectCode(
+			() =>
+				applyWorkspaceMutation(
+					document(),
+					parseWorkspaceMutation(
+						mutation("aggregate.upsert", {
+							aggregate: {
+								...aggregate(),
+								renameMap: Object.fromEntries(
+									Array.from(
+										{ length: WORKSPACE_LIMITS.renameMapEntries + 1 },
+										(_, index) => [`from-${index}`, `to-${index}`],
+									),
+								),
+							},
+						}),
+					),
+					context,
+				),
+			"invalid_mutation",
+		);
+		expectCode(
+			() =>
+				applyWorkspaceMutation(
+					document(),
+					parseWorkspaceMutation(
+						mutation("aggregate.upsert", {
+							aggregate: {
+								...aggregate(),
+								renameMap: {
+									from: "x".repeat(WORKSPACE_LIMITS.renameMapBytes),
+								},
+							},
+						}),
+					),
+					context,
+				),
+			"invalid_mutation",
+		);
+		for (const kind of [
+			"aggregate.publish",
+			"client-export.publish",
+		] as const) {
+			const owner =
+				kind === "aggregate.publish"
+					? { targetId: "target-1" }
+					: { profileId: "export-1" };
+			expectCode(
+				() =>
+					parseWorkspaceMutation(
+						mutation(kind, {
+							...owner,
+							output: {
+								fileName: "output.txt",
+								content: "x".repeat(WORKSPACE_LIMITS.outputContentBytes + 1),
+							},
+						}),
+					),
+				"invalid_mutation",
+			);
+		}
+	});
+
+	it("allows unchanged oversized legacy fields but rejects changing them", () => {
+		const legacyRaw = "x".repeat(WORKSPACE_LIMITS.nodeRawBytes + 1);
+		const current = document({
+			data: data({ nodes: [node("node-1", legacyRaw)] }),
+		});
+		const currentAggregate = current.data.aggregates[0];
+		const currentNode = current.data.nodes[0];
+		if (!currentAggregate || !currentNode) {
+			throw new Error("fixture is incomplete");
+		}
+		const unchanged = mutation("workspace.reconcile", {
+			baselineRevision: 1,
+			data: {
+				...current.data,
+				aggregates: [{ ...currentAggregate, name: "Updated rule" }],
+			},
+		}) as WorkspaceMutation;
+		expect(
+			applyWorkspaceMutation(current, unchanged, context).document.data.nodes[0]
+				?.raw,
+		).toBe(legacyRaw);
+
+		const changed = mutation("workspace.reconcile", {
+			baselineRevision: 1,
+			data: {
+				...current.data,
+				nodes: [
+					{
+						...currentNode,
+						raw: `${legacyRaw}changed`,
+					},
+				],
+			},
+		}) as WorkspaceMutation;
+		expectCode(
+			() => applyWorkspaceMutation(current, changed, context),
+			"invalid_mutation",
+		);
+	});
+
+	it("allows full upserts to preserve unchanged oversized legacy fields", () => {
+		const legacyName = "n".repeat(WORKSPACE_LIMITS.nameBytes + 1);
+		const legacyRaw = "r".repeat(WORKSPACE_LIMITS.nodeRawBytes + 1);
+		const legacyUrl = "u".repeat(WORKSPACE_LIMITS.subscriptionUrlBytes + 1);
+		const legacyLabel = "l".repeat(WORKSPACE_LIMITS.labelBytes + 1);
+		const legacyRenameMap = {
+			from: "x".repeat(WORKSPACE_LIMITS.renameMapBytes),
+		};
+		const current = document({
+			data: data({
+				nodes: [{ ...node(), raw: legacyRaw }],
+				subscriptions: [{ ...subscription(), url: legacyUrl }],
+				aggregates: [{ ...aggregate(), renameMap: legacyRenameMap }],
+				publishTargets: [{ ...target(), name: legacyName }],
+				clientExports: [
+					{
+						...profile(),
+						options: { ...profile().options, selectorTag: legacyLabel },
+					},
+				],
+			}),
+		});
+		const cases: Array<{
+			kind: WorkspaceMutation["kind"];
+			payload: unknown;
+		}> = [
+			{
+				kind: "node.upsert",
+				payload: {
+					operation: "replace",
+					node: { ...current.data.nodes[0], name: "updated-node" },
+				},
+			},
+			{
+				kind: "subscription.upsert",
+				payload: {
+					subscription: {
+						...current.data.subscriptions[0],
+						name: "updated-subscription",
+					},
+				},
+			},
+			{
+				kind: "aggregate.upsert",
+				payload: {
+					aggregate: {
+						...current.data.aggregates[0],
+						allowedTypes: ["vmess"],
+					},
+				},
+			},
+			{
+				kind: "publish-target.upsert",
+				payload: {
+					target: {
+						...current.data.publishTargets[0],
+						description: "Updated description",
+					},
+				},
+			},
+			{
+				kind: "client-export.upsert",
+				payload: {
+					profile: {
+						...current.data.clientExports[0],
+						options: {
+							...current.data.clientExports[0]?.options,
+							includeExperimental: false,
+						},
+					},
+				},
+			},
+		];
+		for (const item of cases) {
+			applyWorkspaceMutation(
+				current,
+				parseWorkspaceMutation(mutation(item.kind, item.payload)),
+				context,
+			);
+		}
+	});
+
+	it("validates only the bounded field changed by a full upsert", () => {
+		const legacyName = "n".repeat(WORKSPACE_LIMITS.nameBytes + 1);
+		const legacyLabel = "l".repeat(WORKSPACE_LIMITS.labelBytes + 1);
+		const aggregateDocument = document({
+			data: data({
+				aggregates: [{ ...aggregate(), name: legacyName }],
+			}),
+		});
+		applyWorkspaceMutation(
+			aggregateDocument,
+			parseWorkspaceMutation(
+				mutation("aggregate.upsert", {
+					aggregate: {
+						...aggregateDocument.data.aggregates[0],
+						renameMap: { from: "to" },
+					},
+				}),
+			),
+			context,
+		);
+
+		const profileDocument = document({
+			data: data({
+				clientExports: [
+					{
+						...profile(),
+						name: legacyName,
+						options: { ...profile().options, urlTestTag: legacyLabel },
+					},
+				],
+			}),
+		});
+		applyWorkspaceMutation(
+			profileDocument,
+			parseWorkspaceMutation(
+				mutation("client-export.upsert", {
+					profile: {
+						...profileDocument.data.clientExports[0],
+						options: {
+							...profileDocument.data.clientExports[0]?.options,
+							selectorTag: "updated-selector",
+						},
+					},
+				}),
+			),
+			context,
+		);
+	});
+
+	it("validates generated external tags and deduplicated names", () => {
+		const tags = Array.from(
+			{ length: WORKSPACE_LIMITS.tagsPerEntity },
+			(_, index) => ({ id: `tag-${index}`, label: `tag-${index}` }),
+		);
+		for (const input of [
+			{
+				externalKey: "external-key",
+				node: { ...nodeInput("node-2"), tags },
+			},
+			{
+				externalKey: "x".repeat(WORKSPACE_LIMITS.labelBytes),
+				node: nodeInput("node-2"),
+			},
+		]) {
+			expectCode(
+				() =>
+					applyWorkspaceMutation(
+						document(),
+						parseWorkspaceMutation(
+							mutation(
+								"node.upsert",
+								{
+									operation: "upsert-by-external-key",
+									nodeId: "node-2",
+									...input,
+								},
+								{ source: "server-api" },
+							),
+						),
+						context,
+					),
+				"invalid_mutation",
+			);
+		}
+
+		const maximumName = "n".repeat(WORKSPACE_LIMITS.nameBytes);
+		const current = document({
+			data: data({ nodes: [{ ...node(), name: maximumName }] }),
+		});
+		expectCode(
+			() =>
+				applyWorkspaceMutation(
+					current,
+					parseWorkspaceMutation(
+						mutation(
+							"node.upsert",
+							{
+								operation: "create",
+								nodeId: "node-2",
+								node: { ...nodeInput("node-2"), name: maximumName },
+							},
+							{ source: "server-api" },
+						),
+					),
+					context,
+				),
+			"invalid_mutation",
+		);
+	});
+
+	it("counts UTF-8 bytes and accepts exact field limits", () => {
+		const exactRaw = "\u00e9".repeat(WORKSPACE_LIMITS.nodeRawBytes / 2);
+		expect(utf8ByteLength(exactRaw)).toBe(WORKSPACE_LIMITS.nodeRawBytes);
+		applyWorkspaceMutation(
+			document(),
+			parseWorkspaceMutation(
+				mutation(
+					"node.upsert",
+					{
+						operation: "create",
+						nodeId: "node-2",
+						node: { ...nodeInput("node-2"), raw: exactRaw },
+					},
+					{ source: "server-api" },
+				),
+			),
+			context,
+		);
+		expectCode(
+			() =>
+				parseWorkspaceMutation(
+					mutation(
+						"node.upsert",
+						{
+							operation: "create",
+							nodeId: "node-2",
+							node: { ...nodeInput("node-2"), raw: `${exactRaw}\u00e9` },
+						},
+						{ source: "server-api" },
+					),
+				),
+			"invalid_mutation",
+		);
+	});
+
+	it("rejects collection growth beyond the entity cap", () => {
+		const nodes = Array.from(
+			{ length: WORKSPACE_LIMITS.entitiesPerCollection },
+			(_, index) => node(`node-${index}`),
+		);
+		const current = document({
+			data: data({
+				nodes,
+				aggregates: [],
+				publishTargets: [],
+				clientExports: [],
+			}),
+		});
+		const reconcile = mutation("workspace.reconcile", {
+			baselineRevision: 1,
+			data: { ...current.data, nodes: [...nodes, node("node-over-limit")] },
+		}) as WorkspaceMutation;
+		expectCode(
+			() => applyWorkspaceMutation(current, reconcile, context),
+			"invalid_mutation",
+		);
+	});
+
+	it("reports tombstone thresholds without rejecting the document", () => {
+		const tombstones = Array.from(
+			{ length: WORKSPACE_LIMITS.tombstoneWarningPerCollection + 1 },
+			(_, index) => ({
+				id: `deleted-${index}`,
+				deletedAt: T1,
+				deletedRevision: 1,
+				mutationId: "10000000-0000-4000-8000-000000000001",
+			}),
+		);
+		const current = document({
+			tombstones: { ...document().tombstones, nodes: tombstones },
+		});
+		expect(getWorkspaceTombstoneWarnings(current)).toEqual({
+			nodes: tombstones.length,
+		});
+	});
+
+	it("uses canonical serialized bytes for new document growth", () => {
+		const base = document({
+			data: data({
+				nodes: [node("node-1", "x")],
+				subscriptions: [],
+				aggregates: [],
+				publishTargets: [],
+				clientExports: [],
+			}),
+		});
+		const baseBytes = utf8ByteLength(serializeWorkspaceDocumentV2(base));
+		const exact = document({
+			...base,
+			data: {
+				...base.data,
+				nodes: [
+					node(
+						"node-1",
+						"x".repeat(WORKSPACE_LIMITS.workspaceDocumentBytes - baseBytes + 1),
+					),
+				],
+			},
+		});
+		expect(utf8ByteLength(serializeWorkspaceDocumentV2(exact))).toBe(
+			WORKSPACE_LIMITS.workspaceDocumentBytes,
+		);
+		expectCode(
+			() =>
+				applyWorkspaceMutation(
+					exact,
+					parseWorkspaceMutation(
+						mutation("subscription.upsert", {
+							subscription: subscription(),
+						}),
+					),
+					context,
+				),
+			"invalid_mutation",
+		);
+	});
+
+	it("blocks growth of an oversized document but allows neutral and shrinking repairs", () => {
+		const current = document({
+			lastMutationId: "00000000-0000-4000-8000-000000000000",
+			data: data({
+				nodes: [
+					node("node-1", "x".repeat(WORKSPACE_LIMITS.workspaceDocumentBytes)),
+				],
+			}),
+		});
+		const growth = mutation("aggregate.upsert", {
+			aggregate: { ...aggregate(), name: "A longer aggregate name" },
+		}) as WorkspaceMutation;
+		expectCode(
+			() => applyWorkspaceMutation(current, growth, context),
+			"workspace_size_limit",
+		);
+		const neutral = mutation("node.upsert", {
+			operation: "replace",
+			node: {
+				...current.data.nodes[0],
+				name: "node-2",
+			},
+		}) as WorkspaceMutation;
+		applyWorkspaceMutation(current, neutral, context);
+
+		const shrink = mutation("node.delete", {
+			id: "node-1",
+		}) as WorkspaceMutation;
+		expect(
+			applyWorkspaceMutation(current, shrink, context).document.data.nodes,
+		).toEqual([]);
 	});
 });
 

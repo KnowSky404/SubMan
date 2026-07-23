@@ -17,6 +17,7 @@ import {
 	makeUniqueResourceName,
 } from "$lib/resource-dedupe";
 import {
+	serializeWorkspaceDocumentV2,
 	validateWorkspaceAggregate,
 	validateWorkspaceClientExport,
 	validateWorkspaceData,
@@ -33,6 +34,7 @@ import {
 	type WorkspaceTombstone,
 	type WorkspaceTombstones,
 } from "$lib/workspace-document";
+import { utf8ByteLength, WORKSPACE_LIMITS } from "$lib/workspace-limits";
 import {
 	findWorkspaceOutputConflicts,
 	getConflictingOutputOwners,
@@ -143,6 +145,7 @@ export type WorkspaceMutationContext = {
 
 export type WorkspaceMutationErrorCode =
 	| "invalid_mutation"
+	| "workspace_size_limit"
 	| "workspace_mismatch"
 	| "revision_conflict"
 	| "entity_deleted"
@@ -169,6 +172,90 @@ function fail(code: WorkspaceMutationErrorCode, message: string): never {
 
 function invalid(message: string): never {
 	return fail("invalid_mutation", message);
+}
+
+function byteLimit(value: string, path: string, limit: number): void {
+	if (utf8ByteLength(value) > limit) {
+		invalid(`${path} exceeds ${limit} UTF-8 bytes`);
+	}
+}
+
+function tagsLimit(tags: NodeTag[], path: string): void {
+	if (tags.length > WORKSPACE_LIMITS.tagsPerEntity) {
+		invalid(`${path} exceeds ${WORKSPACE_LIMITS.tagsPerEntity} entries`);
+	}
+	for (const [index, tag] of tags.entries()) {
+		byteLimit(
+			tag.label,
+			`${path}[${index}].label`,
+			WORKSPACE_LIMITS.labelBytes,
+		);
+	}
+}
+
+function nodeLimits(node: WorkspaceNodeInput | NodeItem, path: string): void {
+	byteLimit(node.name, `${path}.name`, WORKSPACE_LIMITS.nameBytes);
+	byteLimit(node.raw, `${path}.raw`, WORKSPACE_LIMITS.nodeRawBytes);
+	tagsLimit(node.tags, `${path}.tags`);
+}
+
+function renameMapLimits(
+	renameMap: AggregateRule["renameMap"],
+	path: string,
+): void {
+	const entries = Object.entries(renameMap);
+	if (entries.length > WORKSPACE_LIMITS.renameMapEntries) {
+		invalid(`${path} exceeds ${WORKSPACE_LIMITS.renameMapEntries} entries`);
+	}
+	byteLimit(JSON.stringify(renameMap), path, WORKSPACE_LIMITS.renameMapBytes);
+}
+
+function targetLimits(target: AggregatePublishTarget, path: string): void {
+	byteLimit(target.name, `${path}.name`, WORKSPACE_LIMITS.nameBytes);
+}
+
+function mutationLimits(mutation: WorkspaceMutation): void {
+	switch (mutation.kind) {
+		case "node.upsert": {
+			const payload = mutation.payload;
+			if (payload.operation === "patch") {
+				if (payload.patch.name !== undefined) {
+					byteLimit(
+						payload.patch.name,
+						"payload.patch.name",
+						WORKSPACE_LIMITS.nameBytes,
+					);
+				}
+				if (payload.patch.raw !== undefined) {
+					byteLimit(
+						payload.patch.raw,
+						"payload.patch.raw",
+						WORKSPACE_LIMITS.nodeRawBytes,
+					);
+				}
+				if (payload.patch.tags !== undefined) {
+					tagsLimit(payload.patch.tags, "payload.patch.tags");
+				}
+			} else if (payload.operation === "create") {
+				nodeLimits(payload.node, "payload.node");
+			} else if (payload.operation === "upsert-by-external-key") {
+				byteLimit(
+					payload.externalKey,
+					"payload.externalKey",
+					WORKSPACE_LIMITS.externalKeyBytes,
+				);
+			}
+			break;
+		}
+		case "aggregate.publish":
+		case "client-export.publish":
+			byteLimit(
+				mutation.payload.output.content,
+				"payload.output.content",
+				WORKSPACE_LIMITS.outputContentBytes,
+			);
+			break;
+	}
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -429,7 +516,7 @@ const MUTATION_KINDS = new Set<WorkspaceMutation["kind"]>([
 	"workspace.reconcile",
 ]);
 
-export function parseWorkspaceMutation(inputValue: unknown): WorkspaceMutation {
+function parseWorkspaceMutationShape(inputValue: unknown): WorkspaceMutation {
 	const input = record(inputValue, "mutation");
 	exactKeys(input, "mutation", [
 		"mutationId",
@@ -622,6 +709,12 @@ export function parseWorkspaceMutation(inputValue: unknown): WorkspaceMutation {
 	}
 }
 
+export function parseWorkspaceMutation(inputValue: unknown): WorkspaceMutation {
+	const mutation = parseWorkspaceMutationShape(inputValue);
+	mutationLimits(mutation);
+	return mutation;
+}
+
 function canonicalizeValue(value: unknown): unknown {
 	if (Array.isArray(value)) return value.map(canonicalizeValue);
 	if (!isRecord(value)) return value;
@@ -630,6 +723,154 @@ function canonicalizeValue(value: unknown): unknown {
 		result[key] = canonicalizeValue(value[key]);
 	}
 	return result;
+}
+
+function sameValue(left: unknown, right: unknown): boolean {
+	return (
+		JSON.stringify(canonicalizeValue(left)) ===
+		JSON.stringify(canonicalizeValue(right))
+	);
+}
+
+function reconcileChangedValueLimits(
+	current: WorkspaceData,
+	next: WorkspaceData,
+): void {
+	const previousNodes = new Map(current.nodes.map((item) => [item.id, item]));
+	for (const item of next.nodes) {
+		const previous = previousNodes.get(item.id);
+		if (!previous || item.name !== previous.name) {
+			byteLimit(item.name, `nodes.${item.id}.name`, WORKSPACE_LIMITS.nameBytes);
+		}
+		if (!previous || item.raw !== previous.raw) {
+			byteLimit(
+				item.raw,
+				`nodes.${item.id}.raw`,
+				WORKSPACE_LIMITS.nodeRawBytes,
+			);
+		}
+		if (!previous || !sameValue(item.tags, previous.tags)) {
+			tagsLimit(item.tags, `nodes.${item.id}.tags`);
+		}
+	}
+
+	const previousSubscriptions = new Map(
+		current.subscriptions.map((item) => [item.id, item]),
+	);
+	for (const item of next.subscriptions) {
+		const previous = previousSubscriptions.get(item.id);
+		if (!previous || item.name !== previous.name) {
+			byteLimit(
+				item.name,
+				`subscriptions.${item.id}.name`,
+				WORKSPACE_LIMITS.nameBytes,
+			);
+		}
+		if (!previous || item.url !== previous.url) {
+			byteLimit(
+				item.url,
+				`subscriptions.${item.id}.url`,
+				WORKSPACE_LIMITS.subscriptionUrlBytes,
+			);
+		}
+		if (!previous || !sameValue(item.tags, previous.tags)) {
+			tagsLimit(item.tags, `subscriptions.${item.id}.tags`);
+		}
+	}
+
+	const previousAggregates = new Map(
+		current.aggregates.map((item) => [item.id, item]),
+	);
+	for (const item of next.aggregates) {
+		const previous = previousAggregates.get(item.id);
+		if (!previous || item.name !== previous.name) {
+			byteLimit(
+				item.name,
+				`aggregates.${item.id}.name`,
+				WORKSPACE_LIMITS.nameBytes,
+			);
+		}
+		if (!previous || !sameValue(item.renameMap, previous.renameMap)) {
+			renameMapLimits(item.renameMap, `aggregates.${item.id}.renameMap`);
+		}
+	}
+
+	const previousTargets = new Map(
+		current.publishTargets.map((item) => [item.id, item]),
+	);
+	for (const item of next.publishTargets) {
+		const previous = previousTargets.get(item.id);
+		if (!previous || item.name !== previous.name) {
+			targetLimits(item, `publishTargets.${item.id}`);
+		}
+	}
+
+	const previousProfiles = new Map(
+		current.clientExports.map((item) => [item.id, item]),
+	);
+	for (const item of next.clientExports) {
+		const previous = previousProfiles.get(item.id);
+		if (!previous || item.name !== previous.name) {
+			byteLimit(
+				item.name,
+				`clientExports.${item.id}.name`,
+				WORKSPACE_LIMITS.nameBytes,
+			);
+		}
+		if (
+			!previous ||
+			item.options.selectorTag !== previous.options.selectorTag
+		) {
+			byteLimit(
+				item.options.selectorTag,
+				`clientExports.${item.id}.options.selectorTag`,
+				WORKSPACE_LIMITS.labelBytes,
+			);
+		}
+		if (!previous || item.options.urlTestTag !== previous.options.urlTestTag) {
+			byteLimit(
+				item.options.urlTestTag,
+				`clientExports.${item.id}.options.urlTestTag`,
+				WORKSPACE_LIMITS.labelBytes,
+			);
+		}
+	}
+}
+
+function assertEntityCountGrowth(
+	current: WorkspaceData,
+	next: WorkspaceData,
+): void {
+	for (const collection of Object.keys(next) as Array<keyof WorkspaceData>) {
+		if (
+			next[collection].length > current[collection].length &&
+			next[collection].length > WORKSPACE_LIMITS.entitiesPerCollection
+		) {
+			invalid(
+				`${collection} exceeds ${WORKSPACE_LIMITS.entitiesPerCollection} entities`,
+			);
+		}
+	}
+}
+
+function assertWorkspaceDocumentSize(
+	current: WorkspaceDocumentV2,
+	next: WorkspaceDocumentV2,
+): void {
+	const currentBytes = utf8ByteLength(serializeWorkspaceDocumentV2(current));
+	const nextBytes = utf8ByteLength(serializeWorkspaceDocumentV2(next));
+	if (nextBytes <= WORKSPACE_LIMITS.workspaceDocumentBytes) return;
+	if (currentBytes <= WORKSPACE_LIMITS.workspaceDocumentBytes) {
+		invalid(
+			`Workspace document exceeds ${WORKSPACE_LIMITS.workspaceDocumentBytes} bytes`,
+		);
+	}
+	if (nextBytes > currentBytes) {
+		fail(
+			"workspace_size_limit",
+			`Workspace document exceeds ${WORKSPACE_LIMITS.workspaceDocumentBytes} bytes and requires repair`,
+		);
+	}
 }
 
 export function serializeWorkspaceMutation(
@@ -904,7 +1145,6 @@ export function applyWorkspaceMutation(
 			`Expected revision ${mutation.expectedRevision}, found ${current.revision}`,
 		);
 	}
-
 	const nextRevision = current.revision + 1;
 	let data = current.data;
 	let tombstones = current.tombstones;
@@ -1503,8 +1743,18 @@ export function applyWorkspaceMutation(
 		}
 	}
 
+	reconcileChangedValueLimits(current.data, data);
+	assertEntityCountGrowth(current.data, data);
+	const nextDocument = finalize(
+		current,
+		mutation,
+		data,
+		tombstones,
+		committedAt,
+	);
+	assertWorkspaceDocumentSize(current, nextDocument);
 	return {
-		document: finalize(current, mutation, data, tombstones, committedAt),
+		document: nextDocument,
 		files,
 		receipt,
 	};
