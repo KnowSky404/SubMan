@@ -1,11 +1,13 @@
 import { describe, expect, it } from "bun:test";
 import {
 	createWorkspaceGistGateway,
+	GITHUB_RESPONSE_BYTE_LIMITS,
 	GitHubGatewayError,
 	type GitHubGatewayErrorCategory,
 } from "$lib/server/workspace-gist";
 
 const TOKEN = "secret-github-token";
+const encoder = new TextEncoder();
 
 function gistResponse() {
 	return {
@@ -33,6 +35,32 @@ function gistResponse() {
 			},
 		},
 	};
+}
+
+function gistJsonWithByteLength(byteLength: number): string {
+	const base = JSON.stringify({ ...gistResponse(), padding: "" });
+	const baseBytes = encoder.encode(base).byteLength;
+	if (byteLength < baseBytes)
+		throw new Error("Target byte length is too small");
+	return JSON.stringify({
+		...gistResponse(),
+		padding: "x".repeat(byteLength - baseBytes),
+	});
+}
+
+function chunkedResponse(
+	chunks: Uint8Array[],
+	init: ResponseInit = {},
+): Response {
+	return new Response(
+		new ReadableStream<Uint8Array>({
+			start(controller) {
+				for (const chunk of chunks) controller.enqueue(chunk);
+				controller.close();
+			},
+		}),
+		init,
+	);
 }
 
 async function gatewayError(
@@ -87,6 +115,109 @@ describe("Workspace Gist gateway", () => {
 		expect(
 			JSON.stringify(requests.map((request) => request.init?.headers)),
 		).toContain(`Bearer ${TOKEN}`);
+	});
+
+	it("accepts metadata exactly at its byte limit", async () => {
+		const body = gistJsonWithByteLength(
+			GITHUB_RESPONSE_BYTE_LIMITS.gistMetadata,
+		);
+		const gateway = createWorkspaceGistGateway(async () =>
+			chunkedResponse([encoder.encode(body)]),
+		);
+
+		const result = await gateway.read(TOKEN, "gist-1", ["subman.json"]);
+
+		expect(result.gist.id).toBe("gist-1");
+		expect(result.contents["subman.json"]).toBe("workspace");
+	});
+
+	it("counts chunked raw bytes and decodes UTF-8 split across chunks", async () => {
+		const requests: string[] = [];
+		const expected = "prefix-\u20ac-suffix";
+		const bytes = encoder.encode(expected);
+		const euroStart = encoder.encode("prefix-").byteLength;
+		const gateway = createWorkspaceGistGateway(async (input) => {
+			const url = String(input);
+			requests.push(url);
+			return url.endsWith("/raw/large.txt")
+				? chunkedResponse([
+						bytes.slice(0, euroStart + 1),
+						bytes.slice(euroStart + 1),
+					])
+				: Response.json(gistResponse());
+		});
+
+		const result = await gateway.read(TOKEN, "gist-1", ["large.txt"]);
+
+		expect(result.contents["large.txt"]).toBe(expected);
+		expect(requests).toHaveLength(2);
+	});
+
+	it("rejects one raw byte over the limit and permits a later operation", async () => {
+		let rawCalls = 0;
+		const gateway = createWorkspaceGistGateway(async (input) => {
+			if (!String(input).endsWith("/raw/large.txt")) {
+				return Response.json(gistResponse());
+			}
+			rawCalls += 1;
+			return rawCalls === 1
+				? chunkedResponse(
+						[
+							new Uint8Array(GITHUB_RESPONSE_BYTE_LIMITS.gistRawFile),
+							new Uint8Array(1),
+						],
+						{
+							headers: {
+								"X-GitHub-Request-Id": "RAW:LIMIT",
+								"Retry-After": "7",
+							},
+						},
+					)
+				: new Response("later content");
+		});
+
+		const error = await gatewayError(
+			gateway.read(TOKEN, "gist-1", ["large.txt"]),
+		);
+		expect(error.toJSON()).toEqual({
+			operation: "gist.raw.read",
+			status: 200,
+			category: "invalid-response",
+			requestId: "RAW:LIMIT",
+			retryAfter: 7,
+			rateLimitReset: null,
+		});
+
+		const later = await gateway.read(TOKEN, "gist-1", ["large.txt"]);
+		expect(later.contents["large.txt"]).toBe("later content");
+	});
+
+	it("bounds metadata and PATCH response bodies independently", async () => {
+		const metadataGateway = createWorkspaceGistGateway(async () =>
+			chunkedResponse([
+				new Uint8Array(GITHUB_RESPONSE_BYTE_LIMITS.gistMetadata),
+				new Uint8Array(1),
+			]),
+		);
+		const metadataError = await gatewayError(
+			metadataGateway.read(TOKEN, "gist-1"),
+		);
+		expect(metadataError.operation).toBe("gist.read");
+		expect(metadataError.category).toBe("invalid-response");
+
+		const patchGateway = createWorkspaceGistGateway(async () =>
+			chunkedResponse([
+				new Uint8Array(GITHUB_RESPONSE_BYTE_LIMITS.gistPatch),
+				new Uint8Array(1),
+			]),
+		);
+		const patchError = await gatewayError(
+			patchGateway.patch(TOKEN, "gist-1", {
+				"subman.json": { content: "next" },
+			}),
+		);
+		expect(patchError.operation).toBe("gist.patch");
+		expect(patchError.category).toBe("invalid-response");
 	});
 
 	it("patches configuration, publication, and deletion in one request", async () => {
@@ -211,5 +342,32 @@ describe("Workspace Gist gateway", () => {
 		);
 		expect(patchError.category).toBe("timeout");
 		expect(patchError.operation).toBe("gist.patch");
+	});
+
+	it("times out while reading a response body and permits a later operation", async () => {
+		let calls = 0;
+		const gateway = createWorkspaceGistGateway(
+			async (_input, init) => {
+				calls += 1;
+				if (calls > 1) return Response.json(gistResponse());
+				return new Response(
+					new ReadableStream<Uint8Array>({
+						start(controller) {
+							init?.signal?.addEventListener("abort", () => {
+								controller.error(new Error(`aborted body containing ${TOKEN}`));
+							});
+						},
+					}),
+				);
+			},
+			{ timeoutMs: 5 },
+		);
+
+		const error = await gatewayError(gateway.read(TOKEN, "gist-1"));
+		expect(error.category).toBe("timeout");
+		expect(error.message).not.toContain(TOKEN);
+
+		const later = await gateway.read(TOKEN, "gist-1", ["subman.json"]);
+		expect(later.contents["subman.json"]).toBe("workspace");
 	});
 });

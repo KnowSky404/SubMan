@@ -1,9 +1,16 @@
 import { toStableGistRawUrl } from "$lib/gist-raw-url";
 import type { WorkspaceCoordinatorGateway } from "$lib/server/workspace-coordinator-core";
+import { WORKSPACE_LIMITS } from "$lib/workspace-limits";
 
 const API_ROOT = "https://api.github.com";
 const USER_AGENT = "SubMan";
 const DEFAULT_TIMEOUT_MS = 15_000;
+
+export const GITHUB_RESPONSE_BYTE_LIMITS = {
+	gistMetadata: WORKSPACE_LIMITS.mutationRequestBytes,
+	gistRawFile: WORKSPACE_LIMITS.workspaceDocumentBytes,
+	gistPatch: WORKSPACE_LIMITS.mutationRequestBytes,
+} as const;
 
 export type GitHubGatewayOperation =
 	| "gist.read"
@@ -164,11 +171,64 @@ function metadataFromResponse(
 	};
 }
 
+async function readBoundedResponseText(
+	response: Response,
+	limit: number,
+	signal: AbortSignal,
+): Promise<string> {
+	if (!response.body) return "";
+
+	const declaredLength = safeIntegerHeader(
+		response.headers.get("content-length"),
+	);
+	if (declaredLength !== null && declaredLength > limit) {
+		await response.body.cancel("response too large").catch(() => undefined);
+		throw new Error("GitHub response exceeds the byte limit");
+	}
+
+	const reader = response.body.getReader();
+	const decoder = new TextDecoder("utf-8");
+	const fragments: string[] = [];
+	let bytes = 0;
+	const cancelForAbort = () => {
+		void reader.cancel(signal.reason).catch(() => undefined);
+	};
+	signal.addEventListener("abort", cancelForAbort, { once: true });
+	try {
+		while (true) {
+			const { done, value } = await reader.read();
+			if (done) break;
+			bytes += value.byteLength;
+			if (bytes > limit) {
+				await reader.cancel("response too large").catch(() => undefined);
+				throw new Error("GitHub response exceeds the byte limit");
+			}
+			fragments.push(decoder.decode(value, { stream: true }));
+		}
+		if (signal.aborted) throw signal.reason;
+		fragments.push(decoder.decode());
+		return fragments.join("");
+	} finally {
+		signal.removeEventListener("abort", cancelForAbort);
+		reader.releaseLock();
+	}
+}
+
+async function readBoundedResponseJson<T>(
+	response: Response,
+	limit: number,
+	signal: AbortSignal,
+): Promise<T> {
+	return JSON.parse(
+		await readBoundedResponseText(response, limit, signal),
+	) as T;
+}
+
 async function githubRequest<T>(
 	operation: GitHubGatewayOperation,
 	input: RequestInfo | URL,
 	init: RequestInit,
-	consume: (response: Response) => Promise<T>,
+	consume: (response: Response, signal: AbortSignal) => Promise<T>,
 	options: Required<WorkspaceGistGatewayOptions>,
 	fetchImpl: typeof fetch,
 ): Promise<T> {
@@ -191,7 +251,15 @@ async function githubRequest<T>(
 				metadataFromResponse(operation, response, options.now),
 			);
 		}
-		return await consume(response);
+		try {
+			return await consume(response, controller.signal);
+		} catch (error) {
+			if (error instanceof GitHubGatewayError || timedOut) throw error;
+			throw new GitHubGatewayError({
+				...metadataFromResponse(operation, response, options.now),
+				category: "invalid-response",
+			});
+		}
 	} catch (error) {
 		if (error instanceof GitHubGatewayError) throw error;
 		throw new GitHubGatewayError({
@@ -225,7 +293,12 @@ async function loadFileContent(
 		"gist.raw.read",
 		file.raw_url,
 		{ headers: githubHeaders(githubToken, { Accept: "text/plain" }) },
-		(response) => response.text(),
+		(response, signal) =>
+			readBoundedResponseText(
+				response,
+				GITHUB_RESPONSE_BYTE_LIMITS.gistRawFile,
+				signal,
+			),
 		options,
 		fetchImpl,
 	);
@@ -248,7 +321,12 @@ export function createWorkspaceGistGateway(
 				"gist.read",
 				`${API_ROOT}/gists/${encodeURIComponent(gistId)}`,
 				{ headers: githubHeaders(githubToken) },
-				(response) => response.json() as Promise<GistApiResponse>,
+				(response, signal) =>
+					readBoundedResponseJson<GistApiResponse>(
+						response,
+						GITHUB_RESPONSE_BYTE_LIMITS.gistMetadata,
+						signal,
+					),
 				options,
 				fetchImpl,
 			);
@@ -294,7 +372,13 @@ export function createWorkspaceGistGateway(
 					}),
 					body: JSON.stringify({ files }),
 				},
-				async () => undefined,
+				async (response, signal) => {
+					await readBoundedResponseText(
+						response,
+						GITHUB_RESPONSE_BYTE_LIMITS.gistPatch,
+						signal,
+					);
+				},
 				options,
 				fetchImpl,
 			);
