@@ -14,8 +14,13 @@ import {
 	type WorkspaceMutation,
 	type WorkspaceMutationReceipt,
 } from "$lib/workspace-mutation";
+import {
+	reportWorkspaceStorageRecovery,
+	updateWorkspaceSyncStatus,
+} from "$lib/workspace-sync-status";
 
 const STORAGE_KEY = "subman:workspace-mutation-queue:v1";
+const QUARANTINE_PREFIX = `${STORAGE_KEY}:quarantine:`;
 const WRITE_LOCK = `${STORAGE_KEY}:write`;
 const MUTATION_KINDS = new Set<WorkspaceMutation["kind"]>([
 	"node.upsert",
@@ -35,8 +40,13 @@ const MUTATION_KINDS = new Set<WorkspaceMutation["kind"]>([
 ]);
 
 type StoredQueue = {
-	version: 1;
+	version: 2;
 	mutations: WorkspaceMutation[];
+};
+
+type ParsedStoredQueue = {
+	queue: StoredQueue;
+	migrated: boolean;
 };
 
 type QueueChange = {
@@ -97,33 +107,34 @@ function defaultNotify(change: QueueChange): void {
 	});
 }
 
-function parseStoredQueue(raw: string | null): StoredQueue {
-	if (raw === null) return { version: 1, mutations: [] };
-	try {
-		const parsed = JSON.parse(raw) as unknown;
-		if (!isRecord(parsed) || !hasExactKeys(parsed, ["version", "mutations"])) {
-			throw new Error("invalid envelope");
-		}
-		if (parsed.version !== 1 || !Array.isArray(parsed.mutations)) {
-			throw new Error("invalid envelope");
-		}
-		const mutations = parsed.mutations.map((value) => {
-			const mutation = parseWorkspaceMutation(value);
-			if (mutation.source !== "browser") {
-				throw new Error("invalid source");
-			}
-			return mutation;
-		});
-		if (
-			new Set(mutations.map((item) => item.mutationId)).size !==
-			mutations.length
-		) {
-			throw new Error("duplicate mutation ID");
-		}
-		return { version: 1, mutations };
-	} catch {
-		throw new Error("Stored mutation queue is invalid");
+function parseStoredQueue(raw: string | null): ParsedStoredQueue {
+	if (raw === null) {
+		return { queue: { version: 2, mutations: [] }, migrated: false };
 	}
+	const parsed = JSON.parse(raw) as unknown;
+	if (!isRecord(parsed) || !hasExactKeys(parsed, ["version", "mutations"])) {
+		throw new Error("invalid envelope");
+	}
+	if (
+		(parsed.version !== 1 && parsed.version !== 2) ||
+		!Array.isArray(parsed.mutations)
+	) {
+		throw new Error("invalid envelope");
+	}
+	const mutations = parsed.mutations.map((value) => {
+		const mutation = parseWorkspaceMutation(value);
+		if (mutation.source !== "browser") throw new Error("invalid source");
+		return mutation;
+	});
+	if (
+		new Set(mutations.map((item) => item.mutationId)).size !== mutations.length
+	) {
+		throw new Error("duplicate mutation ID");
+	}
+	return {
+		queue: { version: 2, mutations },
+		migrated: parsed.version === 1,
+	};
 }
 
 export class WorkspaceMutationQueue {
@@ -135,12 +146,11 @@ export class WorkspaceMutationQueue {
 			"getItem" | "setItem" | "removeItem"
 		> = localStorage,
 		private readonly notify: (change: QueueChange) => void = defaultNotify,
+		private readonly now: () => string = () => new Date().toISOString(),
 	) {}
 
 	list(workspaceId?: string): WorkspaceMutation[] {
-		const mutations = parseStoredQueue(
-			this.storage.getItem(this.storageKey),
-		).mutations;
+		const mutations = this.read().mutations;
 		return workspaceId
 			? mutations.filter((item) => item.workspaceId === workspaceId)
 			: mutations;
@@ -156,7 +166,7 @@ export class WorkspaceMutationQueue {
 			throw new Error("Only browser mutations can be queued");
 		}
 		return withWorkspaceLock(WRITE_LOCK, async () => {
-			const stored = parseStoredQueue(this.storage.getItem(this.storageKey));
+			const stored = this.read();
 			const existing = stored.mutations.find(
 				(item) => item.mutationId === mutation.mutationId,
 			);
@@ -191,7 +201,7 @@ export class WorkspaceMutationQueue {
 			throw new Error("Committed Workspace revision is invalid");
 		}
 		return withWorkspaceLock(WRITE_LOCK, async () => {
-			const stored = parseStoredQueue(this.storage.getItem(this.storageKey));
+			const stored = this.read();
 			const workspaceMutations = stored.mutations.filter(
 				(item) => item.workspaceId === workspaceId,
 			);
@@ -229,7 +239,7 @@ export class WorkspaceMutationQueue {
 
 	remove(mutationId: string): Promise<boolean> {
 		return withWorkspaceLock(WRITE_LOCK, async () => {
-			const stored = parseStoredQueue(this.storage.getItem(this.storageKey));
+			const stored = this.read();
 			const mutation = stored.mutations.find(
 				(item) => item.mutationId === mutationId,
 			);
@@ -250,9 +260,31 @@ export class WorkspaceMutationQueue {
 	private write(queue: StoredQueue): void {
 		if (queue.mutations.length === 0) {
 			this.storage.removeItem(this.storageKey);
+			updateWorkspaceSyncStatus({ queueCount: 0 });
 			return;
 		}
 		this.storage.setItem(this.storageKey, JSON.stringify(queue));
+		updateWorkspaceSyncStatus({ queueCount: queue.mutations.length });
+	}
+
+	private read(): StoredQueue {
+		const raw = this.storage.getItem(this.storageKey);
+		try {
+			const parsed = parseStoredQueue(raw);
+			if (parsed.migrated) this.write(parsed.queue);
+			return parsed.queue;
+		} catch {
+			if (raw !== null) {
+				const suffix = this.now().replace(/[^0-9A-Za-z]/g, "");
+				this.storage.setItem(`${QUARANTINE_PREFIX}${suffix}`, raw);
+				this.storage.removeItem(this.storageKey);
+			}
+			reportWorkspaceStorageRecovery(
+				"queue",
+				"Stored Workspace mutation queue was quarantined",
+			);
+			return { version: 2, mutations: [] };
+		}
 	}
 }
 

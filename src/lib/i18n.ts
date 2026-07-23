@@ -725,6 +725,34 @@ const zhCN: Record<string, string> = {
 	"Workspace files": "工作区文件",
 	"Workspace linked (Local only).": "工作区已绑定（仅本地）。",
 	"Workspace linked. No sync needed.": "工作区已绑定，无需同步。",
+	"Saved locally": "已保存到本机",
+	Queued: "等待工作区同步",
+	Syncing: "正在同步",
+	"Saved to Workspace": "已保存到工作区",
+	"Saved locally; retrying Workspace sync":
+		"已保存到本机，工作区同步失败，将自动重试",
+	"Saved locally; manual push required": "已保存到本机，等待手动推送",
+	"Saved locally; sync paused by conflict": "已保存到本机，同步因冲突暂停",
+	"Sign in to resume Workspace sync": "请登录以恢复工作区同步",
+	"Workspace sync needs repair": "工作区同步需要修复",
+	"Workspace local state needs repair": "工作区本地状态需要修复",
+	"{count} queued": "{count} 项待同步",
+	Repair: "修复",
+	"Saved locally; Workspace synchronization needs repair: {error}":
+		"已保存到本机；工作区同步需要修复：{error}",
+	"Export Diagnostics": "导出诊断",
+	"Diagnostics exported": "诊断已导出",
+	"Discard Pending Changes": "丢弃待同步更改",
+	"Discard {count} pending Workspace changes? This cannot be undone.":
+		"要丢弃 {count} 项待同步的工作区更改吗？此操作无法撤销。",
+	"Discard {count} Changes": "丢弃 {count} 项更改",
+	"Repair Sync State": "修复同步状态",
+	"Reconnect GitHub before repairing Workspace sync.":
+		"请先重新连接 GitHub，再修复工作区同步。",
+	"Workspace sync state repaired": "工作区同步状态已修复",
+	"Choose Pull, Merge, or Push to repair synchronization.":
+		"请选择拉取、合并或推送来修复同步。",
+	"Workspace sync repair failed": "工作区同步修复失败",
 	"Workspace overview": "工作区概览",
 	"Your local data and the cloud workspace don't match. Please choose how to resolve this.":
 		"你的本地数据与云端工作区不一致，请选择处理方式。",

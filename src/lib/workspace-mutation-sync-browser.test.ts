@@ -122,6 +122,11 @@ describe("browser Workspace mutation scheduler", () => {
 			import("$lib/workspace-v2-state"),
 			import("$lib/workspace-mutation-sync-browser"),
 		]);
+		const { workspaceSyncStatus } = await import("$lib/workspace-sync-status");
+		const lifecycle: string[] = [];
+		const unsubscribeStatus = workspaceSyncStatus.subscribe((status) => {
+			lifecycle.push(status.lifecycle);
+		});
 		const storage = new MemoryStorage();
 		const queue = new queueModule.WorkspaceMutationQueue(storage);
 		const stateStore = new stateModule.WorkspaceV2StateStore(storage);
@@ -192,8 +197,12 @@ describe("browser Workspace mutation scheduler", () => {
 			]);
 			expect(queue.list()).toEqual([]);
 			expect(stateStore.read()?.revision).toBe(2);
+			expect(lifecycle).toContain("syncing");
+			expect(lifecycle).toContain("retrying");
+			expect(lifecycle).toContain("committed");
 		} finally {
 			stop();
+			unsubscribeStatus();
 		}
 	});
 });

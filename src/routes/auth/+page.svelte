@@ -41,18 +41,23 @@ import {
 	readBrowserWorkspaceSnapshot,
 	reconcileBrowserWorkspace,
 } from "$lib/workspace-browser-session-v2";
+import { exportWorkspaceDiagnostics } from "$lib/workspace-diagnostics";
 import type { WorkspaceDocumentV2 } from "$lib/workspace-document";
 import { subscribeWorkspaceEvents } from "$lib/workspace-events";
+import { withWorkspaceBinding } from "$lib/workspace-identity";
 import { WorkspaceMutationQueue } from "$lib/workspace-mutation-queue";
 import {
 	bindWorkspaceOnly,
 	pullWorkspaceExactly,
 } from "$lib/workspace-session";
+import {
+	markWorkspaceDisconnected,
+	updateWorkspaceSyncStatus,
+} from "$lib/workspace-sync-status";
 import { clearLegacyWorkspaceSyncState } from "$lib/workspace-v1-cleanup";
 import {
 	createWorkspaceV2LocalState,
 	hydrateAppStateFromWorkspaceDocument,
-	type WorkspaceV2LocalState,
 	WorkspaceV2StateStore,
 } from "$lib/workspace-v2-state";
 
@@ -138,6 +143,24 @@ async function discardPendingMutations(workspaceId: string) {
 	}
 }
 
+async function confirmDiscardPendingMutations(
+	workspaceId: string,
+): Promise<boolean> {
+	const count = new WorkspaceMutationQueue().list(workspaceId).length;
+	if (count === 0) return true;
+	return requestConfirm({
+		title: $t("Discard Pending Changes"),
+		message: $t(
+			"Discard {count} pending Workspace changes? This cannot be undone.",
+			{
+				count,
+			},
+		),
+		confirmText: $t("Discard {count} Changes", { count }),
+		danger: true,
+	});
+}
+
 function persistSnapshot(
 	snapshot: BrowserWorkspaceSnapshot,
 	gistId: string,
@@ -178,9 +201,10 @@ async function handleTokenSave() {
 	workspaceBusy = true;
 	conflict = null;
 	manualPushReview = null;
+	const previousState = $appState;
+	const stateStore = new WorkspaceV2StateStore();
+	const previousBinding = stateStore.read();
 	try {
-		clearLegacyWorkspaceSyncState();
-		setToken(token);
 		const localSignature = getSyncStateSignature($appState);
 		let savedGistId = $appState.activeGistId;
 		try {
@@ -201,6 +225,8 @@ async function handleTokenSave() {
 				$appState,
 				"automatic",
 			);
+			clearLegacyWorkspaceSyncState();
+			setToken(token);
 			setStatus($t("Workspace created and connected"), "success");
 			tokenInput = "";
 			return;
@@ -221,6 +247,8 @@ async function handleTokenSave() {
 					"automatic",
 				);
 			}
+			clearLegacyWorkspaceSyncState();
+			setToken(token);
 			setStatus($t("Workspace connected (In Sync)"), "success");
 			tokenInput = "";
 		} else {
@@ -232,13 +260,6 @@ async function handleTokenSave() {
 				remoteSignature,
 				localSignature,
 			};
-			const stateStore = new WorkspaceV2StateStore();
-			let previousBinding: WorkspaceV2LocalState | null = null;
-			try {
-				previousBinding = stateStore.read();
-			} catch {
-				// The validated remote snapshot replaces corrupt local metadata.
-			}
 			stateStore.write(
 				createWorkspaceV2LocalState(gist.id, {
 					baseline: snapshot.document,
@@ -249,10 +270,27 @@ async function handleTokenSave() {
 					syncMode: "paused-conflict",
 				}),
 			);
-			appState.update((state) => ({ ...state, activeGistId: gist.id }));
+			appState.set(
+				withWorkspaceBinding(
+					$appState,
+					createWorkspaceV2LocalState(gist.id, {
+						baseline: snapshot.document,
+						conflictBaseline:
+							previousBinding?.workspaceId === `gist:${gist.id}`
+								? (previousBinding.conflictBaseline ?? previousBinding.baseline)
+								: null,
+						syncMode: "paused-conflict",
+					}),
+				),
+			);
+			clearLegacyWorkspaceSyncState();
+			setToken(token);
 			setStatus($t("Sync conflict detected"), "info");
 		}
 	} catch (err) {
+		if (previousBinding) stateStore.write(previousBinding);
+		else stateStore.clear();
+		appState.set(previousState);
 		setStatus(
 			err instanceof Error ? err.message : $t("Connection failed"),
 			"error",
@@ -284,8 +322,6 @@ function getConflictConfirmation(action: "local" | "remote" | "merge") {
 async function handleBindOnly() {
 	if (!conflict) return;
 	const bound = bindWorkspaceOnly($appState, conflict.gistId, WORKSPACE_FILE);
-	clearLegacyWorkspaceSyncState();
-	await discardPendingMutations(`gist:${conflict.gistId}`);
 	new WorkspaceV2StateStore().write(
 		createWorkspaceV2LocalState(conflict.gistId, {
 			baseline: conflict.remoteDocument,
@@ -293,6 +329,7 @@ async function handleBindOnly() {
 		}),
 	);
 	appState.set(bound);
+	clearLegacyWorkspaceSyncState();
 	conflict = null;
 	manualPushReview = null;
 	tokenInput = "";
@@ -308,12 +345,14 @@ async function handleResolveConflict(action: "local" | "remote" | "merge") {
 		confirmText: confirmation.confirmText,
 	});
 	if (!confirmed) return;
+	const workspaceId = `gist:${conflict.gistId}`;
+	if (!(await confirmDiscardPendingMutations(workspaceId))) return;
 
 	workspaceBusy = true;
 	try {
 		const currentConflict = conflict;
 		if (action === "remote") {
-			await discardPendingMutations(`gist:${currentConflict.gistId}`);
+			await discardPendingMutations(workspaceId);
 			persistSnapshot(
 				{
 					origin: "v2",
@@ -402,6 +441,7 @@ async function handleManualPull() {
 				confirmText: $t("Pull Remote"),
 			});
 			if (confirmed) {
+				if (!(await confirmDiscardPendingMutations(`gist:${gistId}`))) return;
 				await discardPendingMutations(`gist:${gistId}`);
 				persistSnapshot(snapshot, gistId, currentSyncMode());
 				setStatus($t("Pulled successfully"), "success");
@@ -483,6 +523,10 @@ async function handleManualPushReview(action: "remote" | "merge" | "force") {
 			confirmText: $t("Pull Remote"),
 		});
 		if (!confirmed) return;
+		if (
+			!(await confirmDiscardPendingMutations(`gist:${manualPushReview.gistId}`))
+		)
+			return;
 		await discardPendingMutations(`gist:${manualPushReview.gistId}`);
 		persistSnapshot(
 			{
@@ -509,6 +553,10 @@ async function handleManualPushReview(action: "remote" | "merge" | "force") {
 		confirmText: $t("Merge & Save"),
 	});
 	if (!confirmed) return;
+	if (
+		!(await confirmDiscardPendingMutations(`gist:${manualPushReview.gistId}`))
+	)
+		return;
 
 	workspaceBusy = true;
 	try {
@@ -558,6 +606,10 @@ async function handleManualForcePush() {
 		confirmText: $t("Force Push"),
 	});
 	if (!confirmed) return;
+	if (
+		!(await confirmDiscardPendingMutations(`gist:${manualPushReview.gistId}`))
+	)
+		return;
 
 	workspaceBusy = true;
 	try {
@@ -579,9 +631,9 @@ async function handleManualForcePush() {
 }
 
 function handleTokenClear() {
-	clearLegacyWorkspaceSyncState();
 	clearAuth();
-	appState.update((s) => ({ ...s, activeGistId: null }));
+	const queueCount = new WorkspaceMutationQueue().list().length;
+	markWorkspaceDisconnected(queueCount);
 	setStatus($t("Logged out"), "info");
 	conflict = null;
 	manualPushReview = null;
@@ -592,9 +644,68 @@ function handleExport() {
 	setStatus($t("Config exported"), "success");
 }
 
+function handleDiagnosticsExport() {
+	payload = exportWorkspaceDiagnostics($appState);
+	setStatus($t("Diagnostics exported"), "success");
+}
+
+async function handleRepairSyncState() {
+	const token = $authState.token;
+	const stateStore = new WorkspaceV2StateStore();
+	const binding = stateStore.read();
+	const gistId = binding?.gistId ?? $appState.activeGistId;
+	if (!token || !gistId) {
+		setStatus($t("Reconnect GitHub before repairing Workspace sync."), "error");
+		return;
+	}
+	workspaceBusy = true;
+	try {
+		const snapshot = await loadWorkspaceSnapshot(token, gistId);
+		const remoteSignature = getSyncStateSignature(snapshot.state);
+		const localSignature = getSyncStateSignature($appState);
+		if (remoteSignature === localSignature) {
+			persistSnapshot(snapshot, gistId, currentSyncMode());
+			setStatus($t("Workspace sync state repaired"), "success");
+			return;
+		}
+		conflict = {
+			gistId,
+			remoteDocument: snapshot.document,
+			remoteState: snapshot.state,
+			remoteSignature,
+			localSignature,
+		};
+		const paused = createWorkspaceV2LocalState(gistId, {
+			baseline: snapshot.document,
+			conflictBaseline:
+				binding?.workspaceId === `gist:${gistId}`
+					? (binding.conflictBaseline ?? binding.baseline)
+					: null,
+			syncMode: "paused-conflict",
+		});
+		stateStore.write(paused);
+		appState.set(withWorkspaceBinding($appState, paused));
+		updateWorkspaceSyncStatus({
+			lifecycle: "paused-conflict",
+			mode: "paused-conflict",
+			queueCount: new WorkspaceMutationQueue().list(paused.workspaceId).length,
+			lastCommittedRevision: paused.revision,
+			repairRequired: true,
+		});
+		setStatus(
+			$t("Choose Pull, Merge, or Push to repair synchronization."),
+			"info",
+		);
+	} catch {
+		setStatus($t("Workspace sync repair failed"), "error");
+	} finally {
+		workspaceBusy = false;
+	}
+}
+
 function handleImport() {
 	try {
-		if (!replaceState(importState(payload))) return;
+		if (!replaceState(importState(payload)).accepted) return;
 		setStatus($t("Config imported"), "success");
 	} catch (err) {
 		setStatus($t("Import failed"), "error");
@@ -689,7 +800,7 @@ function handleImport() {
 	{/if}
 
 	<!-- GitHub Connection -->
-	<section class="gh-section">
+		<section id="workspace-repair" class="gh-section">
 		<div class="gh-section-header">
 			<div>
 				<h2 class="gh-section-title"><Octicon icon={markGithub} className="h-5 w-5" />{$t("GitHub Workspace")}</h2>
@@ -735,6 +846,10 @@ function handleImport() {
 								<Octicon icon={upload} className="h-3.5 w-3.5" />
 								{$t("Push Now")}
 							</button>
+							<button type="button" class="gh-btn gh-btn-sm" on:click={handleRepairSyncState} disabled={workspaceBusy}>
+								<Octicon icon={shieldCheck} className="h-3.5 w-3.5" />
+								{$t("Repair Sync State")}
+							</button>
 							<button type="button" class="gh-btn gh-btn-danger gh-btn-sm" on:click={handleTokenClear}><Octicon icon={trash} className="h-3.5 w-3.5" />{$t("Disconnect")}</button>
 						</div>
 					</div>
@@ -761,6 +876,7 @@ function handleImport() {
 		<div class="gh-section-footer">
 			<div class="gh-btn-group">
 				<button type="button" class="gh-btn" on:click={handleExport}><Octicon icon={upload} className="h-4 w-4" />{$t("Export")}</button>
+				<button type="button" class="gh-btn" on:click={handleDiagnosticsExport}><Octicon icon={database} className="h-4 w-4" />{$t("Export Diagnostics")}</button>
 				<button type="button" class="gh-btn" on:click={handleImport}><Octicon icon={download} className="h-4 w-4" />{$t("Import")}</button>
 				<button type="button" class="gh-btn" on:click={() => { navigator.clipboard.writeText(payload); setStatus($t("Copied to clipboard")); }} disabled={!payload} aria-label={$t("Copy")}><Octicon icon={copy} className="h-4 w-4" /></button>
 			</div>

@@ -7,15 +7,22 @@ const appStoreSource = readFileSync(
 	"utf8",
 );
 
-test("store validation gates optimistic Workspace updates", () => {
+test("store validation and identity gate local Workspace updates", () => {
 	const validation = appStoreSource.indexOf(
 		"validateAutomaticWorkspaceMutationDraft(draft)",
 	);
-	const firstUpdate = appStoreSource.indexOf("appState.update");
+	const localPersistence = appStoreSource.indexOf(
+		"localStorage.setItem(STORAGE_KEY, JSON.stringify(next))",
+	);
 
 	expect(validation).toBeGreaterThan(-1);
-	expect(firstUpdate).toBeGreaterThan(validation);
-	expect(appStoreSource).toContain("return false;");
+	expect(localPersistence).toBeGreaterThan(validation);
+	expect(appStoreSource).toContain('identity.status === "mismatch"');
+	expect(appStoreSource).toContain("WorkspaceActionHandle");
+	expect(appStoreSource).toContain('localStatus: "local-saved"');
+	expect(appStoreSource).toContain("!get(authState).token");
 	expect(appStoreSource).toContain("Workspace change was not saved: {error}");
-	expect(appStoreSource).not.toContain(").catch(() => {");
+	expect(appStoreSource).toContain(
+		"Saved locally; Workspace synchronization needs repair: {error}",
+	);
 });

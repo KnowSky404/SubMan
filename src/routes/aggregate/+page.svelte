@@ -299,7 +299,7 @@ async function saveRule() {
 			sortMode,
 			sortPriority,
 			updatedAt: nowIso(),
-		})
+		}).accepted
 	)
 		return;
 	editingRuleId = id;
@@ -324,7 +324,7 @@ async function saveTarget() {
 			lastPublishTransitionToFileName: null,
 			lastPublishTransitionOutcome: null,
 			updatedAt: nowIso(),
-		})
+		}).accepted
 	)
 		return;
 	selectedTargetId = id;

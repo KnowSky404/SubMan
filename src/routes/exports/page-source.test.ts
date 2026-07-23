@@ -68,7 +68,7 @@ test("exports page validates listen port before saving", () => {
 
 test("exports page keeps rejected Workspace drafts unsaved", () => {
 	expect(exportsPageSource).toContain(
-		"if (!upsertClientExport(nextProfile)) return;",
+		"if (!upsertClientExport(nextProfile).accepted) return;",
 	);
 });
 

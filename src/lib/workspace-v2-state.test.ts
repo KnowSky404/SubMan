@@ -146,15 +146,35 @@ describe("Workspace V2 local state", () => {
 		).toThrow("baseline revision is invalid");
 	});
 
-	it("retains corrupted storage instead of replacing it", () => {
+	it("quarantines corrupted storage before recovering empty", () => {
 		const storage = new MemoryStorage();
-		const store = new WorkspaceV2StateStore(storage);
+		const store = new WorkspaceV2StateStore(
+			storage,
+			() => "2026-07-23T00:00:00.000Z",
+		);
 		storage.setItem(store.storageKey, "corrupted");
 
-		expect(() => store.read()).toThrow(
-			"Stored Workspace V2 local state is invalid",
-		);
-		expect(storage.getItem(store.storageKey)).toBe("corrupted");
+		expect(store.read()).toBeNull();
+		expect(storage.getItem(store.storageKey)).toBeNull();
+		expect(
+			storage.getItem(
+				"subman:workspace-state:v2:quarantine:20260723T000000000Z",
+			),
+		).toBe("corrupted");
+	});
+
+	it("migrates the previous direct local state into an envelope", () => {
+		const storage = new MemoryStorage();
+		const store = new WorkspaceV2StateStore(storage);
+		const legacy = createWorkspaceV2LocalState("gist-1", {
+			baseline: document(),
+		});
+		storage.setItem(store.storageKey, JSON.stringify(legacy));
+
+		expect(store.read()).toEqual(legacy);
+		expect(
+			JSON.parse(storage.getItem(store.storageKey) ?? "{}").envelopeVersion,
+		).toBe(1);
 	});
 
 	it("hydrates exact committed business data while preserving local Gist metadata", () => {

@@ -50,3 +50,20 @@ test("getSyncStateSignature ignores active workspace gist identity", async () =>
 		}),
 	);
 });
+
+test("business configuration export and import exclude Workspace identity", async () => {
+	const [{ exportState, importState }, { defaultState }] = await Promise.all([
+		import("$lib/serialization"),
+		import("$lib/stores/app"),
+	]);
+	const exported = exportState({
+		...defaultState,
+		activeGistId: "secret-binding",
+		activeGistFile: "subman.json",
+	});
+	const parsed = JSON.parse(exported) as { data: Record<string, unknown> };
+
+	expect(parsed.data.activeGistId).toBe(undefined);
+	expect(parsed.data.activeGistFile).toBe(undefined);
+	expect(importState(exported).activeGistId).toBeNull();
+});

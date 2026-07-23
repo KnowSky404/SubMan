@@ -4,8 +4,10 @@ import {
 	WORKSPACE_FILE_NAME,
 	type WorkspaceDocumentV2,
 } from "$lib/workspace-document";
+import { reportWorkspaceStorageRecovery } from "$lib/workspace-sync-status";
 
 const STORAGE_KEY = "subman:workspace-state:v2";
+const QUARANTINE_PREFIX = `${STORAGE_KEY}:quarantine:`;
 const SYNC_MODES = new Set<WorkspaceV2LocalState["syncMode"]>([
 	"automatic",
 	"manual",
@@ -21,6 +23,11 @@ export type WorkspaceV2LocalState = {
 	syncMode: "automatic" | "manual" | "paused-conflict";
 	baseline: WorkspaceDocumentV2 | null;
 	conflictBaseline: WorkspaceDocumentV2 | null;
+};
+
+type WorkspaceStateEnvelope = {
+	envelopeVersion: 1;
+	state: WorkspaceV2LocalState;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -186,21 +193,40 @@ export class WorkspaceV2StateStore {
 			Storage,
 			"getItem" | "setItem" | "removeItem"
 		> = localStorage,
+		private readonly now: () => string = () => new Date().toISOString(),
 	) {}
 
 	read(): WorkspaceV2LocalState | null {
 		const raw = this.storage.getItem(this.storageKey);
 		if (raw === null) return null;
 		try {
-			return validateWorkspaceV2LocalState(JSON.parse(raw) as unknown);
+			const parsed = JSON.parse(raw) as unknown;
+			if (
+				isRecord(parsed) &&
+				hasExactKeys(parsed, ["envelopeVersion", "state"]) &&
+				parsed.envelopeVersion === 1
+			) {
+				return validateWorkspaceV2LocalState(parsed.state);
+			}
+			const migrated = validateWorkspaceV2LocalState(parsed);
+			this.write(migrated);
+			return migrated;
 		} catch {
-			throw new Error("Stored Workspace V2 local state is invalid");
+			const suffix = this.now().replace(/[^0-9A-Za-z]/g, "");
+			this.storage.setItem(`${QUARANTINE_PREFIX}${suffix}`, raw);
+			this.storage.removeItem(this.storageKey);
+			reportWorkspaceStorageRecovery(
+				"state",
+				"Stored Workspace V2 local state was quarantined",
+			);
+			return null;
 		}
 	}
 
 	write(value: WorkspaceV2LocalState): WorkspaceV2LocalState {
 		const state = validateWorkspaceV2LocalState(value);
-		this.storage.setItem(this.storageKey, JSON.stringify(state));
+		const envelope: WorkspaceStateEnvelope = { envelopeVersion: 1, state };
+		this.storage.setItem(this.storageKey, JSON.stringify(envelope));
 		return state;
 	}
 

@@ -931,8 +931,10 @@ describe("Workspace coordinator write verification and security", () => {
 describe("Workspace coordinator mixed mutations", () => {
 	it("serializes output deletion and clears published metadata", async () => {
 		const publishedDocument = document();
+		const publishedTarget = publishedDocument.data.publishTargets[0];
+		if (!publishedTarget) throw new Error("Expected publish target fixture");
 		publishedDocument.data.publishTargets[0] = {
-			...publishedDocument.data.publishTargets[0]!,
+			...publishedTarget,
 			lastPublishedAt: T0,
 			lastPublishedUrl: "https://example.com/aggregate.txt",
 		};
@@ -954,12 +956,8 @@ describe("Workspace coordinator mixed mutations", () => {
 
 		expect(gateway.files["aggregate.txt"]).toBe(undefined);
 		expect(result.document.revision).toBe(2);
-		expect(
-			result.document.data.publishTargets[0]?.lastPublishedAt,
-		).toBeNull();
-		expect(
-			result.document.data.publishTargets[0]?.lastPublishedUrl,
-		).toBeNull();
+		expect(result.document.data.publishTargets[0]?.lastPublishedAt).toBeNull();
+		expect(result.document.data.publishTargets[0]?.lastPublishedUrl).toBeNull();
 	});
 
 	it("preserves publication output before a Server API node mutation", async () => {

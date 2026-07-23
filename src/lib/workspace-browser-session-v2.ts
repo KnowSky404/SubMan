@@ -9,6 +9,7 @@ import {
 	WORKSPACE_BOOTSTRAP_FILE_NAME,
 	type WorkspaceDocumentV2,
 } from "$lib/workspace-document";
+import { requireWorkspaceIdentity } from "$lib/workspace-identity";
 import { parseWorkspaceMutation } from "$lib/workspace-mutation";
 import type { WorkspaceMutationQueue } from "$lib/workspace-mutation-queue";
 import { deliverQueuedWorkspaceMutation } from "$lib/workspace-mutation-sync";
@@ -267,8 +268,12 @@ export async function submitBrowserWorkspaceMutation(
 	if (!binding || binding.revision === null || binding.baseline === null) {
 		throw new Error("Workspace V2 is not initialized");
 	}
+	requireWorkspaceIdentity(dependencies.getState(), binding);
 	if (binding.syncMode === "paused-conflict") {
 		throw new Error("Workspace synchronization is paused by a conflict");
+	}
+	if (binding.syncMode === "manual") {
+		throw new Error("Push local Workspace changes before publishing");
 	}
 	const mutationId = (dependencies.mutationId ?? crypto.randomUUID)();
 	const createdAt = (dependencies.now ?? (() => new Date().toISOString()))();

@@ -30,6 +30,7 @@ import { startThemeSync, type ThemeMode, themeMode } from "$lib/stores/theme";
 import { dismissToast, toastStore } from "$lib/stores/toast";
 import { cn } from "$lib/utils/cn";
 import { startWorkspaceMutationSync } from "$lib/workspace-mutation-sync-browser";
+import { workspaceSyncStatus } from "$lib/workspace-sync-status";
 
 const PROJECT_GITHUB_URL = "https://github.com/KnowSky404/SubMan";
 const PROJECT_OWNER = "KnowSky404";
@@ -57,10 +58,29 @@ const themeOptions: {
 $: activeThemeOption =
 	themeOptions.find((option) => option.value === $themeMode) ?? themeOptions[0];
 $: activeThemeLabel = $t(activeThemeOption.label);
-$: isWorkspaceConnected = Boolean($authState.token && $appState.activeGistId);
+$: isWorkspaceConnected = Boolean(
+	$authState.token &&
+		$appState.activeGistId &&
+		$workspaceSyncStatus.mode !== "disconnected",
+);
 $: workspaceMetaText = isWorkspaceConnected
 	? $appState.activeGistId
 	: $t("Browser storage only");
+$: syncStatusLabel = (
+	{
+		"local-saved": "Saved locally",
+		queued: "Queued",
+		syncing: "Syncing",
+		committed: "Saved to Workspace",
+		retrying: "Saved locally; retrying Workspace sync",
+		"manual-local-only": "Saved locally; manual push required",
+		"paused-conflict": "Saved locally; sync paused by conflict",
+		"auth-required": "Sign in to resume Workspace sync",
+		"permanent-error": "Workspace sync needs repair",
+		"invalid-local-state": "Workspace local state needs repair",
+		disconnected: "Local only",
+	} as const
+)[$workspaceSyncStatus.lifecycle];
 let themeMenuOpen = false;
 
 function isActive(pathname: string, href: string) {
@@ -120,6 +140,13 @@ onMount(() => {
 							{/if}
 						</span>
 						<span class="app-repo-workspace-id">{workspaceMetaText}</span>
+						<span class="gh-label gh-label-muted">{$t(syncStatusLabel)}</span>
+						{#if $workspaceSyncStatus.queueCount > 0}
+							<span class="gh-label">{$t("{count} queued", { count: $workspaceSyncStatus.queueCount })}</span>
+						{/if}
+						{#if $workspaceSyncStatus.repairRequired}
+							<a href="/auth#workspace-repair" class="text-xs font-semibold text-accent-fg">{$t("Repair")}</a>
+						{/if}
 					</div>
 
 					<a href="/auth" class={cn("gh-btn gh-btn-sm", !isWorkspaceConnected && "gh-btn-primary")}>

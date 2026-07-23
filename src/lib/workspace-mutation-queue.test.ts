@@ -190,16 +190,39 @@ describe("WorkspaceMutationQueue", () => {
 		).toEqual([7, 8]);
 	});
 
-	it("rejects server mutations and retains corrupted storage for recovery", () => {
+	it("rejects server mutations and quarantines corrupted storage", () => {
 		const storage = new MemoryStorage();
-		const queue = new WorkspaceMutationQueue(storage);
+		const queue = new WorkspaceMutationQueue(
+			storage,
+			() => {},
+			() => "2026-07-23T00:00:00.000Z",
+		);
 		expect(() =>
 			queue.enqueue({ ...mutation(), source: "server-api" }),
 		).toThrow("Only browser mutations can be queued");
 
 		storage.setItem(queue.storageKey, "corrupted");
-		expect(() => queue.list()).toThrow("Stored mutation queue is invalid");
-		expect(storage.getItem(queue.storageKey)).toBe("corrupted");
+		expect(queue.list()).toEqual([]);
+		expect(storage.getItem(queue.storageKey)).toBeNull();
+		expect(
+			storage.getItem(
+				"subman:workspace-mutation-queue:v1:quarantine:20260723T000000000Z",
+			),
+		).toBe("corrupted");
+	});
+
+	it("migrates the known version one queue envelope", () => {
+		const storage = new MemoryStorage();
+		const queue = new WorkspaceMutationQueue(storage);
+		storage.setItem(
+			queue.storageKey,
+			JSON.stringify({ version: 1, mutations: [mutation()] }),
+		);
+
+		expect(queue.list()).toEqual([mutation()]);
+		expect(JSON.parse(storage.getItem(queue.storageKey) ?? "{}").version).toBe(
+			2,
+		);
 	});
 });
 

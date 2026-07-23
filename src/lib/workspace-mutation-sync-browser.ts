@@ -9,6 +9,7 @@ import {
 	applyCommittedWorkspaceEvent,
 	deliverQueuedWorkspaceMutation,
 } from "$lib/workspace-mutation-sync";
+import { updateWorkspaceSyncStatus } from "$lib/workspace-sync-status";
 import {
 	type WorkspaceV2LocalState,
 	WorkspaceV2StateStore,
@@ -56,12 +57,35 @@ export function startWorkspaceMutationSync(
 		if (stopped || running || timer) return;
 		let binding: WorkspaceV2LocalState | null;
 		let hasPending = false;
+		let queueCount = 0;
 		try {
 			binding = stateStore.read();
+			queueCount = queue.list().length;
 			hasPending = Boolean(binding && queue.peek(binding.workspaceId));
 		} catch {
+			updateWorkspaceSyncStatus({
+				lifecycle: "invalid-local-state",
+				recentError: "Workspace synchronization state could not be read",
+				repairRequired: true,
+				retrying: false,
+			});
 			return;
 		}
+		const mode = binding?.syncMode ?? "disconnected";
+		updateWorkspaceSyncStatus({
+			mode,
+			queueCount,
+			lastCommittedRevision: binding?.revision ?? null,
+			...(binding?.syncMode === "paused-conflict"
+				? { lifecycle: "paused-conflict" as const, repairRequired: true }
+				: !githubToken && queueCount > 0
+					? { lifecycle: "auth-required" as const }
+					: binding?.syncMode === "manual"
+						? { lifecycle: "manual-local-only" as const }
+						: hasPending
+							? { lifecycle: "queued" as const }
+							: {}),
+		});
 		if (
 			!githubToken ||
 			!binding ||
@@ -78,12 +102,59 @@ export function startWorkspaceMutationSync(
 		if (stopped || running) return;
 		running = true;
 		let nextDelay: number | null = null;
+		updateWorkspaceSyncStatus({
+			lifecycle: "syncing",
+			retrying: false,
+			recentError: null,
+		});
 		try {
 			const result = await deliverQueuedWorkspaceMutation(dependencies());
-			if (result.status === "committed") nextDelay = 0;
-			if (result.status === "retryable-error") nextDelay = retryDelayMs;
+			const binding = stateStore.read();
+			const queueCount = queue.list().length;
+			if (result.status === "committed") {
+				nextDelay = 0;
+				updateWorkspaceSyncStatus({
+					lifecycle: "committed",
+					queueCount,
+					lastCommittedRevision: binding?.revision ?? null,
+					retrying: false,
+					recentError: null,
+				});
+			}
+			if (result.status === "retryable-error") {
+				nextDelay = retryDelayMs;
+				updateWorkspaceSyncStatus({
+					lifecycle: "retrying",
+					queueCount,
+					retrying: true,
+					recentError: "Workspace synchronization failed and will retry",
+				});
+			}
+			if (result.status === "permanent-error") {
+				updateWorkspaceSyncStatus({
+					lifecycle: "permanent-error",
+					queueCount,
+					retrying: false,
+					recentError: result.code ?? "Workspace synchronization needs repair",
+					repairRequired: true,
+				});
+			}
+			if (result.status === "conflict") {
+				updateWorkspaceSyncStatus({
+					lifecycle: "paused-conflict",
+					mode: "paused-conflict",
+					queueCount,
+					retrying: false,
+					repairRequired: true,
+				});
+			}
 		} catch {
 			nextDelay = retryDelayMs;
+			updateWorkspaceSyncStatus({
+				lifecycle: "retrying",
+				retrying: true,
+				recentError: "Workspace synchronization failed and will retry",
+			});
 		} finally {
 			running = false;
 			if (nextDelay !== null) schedule(nextDelay);

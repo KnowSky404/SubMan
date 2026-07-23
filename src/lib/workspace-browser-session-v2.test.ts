@@ -3,6 +3,7 @@ import type { AppState, GistMeta, NodeItem } from "$lib/models";
 import {
 	readBrowserWorkspaceSnapshot,
 	reconcileBrowserWorkspace,
+	submitBrowserWorkspaceMutation,
 } from "$lib/workspace-browser-session-v2";
 import {
 	createDefaultWorkspaceState,
@@ -10,7 +11,10 @@ import {
 } from "$lib/workspace-data";
 import type { WorkspaceDocumentV2 } from "$lib/workspace-document";
 import { WorkspaceMutationQueue } from "$lib/workspace-mutation-queue";
-import { WorkspaceV2StateStore } from "$lib/workspace-v2-state";
+import {
+	createWorkspaceV2LocalState,
+	WorkspaceV2StateStore,
+} from "$lib/workspace-v2-state";
 
 const NOW = "2026-07-22T17:00:00.000Z";
 const MUTATION_ID = "b0000000-0000-4000-8000-000000000001";
@@ -255,5 +259,70 @@ describe("browser Workspace V2 session", () => {
 		expect(retryCalls).toBe(1);
 		expect(queue.list()).toEqual([]);
 		expect(stateStore.read()?.revision).toBe(1);
+	});
+
+	it("blocks publish and delete before enqueue when Workspace identity differs", async () => {
+		const storage = new MemoryStorage();
+		const queue = new WorkspaceMutationQueue(storage);
+		const stateStore = new WorkspaceV2StateStore(storage);
+		stateStore.write(
+			createWorkspaceV2LocalState("gist-1", {
+				baseline: committedDocument(),
+			}),
+		);
+		const state = {
+			...createDefaultWorkspaceState(),
+			activeGistId: "different-gist",
+		};
+
+		let error: unknown;
+		try {
+			await submitBrowserWorkspaceMutation(
+				{
+					token: "token",
+					kind: "output.delete",
+					payload: { fileName: "a.txt" },
+				},
+				{ queue, stateStore, getState: () => state, setState: () => {} },
+			);
+		} catch (caught) {
+			error = caught;
+		}
+		expect((error as Error).message).toBe("Workspace identity requires repair");
+		expect(queue.list()).toEqual([]);
+	});
+
+	it("blocks publishing remote stale data while manual changes are local only", async () => {
+		const storage = new MemoryStorage();
+		const queue = new WorkspaceMutationQueue(storage);
+		const stateStore = new WorkspaceV2StateStore(storage);
+		stateStore.write(
+			createWorkspaceV2LocalState("gist-1", {
+				baseline: committedDocument(),
+				syncMode: "manual",
+			}),
+		);
+		const state = {
+			...createDefaultWorkspaceState(),
+			activeGistId: "gist-1",
+		};
+
+		let error: unknown;
+		try {
+			await submitBrowserWorkspaceMutation(
+				{
+					token: "token",
+					kind: "output.delete",
+					payload: { fileName: "a.txt" },
+				},
+				{ queue, stateStore, getState: () => state, setState: () => {} },
+			);
+		} catch (caught) {
+			error = caught;
+		}
+		expect((error as Error).message).toBe(
+			"Push local Workspace changes before publishing",
+		);
+		expect(queue.list()).toEqual([]);
 	});
 });

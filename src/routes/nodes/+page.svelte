@@ -253,7 +253,7 @@ function handleAdd() {
 					enabled: true,
 					updatedAt: nowIso(),
 					source: "single",
-				})
+				}).accepted
 			)
 				return;
 			nodeName = "";
@@ -284,7 +284,7 @@ function handleAdd() {
 					enabled: true,
 					tags: parseTags(subTags),
 					updatedAt: nowIso(),
-				})
+				}).accepted
 			)
 				return;
 			subName = "";
@@ -325,7 +325,7 @@ function handleAdd() {
 							enabled: true,
 							updatedAt: nowIso(),
 							source: "single",
-						})
+						}).accepted
 					)
 						return;
 					seenRaw.add(normalizedRaw);
@@ -374,7 +374,7 @@ function handleAdd() {
 							enabled: true,
 							tags: parseTags(batchTags),
 							updatedAt: nowIso(),
-						})
+						}).accepted
 					)
 						return;
 					seenUrl.add(url);
@@ -424,7 +424,7 @@ function saveEditNode(id: string) {
 			raw,
 			tags: parseTags(draft.tags),
 			updatedAt: nowIso(),
-		})
+		}).accepted
 	)
 		return;
 	closeEditModal();
@@ -467,7 +467,7 @@ function saveEditSub(id: string) {
 			url,
 			tags: parseTags(draft.tags),
 			updatedAt: nowIso(),
-		})
+		}).accepted
 	)
 		return;
 	closeEditModal();
@@ -544,10 +544,10 @@ async function remove(id: string, type: "node" | "sub", name: string) {
 	try {
 		let removed = false;
 		if (type === "node") {
-			removed = removeNode(id);
+			removed = removeNode(id).accepted;
 			if (removed) delete nodeDrafts[id];
 		} else {
-			removed = removeSubscription(id);
+			removed = removeSubscription(id).accepted;
 			if (removed) delete subDrafts[id];
 		}
 		if (!removed) return;
