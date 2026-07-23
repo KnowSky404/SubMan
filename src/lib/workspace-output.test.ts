@@ -97,6 +97,28 @@ describe("Workspace output ownership", () => {
 		);
 	});
 
+	test("tolerates invalid legacy filenames while scanning exact owners", () => {
+		const legacy = data();
+		const target = legacy.publishTargets[0];
+		const profile = legacy.clientExports[0];
+		if (!target || !profile) throw new Error("Expected output owner fixtures");
+
+		target.fileName = "SUBMAN.JSON";
+		profile.fileName = "SUBMAN.JSON";
+		const conflicts = findWorkspaceOutputConflicts(legacy);
+		expect(conflicts).toHaveLength(1);
+		expect(conflicts[0]?.fileName).toBe("SUBMAN.JSON");
+		expect(conflicts[0]?.owners.map((owner) => [owner.kind, owner.id])).toEqual(
+			[
+				["publish-target", target.id],
+				["client-export", profile.id],
+			],
+		);
+
+		profile.fileName = "legacy/path.json";
+		expect(findWorkspaceOutputConflicts(legacy)).toEqual([]);
+	});
+
 	test("does not claim a legacy renamed filename is currently published", () => {
 		const target = data().publishTargets[0];
 		if (!target) throw new Error("Expected publish target fixture");

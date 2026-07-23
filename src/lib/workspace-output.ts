@@ -1,5 +1,4 @@
 import type { WorkspaceData } from "$lib/workspace-document";
-import { validateWorkspaceOutputFileName } from "$lib/workspace-document";
 
 export type WorkspaceOutputOwner = {
 	kind: "publish-target" | "client-export";
@@ -39,10 +38,9 @@ export function getWorkspaceOutputOwners(
 	data: Pick<WorkspaceData, "publishTargets" | "clientExports">,
 	fileNameValue: string,
 ): WorkspaceOutputOwner[] {
-	const fileName = validateWorkspaceOutputFileName(fileNameValue);
 	return [
 		...data.publishTargets
-			.filter((target) => target.fileName === fileName)
+			.filter((target) => target.fileName === fileNameValue)
 			.map((target) => ({
 				kind: "publish-target" as const,
 				id: target.id,
@@ -51,7 +49,7 @@ export function getWorkspaceOutputOwners(
 				published: isCurrentPublishTargetOutputPublished(target),
 			})),
 		...data.clientExports
-			.filter((profile) => profile.fileName === fileName)
+			.filter((profile) => profile.fileName === fileNameValue)
 			.map((profile) => ({
 				kind: "client-export" as const,
 				id: profile.id,
