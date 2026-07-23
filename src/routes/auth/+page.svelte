@@ -46,7 +46,7 @@ import {
 	reconcileBrowserWorkspace,
 } from "$lib/workspace-browser-session-v2";
 import { getWorkspaceBusinessData } from "$lib/workspace-data";
-import { exportWorkspaceDiagnostics } from "$lib/workspace-diagnostics";
+import { exportWorkspaceDiagnosticsFromPersistence } from "$lib/workspace-diagnostics";
 import type {
 	WorkspaceData,
 	WorkspaceDocumentV2,
@@ -60,32 +60,44 @@ import {
 	mergeWorkspaceData,
 	projectLocalWorkspaceAgainstTombstones,
 } from "$lib/workspace-merge";
-import { WorkspaceMutationQueue } from "$lib/workspace-mutation-queue";
+import type {
+	WorkspacePersistenceRecord,
+	WorkspaceQueueInspection,
+} from "$lib/workspace-persistence";
 import {
-	bindWorkspaceOnly,
-	pullWorkspaceExactly,
-} from "$lib/workspace-session";
+	getBrowserWorkspaceBinding,
+	getBrowserWorkspacePersistence,
+	getBrowserWorkspaceQueueMetrics,
+	initializeBrowserWorkspacePersistence,
+	refreshBrowserWorkspacePersistence,
+} from "$lib/workspace-persistence-browser";
 import {
-	dispatchWorkspaceSyncEvent,
-	markWorkspaceDisconnected,
-} from "$lib/workspace-sync-status";
+	discardInspectedWorkspaceQueue,
+	rebindInspectedWorkspace,
+	refreshWorkspaceQueueInspection,
+} from "$lib/workspace-queue-inspector";
+import { bindWorkspaceOnly } from "$lib/workspace-session";
+import { dispatchWorkspaceSyncEvent } from "$lib/workspace-sync-status";
 import { clearLegacyWorkspaceSyncState } from "$lib/workspace-v1-cleanup";
 import {
 	createWorkspaceV2LocalState,
 	hydrateAppStateFromWorkspaceDocument,
 	type WorkspaceV2LocalState,
-	WorkspaceV2StateStore,
 } from "$lib/workspace-v2-state";
 
 let tokenInput = "";
 let rememberToken = false;
 let payload = "";
 let workspaceBusy = false;
+let persistenceRecord: WorkspacePersistenceRecord | null = null;
+let queueInspection: WorkspaceQueueInspection | null = null;
+let queueActionWorkspaceId: string | null = null;
+let queueResult: { type: "success" | "error"; message: string } | null = null;
+let tombstoneNotice: string | null = null;
 let workspaceCandidates: WorkspaceCandidate[] = [];
 let pendingConnection: {
 	token: string;
 	rememberToken: boolean;
-	previousState: AppState;
 	previousBinding: WorkspaceV2LocalState | null;
 } | null = null;
 
@@ -113,21 +125,48 @@ function restoreConflict(document: WorkspaceDocumentV2, gistId: string) {
 	};
 }
 
+async function refreshPersistenceView() {
+	persistenceRecord = await refreshBrowserWorkspacePersistence();
+	queueInspection = await refreshWorkspaceQueueInspection(
+		getBrowserWorkspacePersistence(),
+	);
+	return persistenceRecord;
+}
+
+function restorePersistedConflict(record: WorkspacePersistenceRecord) {
+	const binding = record.binding;
+	const activeQueue = binding
+		? record.workspaces[binding.workspaceId]
+		: undefined;
+	if (
+		binding?.syncMode === "paused-conflict" &&
+		binding.baseline &&
+		activeQueue?.delivery.blocked?.disposition === "state-conflict"
+	) {
+		restoreConflict(binding.baseline, binding.gistId);
+	}
+}
+
 onMount(() => {
 	rememberToken = $authState.persistence === "persistent";
-	try {
-		const binding = new WorkspaceV2StateStore().read();
-		if (binding?.syncMode === "paused-conflict" && binding.baseline) {
-			restoreConflict(binding.baseline, binding.gistId);
-		}
-	} catch {
-		// Invalid local metadata is surfaced by connection actions.
-	}
-	return subscribeWorkspaceEvents((event) => {
+	void initializeBrowserWorkspacePersistence({
+		hydrate: (state) => appState.set(state),
+	})
+		.then(refreshPersistenceView)
+		.then(restorePersistedConflict)
+		.catch((error) => {
+			queueResult = {
+				type: "error",
+				message: connectionErrorMessage(error),
+			};
+		});
+	const unsubscribe = subscribeWorkspaceEvents((event) => {
 		if (event.type === "paused-conflict" && event.document && event.gistId) {
 			restoreConflict(event.document, event.gistId);
 		}
+		void refreshPersistenceView().catch(() => undefined);
 	});
+	return unsubscribe;
 });
 let manualPushReview: {
 	gistId: string;
@@ -137,23 +176,10 @@ let manualPushReview: {
 	localSignature: string;
 } | null = null;
 
-function workspaceDependencies() {
-	return {
-		queue: new WorkspaceMutationQueue(),
-		stateStore: new WorkspaceV2StateStore(),
-		getState: () => $appState,
-		setState: (state: AppState) => appState.set(state),
-	};
-}
-
 function currentSyncMode(): "automatic" | "manual" {
-	try {
-		return new WorkspaceV2StateStore().read()?.syncMode === "manual"
-			? "manual"
-			: "automatic";
-	} catch {
-		return "automatic";
-	}
+	return getBrowserWorkspaceBinding()?.syncMode === "manual"
+		? "manual"
+		: "automatic";
 }
 
 async function loadWorkspaceSnapshot(token: string, gistId: string) {
@@ -161,17 +187,15 @@ async function loadWorkspaceSnapshot(token: string, gistId: string) {
 	return readBrowserWorkspaceSnapshot(token, gist, $appState);
 }
 
-async function discardPendingMutations(workspaceId: string) {
-	const queue = new WorkspaceMutationQueue();
-	for (const mutation of queue.list(workspaceId)) {
-		await queue.remove(mutation.mutationId);
-	}
-}
-
 async function confirmDiscardPendingMutations(
 	workspaceId: string,
 ): Promise<boolean> {
-	const count = new WorkspaceMutationQueue().list(workspaceId).length;
+	const inspection = await refreshWorkspaceQueueInspection(
+		getBrowserWorkspacePersistence(),
+	);
+	const count =
+		inspection.workspaces.find((item) => item.workspaceId === workspaceId)
+			?.mutations.length ?? 0;
 	if (count === 0) return true;
 	return requestConfirm({
 		title: $t("Discard Pending Changes"),
@@ -186,17 +210,18 @@ async function confirmDiscardPendingMutations(
 	});
 }
 
-function persistSnapshot(
+async function persistSnapshot(
 	snapshot: BrowserWorkspaceSnapshot,
 	gistId: string,
 	syncMode: "automatic" | "manual",
 ) {
-	persistBrowserWorkspaceSnapshot(
+	const state = await persistBrowserWorkspaceSnapshot(
 		snapshot,
 		gistId,
 		syncMode,
-		workspaceDependencies(),
 	);
+	await refreshPersistenceView();
+	return state;
 }
 
 async function reconcileSnapshot(
@@ -207,10 +232,38 @@ async function reconcileSnapshot(
 	syncMode: "automatic" | "manual",
 	replacePending = false,
 ) {
-	return reconcileBrowserWorkspace(
-		{ token, gistId, baseline, resolvedState, syncMode, replacePending },
-		workspaceDependencies(),
-	);
+	const state = await reconcileBrowserWorkspace({
+		token,
+		gistId,
+		baseline,
+		resolvedState,
+		syncMode,
+		replacePending,
+	});
+	await refreshPersistenceView();
+	return state;
+}
+
+async function commitBindingSnapshot(
+	snapshot: AppState,
+	binding: WorkspaceV2LocalState,
+) {
+	await getBrowserWorkspacePersistence().rebindWorkspace({ snapshot, binding });
+	appState.set(snapshot);
+	await refreshPersistenceView();
+}
+
+function dispatchPersistedWorkspaceState(
+	type: "WORKSPACE_BOUND" | "REPAIR_SUCCEEDED",
+) {
+	const binding = getBrowserWorkspaceBinding();
+	if (!binding) return;
+	dispatchWorkspaceSyncEvent({
+		type,
+		mode: binding.syncMode === "manual" ? "manual" : "automatic",
+		revision: binding.revision,
+		queue: getBrowserWorkspaceQueueMetrics(),
+	});
 }
 
 function setStatus(
@@ -268,7 +321,6 @@ async function completeWorkspaceConnection(
 	previousBinding: WorkspaceV2LocalState | null,
 	remember: boolean,
 ) {
-	const stateStore = new WorkspaceV2StateStore();
 	const localSignature = getSyncStateSignature($appState);
 	const snapshot = await readBrowserWorkspaceSnapshot(token, gist, $appState);
 
@@ -281,6 +333,7 @@ async function completeWorkspaceConnection(
 			"automatic",
 		);
 		clearLegacyWorkspaceSyncState();
+		dispatchPersistedWorkspaceState("WORKSPACE_BOUND");
 		setToken(token, { remember });
 		setStatus($t("Workspace created and connected"), "success");
 		tokenInput = "";
@@ -294,7 +347,7 @@ async function completeWorkspaceConnection(
 
 	if (remoteSignature === localSignature) {
 		if (snapshot.origin === "v2") {
-			persistSnapshot(snapshot, gist.id, "automatic");
+			await persistSnapshot(snapshot, gist.id, "automatic");
 		} else {
 			await reconcileSnapshot(
 				token,
@@ -305,6 +358,7 @@ async function completeWorkspaceConnection(
 			);
 		}
 		clearLegacyWorkspaceSyncState();
+		dispatchPersistedWorkspaceState("WORKSPACE_BOUND");
 		setToken(token, { remember });
 		setStatus($t("Workspace connected (In Sync)"), "success");
 		tokenInput = "";
@@ -324,8 +378,10 @@ async function completeWorkspaceConnection(
 					: null,
 			syncMode: "paused-conflict",
 		});
-		stateStore.write(paused);
-		appState.set(withWorkspaceBinding($appState, paused));
+		await commitBindingSnapshot(
+			withWorkspaceBinding($appState, paused),
+			paused,
+		);
 		clearLegacyWorkspaceSyncState();
 		setToken(token, { remember });
 		setStatus($t("Sync conflict detected"), "info");
@@ -349,10 +405,6 @@ async function connectCandidate(candidate: WorkspaceCandidate) {
 			attempt.rememberToken,
 		);
 	} catch (error) {
-		const stateStore = new WorkspaceV2StateStore();
-		if (attempt.previousBinding) stateStore.write(attempt.previousBinding);
-		else stateStore.clear();
-		appState.set(attempt.previousState);
 		setStatus(connectionErrorMessage(error), "error");
 	} finally {
 		workspaceBusy = false;
@@ -367,9 +419,7 @@ async function handleTokenSave() {
 	manualPushReview = null;
 	workspaceCandidates = [];
 	pendingConnection = null;
-	const previousState = $appState;
-	const stateStore = new WorkspaceV2StateStore();
-	const previousBinding = stateStore.read();
+	const previousBinding = getBrowserWorkspaceBinding();
 	try {
 		const savedGistId = previousBinding?.gistId ?? $appState.activeGistId;
 		const discovery = await discoverWorkspaceGist(token, savedGistId);
@@ -378,7 +428,6 @@ async function handleTokenSave() {
 			pendingConnection = {
 				token,
 				rememberToken,
-				previousState,
 				previousBinding,
 			};
 			setStatus($t("Choose a Workspace to continue."), "info");
@@ -398,9 +447,6 @@ async function handleTokenSave() {
 			rememberToken,
 		);
 	} catch (error) {
-		if (previousBinding) stateStore.write(previousBinding);
-		else stateStore.clear();
-		appState.set(previousState);
 		setStatus(connectionErrorMessage(error), "error");
 	} finally {
 		workspaceBusy = false;
@@ -441,14 +487,13 @@ function appStateWithWorkspaceData(
 async function handleBindOnly() {
 	if (!conflict) return;
 	const bound = bindWorkspaceOnly($appState, conflict.gistId, WORKSPACE_FILE);
-	new WorkspaceV2StateStore().write(
-		createWorkspaceV2LocalState(conflict.gistId, {
-			baseline: conflict.remoteDocument,
-			syncMode: "manual",
-		}),
-	);
-	appState.set(bound);
+	const binding = createWorkspaceV2LocalState(conflict.gistId, {
+		baseline: conflict.remoteDocument,
+		syncMode: "manual",
+	});
+	await commitBindingSnapshot(bound, binding);
 	clearLegacyWorkspaceSyncState();
+	dispatchPersistedWorkspaceState("WORKSPACE_BOUND");
 	conflict = null;
 	manualPushReview = null;
 	tokenInput = "";
@@ -471,8 +516,7 @@ async function handleResolveConflict(action: "local" | "remote" | "merge") {
 	try {
 		const currentConflict = conflict;
 		if (action === "remote") {
-			await discardPendingMutations(workspaceId);
-			persistSnapshot(
+			await persistSnapshot(
 				{
 					origin: "v2",
 					document: currentConflict.remoteDocument,
@@ -501,8 +545,14 @@ async function handleResolveConflict(action: "local" | "remote" | "merge") {
 					: $t("Local data pushed to Gist"),
 				"success",
 			);
+			tombstoneNotice =
+				projected.notices.length > 0
+					? $t(
+							"Remote tombstones were preserved; deleted items were not restored.",
+						)
+					: null;
 		} else {
-			const localBinding = new WorkspaceV2StateStore().read();
+			const localBinding = getBrowserWorkspaceBinding();
 			const merged = mergeWorkspaceData({
 				local: getWorkspaceBusinessData($appState),
 				remote: currentConflict.remoteDocument,
@@ -529,11 +579,18 @@ async function handleResolveConflict(action: "local" | "remote" | "merge") {
 				"automatic",
 				true,
 			);
+			tombstoneNotice =
+				merged.notices.length > 0
+					? $t(
+							"Remote tombstones were preserved; deleted items were not restored.",
+						)
+					: null;
 			setStatus($t("Merged data saved."), "success");
 		}
 		conflict = null;
 		manualPushReview = null;
 		tokenInput = "";
+		dispatchPersistedWorkspaceState("REPAIR_SUCCEEDED");
 	} catch (error) {
 		setStatus(connectionErrorMessage(error), "error");
 	} finally {
@@ -549,7 +606,7 @@ async function handleManualPull() {
 	try {
 		const { gistId } = requireWorkspaceIdentity(
 			$appState,
-			new WorkspaceV2StateStore().read(),
+			getBrowserWorkspaceBinding(),
 		);
 		const snapshot = await loadWorkspaceSnapshot(token, gistId);
 		const remoteState = snapshot.state;
@@ -557,7 +614,7 @@ async function handleManualPull() {
 		const localSignature = getSyncStateSignature($appState);
 
 		if (remoteSignature === localSignature) {
-			persistSnapshot(snapshot, gistId, currentSyncMode());
+			await persistSnapshot(snapshot, gistId, currentSyncMode());
 			setStatus($t("Already in sync"), "info");
 		} else {
 			const confirmed = await requestConfirm({
@@ -567,8 +624,7 @@ async function handleManualPull() {
 			});
 			if (confirmed) {
 				if (!(await confirmDiscardPendingMutations(`gist:${gistId}`))) return;
-				await discardPendingMutations(`gist:${gistId}`);
-				persistSnapshot(snapshot, gistId, currentSyncMode());
+				await persistSnapshot(snapshot, gistId, currentSyncMode());
 				setStatus($t("Pulled successfully"), "success");
 			}
 		}
@@ -587,16 +643,16 @@ async function handleManualPush() {
 	try {
 		const { gistId } = requireWorkspaceIdentity(
 			$appState,
-			new WorkspaceV2StateStore().read(),
+			getBrowserWorkspaceBinding(),
 		);
 		const snapshot = await loadWorkspaceSnapshot(token, gistId);
 		const remoteState = snapshot.state;
 		const localSignature = getSyncStateSignature($appState);
 		const remoteSignature = getSyncStateSignature(remoteState);
-		const binding = new WorkspaceV2StateStore().read();
+		const binding = getBrowserWorkspaceBinding();
 
 		if (remoteSignature === localSignature) {
-			persistSnapshot(snapshot, gistId, currentSyncMode());
+			await persistSnapshot(snapshot, gistId, currentSyncMode());
 			manualPushReview = null;
 			setStatus($t("Already in sync"), "info");
 			return;
@@ -655,8 +711,7 @@ async function handleManualPushReview(action: "remote" | "merge" | "force") {
 			!(await confirmDiscardPendingMutations(`gist:${manualPushReview.gistId}`))
 		)
 			return;
-		await discardPendingMutations(`gist:${manualPushReview.gistId}`);
-		persistSnapshot(
+		await persistSnapshot(
 			{
 				origin: "v2",
 				document: manualPushReview.remoteDocument,
@@ -688,7 +743,7 @@ async function handleManualPushReview(action: "remote" | "merge" | "force") {
 
 	workspaceBusy = true;
 	try {
-		const localBinding = new WorkspaceV2StateStore().read();
+		const localBinding = getBrowserWorkspaceBinding();
 		const merged = mergeWorkspaceData({
 			local: getWorkspaceBusinessData($appState),
 			remote: manualPushReview.remoteDocument,
@@ -760,6 +815,12 @@ async function handleManualForcePush() {
 				: $t("Pushed successfully"),
 			"success",
 		);
+		tombstoneNotice =
+			projected.notices.length > 0
+				? $t(
+						"Remote tombstones were preserved; deleted items were not restored.",
+					)
+				: null;
 	} catch (err) {
 		setStatus($t("Push failed"), "error");
 	} finally {
@@ -768,9 +829,13 @@ async function handleManualForcePush() {
 }
 
 function handleTokenClear() {
+	const queue = getBrowserWorkspaceQueueMetrics();
 	clearAuth();
-	const queueCount = new WorkspaceMutationQueue().list().length;
-	markWorkspaceDisconnected(queueCount);
+	dispatchWorkspaceSyncEvent(
+		queue.totalQueueCount > 0
+			? { type: "AUTH_LOST", queue }
+			: { type: "WORKSPACE_DISCONNECTED", queue },
+	);
 	setStatus($t("Logged out"), "info");
 	conflict = null;
 	manualPushReview = null;
@@ -781,15 +846,20 @@ function handleExport() {
 	setStatus($t("Config exported"), "success");
 }
 
-function handleDiagnosticsExport() {
-	payload = exportWorkspaceDiagnostics($appState);
-	setStatus($t("Diagnostics exported"), "success");
+async function handleDiagnosticsExport() {
+	try {
+		payload = await exportWorkspaceDiagnosticsFromPersistence(
+			getBrowserWorkspacePersistence(),
+		);
+		setStatus($t("Diagnostics exported"), "success");
+	} catch (error) {
+		setStatus(connectionErrorMessage(error), "error");
+	}
 }
 
 async function handleRepairSyncState() {
 	const token = $authState.token;
-	const stateStore = new WorkspaceV2StateStore();
-	const binding = stateStore.read();
+	const binding = getBrowserWorkspaceBinding();
 	const gistId = binding?.gistId ?? $appState.activeGistId;
 	if (!token || !gistId) {
 		setStatus($t("Reconnect GitHub before repairing Workspace sync."), "error");
@@ -797,11 +867,47 @@ async function handleRepairSyncState() {
 	}
 	workspaceBusy = true;
 	try {
+		const inspection = await refreshWorkspaceQueueInspection(
+			getBrowserWorkspacePersistence(),
+		);
+		const blocked = inspection.workspaces.find(
+			(item) => item.workspaceId === `gist:${gistId}`,
+		);
+		const blockedMetadata = blocked?.blocked;
+		if (blockedMetadata?.disposition === "domain-conflict") {
+			queueResult = {
+				type: "error",
+				message: $t(
+					"This is a domain conflict. Edit the affected item or discard and realign the complete Workspace queue.",
+				),
+			};
+			return;
+		}
 		const snapshot = await loadWorkspaceSnapshot(token, gistId);
 		const remoteSignature = getSyncStateSignature(snapshot.state);
 		const localSignature = getSyncStateSignature($appState);
 		if (remoteSignature === localSignature) {
-			persistSnapshot(snapshot, gistId, currentSyncMode());
+			if (
+				blocked &&
+				(blocked.mutations.length > 0 ||
+					blocked.deadLetters.length > 0 ||
+					blocked.blocked !== null)
+			) {
+				const confirmed = await requestConfirm({
+					title: $t("Repair Sync State"),
+					message: $t(
+						"Remote and local state match. Clear the complete active queue repair metadata?",
+					),
+					confirmText: $t("Repair / Reconcile"),
+				});
+				if (!confirmed) return;
+			}
+			await persistSnapshot(snapshot, gistId, currentSyncMode());
+			dispatchPersistedWorkspaceState("REPAIR_SUCCEEDED");
+			queueResult = {
+				type: "success",
+				message: $t("Workspace sync state repaired"),
+			};
 			setStatus($t("Workspace sync state repaired"), "success");
 			return;
 		}
@@ -820,26 +926,17 @@ async function handleRepairSyncState() {
 					: null,
 			syncMode: "paused-conflict",
 		});
-		stateStore.write(paused);
-		appState.set(withWorkspaceBinding($appState, paused));
-		const queuedMutations = new WorkspaceMutationQueue().list();
+		await commitBindingSnapshot(
+			withWorkspaceBinding($appState, paused),
+			paused,
+		);
+		const queue = getBrowserWorkspaceQueueMetrics();
 		dispatchWorkspaceSyncEvent({
 			type: "SYNC_CONTEXT_LOADED",
 			mode: "paused-conflict",
 			authenticated: true,
 			revision: paused.revision,
-			queue: {
-				activeQueueCount: queuedMutations.filter(
-					(item) => item.workspaceId === paused.workspaceId,
-				).length,
-				totalQueueCount: queuedMutations.length,
-				orphanedWorkspaceCount: new Set(
-					queuedMutations
-						.filter((item) => item.workspaceId !== paused.workspaceId)
-						.map((item) => item.workspaceId),
-				).size,
-				blockedMutationCount: 0,
-			},
+			queue,
 			blockedMutation: null,
 		});
 		setStatus(
@@ -850,6 +947,123 @@ async function handleRepairSyncState() {
 		setStatus($t("Workspace sync repair failed"), "error");
 	} finally {
 		workspaceBusy = false;
+	}
+}
+
+async function handleQueueRefresh() {
+	queueResult = null;
+	try {
+		await refreshPersistenceView();
+		queueResult = {
+			type: "success",
+			message: $t("Queue inspector refreshed."),
+		};
+	} catch (error) {
+		queueResult = { type: "error", message: connectionErrorMessage(error) };
+	}
+}
+
+async function handleQueueDiscard(workspaceId: string) {
+	const workspace = queueInspection?.workspaces.find(
+		(item) => item.workspaceId === workspaceId,
+	);
+	if (!workspace) return;
+	const itemCount = workspace.mutations.length + workspace.deadLetters.length;
+	const confirmed = await requestConfirm({
+		title: $t("Discard Workspace Queue"),
+		message: workspace.active
+			? $t(
+					"Discard the complete active Workspace queue and revert local pending changes? This cannot be undone.",
+				)
+			: $t(
+					"Discard the complete orphan Workspace queue? This cannot be undone.",
+				),
+		confirmText: $t("Discard Complete Queue"),
+		danger: true,
+	});
+	if (!confirmed) return;
+	queueActionWorkspaceId = workspaceId;
+	queueResult = null;
+	try {
+		const persistence = getBrowserWorkspacePersistence();
+		let result: Awaited<ReturnType<typeof discardInspectedWorkspaceQueue>>;
+		if (workspace.active) {
+			const binding = getBrowserWorkspaceBinding();
+			if (!binding?.baseline || binding.workspaceId !== workspaceId) {
+				throw new Error("Active Workspace baseline is unavailable");
+			}
+			const realignedBinding = createWorkspaceV2LocalState(binding.gistId, {
+				baseline: binding.baseline,
+				syncMode: binding.syncMode === "manual" ? "manual" : "automatic",
+			});
+			const realignedSnapshot = hydrateAppStateFromWorkspaceDocument(
+				$appState,
+				binding.baseline,
+				binding.gistId,
+			);
+			result = await discardInspectedWorkspaceQueue(persistence, {
+				workspaceId,
+				realignment: {
+					snapshot: realignedSnapshot,
+					binding: realignedBinding,
+				},
+			});
+			appState.set(realignedSnapshot);
+			conflict = null;
+			manualPushReview = null;
+		} else {
+			result = await discardInspectedWorkspaceQueue(persistence, {
+				workspaceId,
+			});
+		}
+		queueInspection = result.inspection;
+		persistenceRecord = await refreshBrowserWorkspacePersistence();
+		if (workspace.active) {
+			dispatchPersistedWorkspaceState("REPAIR_SUCCEEDED");
+		}
+		queueResult = {
+			type: "success",
+			message: $t("Complete Workspace queue discarded ({count} items).", {
+				count: Math.max(result.discardedCount, itemCount),
+			}),
+		};
+	} catch (error) {
+		queueResult = { type: "error", message: connectionErrorMessage(error) };
+	} finally {
+		queueActionWorkspaceId = null;
+	}
+}
+
+async function handleQueueRebind(workspaceId: string) {
+	if (!$authState.token || !workspaceId.startsWith("gist:")) return;
+	const workspace = queueInspection?.workspaces.find(
+		(item) => item.workspaceId === workspaceId,
+	);
+	if (!workspace || workspace.active || workspace.mutations.length > 0) return;
+	queueActionWorkspaceId = workspaceId;
+	queueResult = null;
+	try {
+		const gistId = workspaceId.slice("gist:".length);
+		const snapshot = await loadWorkspaceSnapshot($authState.token, gistId);
+		const binding = createWorkspaceV2LocalState(gistId, {
+			baseline: snapshot.document,
+			syncMode: "automatic",
+		});
+		queueInspection = await rebindInspectedWorkspace(
+			getBrowserWorkspacePersistence(),
+			{ workspaceId, snapshot: snapshot.state, binding },
+		);
+		appState.set(snapshot.state);
+		persistenceRecord = await refreshBrowserWorkspacePersistence();
+		dispatchPersistedWorkspaceState("WORKSPACE_BOUND");
+		queueResult = {
+			type: "success",
+			message: $t("Workspace rebound after identity and revision validation."),
+		};
+	} catch (error) {
+		queueResult = { type: "error", message: connectionErrorMessage(error) };
+	} finally {
+		queueActionWorkspaceId = null;
 	}
 }
 
@@ -882,14 +1096,27 @@ function handleImport() {
 	</header>
 
 	<!-- Conflict Resolution UI -->
+	{#if tombstoneNotice}
+		<section class="gh-alert gh-alert-attention" data-testid="tombstone-notice" transition:slide>
+			<Octicon icon={alert} className="mt-0.5 h-4 w-4 shrink-0 text-[color:var(--attention-emphasis)]" />
+			<div class="min-w-0 flex-1">
+				<h2 class="text-sm font-semibold">{$t("Remote deletions preserved")}</h2>
+				<p class="text-sm text-fg-muted">{tombstoneNotice}</p>
+			</div>
+		</section>
+	{/if}
+
 	{#if conflict}
-		<section class="gh-alert gh-alert-attention" transition:slide>
+		<section class="gh-alert gh-alert-attention" data-testid="state-conflict" transition:slide>
 			<Octicon icon={alert} className="mt-0.5 h-4 w-4 shrink-0 text-[color:var(--attention-emphasis)]" />
 			<div class="min-w-0 flex-1 space-y-3">
 				<div>
 					<h2 class="text-sm font-semibold">{$t("Sync Conflict")}</h2>
 					<p class="text-sm text-fg-muted">
 						{$t("Remote and local data differ. Choose which side becomes the source of truth.")}
+					</p>
+					<p class="text-xs text-fg-muted">
+						{$t("Merge and Use Local preserve remote tombstones, so deleted items are not restored.")}
 					</p>
 				</div>
 				<div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -1055,7 +1282,7 @@ function handleImport() {
 								<Octicon icon={upload} className="h-3.5 w-3.5" />
 								{$t("Push Now")}
 							</button>
-							<button type="button" class="gh-btn gh-btn-sm" on:click={handleRepairSyncState} disabled={workspaceBusy}>
+							<button type="button" class="gh-btn gh-btn-sm" data-testid="repair-sync-action" on:click={handleRepairSyncState} disabled={workspaceBusy}>
 								<Octicon icon={shieldCheck} className="h-3.5 w-3.5" />
 								{$t("Repair Sync State")}
 							</button>
@@ -1085,6 +1312,112 @@ function handleImport() {
 					</p>
 				</div>
 			{/if}
+		</div>
+	</section>
+
+	<section class="gh-section" aria-labelledby="queue-inspector-heading" data-testid="queue-inspector">
+		<div class="gh-section-header">
+			<div>
+				<h2 id="queue-inspector-heading" class="gh-section-title">
+					<Octicon icon={database} className="h-5 w-5" />{$t("Workspace Queue Inspector")}
+				</h2>
+				<p class="gh-section-description">
+					{$t("Review active and orphan Workspace queues without exposing mutation payloads.")}
+				</p>
+			</div>
+			<button type="button" class="gh-btn gh-btn-sm" on:click={handleQueueRefresh} disabled={queueActionWorkspaceId !== null}>
+				<Octicon icon={sync} className={cn("h-3.5 w-3.5", queueActionWorkspaceId !== null && "animate-spin")} />
+				{$t("Refresh")}
+			</button>
+		</div>
+		<div class="gh-section-body space-y-4">
+			<div class="grid grid-cols-2 gap-px overflow-hidden rounded-md border border-border-default bg-border-muted sm:grid-cols-5">
+				<div class="bg-canvas-default p-3"><p class="text-xs text-fg-muted">{$t("Active")}</p><p class="text-lg font-semibold" data-testid="active-queue-count">{queueInspection?.activeQueueCount ?? 0}</p></div>
+				<div class="bg-canvas-default p-3"><p class="text-xs text-fg-muted">{$t("Total")}</p><p class="text-lg font-semibold" data-testid="total-queue-count">{queueInspection?.totalQueueCount ?? 0}</p></div>
+				<div class="bg-canvas-default p-3"><p class="text-xs text-fg-muted">{$t("Orphan Workspaces")}</p><p class="text-lg font-semibold" data-testid="orphan-queue-count">{queueInspection?.orphanedWorkspaceCount ?? 0}</p></div>
+				<div class="bg-canvas-default p-3"><p class="text-xs text-fg-muted">{$t("Blocked")}</p><p class="text-lg font-semibold">{queueInspection?.blockedCount ?? 0}</p></div>
+				<div class="bg-canvas-default p-3"><p class="text-xs text-fg-muted">{$t("Dead letters")}</p><p class="text-lg font-semibold">{queueInspection?.deadLetterCount ?? 0}</p></div>
+			</div>
+
+			{#if persistenceRecord?.binding}
+				<p class="text-xs text-fg-muted">
+					{$t("Current binding")}: <code>{persistenceRecord.binding.workspaceId}</code>
+					<span class="gh-label gh-label-muted ml-2">{persistenceRecord.binding.syncMode}</span>
+				</p>
+			{:else}
+				<p class="text-xs text-fg-muted">{$t("No current Workspace binding.")}</p>
+			{/if}
+
+			{#if queueResult}
+				<div
+					class={cn("gh-alert", queueResult.type === "success" ? "gh-alert-success" : "gh-alert-danger")}
+					role={queueResult.type === "error" ? "alert" : "status"}
+					data-testid="queue-action-result"
+				>
+					<Octicon icon={queueResult.type === "success" ? checkCircle : alert} className="mt-0.5 h-4 w-4 shrink-0" />
+					<p class="text-sm">{queueResult.message}</p>
+				</div>
+			{/if}
+
+			{#if !queueInspection}
+				<p class="text-sm text-fg-muted">{$t("Loading queue metadata...")}</p>
+			{:else if queueInspection.workspaces.length === 0}
+				<p class="text-sm text-fg-muted">{$t("No pending, blocked, or dead-letter Workspace queues.")}</p>
+			{:else}
+				<div class="divide-y divide-border-muted rounded-md border border-border-default" data-testid="queue-workspace-groups">
+					{#each queueInspection.workspaces as workspace}
+						<article class="space-y-3 p-4" data-testid={workspace.active ? "active-workspace-queue" : "orphan-workspace-queue"}>
+							<div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+								<div class="min-w-0 space-y-1">
+									<div class="flex flex-wrap items-center gap-2">
+										<code class="break-all text-xs font-semibold">{workspace.workspaceId}</code>
+										<span class={cn("gh-label", workspace.active ? "badge-success" : "gh-label-muted")}>{workspace.active ? $t("Active Workspace") : $t("Orphan Workspace")}</span>
+									</div>
+									<p class="text-xs text-fg-muted">{$t("{count} queued mutations", { count: workspace.mutations.length })}</p>
+									{#if workspace.blocked}
+										<p class="text-xs text-[color:var(--danger-fg)]" data-testid="blocked-queue-metadata">
+											{$t("Blocked")}: {workspace.blocked.disposition} / {workspace.blocked.code} / {workspace.blocked.kind}
+										</p>
+									{/if}
+									{#if workspace.retry.attempt > 0}
+										<p class="text-xs text-fg-muted">{$t("Retry attempt {count}", { count: workspace.retry.attempt })}</p>
+									{/if}
+								</div>
+								<div class="gh-btn-group shrink-0">
+									{#if workspace.active}
+										<button type="button" class="gh-btn gh-btn-sm" on:click={handleRepairSyncState} disabled={workspaceBusy || queueActionWorkspaceId !== null}>
+											<Octicon icon={shieldCheck} className="h-3.5 w-3.5" />{$t("Repair / Reconcile")}
+										</button>
+									{:else if workspace.mutations.length === 0 && $authState.token}
+										<button type="button" class="gh-btn gh-btn-sm" on:click={() => handleQueueRebind(workspace.workspaceId)} disabled={queueActionWorkspaceId !== null}>
+											<Octicon icon={sync} className="h-3.5 w-3.5" />{$t("Validate & Rebind")}
+										</button>
+									{/if}
+									<button type="button" class="gh-btn gh-btn-danger gh-btn-sm" on:click={() => handleQueueDiscard(workspace.workspaceId)} disabled={queueActionWorkspaceId !== null}>
+										<Octicon icon={trash} className="h-3.5 w-3.5" />{$t("Discard Complete Queue")}
+									</button>
+								</div>
+							</div>
+							{#if workspace.mutations.length > 0 || workspace.deadLetters.length > 0}
+								<details class="text-xs text-fg-muted">
+									<summary class="cursor-pointer font-medium text-fg-default">{$t("Safe queue metadata")}</summary>
+									<ul class="mt-2 space-y-1 font-mono">
+										{#each workspace.mutations as mutation}
+											<li class="break-all">{mutation.expectedRevision} / {mutation.kind} / {mutation.mutationId} / {mutation.payloadBytes} B</li>
+										{/each}
+										{#each workspace.deadLetters as deadLetter}
+											<li class="break-all text-[color:var(--danger-fg)]">{$t("Dead letter")}: {deadLetter.disposition} / {deadLetter.code} / {deadLetter.mutationId}</li>
+										{/each}
+									</ul>
+								</details>
+							{/if}
+						</article>
+					{/each}
+				</div>
+			{/if}
+		</div>
+		<div class="gh-section-footer text-xs text-fg-muted">
+			{$t("Discard and repair always operate on a complete Workspace queue. Orphan queues remain stored when the active Workspace changes.")}
 		</div>
 	</section>
 

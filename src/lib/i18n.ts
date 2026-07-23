@@ -753,6 +753,48 @@ const zhCN: Record<string, string> = {
 	"Choose Pull, Merge, or Push to repair synchronization.":
 		"请选择拉取、合并或推送来修复同步。",
 	"Workspace sync repair failed": "工作区同步修复失败",
+	"Remote deletions preserved": "已保留远端删除记录",
+	"Remote tombstones were preserved; deleted items were not restored.":
+		"已保留远端墓碑记录，已删除项目不会被恢复。",
+	"Merge and Use Local preserve remote tombstones, so deleted items are not restored.":
+		"合并和使用本地数据都会保留远端墓碑记录，因此已删除项目不会被恢复。",
+	"Workspace Queue Inspector": "工作区队列检查器",
+	"Review active and orphan Workspace queues without exposing mutation payloads.":
+		"检查当前和孤立工作区队列，且不会暴露变更载荷。",
+	Active: "当前",
+	Total: "总计",
+	"Orphan Workspaces": "孤立工作区",
+	Blocked: "已阻塞",
+	"Dead letters": "死信",
+	"No current Workspace binding.": "当前没有工作区绑定。",
+	"Loading queue metadata...": "正在加载队列元数据...",
+	"No pending, blocked, or dead-letter Workspace queues.":
+		"没有待处理、已阻塞或死信工作区队列。",
+	"Active Workspace": "当前工作区",
+	"Orphan Workspace": "孤立工作区",
+	"{count} queued mutations": "{count} 项排队变更",
+	"Retry attempt {count}": "第 {count} 次重试",
+	"Repair / Reconcile": "修复 / 对账",
+	"Validate & Rebind": "验证并重新绑定",
+	"Discard Complete Queue": "丢弃完整队列",
+	"Safe queue metadata": "安全队列元数据",
+	"Dead letter": "死信",
+	"Discard and repair always operate on a complete Workspace queue. Orphan queues remain stored when the active Workspace changes.":
+		"丢弃和修复始终作用于完整工作区队列。切换当前工作区时，孤立队列仍会保留。",
+	"Queue inspector refreshed.": "队列检查器已刷新。",
+	"Discard Workspace Queue": "丢弃工作区队列",
+	"Discard the complete active Workspace queue and revert local pending changes? This cannot be undone.":
+		"要丢弃完整的当前工作区队列并撤销本地待处理更改吗？此操作无法撤销。",
+	"Discard the complete orphan Workspace queue? This cannot be undone.":
+		"要丢弃完整的孤立工作区队列吗？此操作无法撤销。",
+	"Complete Workspace queue discarded ({count} items).":
+		"已丢弃完整工作区队列（{count} 项）。",
+	"Workspace rebound after identity and revision validation.":
+		"工作区通过身份和修订验证后已重新绑定。",
+	"This is a domain conflict. Edit the affected item or discard and realign the complete Workspace queue.":
+		"这是领域冲突。请编辑受影响的项目，或丢弃并重新对齐完整工作区队列。",
+	"Remote and local state match. Clear the complete active queue repair metadata?":
+		"远端和本地状态一致。要清除完整的当前队列修复元数据吗？",
 	"Workspace overview": "工作区概览",
 	"Your local data and the cloud workspace don't match. Please choose how to resolve this.":
 		"你的本地数据与云端工作区不一致，请选择处理方式。",

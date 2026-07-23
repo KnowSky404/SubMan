@@ -124,3 +124,90 @@ test("manual sync validates the authoritative Workspace identity before reads", 
 		).toBeGreaterThan(handler.indexOf("requireWorkspaceIdentity("));
 	}
 });
+
+test("auth page uses only initialized transactional Workspace persistence", () => {
+	expect(authPageSource).toContain("initializeBrowserWorkspacePersistence({");
+	expect(authPageSource).toContain("getBrowserWorkspacePersistence()");
+	expect(authPageSource).toContain("getBrowserWorkspaceBinding()");
+	expect(authPageSource).not.toContain("WorkspaceV2StateStore");
+	expect(authPageSource).not.toContain("WorkspaceMutationQueue");
+	expect(authPageSource).not.toContain("workspaceDependencies()");
+
+	const commit = authPageSource.slice(
+		authPageSource.indexOf("async function commitBindingSnapshot("),
+		authPageSource.indexOf("function setStatus("),
+	);
+	expect(
+		commit.indexOf("await getBrowserWorkspacePersistence().rebindWorkspace"),
+	).toBeGreaterThan(-1);
+	expect(commit.indexOf("appState.set(snapshot)")).toBeGreaterThan(
+		commit.indexOf("await getBrowserWorkspacePersistence()"),
+	);
+});
+
+test("persisted state conflict restore excludes domain conflicts", () => {
+	const restore = authPageSource.slice(
+		authPageSource.indexOf("function restorePersistedConflict("),
+		authPageSource.indexOf("onMount("),
+	);
+	expect(restore).toContain('binding?.syncMode === "paused-conflict"');
+	expect(restore).toContain(
+		'activeQueue?.delivery.blocked?.disposition === "state-conflict"',
+	);
+
+	const repair = authPageSource.slice(
+		authPageSource.indexOf("async function handleRepairSyncState()"),
+		authPageSource.indexOf("async function handleQueueRefresh()"),
+	);
+	expect(repair).toContain(
+		'blockedMetadata?.disposition === "domain-conflict"',
+	);
+	expect(
+		repair.indexOf('blockedMetadata?.disposition === "domain-conflict"'),
+	).toBeLessThan(repair.indexOf("conflict = {"));
+});
+
+test("queue inspector groups safe persisted metadata and only discards whole queues", () => {
+	expect(authPageSource).toContain('data-testid="queue-inspector"');
+	expect(authPageSource).toContain('"active-workspace-queue"');
+	expect(authPageSource).toContain('"orphan-workspace-queue"');
+	expect(authPageSource).toContain('data-testid="blocked-queue-metadata"');
+	expect(authPageSource).toContain("workspace.deadLetters");
+	expect(authPageSource).toContain("discardInspectedWorkspaceQueue(");
+	expect(authPageSource).toContain('$t("Discard Complete Queue")');
+	expect(authPageSource).not.toContain(".remove(mutation.mutationId)");
+	expect(authPageSource).not.toContain("discardPendingMutations(");
+});
+
+test("queue repair and rebind expose result feedback and validate identity", () => {
+	expect(authPageSource).toContain("rebindInspectedWorkspace(");
+	expect(authPageSource).toContain(
+		"{ workspaceId, snapshot: snapshot.state, binding }",
+	);
+	expect(authPageSource).toContain('data-testid="queue-action-result"');
+	expect(authPageSource).toContain('$t("Repair / Reconcile")');
+	expect(authPageSource).toContain('$t("Validate & Rebind")');
+	expect(authPageSource).toContain(
+		'dispatchPersistedWorkspaceState("REPAIR_SUCCEEDED")',
+	);
+});
+
+test("diagnostics and logout use persisted safe metadata", () => {
+	expect(authPageSource).toContain(
+		"await exportWorkspaceDiagnosticsFromPersistence(",
+	);
+	expect(authPageSource).not.toContain("exportWorkspaceDiagnostics($appState)");
+	expect(authPageSource).toContain(
+		"const queue = getBrowserWorkspaceQueueMetrics();",
+	);
+	expect(authPageSource).toContain('{ type: "AUTH_LOST", queue }');
+});
+
+test("tombstone-aware actions provide a visible preservation notice", () => {
+	expect(authPageSource).toContain('data-testid="tombstone-notice"');
+	expect(authPageSource).toContain("projected.notices.length > 0");
+	expect(authPageSource).toContain("merged.notices.length > 0");
+	expect(authPageSource).toContain(
+		"Remote tombstones were preserved; deleted items were not restored.",
+	);
+});
