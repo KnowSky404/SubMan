@@ -60,6 +60,7 @@ export function getWorkspaceCoordinatorErrorStatus(
 		case "duplicate_node_raw":
 		case "duplicate_subscription_url":
 		case "publication_file_mismatch":
+		case "output_file_conflict":
 			return 409;
 		case "unsupported_schema":
 			return 422;

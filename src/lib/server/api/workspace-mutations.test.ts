@@ -176,6 +176,7 @@ describe("browser workspace mutation endpoint", () => {
 	it("maps stable coordinator failures to public HTTP statuses", async () => {
 		for (const [code, status] of [
 			["workspace_not_found", 404],
+			["output_file_conflict", 409],
 			["unsupported_schema", 422],
 			["gist_read_failed", 502],
 		] as const) {
