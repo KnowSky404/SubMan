@@ -195,4 +195,51 @@ describe("browser workspace mutation endpoint", () => {
 			});
 		}
 	});
+
+	it("propagates only safe GitHub gateway metadata and category statuses", async () => {
+		for (const [category, upstreamStatus, responseStatus, disposition] of [
+			["authentication", 401, 401, "auth-required"],
+			["authorization", 403, 403, "auth-required"],
+			["not-found", 404, 404, "permanent-upstream"],
+			["conflict", 409, 409, "permanent-upstream"],
+			["validation", 422, 422, "permanent-upstream"],
+			["rate-limit", 429, 429, "retryable-upstream"],
+			["upstream", 503, 502, "retryable-upstream"],
+			["timeout", null, 504, "retryable-upstream"],
+			["network", null, 502, "retryable-upstream"],
+		] as const) {
+			const gateway = {
+				operation: "gist.read" as const,
+				status: upstreamStatus,
+				category,
+				requestId: "ABCD:1234",
+				retryAfter: category === "rate-limit" ? 60 : null,
+				rateLimitReset: category === "rate-limit" ? 1780000000 : null,
+			};
+			const response = await handleBrowserWorkspaceMutation(
+				request(mutation()),
+				WORKSPACE_ID,
+				namespaceReturning({
+					ok: false,
+					error: {
+						code: "gist_read_failed",
+						message: "Unable to read the workspace Gist",
+						gateway,
+					},
+				}),
+			);
+
+			expect(response.status).toBe(responseStatus);
+			const body = await response.text();
+			expect(JSON.parse(body)).toEqual({
+				error: {
+					code: "gist_read_failed",
+					message: "Unable to read the workspace Gist",
+					disposition,
+					gateway,
+				},
+			});
+			expect(body).not.toContain(TOKEN);
+		}
+	});
 });

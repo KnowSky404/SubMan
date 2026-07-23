@@ -1,5 +1,9 @@
 import type { GistMeta } from "$lib/models";
 import {
+	GitHubGatewayError,
+	type GitHubGatewayErrorMetadata,
+} from "$lib/server/workspace-gist";
+import {
 	getWorkspaceContentSignature,
 	isValidWorkspaceBootstrapMarker,
 	migrateWorkspaceDocumentV1ToV2,
@@ -154,10 +158,27 @@ export class WorkspaceCoordinatorError extends Error {
 		readonly code: WorkspaceCoordinatorErrorCode,
 		message: string,
 		readonly latestDocument?: WorkspaceDocumentV2,
+		readonly gateway?: GitHubGatewayErrorMetadata,
 	) {
 		super(message);
 		this.name = "WorkspaceCoordinatorError";
 	}
+}
+
+function upstreamCoordinatorError(
+	code: Extract<
+		WorkspaceCoordinatorErrorCode,
+		"gist_read_failed" | "gist_write_failed" | "write_verification_failed"
+	>,
+	message: string,
+	error: unknown,
+): never {
+	throw new WorkspaceCoordinatorError(
+		code,
+		message,
+		undefined,
+		error instanceof GitHubGatewayError ? error.toJSON() : undefined,
+	);
 }
 
 function coordinatorError(
@@ -577,8 +598,12 @@ export class WorkspaceCoordinatorCore {
 				input.gistId,
 				[...initialFiles],
 			);
-		} catch {
-			coordinatorError("gist_read_failed", "Unable to read the workspace Gist");
+		} catch (error) {
+			upstreamCoordinatorError(
+				"gist_read_failed",
+				"Unable to read the workspace Gist",
+				error,
+			);
 		}
 
 		if (existingPending) {
@@ -698,11 +723,11 @@ export class WorkspaceCoordinatorCore {
 		};
 		this.options.journal.putPending(pendingEntry);
 
-		let patchFailed = false;
+		let patchFailure: unknown = null;
 		try {
 			await this.options.gateway.patch(input.githubToken, input.gistId, files);
-		} catch {
-			patchFailed = true;
+		} catch (error) {
+			patchFailure = error;
 		}
 
 		let verified: WorkspaceGistSnapshot;
@@ -716,10 +741,11 @@ export class WorkspaceCoordinatorCore {
 				input.gistId,
 				[...verificationFileNames],
 			);
-		} catch {
-			coordinatorError(
+		} catch (error) {
+			upstreamCoordinatorError(
 				"write_verification_failed",
 				"Unable to verify the workspace write",
+				error,
 			);
 		}
 		const candidate = await verifyCandidate(verified, pendingEntry);
@@ -732,11 +758,16 @@ export class WorkspaceCoordinatorCore {
 			(await getReservedStateHash(verified)) === pendingEntry.baseDocumentHash;
 		if (unchanged) {
 			this.options.journal.deletePending(pendingEntry.mutationId);
+			if (patchFailure !== null) {
+				upstreamCoordinatorError(
+					"gist_write_failed",
+					"GitHub did not commit the workspace write",
+					patchFailure,
+				);
+			}
 			coordinatorError(
-				patchFailed ? "gist_write_failed" : "write_verification_failed",
-				patchFailed
-					? "GitHub did not commit the workspace write"
-					: "GitHub write verification did not match the candidate",
+				"write_verification_failed",
+				"GitHub write verification did not match the candidate",
 			);
 		}
 		coordinatorError(

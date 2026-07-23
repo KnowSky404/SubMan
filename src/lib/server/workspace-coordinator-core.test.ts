@@ -20,6 +20,7 @@ import {
 	type WorkspaceCoordinatorProcessedMutation,
 	type WorkspaceGistSnapshot,
 } from "$lib/server/workspace-coordinator-core";
+import { GitHubGatewayError } from "$lib/server/workspace-gist";
 import {
 	createWorkspaceBootstrapContent,
 	serializeWorkspaceDocumentV2,
@@ -307,6 +308,66 @@ async function expectCode(
 }
 
 describe("Workspace coordinator serialization and idempotency", () => {
+	it("preserves safe timeout metadata and releases the operation queue", async () => {
+		const backing = new MemoryGateway({
+			"subman.json": serializeWorkspaceDocumentV2(document()),
+		});
+		let reads = 0;
+		const gateway: WorkspaceCoordinatorGateway = {
+			async read(token, gistId, requiredFiles) {
+				reads += 1;
+				if (reads === 1) {
+					throw new GitHubGatewayError({
+						operation: "gist.read",
+						status: null,
+						category: "timeout",
+						requestId: null,
+						retryAfter: null,
+						rateLimitReset: null,
+					});
+				}
+				return backing.read(token, gistId, requiredFiles);
+			},
+			patch: (token, gistId, files) => backing.patch(token, gistId, files),
+		};
+		const core = new WorkspaceCoordinatorCore({
+			gateway,
+			journal: new MemoryJournal(),
+			now: () => T1,
+		});
+		const first = core.mutate({
+			githubToken: TOKEN,
+			gistId: GIST_ID,
+			mutation: replaceNodeMutation("10000000-0000-4000-8000-000000000090"),
+		});
+		const second = core.mutate({
+			githubToken: TOKEN,
+			gistId: GIST_ID,
+			mutation: replaceNodeMutation("10000000-0000-4000-8000-000000000091"),
+		});
+
+		let failure: WorkspaceCoordinatorError | null = null;
+		try {
+			await first;
+		} catch (error) {
+			failure = error as WorkspaceCoordinatorError;
+		}
+		const committed = await second;
+
+		expect(failure?.code).toBe("gist_read_failed");
+		expect(failure?.gateway).toEqual({
+			operation: "gist.read",
+			status: null,
+			category: "timeout",
+			requestId: null,
+			retryAfter: null,
+			rateLimitReset: null,
+		});
+		expect(committed.status).toBe("committed");
+		expect(committed.mutationId).toBe("10000000-0000-4000-8000-000000000091");
+		expect(backing.patches).toHaveLength(1);
+	});
+
 	it("serializes concurrent mutations across GitHub I/O", async () => {
 		const gateway = new MemoryGateway({
 			"subman.json": serializeWorkspaceDocumentV2(document()),

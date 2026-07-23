@@ -1,5 +1,9 @@
 import { describe, expect, it } from "bun:test";
-import { createWorkspaceGistGateway } from "$lib/server/workspace-gist";
+import {
+	createWorkspaceGistGateway,
+	GitHubGatewayError,
+	type GitHubGatewayErrorCategory,
+} from "$lib/server/workspace-gist";
 
 const TOKEN = "secret-github-token";
 
@@ -29,6 +33,27 @@ function gistResponse() {
 			},
 		},
 	};
+}
+
+async function gatewayError(
+	promise: Promise<unknown>,
+): Promise<GitHubGatewayError> {
+	try {
+		await promise;
+		throw new Error("Expected GitHub gateway request to fail");
+	} catch (error) {
+		expect(error instanceof GitHubGatewayError).toBe(true);
+		return error as GitHubGatewayError;
+	}
+}
+
+function abortableFetch(): typeof fetch {
+	return async (_input, init) =>
+		new Promise<Response>((_resolve, reject) => {
+			init?.signal?.addEventListener("abort", () => {
+				reject(new Error(`aborted request containing ${TOKEN}`));
+			});
+		});
 }
 
 describe("Workspace Gist gateway", () => {
@@ -88,21 +113,103 @@ describe("Workspace Gist gateway", () => {
 		});
 	});
 
-	it("does not include credentials in GitHub errors", async () => {
-		const gateway = createWorkspaceGistGateway(async () =>
-			Response.json(
-				{ message: `request rejected for ${TOKEN}` },
-				{ status: 401, statusText: "Unauthorized" },
+	it("classifies GitHub statuses without reading or exposing response bodies", async () => {
+		for (const [status, category] of [
+			[401, "authentication"],
+			[403, "authorization"],
+			[404, "not-found"],
+			[409, "conflict"],
+			[422, "validation"],
+			[429, "rate-limit"],
+			[503, "upstream"],
+		] as const satisfies readonly (readonly [
+			number,
+			GitHubGatewayErrorCategory,
+		])[]) {
+			const gateway = createWorkspaceGistGateway(async () =>
+				Response.json(
+					{ message: `request rejected for ${TOKEN}` },
+					{ status, statusText: "unsafe upstream text" },
+				),
+			);
+			const error = await gatewayError(
+				gateway.read(TOKEN, "gist-1", ["subman.json"]),
+			);
+
+			expect(error.status).toBe(status);
+			expect(error.category).toBe(category);
+			expect(error.message).not.toContain(TOKEN);
+			expect(error.message).not.toContain("unsafe upstream text");
+			expect(JSON.stringify(error)).not.toContain(TOKEN);
+		}
+	});
+
+	it("normalizes safe retry and GitHub request metadata", async () => {
+		const gateway = createWorkspaceGistGateway(
+			async () =>
+				new Response(`unsafe ${TOKEN}`, {
+					status: 429,
+					headers: {
+						"Retry-After": "120",
+						"X-RateLimit-Reset": "1780000000",
+						"X-GitHub-Request-Id": "ABCD:1234",
+					},
+				}),
+		);
+		const error = await gatewayError(
+			gateway.read(TOKEN, "gist-1", ["subman.json"]),
+		);
+
+		expect(error.toJSON()).toEqual({
+			operation: "gist.read",
+			status: 429,
+			category: "rate-limit",
+			requestId: "ABCD:1234",
+			retryAfter: 120,
+			rateLimitReset: 1780000000,
+		});
+		expect(JSON.stringify(error)).not.toContain(TOKEN);
+	});
+
+	it("times out Gist reads, truncated raw reads, and patches", async () => {
+		const readError = await gatewayError(
+			createWorkspaceGistGateway(abortableFetch(), { timeoutMs: 5 }).read(
+				TOKEN,
+				"gist-1",
 			),
 		);
-		let message = "";
-		try {
-			await gateway.read(TOKEN, "gist-1", ["subman.json"]);
-		} catch (error) {
-			message = error instanceof Error ? error.message : String(error);
-		}
+		expect(readError.toJSON()).toEqual({
+			operation: "gist.read",
+			status: null,
+			category: "timeout",
+			requestId: null,
+			retryAfter: null,
+			rateLimitReset: null,
+		});
 
-		expect(message).toContain("401 Unauthorized");
-		expect(message).not.toContain(TOKEN);
+		let calls = 0;
+		const rawError = await gatewayError(
+			createWorkspaceGistGateway(
+				async (input, init) => {
+					calls += 1;
+					return calls === 1
+						? Response.json(gistResponse())
+						: abortableFetch()(input, init);
+				},
+				{ timeoutMs: 5 },
+			).read(TOKEN, "gist-1", ["large.txt"]),
+		);
+		expect(rawError.category).toBe("timeout");
+		expect(rawError.operation).toBe("gist.raw.read");
+
+		const patchError = await gatewayError(
+			createWorkspaceGistGateway(abortableFetch(), { timeoutMs: 5 }).patch(
+				TOKEN,
+				"gist-1",
+				{ "subman.json": { content: "next" } },
+			),
+		);
+		expect(patchError.category).toBe("timeout");
+		expect(patchError.operation).toBe("gist.patch");
 	});
 });

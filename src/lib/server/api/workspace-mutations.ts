@@ -27,17 +27,25 @@ function errorResponse(
 	status: number,
 	code: WorkspaceCoordinatorRpcErrorCode | "unauthorized" | "invalid_mutation",
 	message: string,
-	latest?: Pick<WorkspaceCoordinatorRpcError, "document" | "revision">,
+	details?: Pick<
+		WorkspaceCoordinatorRpcError,
+		"document" | "revision" | "gateway"
+	>,
 ): Response {
 	const disposition = classifyWorkspaceFailure({
-		code,
+		code: details?.gateway ? undefined : code,
 		status,
-		hasTrustedLatestDocument: Boolean(latest?.document),
+		hasTrustedLatestDocument: Boolean(details?.document),
 	});
-	const safeLatest = disposition === "state-conflict" ? latest : undefined;
+	const safeLatest = disposition === "state-conflict" ? details : undefined;
 	return Response.json(
 		{
-			error: { code, message, disposition },
+			error: {
+				code,
+				message,
+				disposition,
+				...(details?.gateway ? { gateway: details.gateway } : {}),
+			},
 			...(safeLatest?.document
 				? { document: safeLatest.document, revision: safeLatest.revision }
 				: {}),
@@ -48,7 +56,34 @@ function errorResponse(
 
 export function getWorkspaceCoordinatorErrorStatus(
 	code: WorkspaceCoordinatorRpcErrorCode,
+	gateway?: WorkspaceCoordinatorRpcError["gateway"],
 ): number {
+	if (gateway) {
+		switch (gateway.category) {
+			case "authentication":
+				return 401;
+			case "authorization":
+				return 403;
+			case "not-found":
+				return 404;
+			case "conflict":
+				return 409;
+			case "validation":
+				return 422;
+			case "rate-limit":
+				return 429;
+			case "timeout":
+				return 504;
+			case "http":
+				return gateway.status !== null &&
+					gateway.status >= 400 &&
+					gateway.status < 500
+					? gateway.status
+					: 502;
+			default:
+				return 502;
+		}
+	}
 	switch (code) {
 		case "invalid_mutation":
 		case "invalid_workspace_document":
@@ -164,7 +199,10 @@ export async function handleBrowserWorkspaceMutation(
 	}
 	if (response.ok) return Response.json(response.result);
 	return errorResponse(
-		getWorkspaceCoordinatorErrorStatus(response.error.code),
+		getWorkspaceCoordinatorErrorStatus(
+			response.error.code,
+			response.error.gateway,
+		),
 		response.error.code,
 		response.error.message,
 		response.error,

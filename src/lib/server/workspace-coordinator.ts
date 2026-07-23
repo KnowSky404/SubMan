@@ -6,7 +6,10 @@ import {
 	type WorkspaceCoordinatorResult,
 } from "$lib/server/workspace-coordinator-core";
 import { SqlWorkspaceCoordinatorJournal } from "$lib/server/workspace-coordinator-journal";
-import { createWorkspaceGistGateway } from "$lib/server/workspace-gist";
+import {
+	createWorkspaceGistGateway,
+	type GitHubGatewayErrorMetadata,
+} from "$lib/server/workspace-gist";
 import {
 	WorkspaceDocumentError,
 	type WorkspaceDocumentV2,
@@ -33,6 +36,7 @@ export type WorkspaceCoordinatorRpcError = {
 	message: string;
 	document?: WorkspaceDocumentV2;
 	revision?: number;
+	gateway?: GitHubGatewayErrorMetadata;
 };
 
 export type WorkspaceCoordinatorRpcResponse =
@@ -50,6 +54,7 @@ function rpcError(error: unknown): WorkspaceCoordinatorRpcError {
 		return {
 			code: error.code,
 			message: error.message,
+			...(error.gateway ? { gateway: error.gateway } : {}),
 			...(error.latestDocument && DOCUMENT_CONFLICTS.has(error.code)
 				? {
 						document: error.latestDocument,

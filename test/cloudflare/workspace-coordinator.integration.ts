@@ -119,6 +119,57 @@ describe("WorkspaceCoordinator Durable Object", () => {
 		expect(JSON.stringify(response)).not.toContain(token);
 	});
 
+	it("serializes safe GitHub gateway metadata across Durable Object RPC", async () => {
+		const gistId = "rpc-gateway-error";
+		const workspaceId = `gist:${gistId}`;
+		const token = "rpc-gateway-token-must-not-escape";
+		vi.spyOn(globalThis, "fetch").mockResolvedValue(
+			new Response(`unsafe body containing ${token}`, {
+				status: 429,
+				headers: {
+					"Retry-After": "45",
+					"X-RateLimit-Reset": "1780000000",
+					"X-GitHub-Request-Id": "ABCD:5678",
+				},
+			}),
+		);
+		const mutation = {
+			mutationId: "80000000-0000-4000-8000-000000000020",
+			workspaceId,
+			expectedRevision: 0,
+			source: "browser",
+			createdAt: "2026-07-22T11:00:00.000Z",
+			kind: "node.delete",
+			payload: { id: "node-1" },
+		} satisfies WorkspaceMutation;
+
+		try {
+			const response = await env.WORKSPACE_COORDINATOR.getByName(
+				workspaceId,
+			).mutate({ gistId, mutation }, token);
+
+			expect(response).toEqual({
+				ok: false,
+				error: {
+					code: "gist_read_failed",
+					message: "Unable to read the workspace Gist",
+					gateway: {
+						operation: "gist.read",
+						status: 429,
+						category: "rate-limit",
+						requestId: "ABCD:5678",
+						retryAfter: 45,
+						rateLimitReset: 1780000000,
+					},
+				},
+			});
+			expect(JSON.stringify(response)).not.toContain(token);
+			expect(JSON.stringify(response)).not.toContain("unsafe body");
+		} finally {
+			vi.restoreAllMocks();
+		}
+	});
+
 	it("serves the browser endpoint and rejects a server-api mutation", async () => {
 		const token = "route-github-token";
 		const response = await SELF.fetch(
@@ -147,6 +198,7 @@ describe("WorkspaceCoordinator Durable Object", () => {
 			error: {
 				code: "invalid_mutation",
 				message: "Browser mutations must use the browser source",
+				disposition: "invalid-request",
 			},
 		});
 		expect(body).not.toContain(token);
