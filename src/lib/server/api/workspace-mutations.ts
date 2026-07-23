@@ -5,6 +5,7 @@ import type {
 	WorkspaceCoordinatorRpcErrorCode,
 	WorkspaceCoordinatorRpcResponse,
 } from "$lib/server/workspace-coordinator";
+import { classifyWorkspaceFailure } from "$lib/workspace-failure-disposition";
 import {
 	parseWorkspaceMutation,
 	type WorkspaceMutation,
@@ -28,11 +29,17 @@ function errorResponse(
 	message: string,
 	latest?: Pick<WorkspaceCoordinatorRpcError, "document" | "revision">,
 ): Response {
+	const disposition = classifyWorkspaceFailure({
+		code,
+		status,
+		hasTrustedLatestDocument: Boolean(latest?.document),
+	});
+	const safeLatest = disposition === "state-conflict" ? latest : undefined;
 	return Response.json(
 		{
-			error: { code, message },
-			...(latest?.document
-				? { document: latest.document, revision: latest.revision }
+			error: { code, message, disposition },
+			...(safeLatest?.document
+				? { document: safeLatest.document, revision: safeLatest.revision }
 				: {}),
 		},
 		{ status },
@@ -69,6 +76,10 @@ export function getWorkspaceCoordinatorErrorStatus(
 		case "write_verification_failed":
 		case "invalid_gateway_response":
 			return 502;
+		case "commit_index_failed":
+		case "invalid_journal_record":
+		case "server_error":
+			return 500;
 		default:
 			return 500;
 	}

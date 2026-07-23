@@ -299,7 +299,12 @@ describe("Workspace mutation delivery", () => {
 			onCommitted: persistCommitted,
 		});
 
-		expect(result.status).toBe("retryable-error");
+		expect(result).toEqual({
+			status: "permanent-error",
+			statusCode: 200,
+			code: "invalid_success_response",
+			disposition: "queue-corruption",
+		});
 		expect(queue.peek(WORKSPACE_ID)?.mutationId).toBe(mutation().mutationId);
 	});
 
@@ -362,6 +367,7 @@ describe("Workspace mutation delivery", () => {
 						error: {
 							code: "revision_conflict",
 							message: "Workspace revision changed",
+							disposition: "state-conflict",
 						},
 						document: latest,
 						revision: latest.revision,
@@ -377,6 +383,44 @@ describe("Workspace mutation delivery", () => {
 		expect(result.status).toBe("conflict");
 		expect(conflictRevision).toBe(3);
 		expect(queue.list()).toHaveLength(1);
+	});
+
+	it("does not turn domain conflicts, queue corruption, or auth loss into state conflict", async () => {
+		for (const [status, code, disposition] of [
+			[409, "duplicate_node_raw", "domain-conflict"],
+			[409, "mutation_id_reused", "queue-corruption"],
+			[401, "unauthorized", "auth-required"],
+		] as const) {
+			const queue = new WorkspaceMutationQueue(new MemoryStorage());
+			await queue.enqueue(mutation());
+			let conflictCalls = 0;
+			const result = await deliverNextWorkspaceMutation({
+				queue,
+				workspaceId: WORKSPACE_ID,
+				githubToken: TOKEN,
+				syncMode: "automatic",
+				fetchImpl: async () =>
+					Response.json(
+						{
+							error: { code, message: code, disposition },
+						},
+						{ status },
+					),
+				onConflict: () => {
+					conflictCalls += 1;
+				},
+				onCommitted: persistCommitted,
+			});
+
+			expect(result).toEqual({
+				status: "permanent-error",
+				statusCode: status,
+				code,
+				disposition,
+			});
+			expect(conflictCalls).toBe(0);
+			expect(queue.list()).toHaveLength(1);
+		}
 	});
 
 	it("blocks paused or unauthenticated delivery", async () => {

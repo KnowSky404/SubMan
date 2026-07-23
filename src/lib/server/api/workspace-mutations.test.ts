@@ -134,6 +134,7 @@ describe("browser workspace mutation endpoint", () => {
 			error: {
 				code: "revision_conflict",
 				message: "Workspace revision changed",
+				disposition: "state-conflict",
 			},
 			document: latest,
 			revision: 3,
@@ -162,6 +163,7 @@ describe("browser workspace mutation endpoint", () => {
 			error: {
 				code: "invalid_mutation",
 				message: "Mutation workspace does not match the route",
+				disposition: "invalid-request",
 			},
 		});
 
@@ -174,11 +176,13 @@ describe("browser workspace mutation endpoint", () => {
 	});
 
 	it("maps stable coordinator failures to public HTTP statuses", async () => {
-		for (const [code, status] of [
-			["workspace_not_found", 404],
-			["output_file_conflict", 409],
-			["unsupported_schema", 422],
-			["gist_read_failed", 502],
+		for (const [code, status, disposition] of [
+			["workspace_not_found", 404, "permanent-upstream"],
+			["output_file_conflict", 409, "domain-conflict"],
+			["unsupported_schema", 422, "invalid-request"],
+			["gist_read_failed", 502, "retryable-upstream"],
+			["mutation_id_reused", 409, "queue-corruption"],
+			["mutation_recovery_failed", 409, "operator-repair"],
 		] as const) {
 			const response = await handleBrowserWorkspaceMutation(
 				request(mutation()),
@@ -187,7 +191,7 @@ describe("browser workspace mutation endpoint", () => {
 			);
 			expect(response.status).toBe(status);
 			expect(await response.json()).toEqual({
-				error: { code, message: code },
+				error: { code, message: code, disposition },
 			});
 		}
 	});

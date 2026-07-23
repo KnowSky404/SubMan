@@ -7,6 +7,10 @@ import {
 	type WorkspaceDocumentV2,
 } from "$lib/workspace-document";
 import { broadcastWorkspaceEvent } from "$lib/workspace-events";
+import {
+	classifyWorkspaceFailure,
+	type WorkspaceFailureDisposition,
+} from "$lib/workspace-failure-disposition";
 import { withWorkspaceLock } from "$lib/workspace-lock";
 import {
 	parseWorkspaceMutation,
@@ -59,17 +63,19 @@ type QueueChange = {
 export type WorkspaceMutationConflict = {
 	code: string;
 	message: string;
-	document?: WorkspaceDocumentV2;
-	revision?: number;
+	disposition: "state-conflict";
+	document: WorkspaceDocumentV2;
+	revision: number;
 };
 
 export type WorkspaceMutationDeliveryResult =
 	| { status: "empty" | "blocked" | "committed" }
-	| { status: "conflict"; code?: string }
+	| { status: "conflict"; code: string; disposition: "state-conflict" }
 	| {
 			status: "retryable-error" | "permanent-error";
 			statusCode?: number;
 			code?: string;
+			disposition: Exclude<WorkspaceFailureDisposition, "state-conflict">;
 	  };
 
 type DeliveryOptions = {
@@ -377,51 +383,62 @@ async function parseCommittedResponse(
 	};
 }
 
-async function parseConflictResponse(
+type WorkspaceMutationFailure =
+	| WorkspaceMutationConflict
+	| {
+			code: string;
+			message: string;
+			disposition: Exclude<WorkspaceFailureDisposition, "state-conflict">;
+	  };
+
+async function parseFailureResponse(
 	response: Response,
 	workspaceId: string,
-): Promise<WorkspaceMutationConflict> {
+): Promise<WorkspaceMutationFailure> {
 	const value = (await response.json()) as unknown;
 	if (!isRecord(value) || !isRecord(value.error)) {
-		throw new Error("Conflict response is invalid");
+		throw new Error("Mutation failure response is invalid");
 	}
 	if (
 		typeof value.error.code !== "string" ||
-		typeof value.error.message !== "string"
+		typeof value.error.message !== "string" ||
+		(value.error.disposition !== undefined &&
+			typeof value.error.disposition !== "string")
 	) {
-		throw new Error("Conflict response is invalid");
+		throw new Error("Mutation failure response is invalid");
 	}
-	if (value.document === undefined) {
-		return { code: value.error.code, message: value.error.message };
+	let document: WorkspaceDocumentV2 | undefined;
+	if (value.document !== undefined) {
+		document = validateWorkspaceDocumentV2(value.document);
+		if (
+			document.workspaceId !== workspaceId ||
+			value.revision !== document.revision
+		) {
+			throw new Error("Mutation failure response is invalid");
+		}
 	}
-	const document = validateWorkspaceDocumentV2(value.document);
-	if (
-		document.workspaceId !== workspaceId ||
-		value.revision !== document.revision
-	) {
-		throw new Error("Conflict response is invalid");
-	}
-	return {
+	const disposition = classifyWorkspaceFailure({
 		code: value.error.code,
-		message: value.error.message,
-		document,
-		revision: document.revision,
-	};
-}
-
-async function readPublicError(
-	response: Response,
-): Promise<string | undefined> {
-	try {
-		const value = (await response.json()) as unknown;
-		return isRecord(value) &&
-			isRecord(value.error) &&
-			typeof value.error.code === "string"
-			? value.error.code
-			: undefined;
-	} catch {
-		return undefined;
+		status: response.status,
+		hasTrustedLatestDocument: Boolean(document),
+	});
+	if (
+		(value.error.disposition !== undefined &&
+			value.error.disposition !== disposition) ||
+		(disposition === "state-conflict" && !document) ||
+		(disposition !== "state-conflict" && document)
+	) {
+		throw new Error("Mutation failure response is invalid");
 	}
+	return disposition === "state-conflict"
+		? {
+				code: value.error.code,
+				message: value.error.message,
+				disposition,
+				document: document as WorkspaceDocumentV2,
+				revision: (document as WorkspaceDocumentV2).revision,
+			}
+		: { code: value.error.code, message: value.error.message, disposition };
 }
 
 export async function deliverNextWorkspaceMutation(
@@ -449,42 +466,71 @@ export async function deliverNextWorkspaceMutation(
 					},
 				);
 			} catch {
-				return { status: "retryable-error" };
+				return {
+					status: "retryable-error",
+					disposition: "retryable-upstream",
+				};
 			}
 
 			if (response.ok) {
+				let result: WorkspaceCoordinatorResult;
 				try {
-					const result = await parseCommittedResponse(response, mutation);
+					result = await parseCommittedResponse(response, mutation);
+				} catch {
+					return {
+						status: "permanent-error",
+						statusCode: response.status,
+						code: "invalid_success_response",
+						disposition: "queue-corruption",
+					};
+				}
+				try {
 					await options.onCommitted(result);
 					await options.queue.remove(mutation.mutationId);
 					return { status: "committed" };
 				} catch {
-					return { status: "retryable-error", statusCode: response.status };
+					return {
+						status: "retryable-error",
+						statusCode: response.status,
+						disposition: "retryable-upstream",
+					};
 				}
 			}
-			if (response.status === 409) {
+			let failure: WorkspaceMutationFailure;
+			try {
+				failure = await parseFailureResponse(response, options.workspaceId);
+			} catch {
+				return {
+					status: "permanent-error",
+					statusCode: response.status,
+					code: "invalid_failure_response",
+					disposition: "queue-corruption",
+				};
+			}
+			if (failure.disposition === "state-conflict") {
 				try {
-					const conflict = await parseConflictResponse(
-						response,
-						options.workspaceId,
-					);
-					await options.onConflict?.(conflict);
-					return { status: "conflict", code: conflict.code };
+					await options.onConflict?.(failure);
+					return {
+						status: "conflict",
+						code: failure.code,
+						disposition: "state-conflict",
+					};
 				} catch {
-					return { status: "retryable-error", statusCode: response.status };
+					return {
+						status: "retryable-error",
+						statusCode: response.status,
+						disposition: "retryable-upstream",
+					};
 				}
 			}
-
-			const code = await readPublicError(response);
 			return {
 				status:
-					response.status === 408 ||
-					response.status === 429 ||
-					response.status >= 500
+					failure.disposition === "retryable-upstream"
 						? "retryable-error"
 						: "permanent-error",
 				statusCode: response.status,
-				...(code ? { code } : {}),
+				code: failure.code,
+				disposition: failure.disposition,
 			};
 		},
 	);

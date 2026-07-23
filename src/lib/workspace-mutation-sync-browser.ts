@@ -131,12 +131,13 @@ export function startWorkspaceMutationSync(
 				});
 			}
 			if (result.status === "permanent-error") {
+				const authRequired = result.disposition === "auth-required";
 				updateWorkspaceSyncStatus({
-					lifecycle: "permanent-error",
+					lifecycle: authRequired ? "auth-required" : "permanent-error",
 					queueCount,
 					retrying: false,
 					recentError: result.code ?? "Workspace synchronization needs repair",
-					repairRequired: true,
+					repairRequired: !authRequired,
 				});
 			}
 			if (result.status === "conflict") {

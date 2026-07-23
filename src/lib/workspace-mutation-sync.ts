@@ -107,13 +107,11 @@ function persistConflict(
 	const current = requireCurrentWorkspace(dependencies, workspaceId);
 	const previous = dependencies.stateStore.read();
 	if (!previous) throw new Error("Workspace binding is missing");
-	const binding = conflict.document
-		? createWorkspaceV2LocalState(current.gistId, {
-				baseline: conflict.document,
-				conflictBaseline: previous.conflictBaseline ?? previous.baseline,
-				syncMode: "paused-conflict",
-			})
-		: { ...previous, syncMode: "paused-conflict" as const };
+	const binding = createWorkspaceV2LocalState(current.gistId, {
+		baseline: conflict.document,
+		conflictBaseline: previous.conflictBaseline ?? previous.baseline,
+		syncMode: "paused-conflict",
+	});
 	dependencies.stateStore.write(binding);
 	(dependencies.broadcast ?? broadcastWorkspaceEvent)({
 		type: "paused-conflict",
