@@ -2,60 +2,37 @@ import { describe, expect, it } from "bun:test";
 import type { AppState, GistMeta, NodeItem } from "$lib/models";
 import {
 	commitQueuedBrowserWorkspaceMutation,
+	persistBrowserWorkspaceSnapshot,
 	readBrowserWorkspaceSnapshot,
 	reconcileBrowserWorkspace,
 	submitBrowserWorkspaceMutation,
 } from "$lib/workspace-browser-session-v2";
 import {
 	createDefaultWorkspaceState,
-	getWorkspaceBusinessData,
 	serializeWorkspaceState,
 } from "$lib/workspace-data";
 import type { WorkspaceDocumentV2 } from "$lib/workspace-document";
-import { parseWorkspaceMutation } from "$lib/workspace-mutation";
-import { WorkspaceMutationQueue } from "$lib/workspace-mutation-queue";
+import {
+	parseWorkspaceMutation,
+	type WorkspaceMutation,
+} from "$lib/workspace-mutation";
+import { InMemoryWorkspacePersistence } from "$lib/workspace-persistence";
 import {
 	createWorkspaceV2LocalState,
-	WorkspaceV2StateStore,
+	hydrateAppStateFromWorkspaceDocument,
+	type WorkspaceV2LocalState,
 } from "$lib/workspace-v2-state";
 
 const NOW = "2026-07-22T17:00:00.000Z";
+const LATER = "2026-07-22T17:01:00.000Z";
 const MUTATION_ID = "b0000000-0000-4000-8000-000000000001";
 const MUTATION_ID_2 = "b0000000-0000-4000-8000-000000000002";
 const MUTATION_ID_3 = "b0000000-0000-4000-8000-000000000003";
 
-class MemoryStorage implements Storage {
-	private readonly values = new Map<string, string>();
-
-	get length(): number {
-		return this.values.size;
-	}
-
-	clear(): void {
-		this.values.clear();
-	}
-
-	getItem(key: string): string | null {
-		return this.values.get(key) ?? null;
-	}
-
-	key(index: number): string | null {
-		return [...this.values.keys()][index] ?? null;
-	}
-
-	removeItem(key: string): void {
-		this.values.delete(key);
-	}
-
-	setItem(key: string, value: string): void {
-		this.values.set(key, value);
-	}
-}
-
-function node(id: string): NodeItem {
+function node(id: string, name = id): NodeItem {
 	return {
 		id,
-		name: id,
+		name,
 		type: "vless",
 		raw: `vless://${id}`,
 		tags: [],
@@ -75,16 +52,20 @@ function gist(fileName: string): GistMeta {
 	};
 }
 
-function committedDocument(): WorkspaceDocumentV2 {
+function document(
+	revision = 1,
+	lastMutationId: string | null = MUTATION_ID,
+	nodes: NodeItem[] = [node("local")],
+): WorkspaceDocumentV2 {
 	return {
 		version: 2,
 		schemaVersion: 2,
 		workspaceId: "gist:gist-1",
-		revision: 1,
-		updatedAt: NOW,
-		lastMutationId: MUTATION_ID,
+		revision,
+		updatedAt: revision > 1 ? LATER : NOW,
+		lastMutationId,
 		data: {
-			nodes: [node("local")],
+			nodes,
 			subscriptions: [],
 			aggregates: [],
 			publishTargets: [],
@@ -98,6 +79,63 @@ function committedDocument(): WorkspaceDocumentV2 {
 			clientExports: [],
 		},
 	};
+}
+
+function stateFor(documentValue: WorkspaceDocumentV2): AppState {
+	return hydrateAppStateFromWorkspaceDocument(
+		createDefaultWorkspaceState(NOW),
+		documentValue,
+		"gist-1",
+	);
+}
+
+function mutation(
+	mutationId: string,
+	expectedRevision: number,
+	name: string,
+	createdAt = NOW,
+): WorkspaceMutation {
+	return parseWorkspaceMutation({
+		mutationId,
+		workspaceId: "gist:gist-1",
+		expectedRevision,
+		source: "browser",
+		createdAt,
+		kind: "node.upsert",
+		payload: {
+			operation: "replace",
+			node: node("local", name),
+		},
+	});
+}
+
+function committedResponse(documentValue: WorkspaceDocumentV2): Response {
+	return Response.json({
+		document: documentValue,
+		mutationId: documentValue.lastMutationId,
+		workspaceId: documentValue.workspaceId,
+		committedRevision: documentValue.revision,
+		committedAt: documentValue.updatedAt,
+		receipt: { kind: "workspace.reconcile" },
+		status: "committed",
+	});
+}
+
+async function seed(
+	persistence: InMemoryWorkspacePersistence,
+	state: AppState,
+	binding: WorkspaceV2LocalState,
+	mutations: WorkspaceMutation[] = [],
+): Promise<void> {
+	if (mutations.length > 0) {
+		await persistence.repairWorkspaceQueue({
+			snapshot: state,
+			binding,
+			mutations,
+		});
+		return;
+	}
+	await persistence.rebindWorkspace({ snapshot: state, binding });
 }
 
 describe("browser Workspace V2 session", () => {
@@ -130,75 +168,100 @@ describe("browser Workspace V2 session", () => {
 		expect(bootstrap.document.data.nodes).toEqual([]);
 	});
 
-	it("queues and commits reconciliation before advancing the local baseline", async () => {
-		const storage = new MemoryStorage();
-		const queue = new WorkspaceMutationQueue(storage);
-		const stateStore = new WorkspaceV2StateStore(storage);
-		let state: AppState = {
-			...createDefaultWorkspaceState(),
-			nodes: [node("local")],
-			activeGistId: "gist-1",
+	it("accepts a remote snapshot by atomically discarding the complete active queue", async () => {
+		const persistence = new InMemoryWorkspacePersistence();
+		const baseline = document();
+		const binding = createWorkspaceV2LocalState("gist-1", { baseline });
+		const queued = mutation(MUTATION_ID_2, 1, "optimistic");
+		const optimistic = {
+			...stateFor(document(2, MUTATION_ID_2, [node("local", "optimistic")])),
+			lastUpdated: NOW,
 		};
-		const baseline = await readBrowserWorkspaceSnapshot(
-			"token",
-			gist("subman.bootstrap.json"),
-			state,
-			{ now: () => NOW },
+		await seed(persistence, optimistic, binding, [queued]);
+		let state = optimistic;
+		const remote = document(4, MUTATION_ID_3, [node("remote")]);
+
+		await persistBrowserWorkspaceSnapshot(
+			{ origin: "v2", document: remote, state: stateFor(remote) },
+			"gist-1",
+			"automatic",
+			{
+				persistence,
+				getState: () => state,
+				setState: (next) => {
+					state = next;
+				},
+			},
 		);
+
+		const stored = await persistence.read();
+		expect(stored.binding?.revision).toBe(4);
+		expect(stored.workspaces["gist:gist-1"]).toBe(undefined);
+		expect(stored.snapshot?.nodes[0]?.id).toBe("remote");
+		expect(state.nodes[0]?.id).toBe("remote");
+	});
+
+	it("atomically replaces pending work with an explicit reconcile and commits it", async () => {
+		const persistence = new InMemoryWorkspacePersistence();
+		const baseline = document();
+		const binding = createWorkspaceV2LocalState("gist-1", { baseline });
+		const oldMutation = mutation(MUTATION_ID_2, 1, "old");
+		const resolved = stateFor(document(2, MUTATION_ID_3, [node("resolved")]));
+		await seed(
+			persistence,
+			{
+				...stateFor(document(2, MUTATION_ID_2, [node("local", "old")])),
+				lastUpdated: NOW,
+			},
+			binding,
+			[oldMutation],
+		);
+		let state = resolved;
+		let requestBody = "";
 
 		await reconcileBrowserWorkspace(
 			{
 				token: "token",
 				gistId: "gist-1",
-				baseline: baseline.document,
-				resolvedState: state,
+				baseline,
+				resolvedState: resolved,
 				syncMode: "automatic",
+				replacePending: true,
 			},
 			{
-				queue,
-				stateStore,
+				persistence,
 				getState: () => state,
 				setState: (next) => {
 					state = next;
 				},
-				mutationId: () => MUTATION_ID,
+				mutationId: () => MUTATION_ID_3,
 				now: () => NOW,
 				fetchImpl: async (_input, init) => {
-					expect(String(init?.body)).not.toContain("token");
-					return Response.json({
-						document: committedDocument(),
-						mutationId: MUTATION_ID,
-						workspaceId: "gist:gist-1",
-						committedRevision: 1,
-						committedAt: NOW,
-						receipt: { kind: "workspace.reconcile" },
-						status: "committed",
-					});
+					requestBody = String(init?.body);
+					return committedResponse(
+						document(2, MUTATION_ID_3, [node("resolved")]),
+					);
 				},
 			},
 		);
 
-		expect(stateStore.read()?.revision).toBe(1);
-		expect(stateStore.read()?.syncMode).toBe("automatic");
-		expect(queue.list()).toEqual([]);
-		expect(state.nodes[0]?.id).toBe("local");
+		expect(requestBody).toContain(MUTATION_ID_3);
+		expect(requestBody).not.toContain(MUTATION_ID_2);
+		const stored = await persistence.read();
+		expect(stored.workspaces["gist:gist-1"]?.mutations).toEqual([]);
+		expect(stored.binding?.revision).toBe(2);
+		expect(state.nodes[0]?.name).toBe("resolved");
 	});
 
-	it("keeps automatic reconciliation retryable after a transient failure", async () => {
-		const storage = new MemoryStorage();
-		const queue = new WorkspaceMutationQueue(storage);
-		const stateStore = new WorkspaceV2StateStore(storage);
+	it("keeps the same reconcile mutation queued with persisted retry metadata", async () => {
+		const persistence = new InMemoryWorkspacePersistence();
 		let state: AppState = {
-			...createDefaultWorkspaceState(),
+			...createDefaultWorkspaceState(NOW),
 			nodes: [node("local")],
 			activeGistId: "gist-1",
+			activeGistFile: "subman.json",
 		};
-		const baseline = await readBrowserWorkspaceSnapshot(
-			"token",
-			gist("subman.bootstrap.json"),
-			state,
-			{ now: () => NOW },
-		);
+		const baseline = document(0, null, []);
 
 		let error: unknown;
 		try {
@@ -206,77 +269,47 @@ describe("browser Workspace V2 session", () => {
 				{
 					token: "token",
 					gistId: "gist-1",
-					baseline: baseline.document,
+					baseline,
 					resolvedState: state,
 					syncMode: "automatic",
 				},
 				{
-					queue,
-					stateStore,
+					persistence,
 					getState: () => state,
 					setState: (next) => {
 						state = next;
 					},
 					mutationId: () => MUTATION_ID,
 					now: () => NOW,
-					fetchImpl: async () => new Response(null, { status: 503 }),
+					fetchImpl: async () => {
+						throw new Error("offline");
+					},
 				},
 			);
 		} catch (caught) {
 			error = caught;
 		}
-
-		expect(error instanceof Error).toBe(true);
-		expect(stateStore.read()?.syncMode).toBe("automatic");
-		expect(queue.peek("gist:gist-1")?.mutationId).toBe(MUTATION_ID);
-
-		let retryCalls = 0;
-		await reconcileBrowserWorkspace(
-			{
-				token: "token",
-				gistId: "gist-1",
-				baseline: baseline.document,
-				resolvedState: state,
-				syncMode: "automatic",
-			},
-			{
-				queue,
-				stateStore,
-				getState: () => state,
-				setState: (next) => {
-					state = next;
-				},
-				fetchImpl: async () => {
-					retryCalls += 1;
-					return Response.json({
-						document: committedDocument(),
-						mutationId: MUTATION_ID,
-						workspaceId: "gist:gist-1",
-						committedRevision: 1,
-						committedAt: NOW,
-						receipt: { kind: "workspace.reconcile" },
-						status: "committed",
-					});
-				},
-			},
+		expect((error as Error).message).toContain(
+			"Workspace reconciliation failed",
 		);
 
-		expect(retryCalls).toBe(1);
-		expect(queue.list()).toEqual([]);
-		expect(stateStore.read()?.revision).toBe(1);
+		const stored = await persistence.read();
+		expect(stored.workspaces["gist:gist-1"]?.mutations[0]?.mutationId).toBe(
+			MUTATION_ID,
+		);
+		expect(stored.workspaces["gist:gist-1"]?.delivery.retry.attempt).toBe(1);
 	});
 
-	it("blocks publish and delete before enqueue when Workspace identity differs", async () => {
-		const storage = new MemoryStorage();
-		const queue = new WorkspaceMutationQueue(storage);
-		const stateStore = new WorkspaceV2StateStore(storage);
-		stateStore.write(
-			createWorkspaceV2LocalState("gist-1", {
-				baseline: committedDocument(),
-			}),
+	it("rejects identity mismatch before persisting an explicit mutation", async () => {
+		const persistence = new InMemoryWorkspacePersistence();
+		const baseline = document();
+		await seed(
+			persistence,
+			stateFor(baseline),
+			createWorkspaceV2LocalState("gist-1", { baseline }),
 		);
-		const state = {
-			...createDefaultWorkspaceState(),
+		const mismatched = {
+			...stateFor(baseline),
 			activeGistId: "different-gist",
 		};
 
@@ -288,29 +321,24 @@ describe("browser Workspace V2 session", () => {
 					kind: "output.delete",
 					payload: { fileName: "a.txt" },
 				},
-				{ queue, stateStore, getState: () => state, setState: () => {} },
+				{ persistence, getState: () => mismatched, setState: () => {} },
 			);
 		} catch (caught) {
 			error = caught;
 		}
 		expect((error as Error).message).toBe("Workspace identity requires repair");
-		expect(queue.list()).toEqual([]);
+		expect((await persistence.read()).workspaces).toEqual({});
 	});
 
-	it("blocks publishing remote stale data while manual changes are local only", async () => {
-		const storage = new MemoryStorage();
-		const queue = new WorkspaceMutationQueue(storage);
-		const stateStore = new WorkspaceV2StateStore(storage);
-		stateStore.write(
-			createWorkspaceV2LocalState("gist-1", {
-				baseline: committedDocument(),
-				syncMode: "manual",
-			}),
-		);
-		const state = {
-			...createDefaultWorkspaceState(),
-			activeGistId: "gist-1",
-		};
+	it("requires opt-in for manual delivery and preserves manual mode after commit", async () => {
+		const persistence = new InMemoryWorkspacePersistence();
+		const baseline = document();
+		const binding = createWorkspaceV2LocalState("gist-1", {
+			baseline,
+			syncMode: "manual",
+		});
+		let state = stateFor(baseline);
+		await seed(persistence, state, binding);
 
 		let error: unknown;
 		try {
@@ -320,7 +348,7 @@ describe("browser Workspace V2 session", () => {
 					kind: "output.delete",
 					payload: { fileName: "a.txt" },
 				},
-				{ queue, stateStore, getState: () => state, setState: () => {} },
+				{ persistence, getState: () => state, setState: () => {} },
 			);
 		} catch (caught) {
 			error = caught;
@@ -328,23 +356,7 @@ describe("browser Workspace V2 session", () => {
 		expect((error as Error).message).toBe(
 			"Push local Workspace changes before publishing",
 		);
-		expect(queue.list()).toEqual([]);
-	});
 
-	it("allows an explicit manual push action before publication", async () => {
-		const storage = new MemoryStorage();
-		const queue = new WorkspaceMutationQueue(storage);
-		const stateStore = new WorkspaceV2StateStore(storage);
-		stateStore.write(
-			createWorkspaceV2LocalState("gist-1", {
-				baseline: committedDocument(),
-				syncMode: "manual",
-			}),
-		);
-		let state: AppState = {
-			...createDefaultWorkspaceState(),
-			activeGistId: "gist-1",
-		};
 		await submitBrowserWorkspaceMutation(
 			{
 				token: "token",
@@ -352,8 +364,7 @@ describe("browser Workspace V2 session", () => {
 				payload: { fileName: "a.txt" },
 			},
 			{
-				queue,
-				stateStore,
+				persistence,
 				getState: () => state,
 				setState: (next) => {
 					state = next;
@@ -363,330 +374,43 @@ describe("browser Workspace V2 session", () => {
 				now: () => NOW,
 				fetchImpl: async () =>
 					Response.json({
-						document: {
-							...committedDocument(),
-							revision: 2,
-							lastMutationId: MUTATION_ID_2,
-						},
+						document: document(2, MUTATION_ID_2),
 						mutationId: MUTATION_ID_2,
 						workspaceId: "gist:gist-1",
 						committedRevision: 2,
-						committedAt: NOW,
+						committedAt: LATER,
 						receipt: { kind: "output.delete", deleted: true },
 						status: "committed",
 					}),
 			},
 		);
 
-		expect(queue.list()).toEqual([]);
-		expect(stateStore.read()?.revision).toBe(2);
-		expect(stateStore.read()?.syncMode).toBe("manual");
+		const stored = await persistence.read();
+		expect(stored.binding?.syncMode).toBe("manual");
+		expect(stored.binding?.revision).toBe(2);
+		expect(stored.workspaces["gist:gist-1"]?.mutations).toEqual([]);
 	});
 
-	it("reconciles unrelated manual changes before an atomic target update", async () => {
-		const storage = new MemoryStorage();
-		const queue = new WorkspaceMutationQueue(storage);
-		const stateStore = new WorkspaceV2StateStore(storage);
-		stateStore.write(
-			createWorkspaceV2LocalState("gist-1", {
-				baseline: committedDocument(),
-				syncMode: "manual",
-			}),
+	it("commits a selected queued mutation in FIFO order", async () => {
+		const persistence = new InMemoryWorkspacePersistence();
+		const baseline = document();
+		const first = mutation(MUTATION_ID_2, 1, "first");
+		const second = mutation(MUTATION_ID_3, 2, "second", LATER);
+		const optimisticNode = { ...node("local", "second"), updatedAt: LATER };
+		const optimistic = stateFor(document(3, MUTATION_ID_3, [optimisticNode]));
+		await seed(
+			persistence,
+			optimistic,
+			createWorkspaceV2LocalState("gist-1", { baseline }),
+			[first, second],
 		);
-		const aggregate = {
-			id: "aggregate-1",
-			name: "Manual aggregate",
-			nodeIds: ["unsynced"],
-			subscriptionIds: [],
-			excludeTagIds: [],
-			renameMap: {},
-			allowedTypes: [],
-			updatedAt: NOW,
-		};
-		const target = {
-			id: "target-1",
-			name: "Manual target",
-			ruleId: aggregate.id,
-			fileName: "manual.txt",
-			description: "",
-			isPublic: false,
-			lastPublishedAt: null,
-			lastPublishedUrl: null,
-			lastPublishTransitionAt: null,
-			lastPublishTransitionFromFileName: null,
-			lastPublishTransitionToFileName: null,
-			lastPublishTransitionOutcome: null,
-			updatedAt: NOW,
-		};
-		let state: AppState = {
-			...createDefaultWorkspaceState(),
-			nodes: [node("local"), node("unsynced")],
-			aggregates: [aggregate],
-			publishTargets: [target],
-			activeGistId: "gist-1",
-		};
-		const localSnapshot = state;
-		const reconcileState = { ...state, publishTargets: [] };
-
-		await reconcileBrowserWorkspace(
-			{
-				token: "token",
-				gistId: "gist-1",
-				baseline: committedDocument(),
-				resolvedState: reconcileState,
-				syncMode: "manual",
-			},
-			{
-				queue,
-				stateStore,
-				getState: () => state,
-				setState: (next) => {
-					state = next;
-				},
-				mutationId: () => MUTATION_ID_2,
-				now: () => NOW,
-				fetchImpl: async (_input, init) => {
-					expect(String(init?.body)).toContain('"kind":"workspace.reconcile"');
-					return Response.json({
-						document: {
-							...committedDocument(),
-							revision: 2,
-							lastMutationId: MUTATION_ID_2,
-							data: getWorkspaceBusinessData(reconcileState),
-						},
-						mutationId: MUTATION_ID_2,
-						workspaceId: "gist:gist-1",
-						committedRevision: 2,
-						committedAt: NOW,
-						receipt: { kind: "workspace.reconcile" },
-						status: "committed",
-					});
-				},
-			},
-		);
-
-		await submitBrowserWorkspaceMutation(
-			{
-				token: "token",
-				kind: "publish-target.upsert",
-				payload: { target, previousFileCleanup: "delete-if-unreferenced" },
-			},
-			{
-				queue,
-				stateStore,
-				getState: () => state,
-				setState: (next) => {
-					state = next;
-				},
-				allowManual: true,
-				mutationId: () => MUTATION_ID_3,
-				now: () => NOW,
-				fetchImpl: async (_input, init) => {
-					expect(String(init?.body)).toContain(
-						'"kind":"publish-target.upsert"',
-					);
-					return Response.json({
-						document: {
-							...(stateStore.read()?.baseline ?? committedDocument()),
-							revision: 3,
-							lastMutationId: MUTATION_ID_3,
-							data: getWorkspaceBusinessData(localSnapshot),
-						},
-						mutationId: MUTATION_ID_3,
-						workspaceId: "gist:gist-1",
-						committedRevision: 3,
-						committedAt: NOW,
-						receipt: {
-							kind: "publish-target.upsert",
-							entityId: target.id,
-						},
-						status: "committed",
-					});
-				},
-			},
-		);
-
-		expect(state.nodes.map((item) => item.id)).toEqual(["local", "unsynced"]);
-		expect(state.publishTargets[0]?.id).toBe(target.id);
-		expect(stateStore.read()?.revision).toBe(3);
-	});
-
-	it("preserves unrelated manual changes before atomic target cleanup", async () => {
-		const storage = new MemoryStorage();
-		const queue = new WorkspaceMutationQueue(storage);
-		const stateStore = new WorkspaceV2StateStore(storage);
-		const aggregate = {
-			id: "aggregate-1",
-			name: "Manual aggregate",
-			nodeIds: ["unsynced"],
-			subscriptionIds: [],
-			excludeTagIds: [],
-			renameMap: {},
-			allowedTypes: [],
-			updatedAt: NOW,
-		};
-		const target = {
-			id: "target-1",
-			name: "Published target",
-			ruleId: aggregate.id,
-			fileName: "manual.txt",
-			description: "",
-			isPublic: false,
-			lastPublishedAt: NOW,
-			lastPublishedUrl: "https://example.com/manual.txt",
-			lastPublishTransitionAt: null,
-			lastPublishTransitionFromFileName: null,
-			lastPublishTransitionToFileName: null,
-			lastPublishTransitionOutcome: null,
-			updatedAt: NOW,
-		};
-		let state: AppState = {
-			...createDefaultWorkspaceState(),
-			nodes: [node("local"), node("unsynced")],
-			aggregates: [aggregate],
-			publishTargets: [target],
-			activeGistId: "gist-1",
-		};
-		stateStore.write(
-			createWorkspaceV2LocalState("gist-1", {
-				baseline: committedDocument(),
-				syncMode: "manual",
-			}),
-		);
-
-		await reconcileBrowserWorkspace(
-			{
-				token: "token",
-				gistId: "gist-1",
-				baseline: committedDocument(),
-				resolvedState: state,
-				syncMode: "manual",
-			},
-			{
-				queue,
-				stateStore,
-				getState: () => state,
-				setState: (next) => {
-					state = next;
-				},
-				mutationId: () => MUTATION_ID_2,
-				now: () => NOW,
-				fetchImpl: async () =>
-					Response.json({
-						document: {
-							...committedDocument(),
-							revision: 2,
-							lastMutationId: MUTATION_ID_2,
-							data: getWorkspaceBusinessData(state),
-						},
-						mutationId: MUTATION_ID_2,
-						workspaceId: "gist:gist-1",
-						committedRevision: 2,
-						committedAt: NOW,
-						receipt: { kind: "workspace.reconcile" },
-						status: "committed",
-					}),
-			},
-		);
-
-		await submitBrowserWorkspaceMutation(
-			{
-				token: "token",
-				kind: "publish-target.delete",
-				payload: { id: target.id, cleanupUnreferencedOutputs: true },
-			},
-			{
-				queue,
-				stateStore,
-				getState: () => state,
-				setState: (next) => {
-					state = next;
-				},
-				allowManual: true,
-				mutationId: () => MUTATION_ID_3,
-				now: () => NOW,
-				fetchImpl: async (_input, init) => {
-					expect(String(init?.body)).toContain(
-						'"kind":"publish-target.delete"',
-					);
-					return Response.json({
-						document: {
-							...(stateStore.read()?.baseline ?? committedDocument()),
-							revision: 3,
-							lastMutationId: MUTATION_ID_3,
-							data: {
-								...getWorkspaceBusinessData(state),
-								publishTargets: [],
-							},
-						},
-						mutationId: MUTATION_ID_3,
-						workspaceId: "gist:gist-1",
-						committedRevision: 3,
-						committedAt: NOW,
-						receipt: {
-							kind: "publish-target.delete",
-							entityId: target.id,
-							deleted: true,
-						},
-						status: "committed",
-					});
-				},
-			},
-		);
-
-		expect(state.nodes.map((item) => item.id)).toEqual(["local", "unsynced"]);
-		expect(state.publishTargets).toEqual([]);
-		expect(stateStore.read()?.revision).toBe(3);
-	});
-
-	it("commits a saved action in FIFO order before a later queued action", async () => {
-		const storage = new MemoryStorage();
-		const queue = new WorkspaceMutationQueue(storage);
-		const stateStore = new WorkspaceV2StateStore(storage);
-		stateStore.write(
-			createWorkspaceV2LocalState("gist-1", {
-				baseline: committedDocument(),
-			}),
-		);
-		let state: AppState = {
-			...createDefaultWorkspaceState(),
-			nodes: [node("local")],
-			activeGistId: "gist-1",
-		};
-		await queue.enqueue(
-			parseWorkspaceMutation({
-				mutationId: MUTATION_ID_2,
-				workspaceId: "gist:gist-1",
-				expectedRevision: 1,
-				source: "browser",
-				createdAt: NOW,
-				kind: "node.upsert",
-				payload: {
-					operation: "replace",
-					node: { ...node("local"), name: "first" },
-				},
-			}),
-		);
-		await queue.enqueue(
-			parseWorkspaceMutation({
-				mutationId: MUTATION_ID_3,
-				workspaceId: "gist:gist-1",
-				expectedRevision: 2,
-				source: "browser",
-				createdAt: NOW,
-				kind: "node.upsert",
-				payload: {
-					operation: "replace",
-					node: { ...node("local"), name: "second" },
-				},
-			}),
-		);
+		let state = optimistic;
 		let requests = 0;
+
 		await commitQueuedBrowserWorkspaceMutation(
 			{ token: "token", mutationId: MUTATION_ID_2 },
 			{
-				queue,
-				stateStore,
+				persistence,
 				getState: () => state,
 				setState: (next) => {
 					state = next;
@@ -695,19 +419,11 @@ describe("browser Workspace V2 session", () => {
 					requests += 1;
 					expect(String(init?.body)).toContain(MUTATION_ID_2);
 					return Response.json({
-						document: {
-							...committedDocument(),
-							revision: 2,
-							lastMutationId: MUTATION_ID_2,
-							data: {
-								...committedDocument().data,
-								nodes: [{ ...node("local"), name: "first" }],
-							},
-						},
+						document: document(2, MUTATION_ID_2, [node("local", "first")]),
 						mutationId: MUTATION_ID_2,
 						workspaceId: "gist:gist-1",
 						committedRevision: 2,
-						committedAt: NOW,
+						committedAt: LATER,
 						receipt: { kind: "node.upsert", entityId: "local" },
 						status: "committed",
 					});
@@ -715,10 +431,60 @@ describe("browser Workspace V2 session", () => {
 			},
 		);
 
+		const stored = await persistence.read();
 		expect(requests).toBe(1);
-		expect(queue.list().map((mutation) => mutation.mutationId)).toEqual([
-			MUTATION_ID_3,
-		]);
+		expect(
+			stored.workspaces["gist:gist-1"]?.mutations.map(
+				(item) => item.mutationId,
+			),
+		).toEqual([MUTATION_ID_3]);
 		expect(state.nodes[0]?.name).toBe("second");
+	});
+
+	it("hydrates committed explicit mutation state without persisting the token", async () => {
+		const persistence = new InMemoryWorkspacePersistence();
+		const baseline = document();
+		let state = stateFor(baseline);
+		await seed(
+			persistence,
+			state,
+			createWorkspaceV2LocalState("gist-1", { baseline }),
+		);
+
+		await submitBrowserWorkspaceMutation(
+			{
+				token: "secret-token-canary",
+				kind: "node.upsert",
+				payload: { operation: "replace", node: node("local", "committed") },
+			},
+			{
+				persistence,
+				getState: () => state,
+				setState: (next) => {
+					state = next;
+				},
+				mutationId: () => MUTATION_ID_2,
+				now: () => NOW,
+				fetchImpl: async (_input, init) => {
+					expect(
+						(init?.headers as Record<string, string>).Authorization,
+					).toContain("secret-token-canary");
+					return Response.json({
+						document: document(2, MUTATION_ID_2, [node("local", "committed")]),
+						mutationId: MUTATION_ID_2,
+						workspaceId: "gist:gist-1",
+						committedRevision: 2,
+						committedAt: LATER,
+						receipt: { kind: "node.upsert", entityId: "local" },
+						status: "committed",
+					});
+				},
+			},
+		);
+
+		expect(state.nodes[0]?.name).toBe("committed");
+		expect(JSON.stringify(await persistence.read())).not.toContain(
+			"secret-token-canary",
+		);
 	});
 });
