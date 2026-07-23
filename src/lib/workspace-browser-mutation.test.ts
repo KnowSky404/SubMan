@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 import {
 	enqueueAutomaticWorkspaceMutation,
 	enqueueAutomaticWorkspaceReconcile,
+	validateAutomaticWorkspaceMutationDraft,
 } from "$lib/workspace-browser-mutation";
 import { createDefaultWorkspaceState } from "$lib/workspace-data";
 import type { WorkspaceDocumentV2 } from "$lib/workspace-document";
@@ -84,6 +85,57 @@ function stores(syncMode: "automatic" | "manual" | "paused-conflict") {
 }
 
 describe("automatic browser mutation enqueue", () => {
+	it("rejects an invalid automatic mutation before optimistic state can change", () => {
+		const { stateStore } = stores("automatic");
+		const invalidProfile = {
+			id: "export-1",
+			name: "Export",
+			type: "sing-box-client",
+			ruleId: "aggregate-1",
+			fileName: "client.json",
+			options: {
+				listenAddress: "127.0.0.1",
+				listenPort: 2080,
+				inboundType: "mixed",
+				dnsMode: "conservative",
+				routeMode: "global-proxy",
+				includeExperimental: true,
+				selectorTag: "",
+				urlTestTag: "auto",
+			},
+			lastGeneratedAt: null,
+			lastPublishedAt: null,
+			lastPublishedUrl: null,
+			updatedAt: NOW,
+		};
+
+		expect(() =>
+			validateAutomaticWorkspaceMutationDraft(
+				{
+					kind: "client-export.upsert",
+					payload: { profile: invalidProfile },
+				},
+				{ stateStore },
+			),
+		).toThrow("selectorTag must be a non-empty string");
+	});
+
+	it("keeps local and manual drafts outside automatic mutation validation", () => {
+		const localStore = new WorkspaceV2StateStore(new MemoryStorage());
+		const { stateStore: manualStore } = stores("manual");
+		const invalidDraft = {
+			kind: "output.delete" as const,
+			payload: { fileName: "subman.json" },
+		};
+
+		validateAutomaticWorkspaceMutationDraft(invalidDraft, {
+			stateStore: localStore,
+		});
+		validateAutomaticWorkspaceMutationDraft(invalidDraft, {
+			stateStore: manualStore,
+		});
+	});
+
 	it("allocates revisions after the committed baseline and pending queue", async () => {
 		const { queue, stateStore } = stores("automatic");
 		const ids = [

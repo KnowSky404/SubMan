@@ -243,16 +243,19 @@ function handleAdd() {
 			const name = uniqueNodeName(
 				nodeName.trim() || inferNodeNameFromRaw(raw, "Imported Node"),
 			);
-			upsertNode({
-				id: createId("node"),
-				name,
-				type: inferNodeTypeFromDraft(raw, nodeType),
-				raw,
-				tags: parseTags(nodeTags),
-				enabled: true,
-				updatedAt: nowIso(),
-				source: "single",
-			});
+			if (
+				!upsertNode({
+					id: createId("node"),
+					name,
+					type: inferNodeTypeFromDraft(raw, nodeType),
+					raw,
+					tags: parseTags(nodeTags),
+					enabled: true,
+					updatedAt: nowIso(),
+					source: "single",
+				})
+			)
+				return;
 			nodeName = "";
 			nodeRaw = "";
 			nodeTags = "";
@@ -273,14 +276,17 @@ function handleAdd() {
 				return;
 			}
 			const name = uniqueSubscriptionName(subName.trim());
-			upsertSubscription({
-				id: createId("sub"),
-				name,
-				url,
-				enabled: true,
-				tags: parseTags(subTags),
-				updatedAt: nowIso(),
-			});
+			if (
+				!upsertSubscription({
+					id: createId("sub"),
+					name,
+					url,
+					enabled: true,
+					tags: parseTags(subTags),
+					updatedAt: nowIso(),
+				})
+			)
+				return;
 			subName = "";
 			subUrl = "";
 			subTags = "";
@@ -309,16 +315,19 @@ function handleAdd() {
 						importedNames,
 						formatResourceNameTimestamp(),
 					);
-					upsertNode({
-						id: createId("node"),
-						name,
-						type: inferNodeTypeFromRaw(normalizedRaw),
-						raw: normalizedRaw,
-						tags: parseTags(batchTags),
-						enabled: true,
-						updatedAt: nowIso(),
-						source: "single",
-					});
+					if (
+						!upsertNode({
+							id: createId("node"),
+							name,
+							type: inferNodeTypeFromRaw(normalizedRaw),
+							raw: normalizedRaw,
+							tags: parseTags(batchTags),
+							enabled: true,
+							updatedAt: nowIso(),
+							source: "single",
+						})
+					)
+						return;
 					seenRaw.add(normalizedRaw);
 					importedNames = [name, ...importedNames];
 					count++;
@@ -357,14 +366,17 @@ function handleAdd() {
 						importedNames,
 						formatResourceNameTimestamp(),
 					);
-					upsertSubscription({
-						id: createId("sub"),
-						name,
-						url,
-						enabled: true,
-						tags: parseTags(batchTags),
-						updatedAt: nowIso(),
-					});
+					if (
+						!upsertSubscription({
+							id: createId("sub"),
+							name,
+							url,
+							enabled: true,
+							tags: parseTags(batchTags),
+							updatedAt: nowIso(),
+						})
+					)
+						return;
 					seenUrl.add(url);
 					importedNames = [name, ...importedNames];
 					count++;
@@ -404,14 +416,17 @@ function saveEditNode(id: string) {
 		);
 		return;
 	}
-	upsertNode({
-		...original,
-		name: uniqueNodeName(draft.name.trim(), id),
-		type: inferNodeTypeFromDraft(raw, draft.type),
-		raw,
-		tags: parseTags(draft.tags),
-		updatedAt: nowIso(),
-	});
+	if (
+		!upsertNode({
+			...original,
+			name: uniqueNodeName(draft.name.trim(), id),
+			type: inferNodeTypeFromDraft(raw, draft.type),
+			raw,
+			tags: parseTags(draft.tags),
+			updatedAt: nowIso(),
+		})
+	)
+		return;
 	closeEditModal();
 	showToastNotify($t("Node updated"));
 }
@@ -445,13 +460,16 @@ function saveEditSub(id: string) {
 		return;
 	}
 
-	upsertSubscription({
-		...original,
-		name: uniqueSubscriptionName(draft.name.trim(), id),
-		url,
-		tags: parseTags(draft.tags),
-		updatedAt: nowIso(),
-	});
+	if (
+		!upsertSubscription({
+			...original,
+			name: uniqueSubscriptionName(draft.name.trim(), id),
+			url,
+			tags: parseTags(draft.tags),
+			updatedAt: nowIso(),
+		})
+	)
+		return;
 	closeEditModal();
 	showToastNotify($t("Subscription updated"));
 }
@@ -524,14 +542,16 @@ async function remove(id: string, type: "node" | "sub", name: string) {
 	await tick();
 
 	try {
-		if (editingResource?.id === id) closeEditModal();
+		let removed = false;
 		if (type === "node") {
-			removeNode(id);
-			delete nodeDrafts[id];
+			removed = removeNode(id);
+			if (removed) delete nodeDrafts[id];
 		} else {
-			removeSubscription(id);
-			delete subDrafts[id];
+			removed = removeSubscription(id);
+			if (removed) delete subDrafts[id];
 		}
+		if (!removed) return;
+		if (editingResource?.id === id) closeEditModal();
 		showToastNotify($t("Deleted {name}", { name }));
 	} finally {
 		deletingResourceId = null;

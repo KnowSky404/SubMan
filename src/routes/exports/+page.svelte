@@ -159,7 +159,7 @@ function createProfile(): void {
 	if (!firstRule) return;
 
 	const profile = createDefaultSingBoxClientProfile(firstRule.id, nowIso());
-	upsertClientExport(profile);
+	if (!upsertClientExport(profile)) return;
 	selectedProfileId = profile.id;
 	syncDraftFromProfile(profile);
 	clearPreview();
@@ -203,7 +203,7 @@ function saveProfile(): void {
 			}
 		: draftProfile;
 
-	upsertClientExport(nextProfile);
+	if (!upsertClientExport(nextProfile)) return;
 	selectedProfileId = nextProfile.id;
 	syncDraftFromProfile(nextProfile);
 	clearPreview();
@@ -218,7 +218,7 @@ async function deleteProfile(profile: ClientExportProfile): Promise<void> {
 	});
 	if (!confirmed) return;
 
-	removeClientExport(profile.id);
+	if (!removeClientExport(profile.id)) return;
 	if (selectedProfileId === profile.id) {
 		selectedProfileId = "";
 	}

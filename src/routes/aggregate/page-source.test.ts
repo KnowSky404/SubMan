@@ -63,3 +63,8 @@ test("aggregate preview generation does not show a success toast", () => {
 	expect(aggregatePageSource).toContain("previewGeneratedAt");
 	expect(aggregatePageSource).toContain('{$t("Preview generated {time}"');
 });
+
+test("aggregate save feedback requires an accepted Workspace mutation", () => {
+	expect(aggregatePageSource).toContain("!upsertAggregate({");
+	expect(aggregatePageSource).toContain("!upsertPublishTarget({");
+});

@@ -66,6 +66,12 @@ test("exports page validates listen port before saving", () => {
 	);
 });
 
+test("exports page keeps rejected Workspace drafts unsaved", () => {
+	expect(exportsPageSource).toContain(
+		"if (!upsertClientExport(nextProfile)) return;",
+	);
+});
+
 test("exports page clears stale live link metadata only after output changes", () => {
 	expect(exportsPageSource).toContain("hasClientExportOutputChanged");
 	expect(exportsPageSource).toContain("const outputChanged");

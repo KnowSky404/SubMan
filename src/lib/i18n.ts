@@ -314,6 +314,7 @@ const zhCN: Record<string, string> = {
 	"Workspace config file was restored from the current local state.":
 		"Workspace 配置文件已根据当前本地状态恢复。",
 	"Workspace config repair failed.": "Workspace 配置修复失败。",
+	"Workspace change was not saved: {error}": "工作区更改未保存：{error}",
 	"Workspace repair unavailable.": "Workspace 修复当前不可用。",
 	Healthy: "健康",
 	"Needs attention": "需要关注",

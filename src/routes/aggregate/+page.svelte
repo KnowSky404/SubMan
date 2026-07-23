@@ -281,24 +281,27 @@ async function saveRule() {
 		.map((l) => l.trim())
 		.filter(Boolean);
 
-	upsertAggregate({
-		id,
-		name: ruleName.trim(),
-		nodeIds: finalNodeIds,
-		subscriptionIds: finalSubIds,
-		excludeTagIds: excludeTags
-			.split(",")
-			.map((t) => t.trim())
-			.filter(Boolean),
-		renameMap: {}, // Migrate to renameRules
-		renameRules,
-		customRegionFlagMap,
-		allowedTypes,
-		prependRegionFlags,
-		sortMode,
-		sortPriority,
-		updatedAt: nowIso(),
-	});
+	if (
+		!upsertAggregate({
+			id,
+			name: ruleName.trim(),
+			nodeIds: finalNodeIds,
+			subscriptionIds: finalSubIds,
+			excludeTagIds: excludeTags
+				.split(",")
+				.map((t) => t.trim())
+				.filter(Boolean),
+			renameMap: {}, // Migrate to renameRules
+			renameRules,
+			customRegionFlagMap,
+			allowedTypes,
+			prependRegionFlags,
+			sortMode,
+			sortPriority,
+			updatedAt: nowIso(),
+		})
+	)
+		return;
 	editingRuleId = id;
 	showToast($t("Rule saved successfully"), "success");
 }
@@ -306,21 +309,24 @@ async function saveRule() {
 async function saveTarget() {
 	if (!publishTargetFile.trim() || !publishTargetRuleId) return;
 	const id = selectedTargetId || createId("pub");
-	upsertPublishTarget({
-		id,
-		name: publishTargetName.trim() || publishTargetFile,
-		ruleId: publishTargetRuleId,
-		fileName: publishTargetFile.trim(),
-		description: publishTargetDescription.trim(),
-		isPublic: publishTargetPublic,
-		lastPublishedAt: null,
-		lastPublishedUrl: null,
-		lastPublishTransitionAt: null,
-		lastPublishTransitionFromFileName: null,
-		lastPublishTransitionToFileName: null,
-		lastPublishTransitionOutcome: null,
-		updatedAt: nowIso(),
-	});
+	if (
+		!upsertPublishTarget({
+			id,
+			name: publishTargetName.trim() || publishTargetFile,
+			ruleId: publishTargetRuleId,
+			fileName: publishTargetFile.trim(),
+			description: publishTargetDescription.trim(),
+			isPublic: publishTargetPublic,
+			lastPublishedAt: null,
+			lastPublishedUrl: null,
+			lastPublishTransitionAt: null,
+			lastPublishTransitionFromFileName: null,
+			lastPublishTransitionToFileName: null,
+			lastPublishTransitionOutcome: null,
+			updatedAt: nowIso(),
+		})
+	)
+		return;
 	selectedTargetId = id;
 	showToast($t("Publish target saved"), "success");
 }

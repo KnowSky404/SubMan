@@ -594,7 +594,7 @@ function handleExport() {
 
 function handleImport() {
 	try {
-		replaceState(importState(payload));
+		if (!replaceState(importState(payload))) return;
 		setStatus($t("Config imported"), "success");
 	} catch (err) {
 		setStatus($t("Import failed"), "error");
