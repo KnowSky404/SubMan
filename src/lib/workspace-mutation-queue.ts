@@ -26,6 +26,26 @@ import {
 const STORAGE_KEY = "subman:workspace-mutation-queue:v1";
 const QUARANTINE_PREFIX = `${STORAGE_KEY}:quarantine:`;
 const WRITE_LOCK = `${STORAGE_KEY}:write`;
+const DEFAULT_DELIVERY_TIMEOUT_MS = 15_000;
+const SAFE_REQUEST_ID = /^[0-9A-Za-z._:-]+$/;
+const GATEWAY_OPERATIONS = new Set([
+	"gist.read",
+	"gist.raw.read",
+	"gist.patch",
+]);
+const GATEWAY_CATEGORIES = new Set([
+	"authentication",
+	"authorization",
+	"not-found",
+	"conflict",
+	"validation",
+	"rate-limit",
+	"timeout",
+	"network",
+	"upstream",
+	"invalid-response",
+	"http",
+]);
 const MUTATION_KINDS = new Set<WorkspaceMutation["kind"]>([
 	"node.upsert",
 	"node.delete",
@@ -76,6 +96,8 @@ export type WorkspaceMutationDeliveryResult =
 			statusCode?: number;
 			code?: string;
 			disposition: Exclude<WorkspaceFailureDisposition, "state-conflict">;
+			retryAfterMs?: number | null;
+			rateLimitResetAt?: number | null;
 	  };
 
 type DeliveryOptions = {
@@ -84,6 +106,7 @@ type DeliveryOptions = {
 	githubToken: string | null;
 	syncMode: LocalWorkspaceBinding["syncMode"];
 	fetchImpl?: typeof fetch;
+	timeoutMs?: number;
 	onCommitted: (result: WorkspaceCoordinatorResult) => void | Promise<void>;
 	onConflict?: (conflict: WorkspaceMutationConflict) => void | Promise<void>;
 };
@@ -100,6 +123,76 @@ function hasExactKeys(
 		Object.keys(value).length === required.length &&
 		required.every((key) => key in value)
 	);
+}
+
+function hasOnlyKeys(
+	value: Record<string, unknown>,
+	required: readonly string[],
+	allowed: readonly string[],
+): boolean {
+	const allowedKeys = new Set(allowed);
+	return (
+		required.every((key) => key in value) &&
+		Object.keys(value).every((key) => allowedKeys.has(key))
+	);
+}
+
+type GatewayRetryMetadata = {
+	retryAfterMs: number | null;
+	rateLimitResetAt: number | null;
+};
+
+function secondsToMilliseconds(value: unknown): number | null {
+	if (value === null) return null;
+	if (
+		!Number.isSafeInteger(value) ||
+		(value as number) < 0 ||
+		(value as number) > Math.floor(Number.MAX_SAFE_INTEGER / 1_000)
+	) {
+		throw new Error("Mutation failure response is invalid");
+	}
+	return (value as number) * 1_000;
+}
+
+function parseGatewayRetryMetadata(value: unknown): GatewayRetryMetadata {
+	if (
+		!isRecord(value) ||
+		!hasExactKeys(value, [
+			"operation",
+			"status",
+			"category",
+			"requestId",
+			"retryAfter",
+			"rateLimitReset",
+		]) ||
+		typeof value.operation !== "string" ||
+		!GATEWAY_OPERATIONS.has(value.operation) ||
+		typeof value.category !== "string" ||
+		!GATEWAY_CATEGORIES.has(value.category) ||
+		(value.status !== null &&
+			(!Number.isSafeInteger(value.status) ||
+				(value.status as number) < 100 ||
+				(value.status as number) > 599)) ||
+		(value.requestId !== null &&
+			(typeof value.requestId !== "string" ||
+				value.requestId.length === 0 ||
+				value.requestId.length > 128 ||
+				!SAFE_REQUEST_ID.test(value.requestId)))
+	) {
+		throw new Error("Mutation failure response is invalid");
+	}
+	return {
+		retryAfterMs: secondsToMilliseconds(value.retryAfter),
+		rateLimitResetAt: secondsToMilliseconds(value.rateLimitReset),
+	};
+}
+
+function timeoutResult(): WorkspaceMutationDeliveryResult {
+	return {
+		status: "retryable-error",
+		code: "upstream_timeout",
+		disposition: "retryable-upstream",
+	};
 }
 
 function defaultNotify(change: QueueChange): void {
@@ -389,6 +482,7 @@ type WorkspaceMutationFailure =
 			code: string;
 			message: string;
 			disposition: Exclude<WorkspaceFailureDisposition, "state-conflict">;
+			retryMetadata?: GatewayRetryMetadata;
 	  };
 
 async function parseFailureResponse(
@@ -399,6 +493,20 @@ async function parseFailureResponse(
 	if (!isRecord(value) || !isRecord(value.error)) {
 		throw new Error("Mutation failure response is invalid");
 	}
+	const hasDocument = value.document !== undefined;
+	if (
+		!hasExactKeys(
+			value,
+			hasDocument ? ["error", "document", "revision"] : ["error"],
+		) ||
+		!hasOnlyKeys(
+			value.error,
+			["code", "message"],
+			["code", "message", "disposition", "gateway"],
+		)
+	) {
+		throw new Error("Mutation failure response is invalid");
+	}
 	if (
 		typeof value.error.code !== "string" ||
 		typeof value.error.message !== "string" ||
@@ -407,8 +515,12 @@ async function parseFailureResponse(
 	) {
 		throw new Error("Mutation failure response is invalid");
 	}
+	const retryMetadata =
+		value.error.gateway === undefined
+			? undefined
+			: parseGatewayRetryMetadata(value.error.gateway);
 	let document: WorkspaceDocumentV2 | undefined;
-	if (value.document !== undefined) {
+	if (hasDocument) {
 		document = validateWorkspaceDocumentV2(value.document);
 		if (
 			document.workspaceId !== workspaceId ||
@@ -438,7 +550,12 @@ async function parseFailureResponse(
 				document: document as WorkspaceDocumentV2,
 				revision: (document as WorkspaceDocumentV2).revision,
 			}
-		: { code: value.error.code, message: value.error.message, disposition };
+		: {
+				code: value.error.code,
+				message: value.error.message,
+				disposition,
+				...(retryMetadata ? { retryMetadata } : {}),
+			};
 }
 
 export async function deliverNextWorkspaceMutation(
@@ -447,11 +564,24 @@ export async function deliverNextWorkspaceMutation(
 	if (!options.githubToken || options.syncMode === "paused-conflict") {
 		return { status: "blocked" };
 	}
+	const timeoutMs = options.timeoutMs ?? DEFAULT_DELIVERY_TIMEOUT_MS;
+	if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) {
+		throw new TypeError(
+			"Workspace mutation timeout must be a positive integer",
+		);
+	}
 	return withWorkspaceLock(
 		`subman:workspace-mutation-delivery:${options.workspaceId}`,
 		async () => {
 			const mutation = options.queue.peek(options.workspaceId);
 			if (!mutation) return { status: "empty" };
+			const controller = new AbortController();
+			let timedOut = false;
+			const timer = setTimeout(() => {
+				timedOut = true;
+				controller.abort();
+			}, timeoutMs);
+			const stopTimeout = () => clearTimeout(timer);
 			let response: Response;
 			try {
 				response = await (options.fetchImpl ?? fetch)(
@@ -463,9 +593,12 @@ export async function deliverNextWorkspaceMutation(
 							"Content-Type": "application/json",
 						},
 						body: JSON.stringify(mutation),
+						signal: controller.signal,
 					},
 				);
 			} catch {
+				stopTimeout();
+				if (timedOut) return timeoutResult();
 				return {
 					status: "retryable-error",
 					disposition: "retryable-upstream",
@@ -477,6 +610,8 @@ export async function deliverNextWorkspaceMutation(
 				try {
 					result = await parseCommittedResponse(response, mutation);
 				} catch {
+					stopTimeout();
+					if (timedOut) return timeoutResult();
 					return {
 						status: "permanent-error",
 						statusCode: response.status,
@@ -484,6 +619,8 @@ export async function deliverNextWorkspaceMutation(
 						disposition: "queue-corruption",
 					};
 				}
+				stopTimeout();
+				if (timedOut) return timeoutResult();
 				try {
 					await options.onCommitted(result);
 					await options.queue.remove(mutation.mutationId);
@@ -500,6 +637,8 @@ export async function deliverNextWorkspaceMutation(
 			try {
 				failure = await parseFailureResponse(response, options.workspaceId);
 			} catch {
+				stopTimeout();
+				if (timedOut) return timeoutResult();
 				return {
 					status: "permanent-error",
 					statusCode: response.status,
@@ -507,6 +646,8 @@ export async function deliverNextWorkspaceMutation(
 					disposition: "queue-corruption",
 				};
 			}
+			stopTimeout();
+			if (timedOut) return timeoutResult();
 			if (failure.disposition === "state-conflict") {
 				try {
 					await options.onConflict?.(failure);
@@ -531,6 +672,10 @@ export async function deliverNextWorkspaceMutation(
 				statusCode: response.status,
 				code: failure.code,
 				disposition: failure.disposition,
+				...(failure.disposition === "retryable-upstream" &&
+				failure.retryMetadata
+					? failure.retryMetadata
+					: {}),
 			};
 		},
 	);

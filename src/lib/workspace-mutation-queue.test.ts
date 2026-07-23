@@ -281,6 +281,176 @@ describe("Workspace mutation delivery", () => {
 		expect(storage.getItem(queue.storageKey) ?? "").not.toContain(TOKEN);
 	});
 
+	it("times out an aborted fetch and permits a later attempt", async () => {
+		const queue = new WorkspaceMutationQueue(new MemoryStorage());
+		await queue.enqueue(mutation());
+		let calls = 0;
+		let aborted = false;
+		const fetchImpl: typeof fetch = async (_input, init) => {
+			calls += 1;
+			if (calls > 1) return Response.json(committed());
+			return new Promise<Response>((_resolve, reject) => {
+				init?.signal?.addEventListener("abort", () => {
+					aborted = true;
+					reject(new Error(`aborted request containing ${TOKEN}`));
+				});
+			});
+		};
+		const options = {
+			queue,
+			workspaceId: WORKSPACE_ID,
+			githubToken: TOKEN,
+			syncMode: "automatic" as const,
+			fetchImpl,
+			timeoutMs: 5,
+			onCommitted: persistCommitted,
+		};
+
+		expect(await deliverNextWorkspaceMutation(options)).toEqual({
+			status: "retryable-error",
+			code: "upstream_timeout",
+			disposition: "retryable-upstream",
+		});
+		expect(aborted).toBe(true);
+		expect(queue.peek(WORKSPACE_ID)?.mutationId).toBe(mutation().mutationId);
+
+		expect((await deliverNextWorkspaceMutation(options)).status).toBe(
+			"committed",
+		);
+		expect(queue.list()).toEqual([]);
+	});
+
+	it("keeps the timeout active while parsing the response body", async () => {
+		const queue = new WorkspaceMutationQueue(new MemoryStorage());
+		await queue.enqueue(mutation());
+		let bodyCancelled = false;
+		const result = await deliverNextWorkspaceMutation({
+			queue,
+			workspaceId: WORKSPACE_ID,
+			githubToken: TOKEN,
+			syncMode: "automatic",
+			timeoutMs: 5,
+			fetchImpl: async (_input, init) =>
+				new Response(
+					new ReadableStream<Uint8Array>({
+						start(controller) {
+							init?.signal?.addEventListener("abort", () => {
+								bodyCancelled = true;
+								controller.error(
+									new Error(`cancelled body containing ${TOKEN}`),
+								);
+							});
+						},
+					}),
+				),
+			onCommitted: persistCommitted,
+		});
+
+		expect(result).toEqual({
+			status: "retryable-error",
+			code: "upstream_timeout",
+			disposition: "retryable-upstream",
+		});
+		expect(bodyCancelled).toBe(true);
+		expect(JSON.stringify(result)).not.toContain(TOKEN);
+		expect(queue.list()).toHaveLength(1);
+	});
+
+	it("normalizes safe gateway retry metadata without exposing the response", async () => {
+		const queue = new WorkspaceMutationQueue(new MemoryStorage());
+		await queue.enqueue(mutation());
+		const result = await deliverNextWorkspaceMutation({
+			queue,
+			workspaceId: WORKSPACE_ID,
+			githubToken: TOKEN,
+			syncMode: "automatic",
+			fetchImpl: async () =>
+				Response.json(
+					{
+						error: {
+							code: "gist_read_failed",
+							message: `unsafe response containing ${TOKEN}`,
+							disposition: "retryable-upstream",
+							gateway: {
+								operation: "gist.read",
+								status: 429,
+								category: "rate-limit",
+								requestId: "ABCD:1234",
+								retryAfter: 60,
+								rateLimitReset: 1_780_000_000,
+							},
+						},
+					},
+					{ status: 429 },
+				),
+			onCommitted: persistCommitted,
+		});
+
+		expect(result).toEqual({
+			status: "retryable-error",
+			statusCode: 429,
+			code: "gist_read_failed",
+			disposition: "retryable-upstream",
+			retryAfterMs: 60_000,
+			rateLimitResetAt: 1_780_000_000_000,
+		});
+		expect(JSON.stringify(result)).not.toContain(TOKEN);
+		expect(JSON.stringify(queue.list())).not.toContain(TOKEN);
+	});
+
+	it("rejects malformed or extra gateway retry metadata", async () => {
+		for (const gateway of [
+			{
+				operation: "gist.read",
+				status: 429,
+				category: "rate-limit",
+				requestId: "ABCD:1234",
+				retryAfter: "60",
+				rateLimitReset: 1_780_000_000,
+			},
+			{
+				operation: "gist.read",
+				status: 429,
+				category: "rate-limit",
+				requestId: "ABCD:1234",
+				retryAfter: 60,
+				rateLimitReset: 1_780_000_000,
+				body: `unsafe ${TOKEN}`,
+			},
+		]) {
+			const queue = new WorkspaceMutationQueue(new MemoryStorage());
+			await queue.enqueue(mutation());
+			const result = await deliverNextWorkspaceMutation({
+				queue,
+				workspaceId: WORKSPACE_ID,
+				githubToken: TOKEN,
+				syncMode: "automatic",
+				fetchImpl: async () =>
+					Response.json(
+						{
+							error: {
+								code: "gist_read_failed",
+								message: `unsafe ${TOKEN}`,
+								disposition: "retryable-upstream",
+								gateway,
+							},
+						},
+						{ status: 429 },
+					),
+				onCommitted: persistCommitted,
+			});
+
+			expect(result).toEqual({
+				status: "permanent-error",
+				statusCode: 429,
+				code: "invalid_failure_response",
+				disposition: "queue-corruption",
+			});
+			expect(JSON.stringify(result)).not.toContain(TOKEN);
+			expect(queue.list()).toHaveLength(1);
+		}
+	});
+
 	it("rejects a committed document from another workspace", async () => {
 		const queue = new WorkspaceMutationQueue(new MemoryStorage());
 		await queue.enqueue(mutation());
