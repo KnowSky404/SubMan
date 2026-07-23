@@ -4,7 +4,6 @@ import { slide } from "svelte/transition";
 import Octicon from "$lib/components/Octicon.svelte";
 import { getGist } from "$lib/gist";
 import { t } from "$lib/i18n";
-import type { AppState } from "$lib/models";
 import {
 	alert,
 	arrowDown,
@@ -21,17 +20,11 @@ import {
 	trash,
 	upload,
 } from "$lib/octicons";
-import {
-	exportState,
-	exportSyncState,
-	getSyncStateSignature,
-	importState,
-} from "$lib/serialization";
+import { exportState, exportSyncState, importState } from "$lib/serialization";
 import { appState, replaceState } from "$lib/stores/app";
 import { authState, clearAuth, setToken } from "$lib/stores/auth";
 import { requestConfirm } from "$lib/stores/confirm";
 import { showToast } from "$lib/stores/toast";
-import { decideManualPush } from "$lib/sync-guard";
 import { cn } from "$lib/utils/cn";
 import {
 	discoverWorkspaceGist,
@@ -39,7 +32,6 @@ import {
 	type WorkspaceCandidate,
 } from "$lib/workspace";
 import { readBrowserWorkspaceSnapshot } from "$lib/workspace-browser-session-v2";
-import type { WorkspaceDocumentV2 } from "$lib/workspace-document";
 import { subscribeWorkspaceEvents } from "$lib/workspace-events";
 import type {
 	WorkspacePersistenceRecord,
@@ -112,13 +104,7 @@ onMount(() => {
 	});
 	return unsubscribe;
 });
-let manualPushReview: {
-	gistId: string;
-	remoteDocument: WorkspaceDocumentV2;
-	remoteState: AppState;
-	remoteSignature: string;
-	localSignature: string;
-} | null = null;
+let manualPushReview: WorkspaceSettingsConflict | null = null;
 
 function currentSyncMode(): "automatic" | "manual" {
 	return workspaceController.syncMode();
@@ -402,11 +388,9 @@ async function handleManualPull() {
 	try {
 		const { gistId } = workspaceController.requireIdentity();
 		const snapshot = await loadWorkspaceSnapshot(token, gistId);
-		const remoteState = snapshot.state;
-		const remoteSignature = getSyncStateSignature(remoteState);
-		const localSignature = getSyncStateSignature($appState);
+		const decision = workspaceController.evaluateManualPull(snapshot, gistId);
 
-		if (remoteSignature === localSignature) {
+		if (decision.status === "already-synced") {
 			await workspaceController.persistSnapshot(
 				snapshot,
 				gistId,
@@ -446,12 +430,9 @@ async function handleManualPush() {
 	try {
 		const { gistId } = workspaceController.requireIdentity();
 		const snapshot = await loadWorkspaceSnapshot(token, gistId);
-		const remoteState = snapshot.state;
-		const localSignature = getSyncStateSignature($appState);
-		const remoteSignature = getSyncStateSignature(remoteState);
-		const binding = workspaceController.binding();
+		const decision = workspaceController.evaluateManualPush(snapshot, gistId);
 
-		if (remoteSignature === localSignature) {
+		if (decision.status === "already-synced") {
 			await workspaceController.persistSnapshot(
 				snapshot,
 				gistId,
@@ -463,18 +444,8 @@ async function handleManualPush() {
 			return;
 		}
 
-		if (
-			!binding ||
-			binding.workspaceId !== `gist:${gistId}` ||
-			binding.revision !== snapshot.document.revision
-		) {
-			manualPushReview = {
-				gistId,
-				remoteDocument: snapshot.document,
-				remoteState,
-				remoteSignature,
-				localSignature,
-			};
+		if (decision.status === "needs-review") {
+			manualPushReview = decision.conflict;
 			setStatus($t("Remote workspace changed since your last sync."), "info");
 			return;
 		}
@@ -655,15 +626,13 @@ async function handleRepairSyncState() {
 	}
 	workspaceBusy = true;
 	try {
-		const inspection = (await workspaceController.refresh()).inspection;
+		await workspaceController.refresh();
 		applyPersistenceView(
 			workspaceController.currentView() as WorkspaceSettingsView,
 		);
-		const blocked = inspection.workspaces.find(
-			(item) => item.workspaceId === `gist:${gistId}`,
-		);
-		const blockedMetadata = blocked?.blocked;
-		if (blockedMetadata?.disposition === "domain-conflict") {
+		const snapshot = await loadWorkspaceSnapshot(token, gistId);
+		const decision = workspaceController.evaluateRepair(snapshot, gistId);
+		if (decision.status === "domain-blocked") {
 			queueResult = {
 				type: "error",
 				message: $t(
@@ -672,16 +641,8 @@ async function handleRepairSyncState() {
 			};
 			return;
 		}
-		const snapshot = await loadWorkspaceSnapshot(token, gistId);
-		const remoteSignature = getSyncStateSignature(snapshot.state);
-		const localSignature = getSyncStateSignature($appState);
-		if (remoteSignature === localSignature) {
-			if (
-				blocked &&
-				(blocked.mutations.length > 0 ||
-					blocked.deadLetters.length > 0 ||
-					blocked.blocked !== null)
-			) {
+		if (decision.status === "already-synced") {
+			if (decision.clearMetadata) {
 				const confirmed = await requestConfirm({
 					title: $t("Repair Sync State"),
 					message: $t(

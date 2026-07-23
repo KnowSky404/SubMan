@@ -57,6 +57,20 @@ export type WorkspaceSettingsView = {
 	inspection: WorkspaceQueueInspection;
 };
 
+export type WorkspaceManualPullDecision =
+	| { status: "already-synced" }
+	| { status: "confirm-pull" };
+
+export type WorkspaceManualPushDecision =
+	| { status: "already-synced" }
+	| { status: "confirm-push" }
+	| { status: "needs-review"; conflict: WorkspaceSettingsConflict };
+
+export type WorkspaceRepairDecision =
+	| { status: "domain-blocked" }
+	| { status: "already-synced"; clearMetadata: boolean }
+	| { status: "state-conflict" };
+
 type ControllerDependencies = {
 	getState: () => AppState;
 	setState: (state: AppState) => void;
@@ -165,6 +179,60 @@ export function createWorkspaceSettingsController(
 			remoteSignature: getSyncStateSignature(remoteState),
 			localSignature: getSyncStateSignature(current),
 		};
+	}
+
+	function evaluateManualPull(
+		snapshot: BrowserWorkspaceSnapshot,
+		gistId: string,
+	): WorkspaceManualPullDecision {
+		const conflict = createConflict(snapshot.document, gistId);
+		return conflict.remoteSignature === conflict.localSignature
+			? { status: "already-synced" }
+			: { status: "confirm-pull" };
+	}
+
+	function evaluateManualPush(
+		snapshot: BrowserWorkspaceSnapshot,
+		gistId: string,
+	): WorkspaceManualPushDecision {
+		const conflict = createConflict(snapshot.document, gistId);
+		if (conflict.remoteSignature === conflict.localSignature) {
+			return { status: "already-synced" };
+		}
+		const currentBinding = binding();
+		if (
+			!currentBinding ||
+			currentBinding.workspaceId !== `gist:${gistId}` ||
+			currentBinding.revision !== snapshot.document.revision
+		) {
+			return { status: "needs-review", conflict };
+		}
+		return { status: "confirm-push" };
+	}
+
+	function evaluateRepair(
+		snapshot: BrowserWorkspaceSnapshot,
+		gistId: string,
+	): WorkspaceRepairDecision {
+		const workspace = view?.inspection.workspaces.find(
+			(item) => item.workspaceId === `gist:${gistId}`,
+		);
+		if (workspace?.blocked?.disposition === "domain-conflict") {
+			return { status: "domain-blocked" };
+		}
+		const conflict = createConflict(snapshot.document, gistId);
+		if (conflict.remoteSignature === conflict.localSignature) {
+			return {
+				status: "already-synced",
+				clearMetadata: Boolean(
+					workspace &&
+						(workspace.mutations.length > 0 ||
+							workspace.deadLetters.length > 0 ||
+							workspace.blocked !== null),
+				),
+			};
+		}
+		return { status: "state-conflict" };
 	}
 
 	function persistedConflict(
@@ -611,6 +679,9 @@ export function createWorkspaceSettingsController(
 		binding,
 		syncMode,
 		createConflict,
+		evaluateManualPull,
+		evaluateManualPush,
+		evaluateRepair,
 		persistedConflict,
 		connect,
 		bindOnly,

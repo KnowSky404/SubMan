@@ -395,4 +395,67 @@ describe("Workspace settings controller", () => {
 		expect(result.status).toBe("needs-choice");
 		expect((await persistence.read()).binding).toBeNull();
 	});
+
+	it("evaluates manual sync and repair decisions from persisted authority", async () => {
+		const persistence = queuedPersistence();
+		const setup = controller(persistence);
+		await setup.controller.initialize();
+
+		expect(
+			setup.controller.evaluateManualPull(
+				{ origin: "v2", document: document(), state: state() },
+				GIST_ID,
+			),
+		).toEqual({ status: "already-synced" });
+		expect(
+			setup.controller.evaluateManualPush(
+				{
+					origin: "v2",
+					document: document(0, [node("remote")]),
+					state: state(document(0, [node("remote")])),
+				},
+				GIST_ID,
+			),
+		).toEqual({ status: "confirm-push" });
+		const review = setup.controller.evaluateManualPush(
+			{
+				origin: "v2",
+				document: document(2, [node("remote")]),
+				state: state(document(2, [node("remote")])),
+			},
+			GIST_ID,
+		);
+		expect(review.status).toBe("needs-review");
+
+		const lease = await persistence.acquireLease({
+			name: workspaceDispatcherLeaseName(WORKSPACE_ID),
+			ownerId: "decision-test",
+			now: Date.now(),
+			ttlMs: 30_000,
+		});
+		if (!lease.acquired) throw new Error("Expected test lease");
+		await persistence.blockMutation(
+			WORKSPACE_ID,
+			{
+				mutationId: MUTATION_ID,
+				kind: "workspace.reconcile",
+				code: "duplicate_node_raw",
+				disposition: "domain-conflict",
+				messageKey: "workspace.domain-conflict",
+				createdAt: NOW,
+				blockedAt: NOW,
+			},
+			{
+				ownerId: lease.lease.ownerId,
+				fencingToken: lease.lease.fencingToken,
+			},
+		);
+		await setup.controller.refresh();
+		expect(
+			setup.controller.evaluateRepair(
+				{ origin: "v2", document: document(), state: state() },
+				GIST_ID,
+			),
+		).toEqual({ status: "domain-blocked" });
+	});
 });

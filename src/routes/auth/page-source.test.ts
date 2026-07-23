@@ -53,7 +53,8 @@ test("auth conflict actions require confirmation before writing state", () => {
 
 test("auth page blocks stale manual push behind a remote-change review", () => {
 	expect(authPageSource).toContain("manualPushReview");
-	expect(authPageSource).toContain("decideManualPush");
+	expect(authPageSource).toContain("workspaceController.evaluateManualPush(");
+	expect(controllerSource).toContain("function evaluateManualPush(");
 	expect(authPageSource).toContain("handleManualForcePush");
 	expect(authPageSource).toContain(
 		'$t("Remote workspace changed since your last sync. Choose how to continue.")',
@@ -169,11 +170,14 @@ test("persisted state conflict restore excludes domain conflicts", () => {
 		authPageSource.indexOf("async function handleQueueRefresh()"),
 	);
 	expect(repair).toContain(
-		'blockedMetadata?.disposition === "domain-conflict"',
+		"workspaceController.evaluateRepair(snapshot, gistId)",
 	);
-	expect(
-		repair.indexOf('blockedMetadata?.disposition === "domain-conflict"'),
-	).toBeLessThan(repair.indexOf("workspaceController.pauseForRepair("));
+	expect(repair.indexOf('decision.status === "domain-blocked"')).toBeLessThan(
+		repair.indexOf("workspaceController.pauseForRepair("),
+	);
+	expect(controllerSource).toContain(
+		'workspace?.blocked?.disposition === "domain-conflict"',
+	);
 });
 
 test("queue inspector groups safe persisted metadata and only discards whole queues", () => {
