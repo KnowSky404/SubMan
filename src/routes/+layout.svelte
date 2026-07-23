@@ -1,6 +1,6 @@
 <script lang="ts">
 import "../app.css";
-import { onMount } from "svelte";
+import { onMount, tick } from "svelte";
 import { fade, fly, slide } from "svelte/transition";
 import { page } from "$app/state";
 import Octicon from "$lib/components/Octicon.svelte";
@@ -82,6 +82,25 @@ $: syncStatusLabel = (
 	} as const
 )[$workspaceSyncStatus.lifecycle];
 let themeMenuOpen = false;
+let confirmDialogElement: HTMLDivElement | null = null;
+let confirmButton: HTMLButtonElement | null = null;
+let confirmWasOpen = false;
+let confirmReturnFocus: HTMLElement | null = null;
+
+$: if ($confirmDialog.open && !confirmWasOpen) {
+	confirmWasOpen = true;
+	confirmReturnFocus =
+		typeof document === "undefined"
+			? null
+			: document.activeElement instanceof HTMLElement
+				? document.activeElement
+				: null;
+	void tick().then(() => confirmButton?.focus());
+} else if (!$confirmDialog.open && confirmWasOpen) {
+	confirmWasOpen = false;
+	confirmReturnFocus?.focus();
+	confirmReturnFocus = null;
+}
 
 function isActive(pathname: string, href: string) {
 	return href === "/" ? pathname === "/" : pathname.startsWith(href);
@@ -90,6 +109,30 @@ function isActive(pathname: string, href: string) {
 function handleThemeChange(nextTheme: ThemeMode) {
 	themeMode.set(nextTheme);
 	themeMenuOpen = false;
+}
+
+function handleConfirmKeydown(event: KeyboardEvent) {
+	if (event.key === "Escape") {
+		event.preventDefault();
+		resolveConfirm(false);
+		return;
+	}
+	if (event.key !== "Tab" || !confirmDialogElement) return;
+	const focusable = Array.from(
+		confirmDialogElement.querySelectorAll<HTMLElement>(
+			'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+		),
+	);
+	const first = focusable[0];
+	const last = focusable.at(-1);
+	if (!first || !last) return;
+	if (event.shiftKey && document.activeElement === first) {
+		event.preventDefault();
+		last.focus();
+	} else if (!event.shiftKey && document.activeElement === last) {
+		event.preventDefault();
+		first.focus();
+	}
 }
 
 onMount(() => {
@@ -259,9 +302,18 @@ onMount(() => {
 				on:click={() => resolveConfirm(false)}
 				aria-label={$t("Close dialog")}
 			></button>
-			<div class="gh-box relative w-full max-w-md shadow-[var(--shadow-medium)]" in:fly={{ y: 10, duration: 300 }}>
+			<div
+				bind:this={confirmDialogElement}
+				class="gh-box relative w-full max-w-md shadow-[var(--shadow-medium)]"
+				role="dialog"
+				aria-modal="true"
+				aria-labelledby="confirm-dialog-title"
+				tabindex="-1"
+				on:keydown={handleConfirmKeydown}
+				in:fly={{ y: 10, duration: 300 }}
+			>
 				<div class="gh-box-header">
-					<span class="flex items-center gap-2">
+					<span id="confirm-dialog-title" class="flex items-center gap-2">
 						{#if $confirmDialog.danger}
 							<Octicon icon={alert} className="h-4 w-4 text-[color:var(--danger-emphasis)]" />
 						{/if}
@@ -284,6 +336,7 @@ onMount(() => {
 						{$confirmDialog.cancelText || $t("Cancel")}
 					</button>
 					<button
+						bind:this={confirmButton}
 						type="button"
 						class={cn("gh-btn", $confirmDialog.danger ? "gh-btn-danger" : "gh-btn-primary")}
 						on:click={() => resolveConfirm(true)}

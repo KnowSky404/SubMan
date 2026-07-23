@@ -155,3 +155,13 @@ test("browser persistence initializes before sync with synchronous cleanup", () 
 	expect(layoutSource).toContain("if (!cancelled)");
 	expect(layoutSource).not.toContain("onMount(async");
 });
+
+test("confirmation modal exposes keyboard-safe dialog semantics", () => {
+	expect(layoutSource).toContain('role="dialog"');
+	expect(layoutSource).toContain('aria-modal="true"');
+	expect(layoutSource).toContain('aria-labelledby="confirm-dialog-title"');
+	expect(layoutSource).toContain("bind:this={confirmButton}");
+	expect(layoutSource).toContain('event.key === "Escape"');
+	expect(layoutSource).toContain('event.key !== "Tab"');
+	expect(layoutSource).toContain("confirmReturnFocus?.focus()");
+});
