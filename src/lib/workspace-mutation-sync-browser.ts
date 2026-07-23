@@ -74,6 +74,10 @@ function persistedQueueMetrics(
 		blockedMutationCount: queues.filter(
 			(queue) => queue.delivery.blocked !== null,
 		).length,
+		deadLetterCount: queues.reduce(
+			(total, queue) => total + queue.delivery.deadLetters.length,
+			0,
+		),
 	};
 }
 
@@ -194,6 +198,7 @@ function startPersistenceWorkspaceMutationSync(
 						totalQueueCount: 0,
 						orphanedWorkspaceCount: 0,
 						blockedMutationCount: 0,
+						deadLetterCount: 0,
 					},
 			error: {
 				code:
@@ -461,6 +466,7 @@ export function startWorkspaceMutationSync(
 			totalQueueCount: mutations.length,
 			orphanedWorkspaceCount,
 			blockedMutationCount,
+			deadLetterCount: 0,
 		};
 	}
 
@@ -515,6 +521,7 @@ export function startWorkspaceMutationSync(
 					totalQueueCount: 0,
 					orphanedWorkspaceCount: 0,
 					blockedMutationCount: 0,
+					deadLetterCount: 0,
 				},
 				error: syncError(
 					"workspace_state_unreadable",

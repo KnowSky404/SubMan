@@ -47,6 +47,7 @@ export function updateWorkspaceQueueCount(totalQueueCount: number): void {
 					totalQueueCount === 0 ? 0 : current.orphanedWorkspaceCount,
 				blockedMutationCount:
 					totalQueueCount === 0 ? 0 : current.blockedMutationCount,
+				deadLetterCount: totalQueueCount === 0 ? 0 : current.deadLetterCount,
 			},
 		}).state;
 	});
@@ -74,6 +75,7 @@ export function markWorkspaceDisconnected(queueCount: number): void {
 		totalQueueCount: queueCount,
 		orphanedWorkspaceCount: 0,
 		blockedMutationCount: 0,
+		deadLetterCount: 0,
 	};
 	dispatchWorkspaceSyncEvent(
 		queueCount > 0

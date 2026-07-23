@@ -11,6 +11,7 @@ import {
 	commitBrowserWorkspaceAction,
 	getBrowserWorkspacePersistence,
 	getBrowserWorkspacePersistenceRecord,
+	getBrowserWorkspaceQueueMetrics,
 	initializeBrowserWorkspacePersistence,
 	refreshBrowserWorkspacePersistence,
 	setBrowserWorkspacePersistenceForTest,
@@ -141,6 +142,39 @@ test("initialization failure enters invalid-local-storage without a legacy fallb
 	expect(get(workspaceSyncStatus).lifecycle).toBe("invalid-local-state");
 	expect(getBrowserWorkspacePersistenceRecord()).toBeNull();
 	expect(storage.length).toBe(0);
+	setBrowserWorkspacePersistenceForTest(null);
+});
+
+test("browser queue metrics preserve dead-letter counts", async () => {
+	const document = workspaceDocument();
+	const record = createEmptyWorkspacePersistenceRecord();
+	record.binding = createWorkspaceV2LocalState(GIST_ID, { baseline: document });
+	record.workspaces[WORKSPACE_ID] = {
+		workspaceId: WORKSPACE_ID,
+		mutations: [],
+		delivery: {
+			retry: { attempt: 0, nextAttemptAt: null, lastErrorCode: null },
+			blocked: null,
+			deadLetters: [
+				{
+					mutationId: "b0000000-0000-4000-8000-000000000099",
+					kind: "workspace.reconcile",
+					code: "mutation_id_reused",
+					disposition: "queue-corruption",
+					messageKey: "workspace.queue-corruption",
+					createdAt: NOW,
+					blockedAt: NOW,
+					payloadBytes: 128,
+				},
+			],
+		},
+	};
+	setBrowserWorkspacePersistenceForTest(
+		new InMemoryWorkspacePersistence(record),
+	);
+	await initializeBrowserWorkspacePersistence({ storage: new MemoryStorage() });
+
+	expect(getBrowserWorkspaceQueueMetrics().deadLetterCount).toBe(1);
 	setBrowserWorkspacePersistenceForTest(null);
 });
 

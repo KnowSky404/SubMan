@@ -25,6 +25,7 @@ describe("Workspace sync status store", () => {
 				totalQueueCount: 2,
 				orphanedWorkspaceCount: 1,
 				blockedMutationCount: 0,
+				deadLetterCount: 0,
 			},
 		});
 		expect(accepted).toBe(true);
@@ -38,6 +39,7 @@ describe("Workspace sync status store", () => {
 				totalQueueCount: 2,
 				orphanedWorkspaceCount: 1,
 				blockedMutationCount: 0,
+				deadLetterCount: 0,
 			},
 		});
 		expect(rejected).toBe(false);
@@ -57,6 +59,7 @@ describe("Workspace sync status store", () => {
 				totalQueueCount: 2,
 				orphanedWorkspaceCount: 0,
 				blockedMutationCount: 1,
+				deadLetterCount: 1,
 			},
 			error: {
 				code: "commit_index_failed",

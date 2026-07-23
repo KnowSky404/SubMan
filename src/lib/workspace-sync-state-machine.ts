@@ -40,6 +40,7 @@ export type WorkspaceQueueMetrics = {
 	totalQueueCount: number;
 	orphanedWorkspaceCount: number;
 	blockedMutationCount: number;
+	deadLetterCount: number;
 };
 
 export type WorkspaceSyncError = {
@@ -178,6 +179,7 @@ export const emptyWorkspaceQueueMetrics: WorkspaceQueueMetrics = {
 	totalQueueCount: 0,
 	orphanedWorkspaceCount: 0,
 	blockedMutationCount: 0,
+	deadLetterCount: 0,
 };
 
 const REPAIR_PHASES = new Set<WorkspaceSyncPhase>([

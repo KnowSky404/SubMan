@@ -60,6 +60,10 @@ function metricsFor(record: WorkspacePersistenceRecord): WorkspaceQueueMetrics {
 		blockedMutationCount: queues.filter(
 			(queue) => queue.delivery.blocked !== null,
 		).length,
+		deadLetterCount: queues.reduce(
+			(total, queue) => total + queue.delivery.deadLetters.length,
+			0,
+		),
 	};
 }
 
@@ -91,6 +95,7 @@ function emptyQueueMetrics(): WorkspaceQueueMetrics {
 		totalQueueCount: 0,
 		orphanedWorkspaceCount: 0,
 		blockedMutationCount: 0,
+		deadLetterCount: 0,
 	};
 }
 

@@ -173,6 +173,7 @@ function runPreparedWorkspaceAction(
 					totalQueueCount: 0,
 					orphanedWorkspaceCount: 0,
 					blockedMutationCount: 0,
+					deadLetterCount: 0,
 				},
 			});
 			return {

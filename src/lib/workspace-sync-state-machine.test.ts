@@ -18,6 +18,7 @@ const queued: WorkspaceQueueMetrics = {
 	totalQueueCount: 2,
 	orphanedWorkspaceCount: 1,
 	blockedMutationCount: 0,
+	deadLetterCount: 0,
 };
 
 const blockedQueue: WorkspaceQueueMetrics = {
@@ -246,12 +247,14 @@ describe("Workspace sync state machine", () => {
 				totalQueueCount: 4,
 				orphanedWorkspaceCount: 2,
 				blockedMutationCount: 1,
+				deadLetterCount: 3,
 			},
 		});
 		expect(observed.queueCount).toBe(2);
 		expect(observed.totalQueueCount).toBe(4);
 		expect(observed.orphanedWorkspaceCount).toBe(2);
 		expect(observed.blockedMutationCount).toBe(1);
+		expect(observed.deadLetterCount).toBe(3);
 	});
 
 	it("routes authentication loss and restoration without losing queue metadata", () => {
@@ -352,6 +355,7 @@ describe("Workspace sync state machine", () => {
 				totalQueueCount: 1,
 				orphanedWorkspaceCount: 1,
 				blockedMutationCount: 0,
+				deadLetterCount: 0,
 			},
 		});
 
