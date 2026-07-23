@@ -26,6 +26,14 @@ const blockedQueue: WorkspaceQueueMetrics = {
 	blockedMutationCount: 1,
 };
 
+const deadLetterQueue: WorkspaceQueueMetrics = {
+	activeQueueCount: 0,
+	totalQueueCount: 0,
+	orphanedWorkspaceCount: 0,
+	blockedMutationCount: 0,
+	deadLetterCount: 1,
+};
+
 const stateError: WorkspaceSyncError = {
 	code: "revision_conflict",
 	message: "Workspace revision changed",
@@ -276,6 +284,36 @@ describe("Workspace sync state machine", () => {
 		});
 		expect(restored.phase).toBe("queued");
 		expect(restored.recentError).toBeNull();
+	});
+
+	it("keeps bound dead letters repair-required until explicit repair", () => {
+		const restored = apply(createDefaultWorkspaceSyncStatus(), {
+			type: "SYNC_CONTEXT_LOADED",
+			mode: "automatic",
+			authenticated: true,
+			revision: 4,
+			queue: deadLetterQueue,
+			blockedMutation: null,
+		});
+		expect(restored.phase).toBe("queue-repair-required");
+		expect(restored.repairRequired).toBe(true);
+
+		const rebound = apply(restored, {
+			type: "WORKSPACE_BOUND",
+			mode: "automatic",
+			revision: 4,
+			queue: deadLetterQueue,
+		});
+		expect(rebound.phase).toBe("queue-repair-required");
+
+		const repaired = apply(rebound, {
+			type: "REPAIR_SUCCEEDED",
+			mode: "automatic",
+			revision: 4,
+			queue: emptyWorkspaceQueueMetrics,
+		});
+		expect(repaired.phase).toBe("automatic-idle");
+		expect(repaired.repairRequired).toBe(false);
 	});
 
 	it("clears stale retry and repair fields after commit, repair, and rebind", () => {

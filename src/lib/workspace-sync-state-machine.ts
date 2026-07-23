@@ -325,6 +325,7 @@ function healthyPhase(
 	mode: "local" | "automatic" | "manual",
 	queue: WorkspaceQueueMetrics,
 ): WorkspaceSyncPhase {
+	if (queue.deadLetterCount > 0) return "queue-repair-required";
 	if (mode === "local") return "local-only";
 	if (mode === "manual") return "manual-local-only";
 	return queue.activeQueueCount > 0 ? "queued" : "automatic-idle";

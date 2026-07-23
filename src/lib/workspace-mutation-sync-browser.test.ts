@@ -1162,4 +1162,89 @@ describe("browser Workspace mutation scheduler", () => {
 			unsubscribe();
 		}
 	});
+
+	it("restores a dead-letter-only active queue as repair-required", async () => {
+		const [workspaceData, persistenceModule, stateModule, sync, statusModule] =
+			await Promise.all([
+				import("$lib/workspace-data"),
+				import("$lib/workspace-persistence"),
+				import("$lib/workspace-v2-state"),
+				import("$lib/workspace-mutation-sync-browser"),
+				import("$lib/workspace-sync-status"),
+			]);
+		const snapshot = stateModule.hydrateAppStateFromWorkspaceDocument(
+			workspaceData.createDefaultWorkspaceState(NOW),
+			document(1),
+			GIST_ID,
+		);
+		const record = persistenceModule.createEmptyWorkspacePersistenceRecord();
+		record.snapshot = snapshot;
+		record.binding = stateModule.createWorkspaceV2LocalState(GIST_ID, {
+			baseline: document(1),
+		});
+		record.workspaces[WORKSPACE_ID] = {
+			workspaceId: WORKSPACE_ID,
+			mutations: [],
+			delivery: {
+				retry: { attempt: 0, nextAttemptAt: null, lastErrorCode: null },
+				blocked: null,
+				deadLetters: [
+					{
+						mutationId: MUTATION_ID,
+						kind: "node.delete",
+						code: "invalid_success_response",
+						disposition: "queue-corruption",
+						messageKey: null,
+						createdAt: NOW,
+						blockedAt: NOW,
+						payloadBytes: 64,
+					},
+				],
+			},
+		};
+		const persistence = new persistenceModule.InMemoryWorkspacePersistence(
+			record,
+		);
+		statusModule.workspaceSyncStatus.set({
+			...statusModule.defaultWorkspaceSyncStatus,
+		});
+		let latest = statusModule.defaultWorkspaceSyncStatus;
+		const unsubscribe = statusModule.workspaceSyncStatus.subscribe(
+			(status) => (latest = status),
+		);
+		let dispatchCalls = 0;
+		const stop = sync.startWorkspaceMutationSync({
+			enabled: true,
+			delayMs: 0,
+			persistence,
+			refreshPersistence: () => persistence.read(),
+			dispatchPersistence: async () => {
+				dispatchCalls += 1;
+				return { status: "blocked" };
+			},
+			getState: () => snapshot,
+			setState: () => {},
+			subscribeAuth: (listener) => {
+				listener({ token: "browser-token" });
+				return () => {};
+			},
+			subscribeEvents: () => () => {},
+		});
+		try {
+			for (
+				let attempt = 0;
+				attempt < 20 && latest.phase !== "queue-repair-required";
+				attempt += 1
+			) {
+				await new Promise((resolve) => setTimeout(resolve, 0));
+			}
+			expect(latest.phase).toBe("queue-repair-required");
+			expect(latest.deadLetterCount).toBe(1);
+			expect(latest.repairRequired).toBe(true);
+			expect(dispatchCalls).toBe(0);
+		} finally {
+			stop();
+			unsubscribe();
+		}
+	});
 });
