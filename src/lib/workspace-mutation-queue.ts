@@ -20,7 +20,7 @@ import {
 } from "$lib/workspace-mutation";
 import {
 	reportWorkspaceStorageRecovery,
-	updateWorkspaceSyncStatus,
+	updateWorkspaceQueueCount,
 } from "$lib/workspace-sync-status";
 
 const STORAGE_KEY = "subman:workspace-mutation-queue:v1";
@@ -268,11 +268,11 @@ export class WorkspaceMutationQueue {
 	private write(queue: StoredQueue): void {
 		if (queue.mutations.length === 0) {
 			this.storage.removeItem(this.storageKey);
-			updateWorkspaceSyncStatus({ queueCount: 0 });
+			updateWorkspaceQueueCount(0);
 			return;
 		}
 		this.storage.setItem(this.storageKey, JSON.stringify(queue));
-		updateWorkspaceSyncStatus({ queueCount: queue.mutations.length });
+		updateWorkspaceQueueCount(queue.mutations.length);
 	}
 
 	private read(): StoredQueue {

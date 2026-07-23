@@ -66,8 +66,8 @@ import {
 	pullWorkspaceExactly,
 } from "$lib/workspace-session";
 import {
+	dispatchWorkspaceSyncEvent,
 	markWorkspaceDisconnected,
-	updateWorkspaceSyncStatus,
 } from "$lib/workspace-sync-status";
 import { clearLegacyWorkspaceSyncState } from "$lib/workspace-v1-cleanup";
 import {
@@ -822,12 +822,25 @@ async function handleRepairSyncState() {
 		});
 		stateStore.write(paused);
 		appState.set(withWorkspaceBinding($appState, paused));
-		updateWorkspaceSyncStatus({
-			lifecycle: "paused-conflict",
+		const queuedMutations = new WorkspaceMutationQueue().list();
+		dispatchWorkspaceSyncEvent({
+			type: "SYNC_CONTEXT_LOADED",
 			mode: "paused-conflict",
-			queueCount: new WorkspaceMutationQueue().list(paused.workspaceId).length,
-			lastCommittedRevision: paused.revision,
-			repairRequired: true,
+			authenticated: true,
+			revision: paused.revision,
+			queue: {
+				activeQueueCount: queuedMutations.filter(
+					(item) => item.workspaceId === paused.workspaceId,
+				).length,
+				totalQueueCount: queuedMutations.length,
+				orphanedWorkspaceCount: new Set(
+					queuedMutations
+						.filter((item) => item.workspaceId !== paused.workspaceId)
+						.map((item) => item.workspaceId),
+				).size,
+				blockedMutationCount: 0,
+			},
+			blockedMutation: null,
 		});
 		setStatus(
 			$t("Choose Pull, Merge, or Push to repair synchronization."),

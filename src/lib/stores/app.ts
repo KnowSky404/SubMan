@@ -31,8 +31,11 @@ import {
 	isCurrentPublishTargetOutputPublished,
 } from "$lib/workspace-output";
 import {
-	updateWorkspaceSyncStatus,
+	dispatchWorkspaceSyncEvent,
 	type WorkspacePersistenceLifecycle,
+	type WorkspaceQueueMetrics,
+	type WorkspaceSyncError,
+	workspaceSyncStatus,
 } from "$lib/workspace-sync-status";
 import { WorkspaceV2StateStore } from "$lib/workspace-v2-state";
 
@@ -84,42 +87,78 @@ export type WorkspaceActionHandle =
 			completion: Promise<WorkspaceActionResult>;
 	  };
 
+function currentQueueMetrics(activeDelta = 0): WorkspaceQueueMetrics {
+	const status = get(workspaceSyncStatus);
+	const activeQueueCount = Math.max(0, status.activeQueueCount + activeDelta);
+	return {
+		activeQueueCount,
+		totalQueueCount: Math.max(activeQueueCount, status.totalQueueCount),
+		orphanedWorkspaceCount: status.orphanedWorkspaceCount,
+		blockedMutationCount: status.blockedMutationCount,
+	};
+}
+
+function currentActionMode(): "local" | "automatic" | "manual" {
+	if (!browser) return "local";
+	const mode = new WorkspaceV2StateStore().read()?.syncMode;
+	return mode === "manual" ? "manual" : mode ? "automatic" : "local";
+}
+
+function operatorError(code: string, message: string): WorkspaceSyncError {
+	return { code, message, disposition: "operator-repair" };
+}
+
 function mapEnqueueResult(
 	result: BrowserMutationEnqueueResult,
 ): WorkspaceActionResult {
 	switch (result.status) {
 		case "queued":
-			updateWorkspaceSyncStatus({
-				lifecycle: "queued",
-				mode: "automatic",
-				recentError: null,
+			dispatchWorkspaceSyncEvent({
+				type: "MUTATION_ENQUEUED",
+				queue: currentQueueMetrics(1),
+				mutation: {
+					mutationId: result.mutation.mutationId,
+					kind: result.mutation.kind,
+				},
 			});
 			return { status: "queued", mutationId: result.mutation.mutationId };
 		case "manual":
-			updateWorkspaceSyncStatus({
-				lifecycle: "manual-local-only",
+			dispatchWorkspaceSyncEvent({
+				type: "LOCAL_COMMITTED",
 				mode: "manual",
+				queue: currentQueueMetrics(),
 			});
 			return { status: "manual-local-only" };
 		case "paused-conflict":
-			updateWorkspaceSyncStatus({
-				lifecycle: "paused-conflict",
+			dispatchWorkspaceSyncEvent({
+				type: "SYNC_CONTEXT_LOADED",
 				mode: "paused-conflict",
-				repairRequired: true,
+				authenticated: true,
+				revision: get(workspaceSyncStatus).lastCommittedRevision,
+				queue: currentQueueMetrics(),
+				blockedMutation: null,
 			});
 			return { status: "paused-conflict" };
 		case "uninitialized":
-			updateWorkspaceSyncStatus({
-				lifecycle: "invalid-local-state",
-				repairRequired: true,
-				recentError: "Workspace baseline is not initialized",
+			dispatchWorkspaceSyncEvent({
+				type: "OPERATOR_REPAIR_REQUIRED",
+				queue: currentQueueMetrics(),
+				error: operatorError(
+					"workspace_baseline_uninitialized",
+					"Workspace baseline is not initialized",
+				),
+				blockedMutation: null,
 			});
 			return {
 				status: "invalid-local-state",
 				error: "Workspace baseline is not initialized",
 			};
 		case "local-only":
-			updateWorkspaceSyncStatus({ lifecycle: "local-saved", mode: "local" });
+			dispatchWorkspaceSyncEvent({
+				type: "LOCAL_COMMITTED",
+				mode: "local",
+				queue: currentQueueMetrics(),
+			});
 			return { status: "local-saved" };
 	}
 }
@@ -128,13 +167,17 @@ function disconnectedActionResult(
 	binding: ReturnType<WorkspaceV2StateStore["read"]>,
 ): WorkspaceActionResult {
 	if (binding) {
-		updateWorkspaceSyncStatus({
-			lifecycle: "auth-required",
-			mode: "disconnected",
+		dispatchWorkspaceSyncEvent({
+			type: "AUTH_LOST",
+			queue: currentQueueMetrics(),
 		});
 		return { status: "auth-required" };
 	}
-	updateWorkspaceSyncStatus({ lifecycle: "local-saved", mode: "local" });
+	dispatchWorkspaceSyncEvent({
+		type: "LOCAL_COMMITTED",
+		mode: "local",
+		queue: currentQueueMetrics(),
+	});
 	return { status: "local-saved" };
 }
 
@@ -156,9 +199,10 @@ function runWorkspaceAction(
 		const next = update(get(appState));
 		if (browser) localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
 		appState.set(next);
-		updateWorkspaceSyncStatus({
-			lifecycle: "local-saved",
-			recentError: null,
+		dispatchWorkspaceSyncEvent({
+			type: "LOCAL_COMMITTED",
+			mode: currentActionMode(),
+			queue: currentQueueMetrics(),
 		});
 	} catch (error) {
 		notifyRejectedWorkspaceMutation(error);
@@ -182,10 +226,11 @@ function runWorkspaceAction(
 					.catch((error) => {
 						const message =
 							error instanceof Error ? error.message : String(error);
-						updateWorkspaceSyncStatus({
-							lifecycle: "permanent-error",
-							recentError: message,
-							repairRequired: true,
+						dispatchWorkspaceSyncEvent({
+							type: "OPERATOR_REPAIR_REQUIRED",
+							queue: currentQueueMetrics(),
+							error: operatorError("mutation_enqueue_failed", message),
+							blockedMutation: null,
 						});
 						showToast(
 							get(t)(
@@ -584,7 +629,11 @@ export function replaceState(next: AppState): WorkspaceActionHandle {
 	try {
 		if (browser) localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
 		appState.set(state);
-		updateWorkspaceSyncStatus({ lifecycle: "local-saved" });
+		dispatchWorkspaceSyncEvent({
+			type: "LOCAL_COMMITTED",
+			mode: currentActionMode(),
+			queue: currentQueueMetrics(),
+		});
 	} catch (error) {
 		notifyRejectedWorkspaceMutation(error);
 		return {

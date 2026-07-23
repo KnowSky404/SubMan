@@ -1,7 +1,9 @@
 import * as bunTest from "bun:test";
 import type { AppState, NodeItem } from "$lib/models";
 import type { WorkspaceDocumentV2 } from "$lib/workspace-document";
+import type { WorkspaceEvent } from "$lib/workspace-events";
 import type { WorkspaceMutation } from "$lib/workspace-mutation";
+import type { WorkspaceSyncStatus } from "$lib/workspace-sync-status";
 
 const { describe, expect, it } = bunTest;
 const bun = bunTest as unknown as {
@@ -132,6 +134,9 @@ describe("browser Workspace mutation scheduler", () => {
 			import("$lib/workspace-sync-status"),
 		]);
 
+		statusModule.workspaceSyncStatus.set({
+			...statusModule.defaultWorkspaceSyncStatus,
+		});
 		let latestLifecycle = statusModule.defaultWorkspaceSyncStatus.lifecycle;
 		const unsubscribeLatest = statusModule.workspaceSyncStatus.subscribe(
 			(status) => {
@@ -280,6 +285,182 @@ describe("browser Workspace mutation scheduler", () => {
 		} finally {
 			stop();
 			unsubscribeStatus();
+		}
+	});
+
+	it("blocks a domain conflict with safe mutation metadata", async () => {
+		const [workspaceData, queueModule, stateModule, sync, statusModule] =
+			await Promise.all([
+				import("$lib/workspace-data"),
+				import("$lib/workspace-mutation-queue"),
+				import("$lib/workspace-v2-state"),
+				import("$lib/workspace-mutation-sync-browser"),
+				import("$lib/workspace-sync-status"),
+			]);
+		statusModule.workspaceSyncStatus.set({
+			...statusModule.defaultWorkspaceSyncStatus,
+		});
+		const storage = new MemoryStorage();
+		const queue = new queueModule.WorkspaceMutationQueue(storage);
+		const stateStore = new stateModule.WorkspaceV2StateStore(storage);
+		stateStore.write(
+			stateModule.createWorkspaceV2LocalState(GIST_ID, {
+				baseline: document(1),
+			}),
+		);
+		await queue.enqueue(mutation());
+		const blockedStatus: { current: WorkspaceSyncStatus | null } = {
+			current: null,
+		};
+		let eventListener: (event: WorkspaceEvent) => void = () => {};
+		let fetchCalls = 0;
+		let unsubscribeStatus = () => {};
+		const blocked = new Promise<void>((resolve) => {
+			unsubscribeStatus = statusModule.workspaceSyncStatus.subscribe(
+				(status) => {
+					if (status.phase === "blocked-domain-conflict") {
+						blockedStatus.current = status;
+						resolve();
+					}
+				},
+			);
+		});
+		const stop = sync.startWorkspaceMutationSync({
+			enabled: true,
+			delayMs: 0,
+			queue,
+			stateStore,
+			getState: () => ({
+				...workspaceData.createDefaultWorkspaceState(NOW),
+				activeGistId: GIST_ID,
+			}),
+			setState: () => {},
+			subscribeAuth: (listener) => {
+				listener({ token: "browser-token" });
+				return () => {};
+			},
+			subscribeEvents: (listener) => {
+				eventListener = listener;
+				return () => {};
+			},
+			fetchImpl: async () => {
+				fetchCalls += 1;
+				return Response.json(
+					{
+						error: {
+							code: "duplicate_node_raw",
+							message: "A node already uses this URI",
+							disposition: "domain-conflict",
+						},
+					},
+					{ status: 409 },
+				);
+			},
+		});
+
+		try {
+			await waitFor(blocked);
+			expect(blockedStatus.current?.recentError?.code).toBe(
+				"duplicate_node_raw",
+			);
+			expect(blockedStatus.current?.blockedMutation).toEqual({
+				mutationId: MUTATION_ID,
+				kind: "node.delete",
+				code: "duplicate_node_raw",
+				disposition: "domain-conflict",
+				message: "duplicate_node_raw",
+			});
+			expect(blockedStatus.current?.activeQueueCount).toBe(1);
+			expect(blockedStatus.current?.blockedMutationCount).toBe(1);
+			expect(queue.list()).toEqual([mutation()]);
+			eventListener({
+				type: "mutation-queue-changed",
+				gistId: GIST_ID,
+				fileName: "subman.json",
+				mutationId: MUTATION_ID,
+				queueAction: "enqueued",
+			});
+			await new Promise((resolve) => setTimeout(resolve, 20));
+			expect(fetchCalls).toBe(1);
+		} finally {
+			stop();
+			unsubscribeStatus();
+		}
+	});
+
+	it("settles empty and blocked delivery races instead of staying syncing", async () => {
+		const [workspaceData, queueModule, stateModule, sync, statusModule] =
+			await Promise.all([
+				import("$lib/workspace-data"),
+				import("$lib/workspace-mutation-queue"),
+				import("$lib/workspace-v2-state"),
+				import("$lib/workspace-mutation-sync-browser"),
+				import("$lib/workspace-sync-status"),
+			]);
+		for (const scenario of ["empty", "blocked"] as const) {
+			statusModule.workspaceSyncStatus.set({
+				...statusModule.defaultWorkspaceSyncStatus,
+			});
+			const storage = new MemoryStorage();
+			const queue = new queueModule.WorkspaceMutationQueue(storage);
+			const stateStore = new stateModule.WorkspaceV2StateStore(storage);
+			stateStore.write(
+				stateModule.createWorkspaceV2LocalState(GIST_ID, {
+					baseline: document(1),
+				}),
+			);
+			await queue.enqueue(mutation());
+			const expectedPhase =
+				scenario === "empty" ? "automatic-idle" : "manual-local-only";
+			let changedRaceState = false;
+			let unsubscribeStatus = () => {};
+			const settled = new Promise<void>((resolve) => {
+				unsubscribeStatus = statusModule.workspaceSyncStatus.subscribe(
+					(status) => {
+						if (status.phase === "syncing" && !changedRaceState) {
+							changedRaceState = true;
+							if (scenario === "empty") {
+								storage.removeItem("subman:workspace-mutation-queue:v1");
+							} else {
+								stateStore.write(
+									stateModule.createWorkspaceV2LocalState(GIST_ID, {
+										baseline: document(1),
+										syncMode: "manual",
+									}),
+								);
+							}
+						}
+						if (changedRaceState && status.phase === expectedPhase) resolve();
+					},
+				);
+			});
+			const stop = sync.startWorkspaceMutationSync({
+				enabled: true,
+				delayMs: 0,
+				queue,
+				stateStore,
+				getState: () => ({
+					...workspaceData.createDefaultWorkspaceState(NOW),
+					activeGistId: GIST_ID,
+				}),
+				setState: () => {},
+				subscribeAuth: (listener) => {
+					listener({ token: "browser-token" });
+					return () => {};
+				},
+				subscribeEvents: () => () => {},
+				fetchImpl: async () => {
+					throw new Error("race must settle before network delivery");
+				},
+			});
+
+			try {
+				await waitFor(settled);
+				expect(changedRaceState).toBe(true);
+			} finally {
+				stop();
+				unsubscribeStatus();
+			}
 		}
 	});
 
