@@ -4,6 +4,7 @@ import type { WorkspaceDocumentV2 } from "$lib/workspace-document";
 import type { WorkspaceMutation } from "$lib/workspace-mutation";
 import {
 	deliverNextWorkspaceMutation,
+	submitWorkspaceMutation,
 	WorkspaceMutationQueue,
 } from "$lib/workspace-mutation-queue";
 
@@ -227,6 +228,20 @@ describe("WorkspaceMutationQueue", () => {
 });
 
 describe("Workspace mutation delivery", () => {
+	it("submits and validates a mutation without changing legacy queue state", async () => {
+		const queue = new WorkspaceMutationQueue(new MemoryStorage());
+		await queue.enqueue(mutation());
+
+		const result = await submitWorkspaceMutation({
+			mutation: mutation(),
+			githubToken: TOKEN,
+			fetchImpl: async () => Response.json(committed()),
+		});
+
+		expect(result.status).toBe("committed");
+		expect(queue.peek(WORKSPACE_ID)?.mutationId).toBe(mutation().mutationId);
+	});
+
 	it("sends the queue head with request-scoped auth and removes it on commit", async () => {
 		const storage = new MemoryStorage();
 		const queue = new WorkspaceMutationQueue(storage);
@@ -276,7 +291,11 @@ describe("Workspace mutation delivery", () => {
 			onCommitted: persistCommitted,
 		});
 
-		expect(result.status).toBe("retryable-error");
+		expect(result).toEqual({
+			status: "retryable-error",
+			code: "network_error",
+			disposition: "retryable-upstream",
+		});
 		expect(queue.peek(WORKSPACE_ID)?.mutationId).toBe(mutation().mutationId);
 		expect(storage.getItem(queue.storageKey) ?? "").not.toContain(TOKEN);
 	});

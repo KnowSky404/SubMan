@@ -100,6 +100,26 @@ export type WorkspaceMutationDeliveryResult =
 			rateLimitResetAt?: number | null;
 	  };
 
+export type WorkspaceMutationSubmissionResult =
+	| { status: "committed"; result: WorkspaceCoordinatorResult }
+	| {
+			status: "conflict";
+			code: string;
+			disposition: "state-conflict";
+			document: WorkspaceDocumentV2;
+	  }
+	| Extract<
+			WorkspaceMutationDeliveryResult,
+			{ status: "retryable-error" | "permanent-error" }
+	  >;
+
+export type WorkspaceMutationSubmissionOptions = {
+	mutation: WorkspaceMutation;
+	githubToken: string;
+	fetchImpl?: typeof fetch;
+	timeoutMs?: number;
+};
+
 type DeliveryOptions = {
 	queue: WorkspaceMutationQueue;
 	workspaceId: string;
@@ -187,7 +207,11 @@ function parseGatewayRetryMetadata(value: unknown): GatewayRetryMetadata {
 	};
 }
 
-function timeoutResult(): WorkspaceMutationDeliveryResult {
+function timeoutResult(): {
+	status: "retryable-error";
+	code: "upstream_timeout";
+	disposition: "retryable-upstream";
+} {
 	return {
 		status: "retryable-error",
 		code: "upstream_timeout",
@@ -558,11 +582,20 @@ async function parseFailureResponse(
 			};
 }
 
-export async function deliverNextWorkspaceMutation(
-	options: DeliveryOptions,
-): Promise<WorkspaceMutationDeliveryResult> {
-	if (!options.githubToken || options.syncMode === "paused-conflict") {
-		return { status: "blocked" };
+export async function submitWorkspaceMutation(
+	options: WorkspaceMutationSubmissionOptions,
+): Promise<WorkspaceMutationSubmissionResult> {
+	const mutation = parseWorkspaceMutation(options.mutation);
+	if (mutation.source !== "browser") {
+		throw new TypeError("Only browser Workspace mutations may be submitted");
+	}
+	if (
+		typeof options.githubToken !== "string" ||
+		options.githubToken.length === 0
+	) {
+		throw new TypeError(
+			"Workspace mutation submission requires a GitHub token",
+		);
 	}
 	const timeoutMs = options.timeoutMs ?? DEFAULT_DELIVERY_TIMEOUT_MS;
 	if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) {
@@ -570,113 +603,138 @@ export async function deliverNextWorkspaceMutation(
 			"Workspace mutation timeout must be a positive integer",
 		);
 	}
+	const controller = new AbortController();
+	let timedOut = false;
+	const timer = setTimeout(() => {
+		timedOut = true;
+		controller.abort();
+	}, timeoutMs);
+	const stopTimeout = () => clearTimeout(timer);
+	let response: Response;
+	try {
+		response = await (options.fetchImpl ?? fetch)(
+			`/api/workspaces/${encodeURIComponent(mutation.workspaceId)}/mutations`,
+			{
+				method: "POST",
+				headers: {
+					Authorization: `Bearer ${options.githubToken}`,
+					"Content-Type": "application/json",
+				},
+				body: JSON.stringify(mutation),
+				signal: controller.signal,
+			},
+		);
+	} catch {
+		stopTimeout();
+		if (timedOut) return timeoutResult();
+		return {
+			status: "retryable-error",
+			code: "network_error",
+			disposition: "retryable-upstream",
+		};
+	}
+
+	if (response.ok) {
+		try {
+			const result = await parseCommittedResponse(response, mutation);
+			stopTimeout();
+			return timedOut ? timeoutResult() : { status: "committed", result };
+		} catch {
+			stopTimeout();
+			if (timedOut) return timeoutResult();
+			return {
+				status: "permanent-error",
+				statusCode: response.status,
+				code: "invalid_success_response",
+				disposition: "queue-corruption",
+			};
+		}
+	}
+
+	let failure: WorkspaceMutationFailure;
+	try {
+		failure = await parseFailureResponse(response, mutation.workspaceId);
+	} catch {
+		stopTimeout();
+		if (timedOut) return timeoutResult();
+		return {
+			status: "permanent-error",
+			statusCode: response.status,
+			code: "invalid_failure_response",
+			disposition: "queue-corruption",
+		};
+	}
+	stopTimeout();
+	if (timedOut) return timeoutResult();
+	if (failure.disposition === "state-conflict") {
+		return {
+			status: "conflict",
+			code: failure.code,
+			disposition: failure.disposition,
+			document: failure.document,
+		};
+	}
+	return {
+		status:
+			failure.disposition === "retryable-upstream"
+				? "retryable-error"
+				: "permanent-error",
+		statusCode: response.status,
+		code: failure.code,
+		disposition: failure.disposition,
+		...(failure.disposition === "retryable-upstream" && failure.retryMetadata
+			? failure.retryMetadata
+			: {}),
+	};
+}
+
+export async function deliverNextWorkspaceMutation(
+	options: DeliveryOptions,
+): Promise<WorkspaceMutationDeliveryResult> {
+	if (!options.githubToken || options.syncMode === "paused-conflict") {
+		return { status: "blocked" };
+	}
 	return withWorkspaceLock(
 		`subman:workspace-mutation-delivery:${options.workspaceId}`,
 		async () => {
 			const mutation = options.queue.peek(options.workspaceId);
 			if (!mutation) return { status: "empty" };
-			const controller = new AbortController();
-			let timedOut = false;
-			const timer = setTimeout(() => {
-				timedOut = true;
-				controller.abort();
-			}, timeoutMs);
-			const stopTimeout = () => clearTimeout(timer);
-			let response: Response;
-			try {
-				response = await (options.fetchImpl ?? fetch)(
-					`/api/workspaces/${encodeURIComponent(options.workspaceId)}/mutations`,
-					{
-						method: "POST",
-						headers: {
-							Authorization: `Bearer ${options.githubToken}`,
-							"Content-Type": "application/json",
-						},
-						body: JSON.stringify(mutation),
-						signal: controller.signal,
-					},
-				);
-			} catch {
-				stopTimeout();
-				if (timedOut) return timeoutResult();
-				return {
-					status: "retryable-error",
-					disposition: "retryable-upstream",
-				};
-			}
-
-			if (response.ok) {
-				let result: WorkspaceCoordinatorResult;
+			const submission = await submitWorkspaceMutation({
+				mutation,
+				githubToken: options.githubToken as string,
+				fetchImpl: options.fetchImpl,
+				timeoutMs: options.timeoutMs,
+			});
+			if (submission.status === "committed") {
 				try {
-					result = await parseCommittedResponse(response, mutation);
-				} catch {
-					stopTimeout();
-					if (timedOut) return timeoutResult();
-					return {
-						status: "permanent-error",
-						statusCode: response.status,
-						code: "invalid_success_response",
-						disposition: "queue-corruption",
-					};
-				}
-				stopTimeout();
-				if (timedOut) return timeoutResult();
-				try {
-					await options.onCommitted(result);
+					await options.onCommitted(submission.result);
 					await options.queue.remove(mutation.mutationId);
 					return { status: "committed" };
 				} catch {
 					return {
 						status: "retryable-error",
-						statusCode: response.status,
+						statusCode: 200,
 						disposition: "retryable-upstream",
 					};
 				}
 			}
-			let failure: WorkspaceMutationFailure;
-			try {
-				failure = await parseFailureResponse(response, options.workspaceId);
-			} catch {
-				stopTimeout();
-				if (timedOut) return timeoutResult();
-				return {
-					status: "permanent-error",
-					statusCode: response.status,
-					code: "invalid_failure_response",
-					disposition: "queue-corruption",
-				};
-			}
-			stopTimeout();
-			if (timedOut) return timeoutResult();
-			if (failure.disposition === "state-conflict") {
+			if (submission.status === "conflict") {
 				try {
-					await options.onConflict?.(failure);
-					return {
-						status: "conflict",
-						code: failure.code,
-						disposition: "state-conflict",
-					};
+					await options.onConflict?.({
+						...submission,
+						message: submission.code,
+						revision: submission.document.revision,
+					});
+					const { document: _document, ...result } = submission;
+					return result;
 				} catch {
 					return {
 						status: "retryable-error",
-						statusCode: response.status,
 						disposition: "retryable-upstream",
 					};
 				}
 			}
-			return {
-				status:
-					failure.disposition === "retryable-upstream"
-						? "retryable-error"
-						: "permanent-error",
-				statusCode: response.status,
-				code: failure.code,
-				disposition: failure.disposition,
-				...(failure.disposition === "retryable-upstream" &&
-				failure.retryMetadata
-					? failure.retryMetadata
-					: {}),
-			};
+			return submission;
 		},
 	);
 }

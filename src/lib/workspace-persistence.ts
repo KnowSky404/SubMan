@@ -2,6 +2,7 @@ import type { AppState, GistFile, GistMeta } from "$lib/models";
 import {
 	canonicalizeWorkspaceData,
 	validateWorkspaceData,
+	validateWorkspaceDocumentV2,
 	validateWorkspaceTimestamp,
 	type WorkspaceDocumentV2,
 } from "$lib/workspace-document";
@@ -12,6 +13,7 @@ import {
 	type WorkspaceMutation,
 } from "$lib/workspace-mutation";
 import {
+	createWorkspaceV2LocalState,
 	validateWorkspaceV2LocalState,
 	type WorkspaceV2LocalState,
 } from "$lib/workspace-v2-state";
@@ -200,6 +202,13 @@ export interface BrowserWorkspacePersistence {
 		mutationId: string;
 		fence: WorkspaceLeaseFence;
 	}): Promise<void>;
+	commitDeliveryConflict(input: {
+		workspaceId: string;
+		mutationId: string;
+		document: WorkspaceDocumentV2;
+		metadata: WorkspaceBlockedMutationMetadata;
+		fence: WorkspaceLeaseFence;
+	}): Promise<void>;
 	setRetryMetadata(
 		workspaceId: string,
 		mutationId: string,
@@ -231,6 +240,7 @@ export interface BrowserWorkspacePersistence {
 	quarantineWorkspaceQueue(input: {
 		workspaceId: string;
 		reason: string;
+		code?: string;
 		createdAt: string;
 		fence: WorkspaceLeaseFence;
 	}): Promise<void>;
@@ -395,6 +405,10 @@ const SAFE_ERROR_CODES = new Set([
 	"unauthorized",
 	"timeout",
 	"upstream_timeout",
+	"network_error",
+	"rate_limit",
+	"invalid_success_response",
+	"invalid_failure_response",
 	"workspace_sync_retry",
 	"workspace_sync_failed",
 	"workspace_sync_exception",
@@ -946,10 +960,14 @@ function validateWorkspacePersistenceRecordInternal(
 					throw corrupt("Active Workspace queue has no baseline revision");
 				}
 				if (queue.mutations.length > 0) {
+					const expectedFirstRevision =
+						binding.syncMode === "paused-conflict"
+							? (binding.conflictBaseline?.revision ?? binding.revision)
+							: binding.revision;
 					validateWorkspaceMutationSequence(
 						queue.mutations,
 						binding.workspaceId,
-						binding.revision as number,
+						expectedFirstRevision as number,
 					);
 				}
 			}
@@ -1450,6 +1468,58 @@ export class TransactionalWorkspacePersistence
 		});
 	}
 
+	async commitDeliveryConflict(input: {
+		workspaceId: string;
+		mutationId: string;
+		document: WorkspaceDocumentV2;
+		metadata: WorkspaceBlockedMutationMetadata;
+		fence: WorkspaceLeaseFence;
+	}): Promise<void> {
+		const workspaceId = canonicalWorkspaceId(input.workspaceId, "workspaceId");
+		const document = validateWorkspaceDocumentV2(input.document, {
+			expectedWorkspaceId: workspaceId,
+		});
+		const blocked = validateBlocked(input.metadata);
+		if (
+			blocked.disposition !== "state-conflict" ||
+			blocked.mutationId !== input.mutationId
+		) {
+			throw corrupt("Conflict metadata does not identify a state conflict");
+		}
+		await this.backend.transact((draft, checkpoint) => {
+			const binding = draft.binding;
+			const queue = draft.workspaces[workspaceId];
+			const mutation = queue?.mutations[0];
+			if (
+				!binding ||
+				binding.workspaceId !== workspaceId ||
+				binding.syncMode === "paused-conflict" ||
+				!mutation ||
+				mutation.mutationId !== input.mutationId
+			) {
+				throw corrupt("Conflict commit uses a stale Workspace binding");
+			}
+			if (
+				mutation.kind !== blocked.kind ||
+				mutation.createdAt !== blocked.createdAt
+			) {
+				throw corrupt("Conflict metadata does not match the queue head");
+			}
+			assertActiveWorkspaceFence(draft, workspaceId, input.fence, this.nowMs());
+			const paused = createWorkspaceV2LocalState(binding.gistId, {
+				baseline: document,
+				conflictBaseline: binding.conflictBaseline ?? binding.baseline,
+				syncMode: "paused-conflict",
+			});
+			draft.binding = paused;
+			checkpoint("after-binding");
+			queue.delivery.blocked = blocked;
+			queue.delivery.retry = defaultRetry();
+			delete draft.leases[workspaceDispatcherLeaseName(workspaceId)];
+			checkpoint("after-queue");
+		});
+	}
+
 	async setRetryMetadata(
 		workspaceId: string,
 		mutationId: string,
@@ -1645,10 +1715,16 @@ export class TransactionalWorkspacePersistence
 	async quarantineWorkspaceQueue(input: {
 		workspaceId: string;
 		reason: string;
+		code?: string;
 		createdAt: string;
 		fence: WorkspaceLeaseFence;
 	}): Promise<void> {
 		const workspaceId = canonicalWorkspaceId(input.workspaceId, "workspaceId");
+		const code = allowedMetadata(
+			input.code ?? "queue_corruption",
+			"quarantine.code",
+			SAFE_ERROR_CODES,
+		);
 		await this.backend.transact((draft, checkpoint) => {
 			assertActiveWorkspaceFence(draft, workspaceId, input.fence, this.nowMs());
 			const queue = draft.workspaces[workspaceId];
@@ -1675,7 +1751,7 @@ export class TransactionalWorkspacePersistence
 				...queue.mutations.map((mutation) => ({
 					mutationId: mutation.mutationId,
 					kind: mutation.kind,
-					code: "queue_corruption",
+					code,
 					disposition: "queue-corruption" as const,
 					messageKey: null,
 					createdAt: mutation.createdAt,

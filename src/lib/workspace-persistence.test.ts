@@ -497,6 +497,44 @@ describe("transactional Workspace persistence", () => {
 		expect(stored.workspaces[WORKSPACE_ID]?.mutations).toEqual([]);
 	});
 
+	it("pauses a state conflict without advancing the queue head", async () => {
+		const persistence = automaticPersistence();
+		await persistence.commitAutomaticAction({
+			snapshot: committedSnapshot(),
+			binding: binding(),
+			mutation: reconcileMutation(),
+		});
+		const fence = await acquireFence(persistence);
+
+		await persistence.commitDeliveryConflict({
+			workspaceId: WORKSPACE_ID,
+			mutationId: MUTATION_ID,
+			document: document(3),
+			metadata: {
+				mutationId: MUTATION_ID,
+				kind: "workspace.reconcile",
+				code: "revision_conflict",
+				disposition: "state-conflict",
+				messageKey: "workspace.state-conflict",
+				createdAt: NOW,
+				blockedAt: NOW,
+			},
+			fence,
+		});
+
+		const stored = await persistence.read();
+		expect(stored.binding?.syncMode).toBe("paused-conflict");
+		expect(stored.binding?.revision).toBe(3);
+		expect(stored.binding?.conflictBaseline?.revision).toBe(0);
+		expect(stored.workspaces[WORKSPACE_ID]?.mutations[0]?.mutationId).toBe(
+			MUTATION_ID,
+		);
+		expect(stored.workspaces[WORKSPACE_ID]?.delivery.blocked?.code).toBe(
+			"revision_conflict",
+		);
+		expect(stored.leases).toEqual({});
+	});
+
 	it("rejects stale fences and unproven delivery commits", async () => {
 		let nowMs = 100;
 		const persistence = automaticPersistence(() => nowMs);
