@@ -34,10 +34,8 @@ import { showToast } from "$lib/stores/toast";
 import { cn } from "$lib/utils/cn";
 import { nowIso } from "$lib/utils/time";
 import { submitBrowserWorkspaceMutation } from "$lib/workspace-browser-session-v2";
-import { WorkspaceMutationQueue } from "$lib/workspace-mutation-queue";
 import { findWorkspaceOutputConflicts } from "$lib/workspace-output";
 import { workspaceSyncStatus } from "$lib/workspace-sync-status";
-import { WorkspaceV2StateStore } from "$lib/workspace-v2-state";
 
 let selectedProfileId = "";
 let previewContent = "";
@@ -379,25 +377,17 @@ async function publishPreview(): Promise<void> {
 		) {
 			throw new Error(publicationBuild.errors[0] ?? "No output generated");
 		}
-		await submitBrowserWorkspaceMutation(
-			{
-				token,
-				kind: "client-export.publish",
-				payload: {
-					profileId,
-					output: {
-						fileName: normalizeExportFileName(selectedProfile.fileName),
-						content: publicationBuild.content,
-					},
+		await submitBrowserWorkspaceMutation({
+			token,
+			kind: "client-export.publish",
+			payload: {
+				profileId,
+				output: {
+					fileName: normalizeExportFileName(selectedProfile.fileName),
+					content: publicationBuild.content,
 				},
 			},
-			{
-				queue: new WorkspaceMutationQueue(),
-				stateStore: new WorkspaceV2StateStore(),
-				getState: () => $appState,
-				setState: (state) => appState.set(state),
-			},
-		);
+		});
 		if (publicationBuild) {
 			previewContent = publicationBuild.content;
 			previewWarnings = publicationBuild.warnings;

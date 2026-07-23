@@ -3,7 +3,7 @@ import { onMount } from "svelte";
 import Octicon from "$lib/components/Octicon.svelte";
 import { getGist } from "$lib/gist";
 import { t } from "$lib/i18n";
-import type { AppState, GistMeta } from "$lib/models";
+import type { GistMeta } from "$lib/models";
 import {
 	alert,
 	code,
@@ -36,8 +36,10 @@ import {
 	type WorkspaceFileKind,
 } from "$lib/workspace-file-inventory";
 import { requireWorkspaceIdentity } from "$lib/workspace-identity";
-import { WorkspaceMutationQueue } from "$lib/workspace-mutation-queue";
-import { WorkspaceV2StateStore } from "$lib/workspace-v2-state";
+import {
+	getBrowserWorkspaceBinding,
+	initializeBrowserWorkspacePersistence,
+} from "$lib/workspace-persistence-browser";
 
 let workspace: GistMeta | null = null;
 let loading = false;
@@ -104,24 +106,16 @@ function workspaceFailureMessage(error: unknown, fallback: string): string {
 	return $t(fallback);
 }
 
-function mutationDependencies() {
-	return {
-		queue: new WorkspaceMutationQueue(),
-		stateStore: new WorkspaceV2StateStore(),
-		getState: () => $appState,
-		setState: (state: AppState) => appState.set(state),
-	};
-}
-
 async function refreshWorkspace() {
 	const token = $authState.token;
 	if (!token) return;
 
 	loading = true;
 	try {
+		await initializeBrowserWorkspacePersistence();
 		const identity = requireWorkspaceIdentity(
 			$appState,
-			new WorkspaceV2StateStore().read(),
+			getBrowserWorkspaceBinding(),
 		);
 		workspace = await getGist(token, identity.gistId);
 		lastRefreshedAt = new Date().toISOString();
@@ -161,14 +155,11 @@ async function deleteFile(filename: string) {
 
 	deleting = true;
 	try {
-		await submitBrowserWorkspaceMutation(
-			{
-				token,
-				kind: "output.delete",
-				payload: { fileName: filename },
-			},
-			mutationDependencies(),
-		);
+		await submitBrowserWorkspaceMutation({
+			token,
+			kind: "output.delete",
+			payload: { fileName: filename },
+		});
 		await refreshWorkspace();
 		setStatus($t("Deleted file successfully"), "success");
 	} catch (err) {
@@ -194,14 +185,11 @@ async function cleanupBootstrapMarker() {
 
 	deleting = true;
 	try {
-		await submitBrowserWorkspaceMutation(
-			{
-				token,
-				kind: "workspace.bootstrap.cleanup",
-				payload: {},
-			},
-			mutationDependencies(),
-		);
+		await submitBrowserWorkspaceMutation({
+			token,
+			kind: "workspace.bootstrap.cleanup",
+			payload: {},
+		});
 		await refreshWorkspace();
 		setStatus($t("Stale bootstrap marker removed"), "success");
 	} catch (error) {
@@ -229,22 +217,20 @@ async function resumeBootstrapInitialization() {
 
 	deleting = true;
 	try {
-		requireWorkspaceIdentity($appState, new WorkspaceV2StateStore().read());
+		await initializeBrowserWorkspacePersistence();
+		requireWorkspaceIdentity($appState, getBrowserWorkspaceBinding());
 		const gist = workspace ?? (await getGist(token, gistId));
 		const snapshot = await readBrowserWorkspaceSnapshot(token, gist, $appState);
 		if (snapshot.origin !== "bootstrap") {
 			throw new Error("Workspace bootstrap state changed");
 		}
-		await reconcileBrowserWorkspace(
-			{
-				token,
-				gistId,
-				baseline: snapshot.document,
-				resolvedState: $appState,
-				syncMode: "automatic",
-			},
-			mutationDependencies(),
-		);
+		await reconcileBrowserWorkspace({
+			token,
+			gistId,
+			baseline: snapshot.document,
+			resolvedState: $appState,
+			syncMode: "automatic",
+		});
 		await refreshWorkspace();
 		setStatus($t("Workspace initialization completed"), "success");
 	} catch (error) {

@@ -90,6 +90,14 @@ test("exports page exposes gist live link publishing for remote profiles", () =>
 	expect(exportsPageSource).toContain("Connect to Publish");
 });
 
+test("exports publication uses the default transactional browser adapter", () => {
+	expect(exportsPageSource).toContain("submitBrowserWorkspaceMutation(");
+	expect(exportsPageSource).toContain('kind: "client-export.publish"');
+	expect(exportsPageSource).not.toContain("WorkspaceMutationQueue");
+	expect(exportsPageSource).not.toContain("WorkspaceV2StateStore");
+	expect(exportsPageSource).not.toContain("allowManual: true");
+});
+
 test("exports page blocks dirty or conflicting profile publication", () => {
 	expect(exportsPageSource).toContain("profileDirty");
 	expect(exportsPageSource).toContain("selectedOutputConflict");

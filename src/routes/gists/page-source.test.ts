@@ -49,8 +49,18 @@ test("gists reads use the authoritative Workspace binding", () => {
 		gistsPageSource.indexOf("onMount(() =>"),
 	);
 	expect(refresh).toContain("requireWorkspaceIdentity(");
+	expect(refresh).toContain("initializeBrowserWorkspacePersistence()");
+	expect(refresh).toContain("getBrowserWorkspaceBinding()");
 	expect(refresh).toContain("getGist(token, identity.gistId)");
 	expect(refresh).not.toContain("getGist(token, gistId)");
+});
+
+test("gists page uses only the transactional browser persistence boundary", () => {
+	expect(gistsPageSource).not.toContain("WorkspaceV2StateStore");
+	expect(gistsPageSource).not.toContain("WorkspaceMutationQueue");
+	expect(gistsPageSource).not.toContain("mutationDependencies");
+	expect(gistsPageSource).toContain("getBrowserWorkspaceBinding");
+	expect(gistsPageSource).toContain("submitBrowserWorkspaceMutation(");
 });
 
 test("gists page protects every reserved Workspace file", () => {
@@ -69,6 +79,7 @@ test("gists page resumes incomplete setup and coordinates stale marker cleanup",
 	expect(gistsPageSource).toContain('$t("Initialization incomplete")');
 	expect(gistsPageSource).toContain("resumeBootstrapInitialization");
 	expect(gistsPageSource).toContain("reconcileBrowserWorkspace");
+	expect(gistsPageSource).toContain('syncMode: "automatic"');
 	expect(gistsPageSource).toContain("requireWorkspaceIdentity");
 	expect(gistsPageSource).toContain('kind: "workspace.bootstrap.cleanup"');
 	expect(gistsPageSource).toContain("requestConfirm({");
