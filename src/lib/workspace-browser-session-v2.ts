@@ -145,7 +145,9 @@ function mutationDraft(
 	dependencies: BrowserWorkspaceSessionDependencies,
 ): WorkspaceMutationDraft {
 	const mutation = parseWorkspaceMutation({
-		mutationId: (dependencies.mutationId ?? crypto.randomUUID)(),
+		mutationId: dependencies.mutationId
+			? dependencies.mutationId()
+			: crypto.randomUUID(),
 		workspaceId: binding.workspaceId,
 		expectedRevision: binding.revision ?? 0,
 		source: "browser",

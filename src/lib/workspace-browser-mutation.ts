@@ -94,7 +94,9 @@ export async function enqueueAutomaticWorkspaceMutation(
 		return { status: "paused-conflict" };
 	}
 
-	const mutationId = (options.mutationId ?? crypto.randomUUID)();
+	const mutationId = options.mutationId
+		? options.mutationId()
+		: crypto.randomUUID();
 	const createdAt = (options.now ?? (() => new Date().toISOString()))();
 	const queue = options.queue ?? new WorkspaceMutationQueue();
 	const mutation = await queue.enqueueNext(
