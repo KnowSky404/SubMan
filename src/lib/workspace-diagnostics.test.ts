@@ -9,7 +9,10 @@ import {
 	type WorkspaceDiagnosticsQuarantine,
 	type WorkspaceDiagnosticsSnapshot,
 } from "$lib/workspace-diagnostics";
-import type { WorkspaceMutation } from "$lib/workspace-mutation";
+import type {
+	NodeUpsertMutation,
+	WorkspaceMutation,
+} from "$lib/workspace-mutation";
 import {
 	type BrowserWorkspacePersistence,
 	createEmptyWorkspacePersistenceRecord,
@@ -265,13 +268,14 @@ describe("Workspace diagnostics", () => {
 				},
 			},
 		});
-		const persistedMutation: WorkspaceMutation = {
-			...mutation(
-				"node.upsert",
-				{ operation: "replace", node: state.nodes[0] },
-				0,
-			),
-			source: "browser" as const,
+		const persistedMutation: NodeUpsertMutation = {
+			mutationId: "10000000-0000-4000-8000-000000000000",
+			workspaceId: WORKSPACE_ID,
+			expectedRevision: 0,
+			source: "browser",
+			createdAt: T1,
+			kind: "node.upsert",
+			payload: { operation: "replace", node: state.nodes[0] },
 		};
 		record.workspaces[WORKSPACE_ID] = {
 			workspaceId: WORKSPACE_ID,
