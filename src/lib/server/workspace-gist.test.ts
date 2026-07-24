@@ -303,7 +303,12 @@ describe("Workspace Gist gateway", () => {
 	});
 
 	it("distinguishes authorization from primary and secondary 403 rate limits", async () => {
-		for (const testCase of [
+		const testCases: readonly {
+			name: string;
+			headers: Record<string, string>;
+			category: "authorization" | "rate-limit";
+			retryAfter: number | null;
+		}[] = [
 			{
 				name: "authorization",
 				headers: {
@@ -332,7 +337,8 @@ describe("Workspace Gist gateway", () => {
 				category: "rate-limit",
 				retryAfter: 60,
 			},
-		] as const) {
+		];
+		for (const testCase of testCases) {
 			const gateway = createWorkspaceGistGateway(
 				async () =>
 					new Response(`unsafe ${testCase.name} body containing ${TOKEN}`, {
