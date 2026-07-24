@@ -16,6 +16,7 @@ import {
 	TransactionalWorkspacePersistence,
 	validateWorkspaceMutationSequence,
 	validateWorkspacePersistenceRecord,
+	WORKSPACE_PERSISTENCE_ROOT_KEY,
 	type WorkspaceLeaseFence,
 	WorkspacePersistenceError,
 	type WorkspacePersistenceFaultPoint,
@@ -134,6 +135,25 @@ function manualPersistence(): InMemoryWorkspacePersistence {
 	return new InMemoryWorkspacePersistence(record);
 }
 
+function structurallyCorruptQueueRecord(): WorkspacePersistenceRecord {
+	const record = createEmptyWorkspacePersistenceRecord();
+	record.snapshot = committedSnapshot();
+	record.binding = binding();
+	record.workspaces[WORKSPACE_ID] = {
+		workspaceId: WORKSPACE_ID,
+		mutations: [
+			reconcileMutation(),
+			reconcileMutation(MUTATION_ID_3, 2, WORKSPACE_ID, NOW_2),
+		],
+		delivery: {
+			retry: { attempt: 0, nextAttemptAt: null, lastErrorCode: null },
+			blocked: null,
+			deadLetters: [],
+		},
+	};
+	return record;
+}
+
 function mutation(
 	mutationId = MUTATION_ID,
 	expectedRevision = 0,
@@ -197,6 +217,16 @@ async function acquireFence(
 	return { ownerId, fencingToken: acquired.lease.fencingToken };
 }
 
+async function waitUntil(
+	check: () => boolean | Promise<boolean>,
+): Promise<void> {
+	for (let attempt = 0; attempt < 100; attempt += 1) {
+		if (await check()) return;
+		await new Promise((resolve) => setTimeout(resolve, 2));
+	}
+	throw new Error("Timed out waiting for test condition");
+}
+
 class MemoryStorage implements Storage {
 	private readonly values = new Map<string, string>();
 	failRemoveKey: string | null = null;
@@ -239,6 +269,7 @@ class DeterministicIdbDatabase {
 	readonly values = new Map<IDBValidKey, unknown>();
 	readonly stores = new Set<string>();
 	writeTail: Promise<void> = Promise.resolve();
+	readwriteTransactionCount = 0;
 	onversionchange: (() => void) | null = null;
 
 	readonly objectStoreNames = {
@@ -251,6 +282,7 @@ class DeterministicIdbDatabase {
 	}
 
 	transaction(_name: string, mode: IDBTransactionMode): IDBTransaction {
+		if (mode === "readwrite") this.readwriteTransactionCount += 1;
 		return new DeterministicIdbTransaction(
 			this,
 			mode,
@@ -337,6 +369,10 @@ class DeterministicIdbTransaction {
 
 class DeterministicIdbFactory {
 	private readonly databases = new Map<string, DeterministicIdbDatabase>();
+
+	database(name: string): DeterministicIdbDatabase | undefined {
+		return this.databases.get(name);
+	}
 
 	open(name: string): IDBOpenDBRequest {
 		const request = {
@@ -1931,6 +1967,96 @@ describe("legacy persistence migration", () => {
 });
 
 describe("storage failure classification", () => {
+	it("durably quarantines a corrupt IndexedDB queue before rejecting once", async () => {
+		const databaseName = "indexed-db-read-recovery";
+		const factory = new DeterministicIdbFactory();
+		const backend = new IndexedDbWorkspacePersistenceBackend(
+			factory as unknown as IDBFactory,
+			databaseName,
+			() => NOW,
+		);
+		const persistence = new TransactionalWorkspacePersistence(backend);
+		await persistence.read();
+		const database = factory.database(databaseName);
+		if (!database) throw new Error("Expected deterministic IndexedDB database");
+		database.values.set(WORKSPACE_PERSISTENCE_ROOT_KEY, {
+			...structurallyCorruptQueueRecord(),
+			quarantinePayloads: {},
+		});
+
+		const error = await captureError(persistence.read());
+		expect(error.code).toBe("corrupt-data");
+		const fresh = new TransactionalWorkspacePersistence(
+			new IndexedDbWorkspacePersistenceBackend(
+				factory as unknown as IDBFactory,
+				databaseName,
+				() => NOW,
+			),
+		);
+		const recovered = await fresh.read();
+		expect(recovered.workspaces[WORKSPACE_ID]).toBe(undefined);
+		expect(recovered.quarantines).toHaveLength(1);
+		expect(recovered.quarantines[0]?.source).toBe(`queue:${WORKSPACE_ID}`);
+		const payload = await fresh.readQuarantinePayloadForRepair(
+			recovered.quarantines[0]?.id ?? "",
+		);
+		expect(payload).toContain(MUTATION_ID_3);
+		expect((await fresh.read()).quarantines).toEqual(recovered.quarantines);
+	});
+
+	it("re-reads inside recovery so a newer IndexedDB writer is not overwritten", async () => {
+		const databaseName = "indexed-db-read-recovery-race";
+		const factory = new DeterministicIdbFactory();
+		const reader = new TransactionalWorkspacePersistence(
+			new IndexedDbWorkspacePersistenceBackend(
+				factory as unknown as IDBFactory,
+				databaseName,
+				() => NOW,
+			),
+		);
+		const writer = new TransactionalWorkspacePersistence(
+			new IndexedDbWorkspacePersistenceBackend(
+				factory as unknown as IDBFactory,
+				databaseName,
+				() => NOW,
+			),
+		);
+		await reader.read();
+		const database = factory.database(databaseName);
+		if (!database) throw new Error("Expected deterministic IndexedDB database");
+		database.values.set(WORKSPACE_PERSISTENCE_ROOT_KEY, {
+			...structurallyCorruptQueueRecord(),
+			quarantinePayloads: {},
+		});
+		let releaseWriter = () => {};
+		database.writeTail = new Promise<void>((resolve) => {
+			releaseWriter = resolve;
+		});
+		const initialWriteCount = database.readwriteTransactionCount;
+		const writerCommit = writer.rebindWorkspace({
+			snapshot: committedSnapshot(OTHER_GIST_ID),
+			binding: binding(0, OTHER_GIST_ID),
+		});
+		await waitUntil(
+			() => database.readwriteTransactionCount === initialWriteCount + 1,
+		);
+		const recoveryRead = reader.read();
+		await waitUntil(
+			() => database.readwriteTransactionCount === initialWriteCount + 2,
+		);
+		releaseWriter();
+		await writerCommit;
+		const recoveryError = await captureError(recoveryRead);
+		expect(recoveryError.name).toBe("WorkspaceQueueRecoveryError");
+		expect(recoveryError.code).toBe("corrupt-data");
+
+		const fresh = await reader.read();
+		expect(fresh.binding?.workspaceId).toBe(OTHER_WORKSPACE_ID);
+		expect(fresh.snapshot?.activeGistId).toBe(OTHER_GIST_ID);
+		expect(fresh.workspaces[WORKSPACE_ID]).toBe(undefined);
+		expect(fresh.quarantines).toHaveLength(1);
+	});
+
 	it("persists records and serializes writers across IndexedDB clients", async () => {
 		const factory = new DeterministicIdbFactory() as unknown as IDBFactory;
 		const first = new TransactionalWorkspacePersistence(

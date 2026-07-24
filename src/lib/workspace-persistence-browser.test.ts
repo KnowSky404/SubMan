@@ -6,6 +6,8 @@ import type { WorkspaceEvent } from "$lib/workspace-events";
 import {
 	createEmptyWorkspacePersistenceRecord,
 	InMemoryWorkspacePersistence,
+	WorkspacePersistenceError,
+	WorkspaceQueueRecoveryError,
 } from "$lib/workspace-persistence";
 import {
 	commitBrowserWorkspaceAction,
@@ -91,6 +93,33 @@ async function captureError(promise: Promise<unknown>): Promise<Error> {
 	throw new Error("Expected promise to reject");
 }
 
+class OneTimeRecoveredPersistence extends InMemoryWorkspacePersistence {
+	private rejectNextRead = true;
+
+	override async read() {
+		if (this.rejectNextRead) {
+			this.rejectNextRead = false;
+			throw new WorkspaceQueueRecoveryError();
+		}
+		return super.read();
+	}
+}
+
+class OneTimeUnrecoverablePersistence extends InMemoryWorkspacePersistence {
+	readAttempts = 0;
+
+	override async read() {
+		this.readAttempts += 1;
+		if (this.readAttempts === 1) {
+			throw new WorkspacePersistenceError(
+				"corrupt-data",
+				"Workspace persistence root is invalid",
+			);
+		}
+		return super.read();
+	}
+}
+
 test("browser persistence initializes once, hydrates, and exposes a stable adapter", async () => {
 	const record = createEmptyWorkspacePersistenceRecord();
 	record.snapshot = createDefaultWorkspaceState(NOW);
@@ -142,6 +171,61 @@ test("initialization failure enters invalid-local-storage without a legacy fallb
 	expect(get(workspaceSyncStatus).lifecycle).toBe("invalid-local-state");
 	expect(getBrowserWorkspacePersistenceRecord()).toBeNull();
 	expect(storage.length).toBe(0);
+	expect(
+		await captureError(initializeBrowserWorkspacePersistence({ storage })),
+	).toBe(error);
+	setBrowserWorkspacePersistenceForTest(null);
+});
+
+test("a durable queue recovery can be retried in the same browser session", async () => {
+	const record = createEmptyWorkspacePersistenceRecord();
+	record.quarantines.push({
+		id: "queue:gist:gist-1:recovered",
+		source: `queue:${WORKSPACE_ID}`,
+		reason: "invalid-persisted-queue",
+		bytes: 128,
+		createdAt: NOW,
+	});
+	const persistence = new OneTimeRecoveredPersistence(record);
+	const storage = new MemoryStorage();
+	workspaceSyncStatus.set(defaultWorkspaceSyncStatus);
+	setBrowserWorkspacePersistenceForTest(persistence);
+
+	const error = await captureError(
+		initializeBrowserWorkspacePersistence({ storage }),
+	);
+	expect((error as WorkspacePersistenceError).code).toBe("corrupt-data");
+	expect(get(workspaceSyncStatus).phase).toBe("invalid-local-storage");
+	expect(get(workspaceSyncStatus).recoveryNotice).toBe("queue-quarantined");
+	expect(get(workspaceSyncStatus).recentError?.code).toBe("corrupt-data");
+
+	const recovered = await initializeBrowserWorkspacePersistence({ storage });
+	expect(recovered.quarantines).toEqual(record.quarantines);
+	expect(getBrowserWorkspacePersistenceRecord()?.quarantines).toEqual(
+		record.quarantines,
+	);
+	expect(getBrowserWorkspaceQueueMetrics().totalQueueCount).toBe(0);
+	expect(
+		(await getBrowserWorkspacePersistence().inspectQueues()).workspaces,
+	).toEqual([]);
+	setBrowserWorkspacePersistenceForTest(null);
+});
+
+test("unrecoverable corrupt data remains cached and fail-closed", async () => {
+	const persistence = new OneTimeUnrecoverablePersistence();
+	const storage = new MemoryStorage();
+	workspaceSyncStatus.set(defaultWorkspaceSyncStatus);
+	setBrowserWorkspacePersistenceForTest(persistence);
+
+	const first = await captureError(
+		initializeBrowserWorkspacePersistence({ storage }),
+	);
+	const second = await captureError(
+		initializeBrowserWorkspacePersistence({ storage }),
+	);
+	expect(second).toBe(first);
+	expect(persistence.readAttempts).toBe(1);
+	expect(get(workspaceSyncStatus).recoveryNotice).toBe("state-quarantined");
 	setBrowserWorkspacePersistenceForTest(null);
 });
 

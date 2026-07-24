@@ -52,6 +52,16 @@ export class WorkspacePersistenceError extends Error {
 	}
 }
 
+export class WorkspaceQueueRecoveryError extends WorkspacePersistenceError {
+	constructor() {
+		super(
+			"corrupt-data",
+			"A structurally corrupt Workspace queue was quarantined",
+		);
+		this.name = "WorkspaceQueueRecoveryError";
+	}
+}
+
 export type WorkspacePersistenceFaultPoint =
 	| "before-transaction"
 	| "after-snapshot"
@@ -885,6 +895,13 @@ function validateLease(value: unknown, name: string): WorkspaceDispatcherLease {
 type WorkspacePersistenceValidationOptions = {
 	recoverCorruptQueues?: boolean;
 	recoveredAt?: string;
+	onRecoveredQueue?: (quarantineId: string) => void;
+};
+
+type WorkspacePersistenceRecoveryResult = {
+	record: WorkspacePersistenceRoot;
+	recoveredQueueCount: number;
+	recoveredQuarantineIds: string[];
 };
 
 export function validateWorkspacePersistenceRecord(
@@ -912,10 +929,26 @@ function recoverWorkspacePersistenceRecord(
 	value: unknown,
 	recoveredAt: string,
 ): WorkspacePersistenceRoot {
-	return validateWorkspacePersistenceRecordInternal(value, {
+	return recoverWorkspacePersistenceRecordWithResult(value, recoveredAt).record;
+}
+
+function recoverWorkspacePersistenceRecordWithResult(
+	value: unknown,
+	recoveredAt: string,
+): WorkspacePersistenceRecoveryResult {
+	const recoveredQuarantineIds: string[] = [];
+	const record = validateWorkspacePersistenceRecordInternal(value, {
 		recoverCorruptQueues: true,
 		recoveredAt,
+		onRecoveredQueue: (quarantineId) => {
+			recoveredQuarantineIds.push(quarantineId);
+		},
 	});
+	return {
+		record,
+		recoveredQueueCount: recoveredQuarantineIds.length,
+		recoveredQuarantineIds,
+	};
 }
 
 function validateWorkspacePersistenceRecordInternal(
@@ -1018,6 +1051,7 @@ function validateWorkspacePersistenceRecordInternal(
 				createdAt,
 			});
 			recoveredPayloads[id] = raw;
+			options.onRecoveredQueue?.(id);
 		}
 	}
 	if (binding) {
@@ -2316,26 +2350,50 @@ export class IndexedDbWorkspacePersistenceBackend
 
 	async read(): Promise<WorkspacePersistenceRoot> {
 		const database = await this.open();
+		const inspected = await this.readTransaction(database, "readonly", false);
+		if (inspected.recoveredQueueCount === 0) return inspected.record;
+
+		const persisted = await this.readTransaction(database, "readwrite", true);
+		const observedRecoveryIsDurable = inspected.recoveredQuarantineIds.some(
+			(id) => persisted.record.quarantinePayloads[id] !== undefined,
+		);
+		if (persisted.recoveredQueueCount > 0 || observedRecoveryIsDurable) {
+			throw new WorkspaceQueueRecoveryError();
+		}
+		return persisted.record;
+	}
+
+	private readTransaction(
+		database: IDBDatabase,
+		mode: IDBTransactionMode,
+		persistRecovery: boolean,
+	): Promise<WorkspacePersistenceRecoveryResult> {
 		return new Promise((resolve, reject) => {
 			let settled = false;
-			let result: WorkspacePersistenceRoot | null = null;
+			let result: WorkspacePersistenceRecoveryResult | null = null;
 			const transaction = database.transaction(
 				WORKSPACE_PERSISTENCE_STORE,
-				"readonly",
+				mode,
 			);
-			const request = transaction
-				.objectStore(WORKSPACE_PERSISTENCE_STORE)
-				.get(WORKSPACE_PERSISTENCE_ROOT_KEY);
+			const store = transaction.objectStore(WORKSPACE_PERSISTENCE_STORE);
+			const request = store.get(WORKSPACE_PERSISTENCE_ROOT_KEY);
 			request.onsuccess = () => {
 				try {
 					const value =
 						request.result ?? createEmptyWorkspacePersistenceRecord();
-					result = recoverWorkspacePersistenceRecord(
+					result = recoverWorkspacePersistenceRecordWithResult(
 						persistenceRootInput(value),
 						this.now(),
 					);
+					if (persistRecovery && result.recoveredQueueCount > 0) {
+						store.put(
+							validateWorkspacePersistenceRecordInternal(result.record),
+							WORKSPACE_PERSISTENCE_ROOT_KEY,
+						);
+					}
 				} catch (error) {
 					settled = true;
+					transaction.abort();
 					reject(normalizeError(error, "transaction-aborted"));
 				}
 			};
@@ -2354,7 +2412,7 @@ export class IndexedDbWorkspacePersistenceBackend
 				settled = true;
 				resolve(
 					result ??
-						recoverWorkspacePersistenceRecord(
+						recoverWorkspacePersistenceRecordWithResult(
 							persistenceRootInput(createEmptyWorkspacePersistenceRecord()),
 							this.now(),
 						),

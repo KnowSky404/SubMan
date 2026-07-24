@@ -11,6 +11,7 @@ import {
 	validateWorkspacePersistenceRecord,
 	type WorkspaceMutationDraft,
 	type WorkspacePersistenceRecord,
+	WorkspaceQueueRecoveryError,
 } from "$lib/workspace-persistence";
 import {
 	dispatchWorkspaceSyncEvent,
@@ -78,7 +79,7 @@ function storageFailure(error: unknown): never {
 			: "workspace_persistence_failed";
 	dispatchWorkspaceSyncEvent({
 		type: "STORAGE_QUARANTINED",
-		kind: "state",
+		kind: error instanceof WorkspaceQueueRecoveryError ? "queue" : "state",
 		queue: currentRecord ? metricsFor(currentRecord) : emptyQueueMetrics(),
 		error: {
 			code,
@@ -87,6 +88,10 @@ function storageFailure(error: unknown): never {
 		},
 	});
 	throw error;
+}
+
+function retryableInitializationFailure(error: unknown): boolean {
+	return error instanceof WorkspaceQueueRecoveryError;
 }
 
 function emptyQueueMetrics(): WorkspaceQueueMetrics {
@@ -123,7 +128,7 @@ export async function initializeBrowserWorkspacePersistence(
 	options: InitializeOptions = {},
 ): Promise<WorkspacePersistenceRecord> {
 	if (initializePromise) return initializePromise;
-	initializePromise = (async () => {
+	const attempt = (async () => {
 		try {
 			const storage = options.storage ?? localStorage;
 			await migrateLegacyWorkspacePersistence(persistence(), storage);
@@ -138,6 +143,13 @@ export async function initializeBrowserWorkspacePersistence(
 			return storageFailure(error);
 		}
 	})();
+	const cached = attempt.catch((error) => {
+		if (retryableInitializationFailure(error) && initializePromise === cached) {
+			initializePromise = null;
+		}
+		throw error;
+	});
+	initializePromise = cached;
 	return initializePromise;
 }
 
