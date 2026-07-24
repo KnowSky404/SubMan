@@ -10,6 +10,10 @@ import {
 	WORKSPACE_BOOTSTRAP_FILE_NAME,
 	type WorkspaceDocumentV2,
 } from "$lib/workspace-document";
+import {
+	broadcastWorkspaceEvent,
+	type WorkspaceEvent,
+} from "$lib/workspace-events";
 import { requireWorkspaceIdentity } from "$lib/workspace-identity";
 import {
 	parseWorkspaceMutation,
@@ -30,6 +34,13 @@ import {
 	type WorkspacePersistenceDispatchResult,
 } from "$lib/workspace-persistence-dispatcher";
 import {
+	dispatchWorkspaceSyncEvent,
+	type WorkspaceBlockedMutation,
+	type WorkspaceQueueMetrics,
+	type WorkspaceSyncError,
+	type WorkspaceSyncEvent,
+} from "$lib/workspace-sync-status";
+import {
 	createWorkspaceV2LocalState,
 	hydrateAppStateFromWorkspaceDocument,
 	type WorkspaceV2LocalState,
@@ -49,7 +60,23 @@ type BrowserWorkspaceSessionDependencies = {
 	mutationId?: () => string;
 	now?: () => string;
 	allowManual?: boolean;
+	broadcast?: (event: WorkspaceEvent) => void;
+	dispatchSyncEvent?: (event: WorkspaceSyncEvent) => boolean;
 };
+
+function broadcast(
+	dependencies: BrowserWorkspaceSessionDependencies,
+	event: WorkspaceEvent,
+): void {
+	(dependencies.broadcast ?? broadcastWorkspaceEvent)(event);
+}
+
+function dispatchSyncEvent(
+	dependencies: BrowserWorkspaceSessionDependencies,
+	event: WorkspaceSyncEvent,
+): boolean {
+	return (dependencies.dispatchSyncEvent ?? dispatchWorkspaceSyncEvent)(event);
+}
 
 async function withStateAccess(
 	dependencies: BrowserWorkspaceSessionDependencies,
@@ -111,6 +138,198 @@ function deliveryFailure(
 	return new Error(
 		`${prefix}: ${result.status}${"code" in result && result.code ? ` (${result.code})` : ""}`,
 	);
+}
+
+function queueMetrics(
+	record: WorkspacePersistenceRecord,
+): WorkspaceQueueMetrics {
+	const activeWorkspaceId = record.binding?.workspaceId ?? null;
+	const queues = Object.values(record.workspaces);
+	return {
+		activeQueueCount: activeWorkspaceId
+			? (record.workspaces[activeWorkspaceId]?.mutations.length ?? 0)
+			: 0,
+		totalQueueCount: queues.reduce(
+			(total, queue) => total + queue.mutations.length,
+			0,
+		),
+		orphanedWorkspaceCount: queues.filter(
+			(queue) =>
+				queue.workspaceId !== activeWorkspaceId && queue.mutations.length > 0,
+		).length,
+		blockedMutationCount: queues.filter(
+			(queue) => queue.delivery.blocked !== null,
+		).length,
+		deadLetterCount: queues.reduce(
+			(total, queue) => total + queue.delivery.deadLetters.length,
+			0,
+		),
+	};
+}
+
+function persistedBlockedMutation(
+	record: WorkspacePersistenceRecord,
+): WorkspaceBlockedMutation | null {
+	const activeQueue = record.binding
+		? record.workspaces[record.binding.workspaceId]
+		: undefined;
+	const blocked = activeQueue?.delivery.blocked;
+	return blocked
+		? {
+				mutationId: blocked.mutationId,
+				kind: blocked.kind,
+				code: blocked.code,
+				disposition: blocked.disposition,
+				message: blocked.messageKey ?? blocked.code,
+			}
+		: null;
+}
+
+function reportPersistedSyncContext(
+	record: WorkspacePersistenceRecord,
+	authenticated: boolean,
+	dependencies: BrowserWorkspaceSessionDependencies,
+): void {
+	dispatchSyncEvent(dependencies, {
+		type: "SYNC_CONTEXT_LOADED",
+		mode: record.binding?.syncMode ?? "disconnected",
+		authenticated,
+		revision: record.binding?.revision ?? null,
+		queue: queueMetrics(record),
+		blockedMutation: persistedBlockedMutation(record),
+	});
+}
+
+function reportDeliveryFailure(
+	result: Exclude<WorkspacePersistenceDispatchResult, { status: "committed" }>,
+	record: WorkspacePersistenceRecord,
+	mutation: WorkspaceMutation,
+	dependencies: BrowserWorkspaceSessionDependencies,
+): void {
+	const queue = queueMetrics(record);
+	const activeQueue = record.binding
+		? record.workspaces[record.binding.workspaceId]
+		: undefined;
+	const blockedMutation = persistedBlockedMutation(record);
+	const disposition =
+		blockedMutation?.disposition ??
+		(result.status === "deferred" ||
+		activeQueue?.delivery.retry.nextAttemptAt != null
+			? "retryable-upstream"
+			: null) ??
+		(result.status === "conflict" ||
+		result.status === "retryable-error" ||
+		result.status === "permanent-error"
+			? result.disposition
+			: null);
+	const code =
+		blockedMutation?.code ??
+		activeQueue?.delivery.retry.lastErrorCode ??
+		("code" in result && result.code
+			? result.code
+			: disposition === "retryable-upstream"
+				? "workspace_sync_retry"
+				: "workspace_sync_failed");
+	const error: WorkspaceSyncError = {
+		code,
+		message: blockedMutation?.message ?? code,
+		disposition: disposition ?? "operator-repair",
+	};
+
+	if (disposition === "retryable-upstream") {
+		const retry = activeQueue?.delivery.retry;
+		const nextAttemptAt =
+			retry?.nextAttemptAt ??
+			(result.status === "deferred" ? result.nextAttemptAt : Date.now());
+		dispatchSyncEvent(dependencies, {
+			type: "SYNC_STARTED",
+			trigger: "explicit",
+			queue,
+			mutation: {
+				mutationId: mutation.mutationId,
+				kind: mutation.kind,
+			},
+		});
+		dispatchSyncEvent(dependencies, {
+			type: "SYNC_RETRY_SCHEDULED",
+			queue,
+			error,
+			blockedMutation,
+			retry: {
+				attempt: Math.max(1, retry?.attempt ?? 1),
+				nextAttemptAt,
+				retryAfterMs: Math.max(0, nextAttemptAt - Date.now()),
+				lastErrorCode: retry?.lastErrorCode ?? code,
+			},
+		});
+		broadcastQueueChanged(record, mutation, dependencies);
+		return;
+	}
+	if (disposition === "state-conflict") {
+		dispatchSyncEvent(dependencies, {
+			type: "STATE_CONFLICT",
+			queue,
+			error,
+			blockedMutation,
+		});
+		if (record.binding) {
+			broadcast(dependencies, {
+				type: "paused-conflict",
+				gistId: record.binding.gistId,
+				fileName: record.binding.fileName,
+				mutationId: mutation.mutationId,
+				document: record.binding.baseline ?? undefined,
+			});
+		}
+		return;
+	}
+	if (disposition === "domain-conflict") {
+		dispatchSyncEvent(dependencies, {
+			type: "DOMAIN_BLOCKED",
+			queue,
+			error,
+			blockedMutation,
+		});
+		broadcastQueueChanged(record, mutation, dependencies);
+		return;
+	}
+	if (disposition === "auth-required") {
+		dispatchSyncEvent(dependencies, { type: "AUTH_LOST", queue, error });
+		broadcastQueueChanged(record, mutation, dependencies);
+		return;
+	}
+	if (disposition === "queue-corruption") {
+		dispatchSyncEvent(dependencies, {
+			type: "QUEUE_CORRUPTED",
+			queue,
+			error,
+			blockedMutation,
+		});
+		broadcastQueueChanged(record, mutation, dependencies);
+		return;
+	}
+	dispatchSyncEvent(dependencies, {
+		type: "OPERATOR_REPAIR_REQUIRED",
+		queue,
+		error,
+		blockedMutation,
+	});
+	broadcastQueueChanged(record, mutation, dependencies);
+}
+
+function broadcastQueueChanged(
+	record: WorkspacePersistenceRecord,
+	mutation: WorkspaceMutation,
+	dependencies: BrowserWorkspaceSessionDependencies,
+): void {
+	const binding = record.binding;
+	if (!binding) return;
+	broadcast(dependencies, {
+		type: "mutation-queue-changed",
+		gistId: binding.gistId,
+		fileName: binding.fileName,
+		mutationId: mutation.mutationId,
+	});
 }
 
 function emptyDocument(gistId: string, now: string): WorkspaceDocumentV2 {
@@ -175,6 +394,8 @@ async function dispatchUntilMutationSettles(
 			if (before.snapshot) publishState(dependencies, before.snapshot);
 			return before.snapshot ?? currentState(dependencies);
 		}
+		const mutation = pending[0];
+		if (!mutation) throw new Error("Workspace mutation queue is unavailable");
 		const result = await dispatchPersistedWorkspaceMutation({
 			persistence,
 			githubToken: token,
@@ -182,6 +403,7 @@ async function dispatchUntilMutationSettles(
 			fetchImpl: dependencies.fetchImpl,
 		});
 		const after = await hydrateFromPersistence(dependencies, persistence);
+		reportPersistedSyncContext(after, Boolean(token), dependencies);
 		const stillPending = Boolean(
 			after.binding &&
 				after.workspaces[after.binding.workspaceId]?.mutations.some(
@@ -189,15 +411,27 @@ async function dispatchUntilMutationSettles(
 				),
 		);
 		if (result.status === "committed") {
+			if (after.binding) {
+				broadcast(dependencies, {
+					type: "workspace-v2-committed",
+					gistId: after.binding.gistId,
+					fileName: after.binding.fileName,
+					mutationId: mutation.mutationId,
+					document: after.binding.baseline ?? undefined,
+					status: "committed",
+				});
+			}
 			if (!stillPending) return after.snapshot ?? currentState(dependencies);
 			continue;
 		}
-		if (
-			!stillPending &&
-			(result.status === "busy" || result.status === "stale")
-		) {
+		if (result.status === "busy" || result.status === "stale") {
+			if (!stillPending) return after.snapshot ?? currentState(dependencies);
+			throw deliveryFailure(prefix, result);
+		}
+		if (result.status === "empty" && !stillPending) {
 			return after.snapshot ?? currentState(dependencies);
 		}
+		reportDeliveryFailure(result, after, mutation, dependencies);
 		throw deliveryFailure(prefix, result);
 	}
 }

@@ -13,10 +13,25 @@ import {
 } from "$lib/workspace-data";
 import type { WorkspaceDocumentV2 } from "$lib/workspace-document";
 import {
+	subscribeWorkspaceEvents,
+	type WorkspaceEvent,
+} from "$lib/workspace-events";
+import type { WorkspaceFailureDisposition } from "$lib/workspace-failure-disposition";
+import {
 	parseWorkspaceMutation,
 	type WorkspaceMutation,
 } from "$lib/workspace-mutation";
-import { InMemoryWorkspacePersistence } from "$lib/workspace-persistence";
+import {
+	InMemoryWorkspacePersistence,
+	type WorkspacePersistenceRecord,
+	workspaceDispatcherLeaseName,
+} from "$lib/workspace-persistence";
+import {
+	createDefaultWorkspaceSyncStatus,
+	transitionWorkspaceSyncState,
+	type WorkspaceSyncEvent,
+	type WorkspaceSyncStatus,
+} from "$lib/workspace-sync-state-machine";
 import {
 	createWorkspaceV2LocalState,
 	hydrateAppStateFromWorkspaceDocument,
@@ -121,6 +136,75 @@ function committedResponse(documentValue: WorkspaceDocumentV2): Response {
 	});
 }
 
+function failureResponse(
+	status: number,
+	code: string,
+	disposition: WorkspaceFailureDisposition,
+	latest?: WorkspaceDocumentV2,
+): Response {
+	const error = { code, message: code, disposition };
+	return Response.json(
+		latest ? { error, document: latest, revision: latest.revision } : { error },
+		{ status },
+	);
+}
+
+function collectSessionEvents(order: string[] = []): {
+	broadcasts: WorkspaceEvent[];
+	syncEvents: WorkspaceSyncEvent[];
+	acceptedSyncEvents: boolean[];
+	getSyncStatus: () => WorkspaceSyncStatus;
+	broadcast: (event: WorkspaceEvent) => void;
+	dispatchSyncEvent: (event: WorkspaceSyncEvent) => boolean;
+} {
+	const broadcasts: WorkspaceEvent[] = [];
+	const syncEvents: WorkspaceSyncEvent[] = [];
+	const acceptedSyncEvents: boolean[] = [];
+	let syncStatus = createDefaultWorkspaceSyncStatus();
+	return {
+		broadcasts,
+		syncEvents,
+		acceptedSyncEvents,
+		getSyncStatus: () => syncStatus,
+		broadcast: (event) => {
+			broadcasts.push(event);
+			order.push(`broadcast:${event.type}`);
+		},
+		dispatchSyncEvent: (event) => {
+			syncEvents.push(event);
+			order.push(`sync:${event.type}`);
+			const transition = transitionWorkspaceSyncState(syncStatus, event);
+			acceptedSyncEvents.push(transition.accepted);
+			syncStatus = transition.state;
+			return transition.accepted;
+		},
+	};
+}
+
+class PeerSettlesBetweenReadsPersistence extends InMemoryWorkspacePersistence {
+	private readCount = 0;
+
+	constructor(
+		private readonly peerSnapshot: AppState,
+		private readonly peerBinding: WorkspaceV2LocalState,
+	) {
+		super();
+	}
+
+	override async read(): Promise<WorkspacePersistenceRecord> {
+		const record = await super.read();
+		this.readCount += 1;
+		if (this.readCount === 2) {
+			await this.discardWorkspaceQueue({
+				workspaceId: this.peerBinding.workspaceId,
+				snapshot: this.peerSnapshot,
+				binding: this.peerBinding,
+			});
+		}
+		return record;
+	}
+}
+
 async function seed(
 	persistence: InMemoryWorkspacePersistence,
 	state: AppState,
@@ -218,6 +302,7 @@ describe("browser Workspace V2 session", () => {
 		);
 		let state = resolved;
 		let requestBody = "";
+		const events = collectSessionEvents();
 
 		await reconcileBrowserWorkspace(
 			{
@@ -242,6 +327,8 @@ describe("browser Workspace V2 session", () => {
 						document(2, MUTATION_ID_3, [node("resolved")]),
 					);
 				},
+				broadcast: events.broadcast,
+				dispatchSyncEvent: events.dispatchSyncEvent,
 			},
 		);
 
@@ -251,6 +338,13 @@ describe("browser Workspace V2 session", () => {
 		expect(stored.workspaces["gist:gist-1"]?.mutations).toEqual([]);
 		expect(stored.binding?.revision).toBe(2);
 		expect(state.nodes[0]?.name).toBe("resolved");
+		expect(events.broadcasts.map((event) => event.type)).toEqual([
+			"workspace-v2-committed",
+		]);
+		expect(events.syncEvents.map((event) => event.type)).toEqual([
+			"SYNC_CONTEXT_LOADED",
+		]);
+		expect(events.acceptedSyncEvents).toEqual([true]);
 	});
 
 	it("keeps the same reconcile mutation queued with persisted retry metadata", async () => {
@@ -262,6 +356,8 @@ describe("browser Workspace V2 session", () => {
 			activeGistFile: "subman.json",
 		};
 		const baseline = document(0, null, []);
+		const order: string[] = [];
+		const events = collectSessionEvents(order);
 
 		let error: unknown;
 		try {
@@ -278,12 +374,15 @@ describe("browser Workspace V2 session", () => {
 					getState: () => state,
 					setState: (next) => {
 						state = next;
+						order.push("hydrated");
 					},
 					mutationId: () => MUTATION_ID,
 					now: () => NOW,
 					fetchImpl: async () => {
 						throw new Error("offline");
 					},
+					broadcast: events.broadcast,
+					dispatchSyncEvent: events.dispatchSyncEvent,
 				},
 			);
 		} catch (caught) {
@@ -298,6 +397,19 @@ describe("browser Workspace V2 session", () => {
 			MUTATION_ID,
 		);
 		expect(stored.workspaces["gist:gist-1"]?.delivery.retry.attempt).toBe(1);
+		expect(events.syncEvents.map((event) => event.type)).toEqual([
+			"SYNC_CONTEXT_LOADED",
+			"SYNC_STARTED",
+			"SYNC_RETRY_SCHEDULED",
+		]);
+		expect(events.acceptedSyncEvents).toEqual([true, true, true]);
+		expect(events.broadcasts.map((event) => event.type)).toEqual([
+			"mutation-queue-changed",
+		]);
+		expect(events.broadcasts[0]?.queueAction).toBe(undefined);
+		expect(
+			order.indexOf("hydrated") < order.indexOf("sync:SYNC_RETRY_SCHEDULED"),
+		).toBe(true);
 	});
 
 	it("rejects identity mismatch before persisting an explicit mutation", async () => {
@@ -406,6 +518,7 @@ describe("browser Workspace V2 session", () => {
 		);
 		let state = optimistic;
 		let requests = 0;
+		const events = collectSessionEvents();
 
 		await commitQueuedBrowserWorkspaceMutation(
 			{ token: "token", mutationId: MUTATION_ID_2 },
@@ -428,6 +541,8 @@ describe("browser Workspace V2 session", () => {
 						status: "committed",
 					});
 				},
+				broadcast: events.broadcast,
+				dispatchSyncEvent: events.dispatchSyncEvent,
 			},
 		);
 
@@ -439,12 +554,153 @@ describe("browser Workspace V2 session", () => {
 			),
 		).toEqual([MUTATION_ID_3]);
 		expect(state.nodes[0]?.name).toBe("second");
+		expect(events.broadcasts.map((event) => event.type)).toEqual([
+			"workspace-v2-committed",
+		]);
+		expect(events.syncEvents.map((event) => event.type)).toEqual([
+			"SYNC_CONTEXT_LOADED",
+		]);
+		expect(events.acceptedSyncEvents).toEqual([true]);
+	});
+
+	it("fails fast without broadcasting when a peer still owns the queued mutation", async () => {
+		const persistence = new InMemoryWorkspacePersistence();
+		const baseline = document();
+		let state = {
+			...stateFor(document(2, MUTATION_ID_2, [node("local", "pending")])),
+			lastUpdated: NOW,
+		};
+		await seed(
+			persistence,
+			state,
+			createWorkspaceV2LocalState("gist-1", { baseline }),
+			[mutation(MUTATION_ID_2, 1, "pending")],
+		);
+		const lease = await persistence.acquireLease({
+			name: workspaceDispatcherLeaseName("gist:gist-1"),
+			ownerId: "peer",
+			now: Date.now(),
+			ttlMs: 30_000,
+		});
+		expect(lease.acquired).toBe(true);
+		const events = collectSessionEvents();
+		let requests = 0;
+		let caught: unknown;
+
+		try {
+			await commitQueuedBrowserWorkspaceMutation(
+				{ token: "token", mutationId: MUTATION_ID_2 },
+				{
+					persistence,
+					getState: () => state,
+					setState: (next) => {
+						state = next;
+					},
+					fetchImpl: async () => {
+						requests += 1;
+						return committedResponse(document(2, MUTATION_ID_2));
+					},
+					broadcast: events.broadcast,
+					dispatchSyncEvent: events.dispatchSyncEvent,
+				},
+			);
+		} catch (error) {
+			caught = error;
+		}
+
+		expect((caught as Error).message).toContain("busy");
+		expect(requests).toBe(0);
+		expect(events.broadcasts).toEqual([]);
+		expect(
+			(await persistence.read()).workspaces["gist:gist-1"]?.mutations[0]
+				?.mutationId,
+		).toBe(MUTATION_ID_2);
+	});
+
+	it("does not rebroadcast a mutation already settled by a peer", async () => {
+		const persistence = new InMemoryWorkspacePersistence();
+		const committed = document(2, MUTATION_ID_2, [node("local", "peer")]);
+		let state = stateFor(committed);
+		await seed(
+			persistence,
+			state,
+			createWorkspaceV2LocalState("gist-1", { baseline: committed }),
+		);
+		const events = collectSessionEvents();
+
+		await commitQueuedBrowserWorkspaceMutation(
+			{ token: "token", mutationId: MUTATION_ID_2 },
+			{
+				persistence,
+				getState: () => state,
+				setState: (next) => {
+					state = next;
+				},
+				broadcast: events.broadcast,
+				dispatchSyncEvent: events.dispatchSyncEvent,
+			},
+		);
+
+		expect(state.nodes[0]?.name).toBe("peer");
+		expect(events.broadcasts).toEqual([]);
+		expect(events.syncEvents).toEqual([]);
+	});
+
+	it("accepts a peer commit between the outer and dispatcher reads", async () => {
+		const baseline = document();
+		const committed = document(2, MUTATION_ID_2, [node("local", "peer")]);
+		const peerState = stateFor(committed);
+		const peerBinding = createWorkspaceV2LocalState("gist-1", {
+			baseline: committed,
+		});
+		const persistence = new PeerSettlesBetweenReadsPersistence(
+			peerState,
+			peerBinding,
+		);
+		let state = {
+			...stateFor(document(2, MUTATION_ID_2, [node("local", "pending")])),
+			lastUpdated: NOW,
+		};
+		await seed(
+			persistence,
+			state,
+			createWorkspaceV2LocalState("gist-1", { baseline }),
+			[mutation(MUTATION_ID_2, 1, "pending")],
+		);
+		const events = collectSessionEvents();
+		let requests = 0;
+
+		await commitQueuedBrowserWorkspaceMutation(
+			{ token: "token", mutationId: MUTATION_ID_2 },
+			{
+				persistence,
+				getState: () => state,
+				setState: (next) => {
+					state = next;
+				},
+				fetchImpl: async () => {
+					requests += 1;
+					return committedResponse(committed);
+				},
+				broadcast: events.broadcast,
+				dispatchSyncEvent: events.dispatchSyncEvent,
+			},
+		);
+
+		expect(requests).toBe(0);
+		expect(state.nodes[0]?.name).toBe("peer");
+		expect(events.broadcasts).toEqual([]);
+		expect(events.syncEvents.map((event) => event.type)).toEqual([
+			"SYNC_CONTEXT_LOADED",
+		]);
+		expect(events.getSyncStatus().repairRequired).toBe(false);
 	});
 
 	it("hydrates committed explicit mutation state without persisting the token", async () => {
 		const persistence = new InMemoryWorkspacePersistence();
 		const baseline = document();
 		let state = stateFor(baseline);
+		const events = collectSessionEvents();
 		await seed(
 			persistence,
 			state,
@@ -479,6 +735,8 @@ describe("browser Workspace V2 session", () => {
 						status: "committed",
 					});
 				},
+				broadcast: events.broadcast,
+				dispatchSyncEvent: events.dispatchSyncEvent,
 			},
 		);
 
@@ -486,5 +744,269 @@ describe("browser Workspace V2 session", () => {
 		expect(JSON.stringify(await persistence.read())).not.toContain(
 			"secret-token-canary",
 		);
+		expect(events.broadcasts.map((event) => event.type)).toEqual([
+			"workspace-v2-committed",
+		]);
+		expect(events.broadcasts[0]).toEqual({
+			type: "workspace-v2-committed",
+			gistId: "gist-1",
+			fileName: "subman.json",
+			mutationId: MUTATION_ID_2,
+			document: document(2, MUTATION_ID_2, [node("local", "committed")]),
+			status: "committed",
+		});
+		expect(events.syncEvents.map((event) => event.type)).toEqual([
+			"SYNC_CONTEXT_LOADED",
+		]);
+		expect(events.acceptedSyncEvents).toEqual([true]);
+	});
+
+	it("hydrates a peer from the persisted commit received over the real event channel", async () => {
+		const persistence = new InMemoryWorkspacePersistence();
+		const baseline = document();
+		let state = stateFor(baseline);
+		let peerState = stateFor(baseline);
+		await seed(
+			persistence,
+			state,
+			createWorkspaceV2LocalState("gist-1", { baseline }),
+		);
+		let unsubscribe = () => {};
+		let timeout: ReturnType<typeof setTimeout> | null = null;
+		const peerHydrated = new Promise<void>((resolve, reject) => {
+			timeout = setTimeout(
+				() => reject(new Error("Peer did not receive the committed event")),
+				1_000,
+			);
+			unsubscribe = subscribeWorkspaceEvents((event) => {
+				if (
+					event.type !== "workspace-v2-committed" ||
+					event.mutationId !== MUTATION_ID_2
+				) {
+					return;
+				}
+				void persistence.read().then((record) => {
+					if (record.snapshot) peerState = record.snapshot;
+					resolve();
+				});
+			});
+		});
+
+		try {
+			await submitBrowserWorkspaceMutation(
+				{
+					token: "token",
+					kind: "node.upsert",
+					payload: {
+						operation: "replace",
+						node: node("local", "peer-committed"),
+					},
+				},
+				{
+					persistence,
+					getState: () => state,
+					setState: (next) => {
+						state = next;
+					},
+					mutationId: () => MUTATION_ID_2,
+					now: () => NOW,
+					fetchImpl: async () =>
+						Response.json({
+							document: document(2, MUTATION_ID_2, [
+								node("local", "peer-committed"),
+							]),
+							mutationId: MUTATION_ID_2,
+							workspaceId: "gist:gist-1",
+							committedRevision: 2,
+							committedAt: LATER,
+							receipt: { kind: "node.upsert", entityId: "local" },
+							status: "committed",
+						}),
+				},
+			);
+			await peerHydrated;
+		} finally {
+			if (timeout) clearTimeout(timeout);
+			unsubscribe();
+		}
+
+		expect(peerState.nodes[0]?.name).toBe("peer-committed");
+		expect(peerState.lastUpdated).toBe(LATER);
+	});
+
+	it("surfaces retryable explicit manual failures in sync state", async () => {
+		const persistence = new InMemoryWorkspacePersistence();
+		const baseline = document();
+		let state = stateFor(baseline);
+		await seed(
+			persistence,
+			state,
+			createWorkspaceV2LocalState("gist-1", {
+				baseline,
+				syncMode: "manual",
+			}),
+		);
+		const events = collectSessionEvents();
+		let caught: unknown;
+
+		try {
+			await submitBrowserWorkspaceMutation(
+				{
+					token: "token",
+					kind: "output.delete",
+					payload: { fileName: "a.txt" },
+				},
+				{
+					persistence,
+					getState: () => state,
+					setState: (next) => {
+						state = next;
+					},
+					mutationId: () => MUTATION_ID_2,
+					now: () => NOW,
+					allowManual: true,
+					fetchImpl: async () => {
+						throw new Error("offline");
+					},
+					broadcast: events.broadcast,
+					dispatchSyncEvent: events.dispatchSyncEvent,
+				},
+			);
+		} catch (error) {
+			caught = error;
+		}
+
+		expect((caught as Error).message).toContain("Workspace mutation failed");
+		expect(events.syncEvents.map((event) => event.type)).toEqual([
+			"SYNC_CONTEXT_LOADED",
+			"SYNC_STARTED",
+			"SYNC_RETRY_SCHEDULED",
+		]);
+		expect(events.acceptedSyncEvents).toEqual([true, true, true]);
+		expect(events.getSyncStatus().phase).toBe("retrying");
+		expect(events.broadcasts.map((event) => event.type)).toEqual([
+			"mutation-queue-changed",
+		]);
+		expect(events.broadcasts[0]?.queueAction).toBe(undefined);
+	});
+
+	it("hydrates explicit failures before reporting reducer transitions and throwing", async () => {
+		for (const testCase of [
+			{
+				status: 401,
+				code: "unauthorized",
+				disposition: "auth-required",
+				eventType: "AUTH_LOST",
+				expectedPhase: "auth-required",
+			},
+			{
+				status: 409,
+				code: "duplicate_node_raw",
+				disposition: "domain-conflict",
+				eventType: "DOMAIN_BLOCKED",
+				expectedPhase: "blocked-domain-conflict",
+			},
+			{
+				status: 409,
+				code: "mutation_recovery_failed",
+				disposition: "operator-repair",
+				eventType: "OPERATOR_REPAIR_REQUIRED",
+				expectedPhase: "operator-repair-required",
+			},
+			{
+				status: 409,
+				code: "revision_conflict",
+				disposition: "state-conflict",
+				eventType: "STATE_CONFLICT",
+				expectedPhase: "paused-state-conflict",
+				latest: document(3, MUTATION_ID_3, [node("remote")]),
+			},
+			{
+				status: 200,
+				code: "invalid_success_response",
+				disposition: "queue-corruption",
+				eventType: "QUEUE_CORRUPTED",
+				expectedPhase: "queue-repair-required",
+				invalidSuccess: true,
+			},
+		] as const) {
+			const persistence = new InMemoryWorkspacePersistence();
+			const baseline = document();
+			let state = stateFor(baseline);
+			await seed(
+				persistence,
+				state,
+				createWorkspaceV2LocalState("gist-1", {
+					baseline,
+					syncMode: "manual",
+				}),
+			);
+			const order: string[] = [];
+			const events = collectSessionEvents(order);
+			let caught: unknown;
+
+			try {
+				await submitBrowserWorkspaceMutation(
+					{
+						token: "token",
+						kind: "output.delete",
+						payload: { fileName: "a.txt" },
+					},
+					{
+						persistence,
+						getState: () => state,
+						setState: (next) => {
+							state = next;
+							order.push("hydrated");
+						},
+						mutationId: () => MUTATION_ID_2,
+						now: () => NOW,
+						allowManual: true,
+						fetchImpl: async () =>
+							"invalidSuccess" in testCase && testCase.invalidSuccess
+								? Response.json({})
+								: failureResponse(
+										testCase.status,
+										testCase.code,
+										testCase.disposition,
+										"latest" in testCase ? testCase.latest : undefined,
+									),
+						broadcast: events.broadcast,
+						dispatchSyncEvent: events.dispatchSyncEvent,
+					},
+				);
+			} catch (error) {
+				caught = error;
+				order.push("thrown");
+			}
+
+			expect((caught as Error).message).toContain("Workspace mutation failed");
+			expect(events.syncEvents.map((event) => event.type)).toEqual([
+				"SYNC_CONTEXT_LOADED",
+				testCase.eventType,
+			]);
+			expect(events.acceptedSyncEvents).toEqual([true, true]);
+			expect(events.getSyncStatus().phase).toBe(testCase.expectedPhase);
+			expect(
+				order.indexOf("hydrated") < order.indexOf(`sync:${testCase.eventType}`),
+			).toBe(true);
+			expect(
+				order.indexOf(`sync:${testCase.eventType}`) < order.indexOf("thrown"),
+			).toBe(true);
+			if (testCase.eventType === "STATE_CONFLICT") {
+				expect(events.broadcasts.map((event) => event.type)).toEqual([
+					"paused-conflict",
+				]);
+				expect(events.broadcasts[0]?.mutationId).toBe(MUTATION_ID_2);
+				expect(events.broadcasts[0]?.document).toEqual(
+					"latest" in testCase ? testCase.latest : undefined,
+				);
+			} else {
+				expect(events.broadcasts.map((event) => event.type)).toEqual([
+					"mutation-queue-changed",
+				]);
+				expect(events.broadcasts[0]?.queueAction).toBe(undefined);
+			}
+		}
 	});
 });

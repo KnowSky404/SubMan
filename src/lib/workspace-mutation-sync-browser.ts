@@ -122,6 +122,54 @@ function startPersistenceWorkspaceMutationSync(
 			: null;
 	};
 
+	const reportPersistedRetry = (
+		record: WorkspacePersistenceRecord,
+		authenticated: boolean,
+	): void => {
+		const activeQueue = record.binding
+			? record.workspaces[record.binding.workspaceId]
+			: undefined;
+		const mutation = activeQueue?.mutations[0];
+		const retry = activeQueue?.delivery.retry;
+		if (
+			!authenticated ||
+			!record.binding ||
+			!mutation ||
+			activeQueue?.delivery.blocked ||
+			!retry ||
+			retry.attempt < 1 ||
+			retry.nextAttemptAt === null ||
+			retry.lastErrorCode === null
+		) {
+			return;
+		}
+		const queue = persistedQueueMetrics(record);
+		const error: WorkspaceSyncError = {
+			code: retry.lastErrorCode,
+			message: retry.lastErrorCode,
+			disposition: "retryable-upstream",
+		};
+		const accepted = dispatchWorkspaceSyncEvent({
+			type: "SYNC_STARTED",
+			trigger: record.binding.syncMode === "manual" ? "explicit" : "automatic",
+			queue,
+			mutation: { mutationId: mutation.mutationId, kind: mutation.kind },
+		});
+		if (!accepted) return;
+		dispatchWorkspaceSyncEvent({
+			type: "SYNC_RETRY_SCHEDULED",
+			queue,
+			error,
+			blockedMutation: null,
+			retry: {
+				attempt: retry.attempt,
+				nextAttemptAt: retry.nextAttemptAt,
+				retryAfterMs: Math.max(0, retry.nextAttemptAt - Date.now()),
+				lastErrorCode: retry.lastErrorCode,
+			},
+		});
+	};
+
 	const reportContext = (
 		record: WorkspacePersistenceRecord,
 		authenticated = Boolean(githubToken),
@@ -134,6 +182,7 @@ function startPersistenceWorkspaceMutationSync(
 			queue: persistedQueueMetrics(record),
 			blockedMutation: persistedBlockedMutation(record),
 		});
+		reportPersistedRetry(record, authenticated);
 	};
 
 	const reportPersistedBlock = (
@@ -386,6 +435,7 @@ function startPersistenceWorkspaceMutationSync(
 			} else if (result.status === "busy" || result.status === "stale") {
 				nextDelay = delayMs;
 			} else if (result.status === "deferred") {
+				reportContext(record);
 				nextDelay = Math.max(0, result.nextAttemptAt - Date.now());
 			} else if (result.status === "empty" || result.status === "blocked") {
 				reportContext(record);

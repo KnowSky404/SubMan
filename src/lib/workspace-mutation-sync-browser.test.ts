@@ -828,6 +828,115 @@ describe("browser Workspace mutation scheduler", () => {
 		}
 	});
 
+	it("reconstructs a persisted manual retry through the real event channel", async () => {
+		const [
+			workspaceData,
+			events,
+			persistenceModule,
+			stateModule,
+			sync,
+			statusModule,
+		] = await Promise.all([
+			import("$lib/workspace-data"),
+			import("$lib/workspace-events"),
+			import("$lib/workspace-persistence"),
+			import("$lib/workspace-v2-state"),
+			import("$lib/workspace-mutation-sync-browser"),
+			import("$lib/workspace-sync-status"),
+		]);
+		const baseline = document(1);
+		const binding = stateModule.createWorkspaceV2LocalState(GIST_ID, {
+			baseline,
+			syncMode: "manual",
+		});
+		let state = stateModule.hydrateAppStateFromWorkspaceDocument(
+			workspaceData.createDefaultWorkspaceState(NOW),
+			document(2),
+			GIST_ID,
+		);
+		const persistence = new persistenceModule.InMemoryWorkspacePersistence();
+		await persistence.repairWorkspaceQueue({
+			snapshot: state,
+			binding,
+			mutations: [mutation()],
+		});
+		const ownerId = "manual-retry-test";
+		const acquired = await persistence.acquireLease({
+			name: persistenceModule.workspaceDispatcherLeaseName(WORKSPACE_ID),
+			ownerId,
+			now: Date.now(),
+			ttlMs: 30_000,
+		});
+		if (!acquired.acquired) throw new Error("Expected retry metadata lease");
+		const fence = {
+			ownerId,
+			fencingToken: acquired.lease.fencingToken,
+		};
+		const nextAttemptAt = Date.now() + 60_000;
+		await persistence.setRetryMetadata(
+			WORKSPACE_ID,
+			MUTATION_ID,
+			{
+				attempt: 2,
+				nextAttemptAt,
+				lastErrorCode: "network_error",
+			},
+			fence,
+		);
+		await persistence.releaseLease({
+			name: persistenceModule.workspaceDispatcherLeaseName(WORKSPACE_ID),
+			...fence,
+		});
+
+		statusModule.workspaceSyncStatus.set({
+			...statusModule.defaultWorkspaceSyncStatus,
+		});
+		let latest = statusModule.defaultWorkspaceSyncStatus;
+		let resolveRetrying = () => {};
+		const retrying = new Promise<void>((resolve) => {
+			resolveRetrying = resolve;
+		});
+		const unsubscribeStatus = statusModule.workspaceSyncStatus.subscribe(
+			(status) => {
+				latest = status;
+				if (status.phase === "retrying") resolveRetrying();
+			},
+		);
+		const stop = sync.startWorkspaceMutationSync({
+			enabled: true,
+			delayMs: 60_000,
+			persistence,
+			getState: () => state,
+			setState: (next) => {
+				state = next;
+			},
+			subscribeAuth: (listener) => {
+				listener({ token: "browser-token" });
+				return () => {};
+			},
+		});
+
+		try {
+			events.broadcastWorkspaceEvent({
+				type: "mutation-queue-changed",
+				gistId: GIST_ID,
+				fileName: "subman.json",
+				mutationId: MUTATION_ID,
+			});
+			await waitFor(retrying);
+			expect(latest.phase).toBe("retrying");
+			expect(latest.retry?.attempt).toBe(2);
+			expect(latest.retry?.nextAttemptAt).toBe(nextAttemptAt);
+			expect(latest.repairRequired).toBe(false);
+		} finally {
+			stop();
+			unsubscribeStatus();
+			statusModule.workspaceSyncStatus.set({
+				...statusModule.defaultWorkspaceSyncStatus,
+			});
+		}
+	});
+
 	it("settles persisted empty, blocked, and auth-cleared paths without remaining syncing", async () => {
 		const [workspaceData, persistenceModule, stateModule, sync, statusModule] =
 			await Promise.all([

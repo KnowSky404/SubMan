@@ -133,6 +133,7 @@ export type WorkspaceSyncEvent =
 	| ({
 			type: "SYNC_STARTED";
 			mutation: WorkspaceMutationMetadata | null;
+			trigger?: "automatic" | "explicit";
 	  } & QueueEvent)
 	| ({ type: "SYNC_COMMITTED"; revision: number | null } & QueueEvent)
 	| ({
@@ -410,7 +411,11 @@ export function transitionWorkspaceSyncState(
 				}),
 			};
 		case "SYNC_STARTED":
-			if (state.phase !== "queued" && state.phase !== "retrying") {
+			if (
+				state.phase !== "queued" &&
+				state.phase !== "retrying" &&
+				!(state.phase === "manual-local-only" && event.trigger === "explicit")
+			) {
 				return reject(state, event);
 			}
 			return {
