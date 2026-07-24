@@ -106,12 +106,20 @@ function githubHeaders(
 	};
 }
 
-function categoryForStatus(status: number): GitHubGatewayErrorCategory {
+function categoryForResponse(
+	response: Response,
+	retryAfter: number | null,
+): GitHubGatewayErrorCategory {
+	const { status } = response;
 	switch (status) {
 		case 401:
 			return "authentication";
 		case 403:
-			return "authorization";
+			return safeIntegerHeader(
+				response.headers.get("x-ratelimit-remaining"),
+			) === 0 || retryAfter !== null
+				? "rate-limit"
+				: "authorization";
 		case 404:
 			return "not-found";
 		case 408:
@@ -159,12 +167,16 @@ function metadataFromResponse(
 	response: Response,
 	now: () => number,
 ): GitHubGatewayErrorMetadata {
+	const retryAfter = retryAfterSeconds(
+		response.headers.get("retry-after"),
+		now,
+	);
 	return {
 		operation,
 		status: response.status,
-		category: categoryForStatus(response.status),
+		category: categoryForResponse(response, retryAfter),
 		requestId: safeRequestId(response.headers.get("x-github-request-id")),
-		retryAfter: retryAfterSeconds(response.headers.get("retry-after"), now),
+		retryAfter,
 		rateLimitReset: safeIntegerHeader(
 			response.headers.get("x-ratelimit-reset"),
 		),

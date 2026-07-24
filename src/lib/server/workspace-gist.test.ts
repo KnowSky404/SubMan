@@ -302,6 +302,61 @@ describe("Workspace Gist gateway", () => {
 		expect(JSON.stringify(error)).not.toContain(TOKEN);
 	});
 
+	it("distinguishes authorization from primary and secondary 403 rate limits", async () => {
+		for (const testCase of [
+			{
+				name: "authorization",
+				headers: {
+					"X-RateLimit-Remaining": "4999",
+					"X-RateLimit-Reset": "1780000000",
+				},
+				category: "authorization",
+				retryAfter: null,
+			},
+			{
+				name: "primary rate limit",
+				headers: {
+					"X-RateLimit-Remaining": "0",
+					"X-RateLimit-Reset": "1780000000",
+				},
+				category: "rate-limit",
+				retryAfter: null,
+			},
+			{
+				name: "secondary rate limit",
+				headers: {
+					"Retry-After": "60",
+					"X-RateLimit-Remaining": "4999",
+					"X-RateLimit-Reset": "1780000000",
+				},
+				category: "rate-limit",
+				retryAfter: 60,
+			},
+		] as const) {
+			const gateway = createWorkspaceGistGateway(
+				async () =>
+					new Response(`unsafe ${testCase.name} body containing ${TOKEN}`, {
+						status: 403,
+						headers: testCase.headers,
+					}),
+			);
+			const error = await gatewayError(
+				gateway.read(TOKEN, "gist-1", ["subman.json"]),
+			);
+
+			expect(error.toJSON()).toEqual({
+				operation: "gist.read",
+				status: 403,
+				category: testCase.category,
+				requestId: null,
+				retryAfter: testCase.retryAfter,
+				rateLimitReset: 1780000000,
+			});
+			expect(error.message).not.toContain(TOKEN);
+			expect(JSON.stringify(error)).not.toContain(TOKEN);
+		}
+	});
+
 	it("times out Gist reads, truncated raw reads, and patches", async () => {
 		const readError = await gatewayError(
 			createWorkspaceGistGateway(abortableFetch(), { timeoutMs: 5 }).read(
