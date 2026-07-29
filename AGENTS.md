@@ -45,6 +45,14 @@ Business actions commit the snapshot, binding, and queue change atomically befor
 Svelte memory is updated. Do not add another browser storage path or bypass the
 `WorkspacePersistence` boundary.
 
+`WorkspaceActionHandle.submitted` means only that synchronous validation accepted
+the request and created its asynchronous task. Only `completion` reports the
+authoritative operation outcome. Pages must await it before clearing a form,
+closing an editor, ending a destructive-action loading state, or reporting a
+save. The shared operation presenter is the sole interpretation boundary for
+durable, queued, peer-owned, retrying, blocked, rejected, uncertain, and remote
+results; stores return structured results and do not own operation toasts.
+
 Initialization migrates these legacy keys without writing new business state to
 them:
 
@@ -77,6 +85,17 @@ GitHub authentication remains outside that database:
 - Retryable upstream failures use persisted bounded exponential backoff with
   jitter and honor safe GitHub retry timing. Authentication and explicit Retry
   actions reset only eligible retry state.
+- Busy/stale peers, deferred delivery, and retryable upstream failures are safe
+  nonterminal outcomes while the original mutation remains durable. Re-read
+  IndexedDB before classifying them, preserve the mutation ID, and never present
+  them as a final publish failure.
+- Only `remote-committed` proves Workspace publication. A post-commit cache read,
+  lease release, or broadcast failure cannot turn a durable commit into a
+  pre-persistence rejection; recover from IndexedDB or return acknowledgement
+  uncertainty.
+- A normal stale binding is a bounded concurrent-update/rebase case, not corrupt
+  storage. Refresh the persistent record and replay the intent against the latest
+  snapshot before retrying once.
 - `state-conflict`, `domain-conflict`, `auth-required`, `queue-corruption`,
   `operator-repair`, `retryable-upstream`, `permanent-upstream`, and
   `invalid-request` are distinct dispositions. Unknown failures fail closed.
@@ -102,6 +121,9 @@ GitHub authentication remains outside that database:
 
 - Browser persistence and dispatch:
   - `src/lib/stores/app.ts`
+  - `src/lib/workspace-operation-result.ts`
+  - `src/lib/workspace-operation-presenter.ts`
+  - `src/lib/workspace-queue-metrics.ts`
   - `src/lib/workspace-mutation-queue.ts`
   - `src/lib/workspace-mutation-sync.ts`
   - `src/lib/workspace-mutation-sync-browser.ts`

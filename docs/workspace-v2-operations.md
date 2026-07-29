@@ -25,6 +25,44 @@ The checked-in Wrangler configuration binds `WORKSPACE_COORDINATOR` and creates
 the SQLite-backed class with migration tag `v1`. Migration tags are immutable
 deployment history; do not rename or remove an applied tag.
 
+## Browser Operation Results
+
+Workspace actions expose a submitted handle and an authoritative completion
+result. `submitted` means only that synchronous validation accepted the request
+and scheduled its task. It does not prove an IndexedDB transaction, queue entry,
+or remote write. UI callers must await `completion` before clearing drafts,
+closing editors, finalizing loading state, or reporting success.
+
+| Completion status | Durable evidence | UI meaning |
+| --- | --- | --- |
+| `local-durable` | Snapshot and binding committed locally | Saved locally. Manual mode still requires Push; paused mode still requires conflict repair. |
+| `local-durable-queued` | Snapshot and original mutation committed in IndexedDB | Saved locally and queued; remote commit is not proven. |
+| `peer-owned` | Mutation remains in the persistent queue while another valid lease owns delivery | Saved locally; another tab is synchronizing. This is nonterminal. |
+| `retry-scheduled` | Mutation and retry attempt, time, and stable error code are persisted | Saved locally; delivery is deferred or will retry. This is nonterminal. |
+| `remote-committed` | Coordinator result and local binding, baseline, snapshot, and queue settlement agree | Saved to Workspace or published. This is the only publication-success result. |
+| `conflict-or-blocked` | Local mutation remains durable with its exact disposition and stable code | Saved locally, but synchronization needs review or repair. |
+| `rejected-before-durable-commit` | No reliable local transaction was established | Not saved. Retain drafts and show one final error. |
+| `commit-acknowledgement-uncertain` | The core transaction may have committed, but durable evidence could not be reread | Never claim not saved. Retain the draft and reload before retrying to avoid duplication. |
+
+The shared presenter exhaustively maps these results. Stores do not emit
+operation toasts, and pages must not infer business state from thrown message
+text. A durable queued, peer-owned, or retry-scheduled publication is not a
+`Publish failed` outcome.
+
+Before every browser business action, read the current IndexedDB record and
+apply the intent to its latest snapshot. A transactional binding advance from a
+peer raises a controlled concurrent-update result and permits one bounded replay
+with the same mutation ID and timestamp. It is not storage corruption and does
+not trigger quarantine. BroadcastChannel and Web Locks remain optional hints;
+the persisted record, lease, fencing token, revision, and mutation sequence are
+the correctness boundaries.
+
+After the authoritative transaction commits, cache refresh, lease release, and
+broadcast are secondary acknowledgement or cleanup work. Failures there cannot
+downgrade the operation to rejected. The runtime rereads IndexedDB to prove the
+commit; if proof remains unavailable, it returns acknowledgement uncertainty and
+must not generate or submit a replacement mutation.
+
 ## Pre-Deployment Gate
 
 Run the complete local gate:
@@ -137,10 +175,20 @@ Queue inspection groups work by Workspace and reports active, total, orphan,
 blocked, and dead-letter counts. A Workspace can become orphaned after a switch
 or disconnect; its mutations remain preserved until an explicit action is taken.
 
+All runtime surfaces derive the same metrics from the persistence record:
+
+- `activeQueueCount` is the pending mutation count for the active Workspace.
+- `totalQueueCount` is the pending mutation count across every Workspace.
+- `orphanedWorkspaceCount` counts each non-active Workspace that retains pending,
+  blocked, or dead-letter evidence.
+- `blockedMutationCount` counts Workspace queues with blocked mutation metadata.
+- `deadLetterCount` is the total retained dead-letter count.
+
 - **Retry** clears only eligible persisted retry state and wakes delivery.
 - **Discard** removes the complete selected Workspace queue transactionally.
 - **Rebind** requires an identity-checked snapshot and binding before making the
-  selected Workspace active.
+  selected Workspace active. Dead-letter evidence remains repair-required and is
+  not described as repaired merely because the binding changed.
 - **Repair** replaces the complete queue with a validated, contiguous sequence or
   an explicit reconcile. Never delete only the head and leave a revision gap.
 - **Quarantine** freezes corrupt queue data and retains only safe metadata in

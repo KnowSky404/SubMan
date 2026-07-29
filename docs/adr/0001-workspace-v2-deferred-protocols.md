@@ -21,6 +21,27 @@ implement the coordinator recovery, publication evidence, compaction watermark,
 device acknowledgement, journal checkpoint, audit chain, or pruning protocols
 designed here.
 
+## Current Browser Operation Semantics
+
+The current release also standardizes browser operation results without changing
+the Workspace wire protocol. Synchronous `submitted` means only that an action
+task was created. Its completion result separately identifies local durability,
+persistent queueing, peer lease ownership, scheduled retry/deferment, remote
+commit, precise blocked disposition, rejection before persistence, or uncertain
+post-commit acknowledgement.
+
+Only remote commit evidence authorizes publication-success language. Queueing,
+peer ownership, and retry scheduling are safe nonterminal states for the same
+durable mutation ID. A lease-release, cache-refresh, or broadcast failure after
+the core transaction cannot be reclassified as a pre-persistence rejection.
+Ordinary peer revision advance is handled as a bounded concurrent update against
+the latest IndexedDB snapshot and is not corrupt-data quarantine.
+
+This result union and its UI presenter are local application contracts. They add
+no `WorkspaceDocumentV2` field, Durable Object RPC field, mutation kind,
+IndexedDB schema version, coordinator journal column, or public API route. They
+therefore do not implement or revise any deferred protocol described below.
+
 ## Publication Freshness
 
 A future publication record should distinguish the Workspace revision used to
