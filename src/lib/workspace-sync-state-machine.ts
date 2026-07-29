@@ -155,6 +155,7 @@ export type WorkspaceSyncEvent =
 			type: "WORKSPACE_BOUND";
 			mode: "automatic" | "manual";
 			revision: number | null;
+			blockedMutation?: WorkspaceBlockedMutation | null;
 	  } & QueueEvent)
 	| ({ type: "WORKSPACE_DISCONNECTED" } & QueueEvent)
 	| ({
@@ -332,6 +333,38 @@ function healthyPhase(
 	return queue.activeQueueCount > 0 ? "queued" : "automatic-idle";
 }
 
+function blockedPhase(
+	blockedMutation: WorkspaceBlockedMutation | null | undefined,
+): WorkspaceSyncPhase | null {
+	switch (blockedMutation?.disposition) {
+		case undefined:
+		case "retryable-upstream":
+			return null;
+		case "state-conflict":
+			return "paused-state-conflict";
+		case "domain-conflict":
+			return "blocked-domain-conflict";
+		case "auth-required":
+			return "auth-required";
+		case "queue-corruption":
+			return "queue-repair-required";
+		case "operator-repair":
+		case "permanent-upstream":
+		case "invalid-request":
+			return "operator-repair-required";
+	}
+}
+
+function blockedError(
+	blockedMutation: WorkspaceBlockedMutation,
+): WorkspaceSyncError {
+	return {
+		code: blockedMutation.code,
+		message: blockedMutation.message,
+		disposition: blockedMutation.disposition,
+	};
+}
+
 function repairPhase(phase: WorkspaceSyncPhase): boolean {
 	return REPAIR_PHASES.has(phase);
 }
@@ -358,14 +391,20 @@ export function transitionWorkspaceSyncState(
 				accepted: true,
 				state: createStatus("disconnected", { queue: event.queue }),
 			};
-		case "WORKSPACE_BOUND":
+		case "WORKSPACE_BOUND": {
+			const persistedBlocked = event.blockedMutation ?? null;
+			const phase =
+				blockedPhase(persistedBlocked) ?? healthyPhase(event.mode, event.queue);
 			return {
 				accepted: true,
-				state: createStatus(healthyPhase(event.mode, event.queue), {
+				state: createStatus(phase, {
 					queue: event.queue,
 					revision: event.revision,
+					error: persistedBlocked ? blockedError(persistedBlocked) : null,
+					blockedMutation: repairPhase(phase) ? persistedBlocked : null,
 				}),
 			};
+		}
 		case "LOCAL_COMMITTED":
 			if (repairPhase(state.phase)) {
 				return {
@@ -583,6 +622,22 @@ export function transitionWorkspaceSyncState(
 				return {
 					accepted: true,
 					state: createStatus("disconnected", { queue: event.queue }),
+				};
+			}
+			const persistedBlockedPhase = blockedPhase(event.blockedMutation);
+			if (persistedBlockedPhase) {
+				return {
+					accepted: true,
+					state: createStatus(persistedBlockedPhase, {
+						queue: event.queue,
+						revision: event.revision,
+						error: event.blockedMutation
+							? blockedError(event.blockedMutation)
+							: null,
+						blockedMutation: repairPhase(persistedBlockedPhase)
+							? event.blockedMutation
+							: null,
+					}),
 				};
 			}
 			if (!event.authenticated && event.queue.activeQueueCount > 0) {

@@ -145,8 +145,8 @@ describe("browser Workspace mutation scheduler", () => {
 		);
 		appStore.appState.set(workspaceData.createDefaultWorkspaceState(NOW));
 		const localAction = appStore.upsertNode(node());
-		expect(localAction.accepted).toBe(true);
-		expect((await localAction.completion).status).toBe("local-saved");
+		expect(localAction.submitted).toBe(true);
+		expect((await localAction.completion).status).toBe("local-durable");
 		expect(latestLifecycle).toBe("local-saved");
 		unsubscribeLatest();
 
@@ -855,10 +855,16 @@ describe("browser Workspace mutation scheduler", () => {
 			GIST_ID,
 		);
 		const persistence = new persistenceModule.InMemoryWorkspacePersistence();
+		const expected = await persistence.read();
 		await persistence.repairWorkspaceQueue({
 			snapshot: state,
 			binding,
 			mutations: [mutation()],
+			expected: {
+				snapshot: expected.snapshot,
+				binding: expected.binding,
+				queue: expected.workspaces[binding.workspaceId] ?? null,
+			},
 		});
 		const ownerId = "manual-retry-test";
 		const acquired = await persistence.acquireLease({

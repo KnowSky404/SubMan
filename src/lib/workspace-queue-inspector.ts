@@ -76,10 +76,16 @@ export async function repairInspectedWorkspaceQueue(
 	},
 ): Promise<WorkspaceQueueInspection> {
 	assertSelectedIdentity(input.workspaceId, input.binding);
+	const current = await persistence.read();
 	await persistence.repairWorkspaceQueue({
 		snapshot: input.snapshot,
 		binding: input.binding,
 		mutations: input.mutations,
+		expected: {
+			snapshot: current.snapshot,
+			binding: current.binding,
+			queue: current.workspaces[input.workspaceId] ?? null,
+		},
 	});
 	return refresh(persistence);
 }

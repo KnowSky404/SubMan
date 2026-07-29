@@ -54,6 +54,11 @@ import { reconcileTags } from "$lib/tags";
 import { cn } from "$lib/utils/cn";
 import { createId } from "$lib/utils/id";
 import { nowIso } from "$lib/utils/time";
+import {
+	presentWorkspaceOperation,
+	type WorkspaceOperationPresentationOptions,
+} from "$lib/workspace-operation-presenter";
+import type { WorkspaceOperationResult } from "$lib/workspace-operation-result";
 
 let activeTab: "nodes" | "subscriptions" = "nodes";
 let isAddModalOpen = false;
@@ -74,6 +79,7 @@ let batchTags = "";
 let searchQuery = "";
 let filterStatus: "all" | "enabled" | "disabled" = "all";
 let deletingResourceId: string | null = null;
+let togglingResourceId: string | null = null;
 
 // Preview State
 let previewSubscriptionId: string | null = null;
@@ -130,6 +136,18 @@ function showToastNotify(
 	type: "success" | "info" | "error" = "success",
 ) {
 	showToast(message, type);
+}
+
+function showWorkspaceResult(
+	result: Awaited<ReturnType<typeof upsertNode>["completion"]>,
+	options: WorkspaceOperationPresentationOptions = {},
+): boolean {
+	const presentation = presentWorkspaceOperation(result, options);
+	showToastNotify(
+		$t(presentation.messageKey, presentation.messageParams),
+		presentation.tone,
+	);
+	return presentation.finalizeDraft;
 }
 
 function stringifyTags(tags: NodeTag[]): string {
@@ -218,7 +236,7 @@ function uniqueSubscriptionName(name: string, excludeId?: string) {
 	);
 }
 
-function handleAdd() {
+async function handleAdd() {
 	if (addMode === "single") {
 		if (activeTab === "nodes") {
 			const raw = nodeRaw.trim();
@@ -236,17 +254,22 @@ function handleAdd() {
 			const name = uniqueNodeName(
 				nodeName.trim() || inferNodeNameFromRaw(raw, "Imported Node"),
 			);
+			const handle = upsertNode({
+				id: createId("node"),
+				name,
+				type: inferNodeTypeFromDraft(raw, nodeType),
+				raw,
+				tags: reconcileTags(nodeTags),
+				enabled: true,
+				updatedAt: nowIso(),
+				source: "single",
+			});
+			const result = await handle.completion;
 			if (
-				!upsertNode({
-					id: createId("node"),
-					name,
-					type: inferNodeTypeFromDraft(raw, nodeType),
-					raw,
-					tags: reconcileTags(nodeTags),
-					enabled: true,
-					updatedAt: nowIso(),
-					source: "single",
-				}).accepted
+				!showWorkspaceResult(result, {
+					localDurableMessageKey: "Resource added",
+					remoteCommittedMessageKey: "Resource added",
+				})
 			)
 				return;
 			nodeName = "";
@@ -269,22 +292,26 @@ function handleAdd() {
 				return;
 			}
 			const name = uniqueSubscriptionName(subName.trim());
+			const handle = upsertSubscription({
+				id: createId("sub"),
+				name,
+				url,
+				enabled: true,
+				tags: reconcileTags(subTags),
+				updatedAt: nowIso(),
+			});
+			const result = await handle.completion;
 			if (
-				!upsertSubscription({
-					id: createId("sub"),
-					name,
-					url,
-					enabled: true,
-					tags: reconcileTags(subTags),
-					updatedAt: nowIso(),
-				}).accepted
+				!showWorkspaceResult(result, {
+					localDurableMessageKey: "Resource added",
+					remoteCommittedMessageKey: "Resource added",
+				})
 			)
 				return;
 			subName = "";
 			subUrl = "";
 			subTags = "";
 		}
-		showToastNotify($t("Resource added"));
 	} else {
 		// Batch Import Logic
 		const lines = batchContent
@@ -292,15 +319,28 @@ function handleAdd() {
 			.map((l) => l.trim())
 			.filter(Boolean);
 		let count = 0;
+		let skipped = 0;
+		let failed = 0;
+		let durablePresentation: ReturnType<
+			typeof presentWorkspaceOperation
+		> | null = null;
+		let failurePresentation: ReturnType<
+			typeof presentWorkspaceOperation
+		> | null = null;
 
 		if (activeTab === "nodes") {
 			const seenRaw = new Set($appState.nodes.map((node) => node.raw.trim()));
 			let importedNames = $appState.nodes.map((node) => node.name);
 			for (const line of lines) {
 				const nodes = extractSubscriptionNodeLines(line);
+				if (nodes.length === 0) {
+					failed++;
+					continue;
+				}
 				for (const raw of nodes) {
 					const normalizedRaw = raw.trim();
 					if (seenRaw.has(normalizedRaw)) {
+						skipped++;
 						continue;
 					}
 					const name = makeUniqueResourceName(
@@ -308,19 +348,23 @@ function handleAdd() {
 						importedNames,
 						formatResourceNameTimestamp(),
 					);
-					if (
-						!upsertNode({
-							id: createId("node"),
-							name,
-							type: inferNodeTypeFromRaw(normalizedRaw),
-							raw: normalizedRaw,
-							tags: reconcileTags(batchTags),
-							enabled: true,
-							updatedAt: nowIso(),
-							source: "single",
-						}).accepted
-					)
-						return;
+					const result = await upsertNode({
+						id: createId("node"),
+						name,
+						type: inferNodeTypeFromRaw(normalizedRaw),
+						raw: normalizedRaw,
+						tags: reconcileTags(batchTags),
+						enabled: true,
+						updatedAt: nowIso(),
+						source: "single",
+					}).completion;
+					const presentation = presentWorkspaceOperation(result);
+					if (!presentation.finalizeDraft) {
+						failed++;
+						failurePresentation ??= presentation;
+						continue;
+					}
+					durablePresentation ??= presentation;
 					seenRaw.add(normalizedRaw);
 					importedNames = [name, ...importedNames];
 					count++;
@@ -352,6 +396,7 @@ function handleAdd() {
 
 				if (url.includes("://")) {
 					if (seenUrl.has(url)) {
+						skipped++;
 						continue;
 					}
 					name = makeUniqueResourceName(
@@ -359,26 +404,55 @@ function handleAdd() {
 						importedNames,
 						formatResourceNameTimestamp(),
 					);
-					if (
-						!upsertSubscription({
-							id: createId("sub"),
-							name,
-							url,
-							enabled: true,
-							tags: reconcileTags(batchTags),
-							updatedAt: nowIso(),
-						}).accepted
-					)
-						return;
+					const result = await upsertSubscription({
+						id: createId("sub"),
+						name,
+						url,
+						enabled: true,
+						tags: reconcileTags(batchTags),
+						updatedAt: nowIso(),
+					}).completion;
+					const presentation = presentWorkspaceOperation(result);
+					if (!presentation.finalizeDraft) {
+						failed++;
+						failurePresentation ??= presentation;
+						continue;
+					}
+					durablePresentation ??= presentation;
 					seenUrl.add(url);
 					importedNames = [name, ...importedNames];
 					count++;
+				} else {
+					failed++;
 				}
 			}
 		}
-		batchContent = "";
-		batchTags = "";
-		showToastNotify($t("Imported {count} items", { count }));
+		if (failed === 0) {
+			batchContent = "";
+			batchTags = "";
+		}
+		const summary = $t(
+			"Imported {count} items; skipped {skipped}; failed {failed}",
+			{
+				count,
+				skipped,
+				failed,
+			},
+		);
+		const details = [
+			summary,
+			durablePresentation
+				? $t(durablePresentation.messageKey, durablePresentation.messageParams)
+				: null,
+			failurePresentation
+				? $t(failurePresentation.messageKey, failurePresentation.messageParams)
+				: null,
+		].filter((message): message is string => Boolean(message));
+		showToastNotify(
+			details.join(" "),
+			failed > 0 ? "error" : (durablePresentation?.tone ?? "success"),
+		);
+		if (failed > 0) return;
 	}
 	isAddModalOpen = false;
 }
@@ -394,7 +468,7 @@ function startEditNode(node: NodeItem) {
 	editingResource = { type: "node", id: node.id };
 }
 
-function saveEditNode(id: string) {
+async function saveEditNode(id: string) {
 	const draft = nodeDrafts[id];
 	const original = $appState.nodes.find((n) => n.id === id);
 	if (!draft || !original) return;
@@ -409,19 +483,22 @@ function saveEditNode(id: string) {
 		);
 		return;
 	}
+	const result = await upsertNode({
+		...original,
+		name: uniqueNodeName(draft.name.trim(), id),
+		type: inferNodeTypeFromDraft(raw, draft.type),
+		raw,
+		tags: reconcileTags(draft.tags, original.tags),
+		updatedAt: nowIso(),
+	}).completion;
 	if (
-		!upsertNode({
-			...original,
-			name: uniqueNodeName(draft.name.trim(), id),
-			type: inferNodeTypeFromDraft(raw, draft.type),
-			raw,
-			tags: reconcileTags(draft.tags, original.tags),
-			updatedAt: nowIso(),
-		}).accepted
+		!showWorkspaceResult(result, {
+			localDurableMessageKey: "Node updated",
+			remoteCommittedMessageKey: "Node updated",
+		})
 	)
 		return;
 	closeEditModal();
-	showToastNotify($t("Node updated"));
 }
 
 function startEditSub(sub: SubscriptionItem) {
@@ -433,7 +510,7 @@ function startEditSub(sub: SubscriptionItem) {
 	editingResource = { type: "subscription", id: sub.id };
 }
 
-function saveEditSub(id: string) {
+async function saveEditSub(id: string) {
 	const draft = subDrafts[id];
 	const original = $appState.subscriptions.find((s) => s.id === id);
 	if (!draft || !original) return;
@@ -453,18 +530,21 @@ function saveEditSub(id: string) {
 		return;
 	}
 
+	const result = await upsertSubscription({
+		...original,
+		name: uniqueSubscriptionName(draft.name.trim(), id),
+		url,
+		tags: reconcileTags(draft.tags, original.tags),
+		updatedAt: nowIso(),
+	}).completion;
 	if (
-		!upsertSubscription({
-			...original,
-			name: uniqueSubscriptionName(draft.name.trim(), id),
-			url,
-			tags: reconcileTags(draft.tags, original.tags),
-			updatedAt: nowIso(),
-		}).accepted
+		!showWorkspaceResult(result, {
+			localDurableMessageKey: "Subscription updated",
+			remoteCommittedMessageKey: "Subscription updated",
+		})
 	)
 		return;
 	closeEditModal();
-	showToastNotify($t("Subscription updated"));
 }
 
 function closeEditModal() {
@@ -535,35 +615,52 @@ async function remove(id: string, type: "node" | "sub", name: string) {
 	await tick();
 
 	try {
-		let removed = false;
-		if (type === "node") {
-			removed = removeNode(id).accepted;
-			if (removed) delete nodeDrafts[id];
-		} else {
-			removed = removeSubscription(id).accepted;
-			if (removed) delete subDrafts[id];
-		}
-		if (!removed) return;
+		const result = await (type === "node"
+			? removeNode(id).completion
+			: removeSubscription(id).completion);
+		if (
+			!showWorkspaceResult(result, {
+				localDurableMessageKey: "Deleted {name}",
+				remoteCommittedMessageKey: "Deleted {name}",
+				successMessageParams: { name },
+			})
+		)
+			return;
+		if (type === "node") delete nodeDrafts[id];
+		else delete subDrafts[id];
 		if (editingResource?.id === id) closeEditModal();
-		showToastNotify($t("Deleted {name}", { name }));
 	} finally {
 		deletingResourceId = null;
 	}
 }
 
-function toggleEnabled(id: string, type: "node" | "sub") {
-	if (type === "node") {
-		const node = $appState.nodes.find((n) => n.id === id);
-		if (node)
-			upsertNode({ ...node, enabled: !node.enabled, updatedAt: nowIso() });
-	} else {
-		const sub = $appState.subscriptions.find((s) => s.id === id);
-		if (sub)
-			upsertSubscription({
-				...sub,
-				enabled: !sub.enabled,
+async function toggleEnabled(id: string, type: "node" | "sub") {
+	if (togglingResourceId) return;
+	togglingResourceId = id;
+	try {
+		let result: WorkspaceOperationResult;
+		if (type === "node") {
+			const node = $appState.nodes.find((item) => item.id === id);
+			if (!node) return;
+			result = await upsertNode({
+				...node,
+				enabled: !node.enabled,
 				updatedAt: nowIso(),
-			});
+			}).completion;
+		} else {
+			const subscription = $appState.subscriptions.find(
+				(item) => item.id === id,
+			);
+			if (!subscription) return;
+			result = await upsertSubscription({
+				...subscription,
+				enabled: !subscription.enabled,
+				updatedAt: nowIso(),
+			}).completion;
+		}
+		showWorkspaceResult(result);
+	} finally {
+		togglingResourceId = null;
 	}
 }
 
@@ -729,7 +826,7 @@ async function copy(text: string) {
 										checked={node.enabled}
 										on:change={() => toggleEnabled(node.id, "node")}
 										aria-label={$t(node.enabled ? "Disable node" : "Enable node")}
-										disabled={deletingResourceId === node.id}
+										disabled={deletingResourceId === node.id || togglingResourceId === node.id}
 									/>
 									<div class="flex min-w-0 flex-col gap-1">
 										<div class="flex min-w-0 flex-wrap items-center gap-2">
@@ -795,7 +892,7 @@ async function copy(text: string) {
 										checked={sub.enabled}
 										on:change={() => toggleEnabled(sub.id, "sub")}
 										aria-label={$t(sub.enabled ? "Disable subscription" : "Enable subscription")}
-										disabled={deletingResourceId === sub.id}
+										disabled={deletingResourceId === sub.id || togglingResourceId === sub.id}
 									/>
 									<div class="flex min-w-0 flex-col gap-1">
 										<div class="flex min-w-0 flex-wrap items-center gap-2">
@@ -854,7 +951,13 @@ async function copy(text: string) {
 	{@const edit = editingResource}
 	<div class="fixed inset-0 z-[150] flex items-center justify-center p-4">
 		<button type="button" class="fixed inset-0 bg-black/50 backdrop-blur-sm" on:click={closeEditModal} aria-label={$t("Close edit modal")}></button>
-		<div class="gh-box relative flex max-h-[85vh] w-full max-w-2xl flex-col shadow-[var(--shadow-medium)]" in:fly={{ y: 20 }}>
+		<div
+			class="gh-box relative flex max-h-[85vh] w-full max-w-2xl flex-col shadow-[var(--shadow-medium)]"
+			role="dialog"
+			aria-modal="true"
+			aria-label={edit.type === "node" ? $t("Edit Node") : $t("Edit Subscription")}
+			in:fly={{ y: 20 }}
+		>
 			<div class="gh-box-header">
 				<div class="flex min-w-0 items-center gap-2">
 					<Octicon icon={pencil} className="h-4 w-4" />

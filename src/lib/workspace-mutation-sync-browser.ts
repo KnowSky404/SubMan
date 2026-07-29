@@ -17,12 +17,16 @@ import type {
 	BrowserWorkspacePersistence,
 	WorkspacePersistenceRecord,
 } from "$lib/workspace-persistence";
-import { WorkspacePersistenceError } from "$lib/workspace-persistence";
+import {
+	createEmptyWorkspacePersistenceRecord,
+	WorkspacePersistenceError,
+} from "$lib/workspace-persistence";
 import {
 	getBrowserWorkspacePersistence,
 	refreshBrowserWorkspacePersistence,
 } from "$lib/workspace-persistence-browser";
 import { dispatchPersistedWorkspaceMutation } from "$lib/workspace-persistence-dispatcher";
+import { deriveWorkspaceQueueMetrics } from "$lib/workspace-queue-metrics";
 import {
 	dispatchWorkspaceSyncEvent,
 	type WorkspaceBlockedMutation,
@@ -53,33 +57,6 @@ type WorkspaceMutationSyncOptions = {
 	subscribeEvents?: typeof subscribeWorkspaceEvents;
 	broadcast?: (event: WorkspaceEvent) => void;
 };
-
-function persistedQueueMetrics(
-	record: WorkspacePersistenceRecord,
-): WorkspaceQueueMetrics {
-	const activeWorkspaceId = record.binding?.workspaceId ?? null;
-	const queues = Object.values(record.workspaces);
-	return {
-		activeQueueCount: activeWorkspaceId
-			? (record.workspaces[activeWorkspaceId]?.mutations.length ?? 0)
-			: 0,
-		totalQueueCount: queues.reduce(
-			(total, queue) => total + queue.mutations.length,
-			0,
-		),
-		orphanedWorkspaceCount: queues.filter(
-			(queue) =>
-				queue.workspaceId !== activeWorkspaceId && queue.mutations.length > 0,
-		).length,
-		blockedMutationCount: queues.filter(
-			(queue) => queue.delivery.blocked !== null,
-		).length,
-		deadLetterCount: queues.reduce(
-			(total, queue) => total + queue.delivery.deadLetters.length,
-			0,
-		),
-	};
-}
 
 function startPersistenceWorkspaceMutationSync(
 	options: WorkspaceMutationSyncOptions,
@@ -143,7 +120,7 @@ function startPersistenceWorkspaceMutationSync(
 		) {
 			return;
 		}
-		const queue = persistedQueueMetrics(record);
+		const queue = deriveWorkspaceQueueMetrics(record);
 		const error: WorkspaceSyncError = {
 			code: retry.lastErrorCode,
 			message: retry.lastErrorCode,
@@ -179,7 +156,7 @@ function startPersistenceWorkspaceMutationSync(
 			mode: record.binding?.syncMode ?? "disconnected",
 			authenticated,
 			revision: record.binding?.revision ?? null,
-			queue: persistedQueueMetrics(record),
+			queue: deriveWorkspaceQueueMetrics(record),
 			blockedMutation: persistedBlockedMutation(record),
 		});
 		reportPersistedRetry(record, authenticated);
@@ -190,7 +167,7 @@ function startPersistenceWorkspaceMutationSync(
 	): boolean => {
 		const blockedMutation = persistedBlockedMutation(record);
 		if (!blockedMutation) return false;
-		const queue = persistedQueueMetrics(record);
+		const queue = deriveWorkspaceQueueMetrics(record);
 		const error = {
 			code: blockedMutation.code,
 			message: blockedMutation.message,
@@ -241,7 +218,7 @@ function startPersistenceWorkspaceMutationSync(
 			type: "STORAGE_QUARANTINED",
 			kind: "state",
 			queue: lastRecord
-				? persistedQueueMetrics(lastRecord)
+				? deriveWorkspaceQueueMetrics(lastRecord)
 				: {
 						activeQueueCount: 0,
 						totalQueueCount: 0,
@@ -293,7 +270,7 @@ function startPersistenceWorkspaceMutationSync(
 				if (get(workspaceSyncStatus).phase === "auth-required") {
 					dispatchWorkspaceSyncEvent({
 						type: "AUTH_RESTORED",
-						queue: persistedQueueMetrics(before),
+						queue: deriveWorkspaceQueueMetrics(before),
 					});
 				}
 			}
@@ -313,7 +290,7 @@ function startPersistenceWorkspaceMutationSync(
 			}
 			dispatchWorkspaceSyncEvent({
 				type: "SYNC_STARTED",
-				queue: persistedQueueMetrics(before),
+				queue: deriveWorkspaceQueueMetrics(before),
 				mutation: { mutationId: head.mutationId, kind: head.kind },
 			});
 			const result = await dispatchPersistence({
@@ -326,7 +303,7 @@ function startPersistenceWorkspaceMutationSync(
 			lastRecord = record;
 			if (stopped) return;
 			hydrate(record);
-			const queue = persistedQueueMetrics(record);
+			const queue = deriveWorkspaceQueueMetrics(record);
 			const activeQueue = record.binding
 				? record.workspaces[record.binding.workspaceId]
 				: undefined;
@@ -521,25 +498,49 @@ export function startWorkspaceMutationSync(
 
 	function queueMetrics(
 		binding: WorkspaceV2LocalState | null,
-		blockedMutationCount = 0,
+		blocked: WorkspaceBlockedMutation | null = null,
 	): WorkspaceQueueMetrics {
 		const mutations = queue.list();
-		const activeQueueCount = binding
-			? mutations.filter((item) => item.workspaceId === binding.workspaceId)
-					.length
-			: 0;
-		const orphanedWorkspaceCount = new Set(
-			mutations
-				.filter((item) => item.workspaceId !== binding?.workspaceId)
-				.map((item) => item.workspaceId),
-		).size;
-		return {
-			activeQueueCount,
-			totalQueueCount: mutations.length,
-			orphanedWorkspaceCount,
-			blockedMutationCount,
-			deadLetterCount: 0,
-		};
+		const record = createEmptyWorkspacePersistenceRecord();
+		record.binding = binding;
+		for (const mutation of mutations) {
+			if (!record.workspaces[mutation.workspaceId]) {
+				record.workspaces[mutation.workspaceId] = {
+					workspaceId: mutation.workspaceId,
+					mutations: [],
+					delivery: {
+						retry: {
+							attempt: 0,
+							nextAttemptAt: null,
+							lastErrorCode: null,
+						},
+						blocked: null,
+						deadLetters: [],
+					},
+				};
+			}
+			const persistedQueue = record.workspaces[mutation.workspaceId];
+			persistedQueue.mutations.push(mutation);
+		}
+		if (blocked && binding) {
+			const activeQueue = record.workspaces[binding.workspaceId];
+			const head = activeQueue?.mutations[0];
+			if (activeQueue && head) {
+				activeQueue.delivery.blocked = {
+					mutationId: blocked.mutationId,
+					kind: head.kind,
+					code: blocked.code,
+					disposition:
+						blocked.disposition === "retryable-upstream"
+							? "operator-repair"
+							: blocked.disposition,
+					messageKey: null,
+					createdAt: head.createdAt,
+					blockedAt: head.createdAt,
+				};
+			}
+		}
+		return deriveWorkspaceQueueMetrics(record);
 	}
 
 	function syncError(
@@ -688,7 +689,7 @@ export function startWorkspaceMutationSync(
 					result.disposition,
 				);
 				const blocked = blockedMutation(binding, error);
-				const metrics = queueMetrics(binding, blocked ? 1 : 0);
+				const metrics = queueMetrics(binding, blocked);
 				if (result.disposition === "auth-required") {
 					dispatchWorkspaceSyncEvent({
 						type: "AUTH_LOST",
@@ -727,7 +728,7 @@ export function startWorkspaceMutationSync(
 				const blocked = blockedMutation(binding, error);
 				dispatchWorkspaceSyncEvent({
 					type: "STATE_CONFLICT",
-					queue: queueMetrics(binding, blocked ? 1 : 0),
+					queue: queueMetrics(binding, blocked),
 					error,
 					blockedMutation: blocked,
 				});

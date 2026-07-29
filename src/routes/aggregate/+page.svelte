@@ -41,7 +41,6 @@ import {
 	upsertAggregate,
 	upsertPublishTarget,
 	type WorkspaceActionHandle,
-	type WorkspaceActionResult,
 } from "$lib/stores/app";
 import { authState } from "$lib/stores/auth";
 import { requestConfirm } from "$lib/stores/confirm";
@@ -60,6 +59,12 @@ import {
 	reconcileBrowserWorkspace,
 	submitBrowserWorkspaceMutation,
 } from "$lib/workspace-browser-session-v2";
+import {
+	presentWorkspaceOperation,
+	type WorkspaceOperationPresentation,
+	type WorkspaceOperationPresentationOptions,
+} from "$lib/workspace-operation-presenter";
+import type { WorkspaceOperationResult } from "$lib/workspace-operation-result";
 import {
 	analyzeAggregateDelete,
 	analyzePublishTargetDelete,
@@ -112,6 +117,8 @@ let publishTargetFile = "subman-aggregate.txt";
 let publishUrl: string | null = null;
 let publishing = false;
 let editingRuleId = "";
+let deletingRuleId = "";
+let deletingTargetId = "";
 const fieldIds = {
 	ruleName: "aggregate-rule-name",
 	excludeTags: "aggregate-exclude-tags",
@@ -401,67 +408,62 @@ type PendingWorkspaceAction = {
 	handle: WorkspaceActionHandle;
 	kind: "aggregate.upsert" | "publish-target.upsert";
 	payload: unknown;
+	ruleId?: string;
 	targetId?: string;
 	targetBeforeSave?: AggregatePublishTarget | null;
 	previousFileCleanup?: "keep" | "delete-if-unreferenced";
 };
 
-function actionSaved(result: WorkspaceActionResult): boolean {
-	return !["rejected", "permanent-error", "invalid-local-state"].includes(
-		result.status,
-	);
-}
-
-function showDeleteActionFeedback(
-	result: WorkspaceActionResult,
-	committedMessage: string,
-): void {
+function showWorkspaceResult(
+	result: WorkspaceOperationResult,
+	options: WorkspaceOperationPresentationOptions = {},
+): WorkspaceOperationPresentation {
+	const presentation = presentWorkspaceOperation(result, options);
 	showToast(
-		result.status === "committed"
-			? committedMessage
-			: result.status === "queued"
-				? $t("Queued")
-				: $t("Saved locally"),
-		"success",
+		$t(presentation.messageKey, presentation.messageParams),
+		presentation.tone,
 	);
+	return presentation;
 }
 
 async function commitPendingAction(
 	action: PendingWorkspaceAction,
 	allowManual: boolean,
-): Promise<void> {
+): Promise<WorkspaceOperationResult> {
 	const token = $authState.token;
 	if (!token) throw new Error("Missing GitHub token");
 	const result = await action.handle.completion;
-	if (!actionSaved(result)) {
-		throw new Error(result.error ?? "Workspace change was not saved");
-	}
-	if (result.status === "queued" && result.mutationId) {
-		await commitQueuedBrowserWorkspaceMutation({
+	if (result.status === "local-durable-queued") {
+		return commitQueuedBrowserWorkspaceMutation({
 			token,
 			mutationId: result.mutationId,
 		});
-		return;
 	}
-	if (result.status === "manual-local-only" && allowManual) {
-		await submitBrowserWorkspaceMutation(
+	if (
+		result.status === "local-durable" &&
+		result.mode === "manual" &&
+		allowManual
+	) {
+		return submitBrowserWorkspaceMutation(
 			{ token, kind: action.kind, payload: action.payload },
 			{ allowManual: true },
 		);
-		return;
 	}
-	if (result.status !== "committed") {
-		throw new Error("Push local Workspace changes before publishing");
-	}
+	return result;
 }
 
 async function awaitPendingLocalAction(
 	action: PendingWorkspaceAction,
-): Promise<void> {
-	const result = await action.handle.completion;
-	if (!actionSaved(result)) {
-		throw new Error(result.error ?? "Workspace change was not saved");
+): Promise<WorkspaceOperationResult> {
+	return action.handle.completion;
+}
+
+function finalizePendingAction(action: PendingWorkspaceAction): void {
+	if (action.ruleId) {
+		editingRuleId = action.ruleId;
+		if (!publishTargetRuleId) publishTargetRuleId = action.ruleId;
 	}
+	if (action.targetId) selectedTargetId = action.targetId;
 }
 
 function createRuleDraft(id: string): AggregateRule {
@@ -498,20 +500,23 @@ function saveRuleDraft(): PendingWorkspaceAction | null {
 	const id = editingRuleId || createId("agg");
 	const rule = createRuleDraft(id);
 	const handle = upsertAggregate(rule);
-	if (!handle.accepted) return null;
-	editingRuleId = id;
-	if (!publishTargetRuleId) publishTargetRuleId = id;
 	return {
 		handle,
 		kind: "aggregate.upsert",
 		payload: { aggregate: rule },
+		ruleId: id,
 	};
 }
 
 async function saveRule(): Promise<void> {
 	const action = saveRuleDraft();
 	if (!action) return;
-	showToast($t("Saved locally"), "success");
+	const result = await awaitPendingLocalAction(action);
+	const presentation = showWorkspaceResult(result, {
+		localDurableMessageKey: "Rule saved",
+		remoteCommittedMessageKey: "Rule saved",
+	});
+	if (presentation.finalizeDraft) finalizePendingAction(action);
 }
 
 async function choosePreviousFileCleanup(
@@ -570,8 +575,6 @@ async function saveTargetDraft(): Promise<PendingWorkspaceAction | null> {
 	};
 	const payload = { target, previousFileCleanup };
 	const handle = upsertPublishTarget(target, { previousFileCleanup });
-	if (!handle.accepted) return null;
-	selectedTargetId = id;
 	return {
 		handle,
 		kind: "publish-target.upsert",
@@ -591,12 +594,22 @@ async function saveTarget(): Promise<void> {
 	) {
 		const localSnapshot = $appState;
 		try {
-			await awaitPendingLocalAction(action);
-			await pushSelectedManualConfiguration(
+			const localResult = await awaitPendingLocalAction(action);
+			const localPresentation = presentWorkspaceOperation(localResult);
+			if (!localPresentation.finalizeDraft) {
+				showWorkspaceResult(localResult);
+				return;
+			}
+			finalizePendingAction(action);
+			const reconcileResult = await pushSelectedManualConfiguration(
 				manualStateBeforeTargetAction(localSnapshot, action),
 			);
-			await commitPendingAction(action, true);
-			showToast($t("Saved to Workspace"), "success");
+			if (!presentWorkspaceOperation(reconcileResult).remoteCommitted) {
+				showWorkspaceResult(reconcileResult);
+				return;
+			}
+			const result = await commitPendingAction(action, true);
+			showWorkspaceResult(result);
 		} catch (error) {
 			showToast(
 				$t("Workspace change was not saved: {error}", {
@@ -607,22 +620,29 @@ async function saveTarget(): Promise<void> {
 		}
 		return;
 	}
-	showToast($t("Saved locally"), "success");
+	const result = await awaitPendingLocalAction(action);
+	const presentation = showWorkspaceResult(result, {
+		localDurableMessageKey: "Target saved",
+		remoteCommittedMessageKey: "Target saved",
+	});
+	if (presentation.finalizeDraft) finalizePendingAction(action);
 }
 
 async function submitManualDelete(
 	kind: "aggregate.delete" | "publish-target.delete",
 	payload: unknown,
-): Promise<boolean> {
+): Promise<WorkspaceOperationResult | null> {
 	const token = $authState.token;
-	if (!token) return false;
+	if (!token) return null;
 	try {
-		await pushSelectedManualConfiguration($appState);
-		await submitBrowserWorkspaceMutation(
+		const reconcileResult = await pushSelectedManualConfiguration($appState);
+		if (!presentWorkspaceOperation(reconcileResult).remoteCommitted) {
+			return reconcileResult;
+		}
+		return submitBrowserWorkspaceMutation(
 			{ token, kind, payload },
 			{ allowManual: true },
 		);
-		return true;
 	} catch (error) {
 		showToast(
 			$t("Workspace change was not saved: {error}", {
@@ -630,13 +650,14 @@ async function submitManualDelete(
 			}),
 			"error",
 		);
-		return false;
+		return null;
 	}
 }
 
 async function deleteTarget(): Promise<void> {
-	if (!selectedTargetId) return;
-	const impact = analyzePublishTargetDelete($appState, selectedTargetId);
+	if (!selectedTargetId || deletingTargetId) return;
+	const targetId = selectedTargetId;
+	const impact = analyzePublishTargetDelete($appState, targetId);
 	const ownerSummary = impact.otherOwners.length
 		? impact.otherOwners
 				.map((owner) => `${owner.kind}: ${owner.name}`)
@@ -670,33 +691,40 @@ async function deleteTarget(): Promise<void> {
 			danger: true,
 		});
 	}
-	if (
-		cleanupUnreferencedOutputs &&
-		workspaceIsManual &&
-		!(await submitManualDelete("publish-target.delete", {
-			id: selectedTargetId,
+	deletingTargetId = targetId;
+	try {
+		if (cleanupUnreferencedOutputs && workspaceIsManual) {
+			const result = await submitManualDelete("publish-target.delete", {
+				id: targetId,
+				cleanupUnreferencedOutputs,
+			});
+			if (!result) return;
+			const presentation = showWorkspaceResult(result, {
+				remoteCommittedMessageKey: "Publish target deleted.",
+			});
+			if (!presentation.remoteCommitted) return;
+			resetTargetForm();
+			return;
+		}
+		const handle = removePublishTarget(selectedTargetId, {
 			cleanupUnreferencedOutputs,
-		}))
-	)
-		return;
-	if (cleanupUnreferencedOutputs && workspaceIsManual) {
+		});
+		const result = await handle.completion;
+		const presentation = showWorkspaceResult(result, {
+			localDurableMessageKey: "Publish target deleted.",
+			remoteCommittedMessageKey: "Publish target deleted.",
+		});
+		if (!presentation.finalizeDraft) return;
 		resetTargetForm();
-		showToast($t("Publish target deleted."), "success");
-		return;
+	} finally {
+		deletingTargetId = "";
 	}
-	const handle = removePublishTarget(selectedTargetId, {
-		cleanupUnreferencedOutputs,
-	});
-	if (!handle.accepted) return;
-	const result = await handle.completion;
-	if (!actionSaved(result)) return;
-	resetTargetForm();
-	showDeleteActionFeedback(result, $t("Publish target deleted."));
 }
 
 async function deleteRule(): Promise<void> {
-	if (!editingRuleId) return;
-	const impact = analyzeAggregateDelete($appState, editingRuleId);
+	if (!editingRuleId || deletingRuleId) return;
+	const ruleId = editingRuleId;
+	const impact = analyzeAggregateDelete($appState, ruleId);
 	const fileList = impact.fileNames.length
 		? impact.fileNames.join(", ")
 		: $t("None");
@@ -730,30 +758,36 @@ async function deleteRule(): Promise<void> {
 			danger: true,
 		});
 	}
-	if (
-		cleanupUnreferencedOutputs &&
-		workspaceIsManual &&
-		!(await submitManualDelete("aggregate.delete", {
-			id: editingRuleId,
+	deletingRuleId = ruleId;
+	try {
+		if (cleanupUnreferencedOutputs && workspaceIsManual) {
+			const result = await submitManualDelete("aggregate.delete", {
+				id: ruleId,
+				cleanupUnreferencedOutputs,
+			});
+			if (!result) return;
+			const presentation = showWorkspaceResult(result, {
+				remoteCommittedMessageKey: "Rule deleted.",
+			});
+			if (!presentation.remoteCommitted) return;
+			resetRuleForm();
+			if (resetBoundTarget) resetTargetForm();
+			return;
+		}
+		const handle = removeAggregate(editingRuleId, {
 			cleanupUnreferencedOutputs,
-		}))
-	)
-		return;
-	if (cleanupUnreferencedOutputs && workspaceIsManual) {
+		});
+		const result = await handle.completion;
+		const presentation = showWorkspaceResult(result, {
+			localDurableMessageKey: "Rule deleted.",
+			remoteCommittedMessageKey: "Rule deleted.",
+		});
+		if (!presentation.finalizeDraft) return;
 		resetRuleForm();
 		if (resetBoundTarget) resetTargetForm();
-		showToast($t("Rule deleted."), "success");
-		return;
+	} finally {
+		deletingRuleId = "";
 	}
-	const handle = removeAggregate(editingRuleId, {
-		cleanupUnreferencedOutputs,
-	});
-	if (!handle.accepted) return;
-	const result = await handle.completion;
-	if (!actionSaved(result)) return;
-	resetRuleForm();
-	if (resetBoundTarget) resetTargetForm();
-	showDeleteActionFeedback(result, $t("Rule deleted."));
 }
 
 function manualStateBeforeTargetAction(
@@ -776,14 +810,14 @@ function manualStateBeforeTargetAction(
 
 async function pushSelectedManualConfiguration(
 	resolvedState: AppState = $appState,
-): Promise<void> {
+): Promise<WorkspaceOperationResult> {
 	const token = $authState.token;
 	const gistId = $appState.activeGistId;
 	const binding = getBrowserWorkspaceBinding();
 	if (!token || !gistId || !binding?.baseline) {
 		throw new Error($t("Missing workspace authorization."));
 	}
-	await reconcileBrowserWorkspace({
+	return reconcileBrowserWorkspace({
 		token,
 		gistId,
 		baseline: binding.baseline,
@@ -814,7 +848,7 @@ async function publishSaved(allowManual = false): Promise<void> {
 		if (output.errors.length > 0) {
 			throw new Error(output.errors[0] ?? "Publish failed");
 		}
-		await submitBrowserWorkspaceMutation(
+		const result = await submitBrowserWorkspaceMutation(
 			{
 				token,
 				kind: "aggregate.publish",
@@ -828,7 +862,10 @@ async function publishSaved(allowManual = false): Promise<void> {
 		publishUrl =
 			$appState.publishTargets.find((target) => target.id === selectedTargetId)
 				?.lastPublishedUrl ?? null;
-		showToast($t("Published successfully to GitHub Gist"), "success");
+		showWorkspaceResult(result, {
+			remoteCommittedMessageKey: "Published successfully to GitHub Gist",
+			rejectedMessageKey: "Publish failed: {error}",
+		});
 	} catch (err) {
 		showToast(
 			$t("Publish failed: {error}", {
@@ -857,22 +894,55 @@ async function saveAndPublish(): Promise<void> {
 		if (ruleDirty) {
 			const ruleAction = saveRuleDraft();
 			if (!ruleAction) throw new Error($t("Rule name is required."));
-			if (workspaceIsManual) await awaitPendingLocalAction(ruleAction);
-			else await commitPendingAction(ruleAction, false);
+			const result = workspaceIsManual
+				? await awaitPendingLocalAction(ruleAction)
+				: await commitPendingAction(ruleAction, false);
+			const presentation = presentWorkspaceOperation(result);
+			if (presentation.finalizeDraft) finalizePendingAction(ruleAction);
+			if (!presentation.finalizeDraft) {
+				showWorkspaceResult(result);
+				return;
+			}
+			if (!workspaceIsManual && !presentation.remoteCommitted) {
+				showWorkspaceResult(result);
+				return;
+			}
 		}
 		if (targetDirty || !selectedTargetId) {
 			targetAction = await saveTargetDraft();
 			if (!targetAction) throw new Error($t("Failed to save publish target."));
-			if (workspaceIsManual) await awaitPendingLocalAction(targetAction);
-			else await commitPendingAction(targetAction, false);
+			const result = workspaceIsManual
+				? await awaitPendingLocalAction(targetAction)
+				: await commitPendingAction(targetAction, false);
+			const presentation = presentWorkspaceOperation(result);
+			if (presentation.finalizeDraft) finalizePendingAction(targetAction);
+			if (!presentation.finalizeDraft) {
+				showWorkspaceResult(result);
+				return;
+			}
+			if (!workspaceIsManual && !presentation.remoteCommitted) {
+				showWorkspaceResult(result);
+				return;
+			}
 		}
 		if (workspaceIsManual) {
 			const localSnapshot = $appState;
 			const manualReconcileState = targetAction
 				? manualStateBeforeTargetAction(localSnapshot, targetAction)
 				: localSnapshot;
-			await pushSelectedManualConfiguration(manualReconcileState);
-			if (targetAction) await commitPendingAction(targetAction, true);
+			const reconcileResult =
+				await pushSelectedManualConfiguration(manualReconcileState);
+			if (!presentWorkspaceOperation(reconcileResult).remoteCommitted) {
+				showWorkspaceResult(reconcileResult);
+				return;
+			}
+			if (targetAction) {
+				const targetResult = await commitPendingAction(targetAction, true);
+				if (!presentWorkspaceOperation(targetResult).remoteCommitted) {
+					showWorkspaceResult(targetResult);
+					return;
+				}
+			}
 		}
 		publishing = false;
 		await publishSaved(workspaceIsManual);
@@ -1256,7 +1326,7 @@ function handleExcludeTagsInput() {
 				<div class="gh-section-footer">
 					<div class="gh-btn-group">
 						{#if editingRuleId}
-							<button type="button" class="gh-btn gh-btn-danger" on:click={deleteRule} aria-label={$t("Delete current rule")} title={$t("Delete current rule")}><Octicon icon={trash} className="h-4 w-4" /></button>
+								<button type="button" class="gh-btn gh-btn-danger" on:click={deleteRule} aria-label={$t("Delete current rule")} title={$t("Delete current rule")} disabled={deletingRuleId === editingRuleId}>{#if deletingRuleId === editingRuleId}<Octicon icon={sync} className="h-4 w-4 animate-spin" />{:else}<Octicon icon={trash} className="h-4 w-4" />{/if}</button>
 						{/if}
 						<button type="button" class="gh-btn" on:click={buildPreview} disabled={previewLoading}>
 							{#if previewLoading}<Octicon icon={sync} className="mr-1 h-4 w-4 animate-spin" />{:else}<Octicon icon={eye} className="mr-1 h-4 w-4" />{/if}
@@ -1347,8 +1417,8 @@ function handleExcludeTagsInput() {
 						<div class="flex flex-col gap-2 pt-2 border-t border-border-default">
 							<button type="button" class="gh-btn w-full" on:click={saveTarget}>{$t("Save Target")}</button>
 							{#if selectedTargetId}
-								<button type="button" class="gh-btn gh-btn-danger w-full" on:click={deleteTarget}>
-									<Octicon icon={trash} className="h-4 w-4" />
+									<button type="button" class="gh-btn gh-btn-danger w-full" on:click={deleteTarget} disabled={deletingTargetId === selectedTargetId}>
+										{#if deletingTargetId === selectedTargetId}<Octicon icon={sync} className="h-4 w-4 animate-spin" />{:else}<Octicon icon={trash} className="h-4 w-4" />{/if}
 									{$t("Delete Target")}
 								</button>
 							{/if}

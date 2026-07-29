@@ -316,6 +316,61 @@ describe("Workspace sync state machine", () => {
 		expect(repaired.repairRequired).toBe(false);
 	});
 
+	it("reconstructs persisted blocked dispositions when sync context loads", () => {
+		const cases: Array<{
+			error: WorkspaceSyncError;
+			expectedPhase: WorkspaceSyncPhase;
+			authenticated: boolean;
+		}> = [
+			{
+				error: domainError,
+				expectedPhase: "blocked-domain-conflict",
+				authenticated: true,
+			},
+			{
+				error: queueError,
+				expectedPhase: "queue-repair-required",
+				authenticated: true,
+			},
+			{
+				error: operatorError,
+				expectedPhase: "operator-repair-required",
+				authenticated: true,
+			},
+			{
+				error: {
+					code: "unauthorized",
+					message: "Reconnect GitHub",
+					disposition: "auth-required",
+				},
+				expectedPhase: "auth-required",
+				authenticated: false,
+			},
+		];
+
+		for (const testCase of cases) {
+			const persistedBlock: WorkspaceBlockedMutation = {
+				...blockedMutation,
+				...testCase.error,
+			};
+			const restored = apply(createDefaultWorkspaceSyncStatus(), {
+				type: "SYNC_CONTEXT_LOADED",
+				mode: "automatic",
+				authenticated: testCase.authenticated,
+				revision: 4,
+				queue: blockedQueue,
+				blockedMutation: persistedBlock,
+			});
+
+			expect(restored.phase).toBe(testCase.expectedPhase);
+			expect(restored.recentError).toEqual(testCase.error);
+			if (testCase.error.disposition !== "auth-required") {
+				expect(restored.blockedMutation).toEqual(persistedBlock);
+				expect(restored.repairRequired).toBe(true);
+			}
+		}
+	});
+
 	it("clears stale retry and repair fields after commit, repair, and rebind", () => {
 		const retrying = apply(syncing(), {
 			type: "SYNC_RETRY_SCHEDULED",

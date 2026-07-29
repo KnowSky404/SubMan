@@ -1,6 +1,5 @@
 import { get, writable } from "svelte/store";
 import { browser } from "$app/environment";
-import { t } from "$lib/i18n";
 import type {
 	AggregatePublishTarget,
 	AggregateRule,
@@ -9,7 +8,6 @@ import type {
 	NodeItem,
 	SubscriptionItem,
 } from "$lib/models";
-import { showToast } from "$lib/stores/toast";
 import { nowIso } from "$lib/utils/time";
 import {
 	createDefaultWorkspaceState,
@@ -23,42 +21,35 @@ import {
 	type WorkspaceMutation,
 } from "$lib/workspace-mutation";
 import {
+	rejectedWorkspaceOperation,
+	type WorkspaceOperationResult,
+} from "$lib/workspace-operation-result";
+import {
 	getConflictingOutputOwners,
 	isCurrentPublishTargetOutputPublished,
 } from "$lib/workspace-output";
-import type { WorkspaceMutationDraft } from "$lib/workspace-persistence";
+import {
+	WorkspaceConcurrentUpdateError,
+	type WorkspaceMutationDraft,
+} from "$lib/workspace-persistence";
 import {
 	type BrowserWorkspaceCommitResult,
 	commitBrowserWorkspaceAction,
-	getBrowserWorkspaceBinding,
 	initializeBrowserWorkspacePersistence,
+	refreshBrowserWorkspacePersistence,
 } from "$lib/workspace-persistence-browser";
-import {
-	dispatchWorkspaceSyncEvent,
-	type WorkspacePersistenceLifecycle,
-} from "$lib/workspace-sync-status";
+import { dispatchWorkspaceSyncEvent } from "$lib/workspace-sync-status";
 import type { WorkspaceV2LocalState } from "$lib/workspace-v2-state";
 
 export const defaultState: AppState = createDefaultWorkspaceState(nowIso());
 export const appState = writable<AppState>(defaultState);
 
-export type WorkspaceActionResult = {
-	status: WorkspacePersistenceLifecycle | "rejected";
-	mutationId?: string;
-	error?: string;
-};
+export type WorkspaceActionResult = WorkspaceOperationResult;
 
-export type WorkspaceActionHandle =
-	| {
-			accepted: true;
-			localStatus: "local-saved";
-			completion: Promise<WorkspaceActionResult>;
-	  }
-	| {
-			accepted: false;
-			localStatus: "rejected";
-			completion: Promise<WorkspaceActionResult>;
-	  };
+export type WorkspaceActionHandle = {
+	submitted: boolean;
+	completion: Promise<WorkspaceActionResult>;
+};
 
 const VALIDATION_MUTATION_ID = "00000000-0000-4000-8000-000000000000";
 const VALIDATION_TIMESTAMP = "2000-01-01T00:00:00.000Z";
@@ -103,7 +94,18 @@ function createMutationDraft(
 
 function resultForCommit(
 	result: BrowserWorkspaceCommitResult,
+	fallbackState: AppState,
 ): WorkspaceActionResult {
+	const state = result.record?.snapshot ?? fallbackState;
+	if (result.acknowledgement === "uncertain") {
+		return {
+			status: "commit-acknowledgement-uncertain",
+			durable: "uncertain",
+			mutationId: result.mutation?.mutationId ?? null,
+			state,
+			code: "workspace_commit_acknowledgement_uncertain",
+		};
+	}
 	if (result.mutation) {
 		dispatchWorkspaceSyncEvent({
 			type: "MUTATION_ENQUEUED",
@@ -113,7 +115,12 @@ function resultForCommit(
 				kind: result.mutation.kind,
 			},
 		});
-		return { status: "queued", mutationId: result.mutation.mutationId };
+		return {
+			status: "local-durable-queued",
+			durable: true,
+			mutationId: result.mutation.mutationId,
+			state,
+		};
 	}
 	if (result.binding?.syncMode === "manual") {
 		dispatchWorkspaceSyncEvent({
@@ -121,7 +128,13 @@ function resultForCommit(
 			mode: "manual",
 			queue: result.queue,
 		});
-		return { status: "manual-local-only" };
+		return {
+			status: "local-durable",
+			durable: true,
+			mutationId: null,
+			state,
+			mode: "manual",
+		};
 	}
 	if (result.binding?.syncMode === "paused-conflict") {
 		dispatchWorkspaceSyncEvent({
@@ -132,14 +145,26 @@ function resultForCommit(
 			queue: result.queue,
 			blockedMutation: null,
 		});
-		return { status: "paused-conflict" };
+		return {
+			status: "local-durable",
+			durable: true,
+			mutationId: null,
+			state,
+			mode: "paused-conflict",
+		};
 	}
 	dispatchWorkspaceSyncEvent({
 		type: "LOCAL_COMMITTED",
 		mode: "local",
 		queue: result.queue,
 	});
-	return { status: "local-saved" };
+	return {
+		status: "local-durable",
+		durable: true,
+		mutationId: null,
+		state,
+		mode: "local",
+	};
 }
 
 type PreparedAction = { next: AppState; payload: unknown };
@@ -152,15 +177,6 @@ function runPreparedWorkspaceAction(
 		createdAt: string,
 	) => PreparedAction,
 ): WorkspaceActionHandle {
-	try {
-		const binding = browser ? getBrowserWorkspaceBinding() : null;
-		const preliminary = prepare(get(appState), binding, VALIDATION_TIMESTAMP);
-		createMutationDraft(kind, preliminary.payload, binding);
-	} catch (error) {
-		notifyRejectedWorkspaceMutation(error);
-		return rejectedActionHandle(error);
-	}
-
 	if (!browser) {
 		try {
 			const prepared = prepare(get(appState), null, nowIso());
@@ -177,9 +193,14 @@ function runPreparedWorkspaceAction(
 				},
 			});
 			return {
-				accepted: true,
-				localStatus: "local-saved",
-				completion: Promise.resolve({ status: "local-saved" }),
+				submitted: true,
+				completion: Promise.resolve({
+					status: "local-durable",
+					durable: true,
+					mutationId: null,
+					state: prepared.next,
+					mode: "local",
+				}),
 			};
 		} catch (error) {
 			return rejectedActionHandle(error);
@@ -188,38 +209,51 @@ function runPreparedWorkspaceAction(
 
 	const completion = serializedAction(
 		async (): Promise<WorkspaceActionResult> => {
+			const mutationId = crypto.randomUUID();
+			const createdAt = nowIso();
 			try {
 				await initializeAppStatePersistence();
-				const binding = getBrowserWorkspaceBinding();
-				const current = get(appState);
-				if (checkWorkspaceIdentity(current, binding).status === "mismatch") {
-					throw new Error("Workspace identity requires repair");
+				for (let attempt = 0; attempt < 2; attempt += 1) {
+					const record = await refreshBrowserWorkspacePersistence();
+					const current = record.snapshot ?? get(appState);
+					if (record.snapshot) appState.set(record.snapshot);
+					const binding = record.binding;
+					if (checkWorkspaceIdentity(current, binding).status === "mismatch") {
+						throw new Error("Workspace identity requires repair");
+					}
+					const prepared = prepare(current, binding, createdAt);
+					const next = { ...prepared.next, lastUpdated: createdAt };
+					const validatedDraft = createMutationDraft(
+						kind,
+						prepared.payload,
+						binding,
+						{ mutationId, createdAt },
+					);
+					try {
+						const committed = await commitBrowserWorkspaceAction({
+							snapshot: next,
+							mutation:
+								binding?.syncMode === "automatic" ? validatedDraft : null,
+						});
+						const result = resultForCommit(committed, next);
+						appState.set(committed.record?.snapshot ?? next);
+						return result;
+					} catch (error) {
+						if (
+							!(error instanceof WorkspaceConcurrentUpdateError) ||
+							attempt > 0
+						) {
+							throw error;
+						}
+					}
 				}
-				const createdAt = nowIso();
-				const prepared = prepare(current, binding, createdAt);
-				const next = { ...prepared.next, lastUpdated: createdAt };
-				const validatedDraft = createMutationDraft(
-					kind,
-					prepared.payload,
-					binding,
-					{ mutationId: crypto.randomUUID(), createdAt },
-				);
-				const committed = await commitBrowserWorkspaceAction({
-					snapshot: next,
-					mutation: binding?.syncMode === "automatic" ? validatedDraft : null,
-				});
-				appState.set(next);
-				return resultForCommit(committed);
+				throw new WorkspaceConcurrentUpdateError();
 			} catch (error) {
-				notifyRejectedWorkspaceMutation(error);
-				return {
-					status: "rejected",
-					error: error instanceof Error ? error.message : String(error),
-				};
+				return rejectedWorkspaceOperation(error, mutationId);
 			}
 		},
 	);
-	return { accepted: true, localStatus: "local-saved", completion };
+	return { submitted: true, completion };
 }
 
 function runWorkspaceAction(
@@ -243,12 +277,8 @@ function runDeferredWorkspaceAction(
 
 function rejectedActionHandle(error: unknown): WorkspaceActionHandle {
 	return {
-		accepted: false,
-		localStatus: "rejected",
-		completion: Promise.resolve({
-			status: "rejected",
-			error: error instanceof Error ? error.message : String(error),
-		}),
+		submitted: false,
+		completion: Promise.resolve(rejectedWorkspaceOperation(error)),
 	};
 }
 
@@ -266,16 +296,6 @@ function assertLocalOutputOwnerAvailable(
 		`Output file ${owner.fileName} is already owned by ${conflicts
 			.map((conflict) => `${conflict.kind}:${conflict.name}`)
 			.join(", ")}`,
-	);
-}
-
-function notifyRejectedWorkspaceMutation(error: unknown): void {
-	showToast(
-		get(t)("Workspace change was not saved: {error}", {
-			error: error instanceof Error ? error.message : String(error),
-		}),
-		"error",
-		6_000,
 	);
 }
 
@@ -418,7 +438,6 @@ export function upsertPublishTarget(
 	try {
 		fileName = validateWorkspaceOutputFileName(target.fileName);
 	} catch (error) {
-		notifyRejectedWorkspaceMutation(error);
 		return rejectedActionHandle(error);
 	}
 	const requested = { ...target, fileName };
@@ -516,7 +535,6 @@ export function upsertClientExport(
 	try {
 		fileName = validateWorkspaceOutputFileName(profile.fileName);
 	} catch (error) {
-		notifyRejectedWorkspaceMutation(error);
 		return rejectedActionHandle(error);
 	}
 	const requested = { ...profile, fileName };

@@ -205,6 +205,45 @@ class PeerSettlesBetweenReadsPersistence extends InMemoryWorkspacePersistence {
 	}
 }
 
+class ReadFailsAfterExplicitCommitPersistence extends InMemoryWorkspacePersistence {
+	private failedReads = 0;
+
+	override async commitExplicitAction(
+		input: Parameters<InMemoryWorkspacePersistence["commitExplicitAction"]>[0],
+	) {
+		const committed = await super.commitExplicitAction(input);
+		this.failedReads = 1;
+		return committed;
+	}
+
+	override async read(): Promise<WorkspacePersistenceRecord> {
+		if (this.failedReads > 0) {
+			this.failedReads -= 1;
+			throw new Error("injected post-explicit-commit read failure");
+		}
+		return super.read();
+	}
+}
+
+class ReadFailsAfterDeliveryCommitPersistence extends InMemoryWorkspacePersistence {
+	private failedReads = 0;
+
+	override async commitDeliverySuccess(
+		input: Parameters<InMemoryWorkspacePersistence["commitDeliverySuccess"]>[0],
+	): Promise<void> {
+		await super.commitDeliverySuccess(input);
+		this.failedReads = 1;
+	}
+
+	override async read(): Promise<WorkspacePersistenceRecord> {
+		if (this.failedReads > 0) {
+			this.failedReads -= 1;
+			throw new Error("injected post-delivery-commit read failure");
+		}
+		return super.read();
+	}
+}
+
 async function seed(
 	persistence: InMemoryWorkspacePersistence,
 	state: AppState,
@@ -212,10 +251,16 @@ async function seed(
 	mutations: WorkspaceMutation[] = [],
 ): Promise<void> {
 	if (mutations.length > 0) {
+		const expected = await persistence.read();
 		await persistence.repairWorkspaceQueue({
 			snapshot: state,
 			binding,
 			mutations,
+			expected: {
+				snapshot: expected.snapshot,
+				binding: expected.binding,
+				queue: expected.workspaces[binding.workspaceId] ?? null,
+			},
 		});
 		return;
 	}
@@ -347,7 +392,7 @@ describe("browser Workspace V2 session", () => {
 		expect(events.acceptedSyncEvents).toEqual([true]);
 	});
 
-	it("keeps the same reconcile mutation queued with persisted retry metadata", async () => {
+	it("returns retry-scheduled for a durable reconcile without throwing", async () => {
 		const persistence = new InMemoryWorkspacePersistence();
 		let state: AppState = {
 			...createDefaultWorkspaceState(NOW),
@@ -359,38 +404,37 @@ describe("browser Workspace V2 session", () => {
 		const order: string[] = [];
 		const events = collectSessionEvents(order);
 
-		let error: unknown;
-		try {
-			await reconcileBrowserWorkspace(
-				{
-					token: "token",
-					gistId: "gist-1",
-					baseline,
-					resolvedState: state,
-					syncMode: "automatic",
+		const result = await reconcileBrowserWorkspace(
+			{
+				token: "token",
+				gistId: "gist-1",
+				baseline,
+				resolvedState: state,
+				syncMode: "automatic",
+			},
+			{
+				persistence,
+				getState: () => state,
+				setState: (next) => {
+					state = next;
+					order.push("hydrated");
 				},
-				{
-					persistence,
-					getState: () => state,
-					setState: (next) => {
-						state = next;
-						order.push("hydrated");
-					},
-					mutationId: () => MUTATION_ID,
-					now: () => NOW,
-					fetchImpl: async () => {
-						throw new Error("offline");
-					},
-					broadcast: events.broadcast,
-					dispatchSyncEvent: events.dispatchSyncEvent,
+				mutationId: () => MUTATION_ID,
+				now: () => NOW,
+				fetchImpl: async () => {
+					throw new Error("offline");
 				},
-			);
-		} catch (caught) {
-			error = caught;
-		}
-		expect((error as Error).message).toContain(
-			"Workspace reconciliation failed",
+				broadcast: events.broadcast,
+				dispatchSyncEvent: events.dispatchSyncEvent,
+			},
 		);
+		expect(result.status).toBe("retry-scheduled");
+		expect(result.mutationId).toBe(MUTATION_ID);
+		if (result.status !== "retry-scheduled") {
+			throw new Error("Expected retry-scheduled result");
+		}
+		expect(result.attempt).toBe(1);
+		expect(result.lastErrorCode).toBe("network_error");
 
 		const stored = await persistence.read();
 		expect(stored.workspaces["gist:gist-1"]?.mutations[0]?.mutationId).toBe(
@@ -412,6 +456,33 @@ describe("browser Workspace V2 session", () => {
 		).toBe(true);
 	});
 
+	it("rejects an uninitialized session before a durable commit", async () => {
+		const persistence = new InMemoryWorkspacePersistence();
+		const state = createDefaultWorkspaceState(NOW);
+		const result = await submitBrowserWorkspaceMutation(
+			{
+				token: "token",
+				kind: "output.delete",
+				payload: { fileName: "a.txt" },
+			},
+			{
+				persistence,
+				getState: () => state,
+				setState: () => {},
+				mutationId: () => MUTATION_ID_2,
+			},
+		);
+
+		expect(result.status).toBe("rejected-before-durable-commit");
+		expect(result.durable).toBe(false);
+		expect(result.mutationId).toBe(MUTATION_ID_2);
+		if (result.status !== "rejected-before-durable-commit") {
+			throw new Error("Expected a pre-commit rejection");
+		}
+		expect(result.message).toBe("Workspace V2 is not initialized");
+		expect((await persistence.read()).workspaces).toEqual({});
+	});
+
 	it("rejects identity mismatch before persisting an explicit mutation", async () => {
 		const persistence = new InMemoryWorkspacePersistence();
 		const baseline = document();
@@ -425,20 +496,66 @@ describe("browser Workspace V2 session", () => {
 			activeGistId: "different-gist",
 		};
 
-		let error: unknown;
-		try {
-			await submitBrowserWorkspaceMutation(
-				{
-					token: "token",
-					kind: "output.delete",
-					payload: { fileName: "a.txt" },
-				},
-				{ persistence, getState: () => mismatched, setState: () => {} },
-			);
-		} catch (caught) {
-			error = caught;
+		const result = await submitBrowserWorkspaceMutation(
+			{
+				token: "token",
+				kind: "output.delete",
+				payload: { fileName: "a.txt" },
+			},
+			{
+				persistence,
+				getState: () => mismatched,
+				setState: () => {},
+				mutationId: () => MUTATION_ID_2,
+			},
+		);
+
+		expect(result.status).toBe("rejected-before-durable-commit");
+		expect(result.durable).toBe(false);
+		expect(result.mutationId).toBe(MUTATION_ID_2);
+		if (result.status !== "rejected-before-durable-commit") {
+			throw new Error("Expected a pre-commit rejection");
 		}
-		expect((error as Error).message).toBe("Workspace identity requires repair");
+		expect(result.message).toBe("Workspace identity requires repair");
+		expect((await persistence.read()).workspaces).toEqual({});
+	});
+
+	it("rejects paused-conflict delivery before persisting a mutation", async () => {
+		const persistence = new InMemoryWorkspacePersistence();
+		const baseline = document();
+		const state = stateFor(baseline);
+		await seed(
+			persistence,
+			state,
+			createWorkspaceV2LocalState("gist-1", {
+				baseline,
+				syncMode: "paused-conflict",
+			}),
+		);
+
+		const result = await submitBrowserWorkspaceMutation(
+			{
+				token: "token",
+				kind: "output.delete",
+				payload: { fileName: "a.txt" },
+			},
+			{
+				persistence,
+				getState: () => state,
+				setState: () => {},
+				mutationId: () => MUTATION_ID_2,
+			},
+		);
+
+		expect(result.status).toBe("rejected-before-durable-commit");
+		expect(result.durable).toBe(false);
+		expect(result.mutationId).toBe(MUTATION_ID_2);
+		if (result.status !== "rejected-before-durable-commit") {
+			throw new Error("Expected a pre-commit rejection");
+		}
+		expect(result.message).toBe(
+			"Workspace synchronization is paused by a conflict",
+		);
 		expect((await persistence.read()).workspaces).toEqual({});
 	});
 
@@ -452,20 +569,26 @@ describe("browser Workspace V2 session", () => {
 		let state = stateFor(baseline);
 		await seed(persistence, state, binding);
 
-		let error: unknown;
-		try {
-			await submitBrowserWorkspaceMutation(
-				{
-					token: "token",
-					kind: "output.delete",
-					payload: { fileName: "a.txt" },
-				},
-				{ persistence, getState: () => state, setState: () => {} },
-			);
-		} catch (caught) {
-			error = caught;
+		const rejected = await submitBrowserWorkspaceMutation(
+			{
+				token: "token",
+				kind: "output.delete",
+				payload: { fileName: "a.txt" },
+			},
+			{
+				persistence,
+				getState: () => state,
+				setState: () => {},
+				mutationId: () => MUTATION_ID_2,
+			},
+		);
+		expect(rejected.status).toBe("rejected-before-durable-commit");
+		expect(rejected.durable).toBe(false);
+		expect(rejected.mutationId).toBe(MUTATION_ID_2);
+		if (rejected.status !== "rejected-before-durable-commit") {
+			throw new Error("Expected a pre-commit rejection");
 		}
-		expect((error as Error).message).toBe(
+		expect(rejected.message).toBe(
 			"Push local Workspace changes before publishing",
 		);
 
@@ -499,6 +622,106 @@ describe("browser Workspace V2 session", () => {
 
 		const stored = await persistence.read();
 		expect(stored.binding?.syncMode).toBe("manual");
+		expect(stored.binding?.revision).toBe(2);
+		expect(stored.workspaces["gist:gist-1"]?.mutations).toEqual([]);
+	});
+
+	it("keeps one explicit mutation when its post-commit read fails", async () => {
+		const persistence = new ReadFailsAfterExplicitCommitPersistence();
+		const baseline = document();
+		const state = stateFor(baseline);
+		await seed(
+			persistence,
+			state,
+			createWorkspaceV2LocalState("gist-1", { baseline }),
+		);
+		let generatedIds = 0;
+		let requests = 0;
+
+		const result = await submitBrowserWorkspaceMutation(
+			{
+				token: "token",
+				kind: "output.delete",
+				payload: { fileName: "a.txt" },
+			},
+			{
+				persistence,
+				getState: () => state,
+				setState: () => {},
+				mutationId: () => {
+					generatedIds += 1;
+					return generatedIds === 1 ? MUTATION_ID_2 : MUTATION_ID_3;
+				},
+				now: () => NOW,
+				fetchImpl: async () => {
+					requests += 1;
+					return committedResponse(document(2, MUTATION_ID_2));
+				},
+			},
+		);
+
+		expect(result.status).toBe("commit-acknowledgement-uncertain");
+		expect(result.durable).toBe("uncertain");
+		expect(result.mutationId).toBe(MUTATION_ID_2);
+		expect(generatedIds).toBe(1);
+		expect(requests).toBe(0);
+		expect(
+			(await persistence.read()).workspaces["gist:gist-1"]?.mutations.map(
+				(item) => item.mutationId,
+			),
+		).toEqual([MUTATION_ID_2]);
+	});
+
+	it("does not retry a remote commit when its persisted acknowledgement read fails", async () => {
+		const persistence = new ReadFailsAfterDeliveryCommitPersistence();
+		const baseline = document();
+		let state = stateFor(baseline);
+		await seed(
+			persistence,
+			state,
+			createWorkspaceV2LocalState("gist-1", { baseline }),
+		);
+		let generatedIds = 0;
+		let requests = 0;
+
+		const result = await submitBrowserWorkspaceMutation(
+			{
+				token: "token",
+				kind: "node.upsert",
+				payload: { operation: "replace", node: node("local", "committed") },
+			},
+			{
+				persistence,
+				getState: () => state,
+				setState: (next) => {
+					state = next;
+				},
+				mutationId: () => {
+					generatedIds += 1;
+					return generatedIds === 1 ? MUTATION_ID_2 : MUTATION_ID_3;
+				},
+				now: () => NOW,
+				fetchImpl: async () => {
+					requests += 1;
+					return Response.json({
+						document: document(2, MUTATION_ID_2, [node("local", "committed")]),
+						mutationId: MUTATION_ID_2,
+						workspaceId: "gist:gist-1",
+						committedRevision: 2,
+						committedAt: LATER,
+						receipt: { kind: "node.upsert", entityId: "local" },
+						status: "committed",
+					});
+				},
+			},
+		);
+
+		expect(result.status).toBe("commit-acknowledgement-uncertain");
+		expect(result.durable).toBe("uncertain");
+		expect(result.mutationId).toBe(MUTATION_ID_2);
+		expect(generatedIds).toBe(1);
+		expect(requests).toBe(1);
+		const stored = await persistence.read();
 		expect(stored.binding?.revision).toBe(2);
 		expect(stored.workspaces["gist:gist-1"]?.mutations).toEqual([]);
 	});
@@ -563,7 +786,7 @@ describe("browser Workspace V2 session", () => {
 		expect(events.acceptedSyncEvents).toEqual([true]);
 	});
 
-	it("fails fast without broadcasting when a peer still owns the queued mutation", async () => {
+	it("returns peer-owned without broadcasting when a peer owns the queued mutation", async () => {
 		const persistence = new InMemoryWorkspacePersistence();
 		const baseline = document();
 		let state = {
@@ -585,36 +808,86 @@ describe("browser Workspace V2 session", () => {
 		expect(lease.acquired).toBe(true);
 		const events = collectSessionEvents();
 		let requests = 0;
-		let caught: unknown;
-
-		try {
-			await commitQueuedBrowserWorkspaceMutation(
-				{ token: "token", mutationId: MUTATION_ID_2 },
-				{
-					persistence,
-					getState: () => state,
-					setState: (next) => {
-						state = next;
-					},
-					fetchImpl: async () => {
-						requests += 1;
-						return committedResponse(document(2, MUTATION_ID_2));
-					},
-					broadcast: events.broadcast,
-					dispatchSyncEvent: events.dispatchSyncEvent,
+		const result = await commitQueuedBrowserWorkspaceMutation(
+			{ token: "token", mutationId: MUTATION_ID_2 },
+			{
+				persistence,
+				getState: () => state,
+				setState: (next) => {
+					state = next;
 				},
-			);
-		} catch (error) {
-			caught = error;
-		}
+				fetchImpl: async () => {
+					requests += 1;
+					return committedResponse(document(2, MUTATION_ID_2));
+				},
+				broadcast: events.broadcast,
+				dispatchSyncEvent: events.dispatchSyncEvent,
+			},
+		);
 
-		expect((caught as Error).message).toContain("busy");
+		expect(result.status).toBe("peer-owned");
+		expect(result.mutationId).toBe(MUTATION_ID_2);
 		expect(requests).toBe(0);
 		expect(events.broadcasts).toEqual([]);
 		expect(
 			(await persistence.read()).workspaces["gist:gist-1"]?.mutations[0]
 				?.mutationId,
 		).toBe(MUTATION_ID_2);
+	});
+
+	it("returns peer-owned for a mutation left in an orphan queue after rebind", async () => {
+		const persistence = new InMemoryWorkspacePersistence();
+		const baseline = document();
+		const queuedState = {
+			...stateFor(document(2, MUTATION_ID_2, [node("local", "pending")])),
+			lastUpdated: NOW,
+		};
+		await seed(
+			persistence,
+			queuedState,
+			createWorkspaceV2LocalState("gist-1", { baseline }),
+			[mutation(MUTATION_ID_2, 1, "pending")],
+		);
+		const peerBaseline: WorkspaceDocumentV2 = {
+			...document(),
+			workspaceId: "gist:gist-2",
+		};
+		const peerState = hydrateAppStateFromWorkspaceDocument(
+			createDefaultWorkspaceState(NOW),
+			peerBaseline,
+			"gist-2",
+		);
+		await persistence.rebindWorkspace({
+			snapshot: peerState,
+			binding: createWorkspaceV2LocalState("gist-2", {
+				baseline: peerBaseline,
+			}),
+		});
+		let requests = 0;
+
+		const result = await commitQueuedBrowserWorkspaceMutation(
+			{ token: "token", mutationId: MUTATION_ID_2 },
+			{
+				persistence,
+				getState: () => peerState,
+				setState: () => {},
+				fetchImpl: async () => {
+					requests += 1;
+					return committedResponse(document(2, MUTATION_ID_2));
+				},
+			},
+		);
+
+		expect(result.status).toBe("peer-owned");
+		expect(result.mutationId).toBe(MUTATION_ID_2);
+		expect(requests).toBe(0);
+		const stored = await persistence.read();
+		expect(stored.binding?.workspaceId).toBe("gist:gist-2");
+		expect(
+			stored.workspaces["gist:gist-1"]?.mutations.map(
+				(item) => item.mutationId,
+			),
+		).toEqual([MUTATION_ID_2]);
 	});
 
 	it("does not rebroadcast a mutation already settled by a peer", async () => {
@@ -834,7 +1107,7 @@ describe("browser Workspace V2 session", () => {
 		expect(peerState.lastUpdated).toBe(LATER);
 	});
 
-	it("surfaces retryable explicit manual failures in sync state", async () => {
+	it("returns retry-scheduled for retryable explicit manual delivery", async () => {
 		const persistence = new InMemoryWorkspacePersistence();
 		const baseline = document();
 		let state = stateFor(baseline);
@@ -847,36 +1120,31 @@ describe("browser Workspace V2 session", () => {
 			}),
 		);
 		const events = collectSessionEvents();
-		let caught: unknown;
-
-		try {
-			await submitBrowserWorkspaceMutation(
-				{
-					token: "token",
-					kind: "output.delete",
-					payload: { fileName: "a.txt" },
+		const result = await submitBrowserWorkspaceMutation(
+			{
+				token: "token",
+				kind: "output.delete",
+				payload: { fileName: "a.txt" },
+			},
+			{
+				persistence,
+				getState: () => state,
+				setState: (next) => {
+					state = next;
 				},
-				{
-					persistence,
-					getState: () => state,
-					setState: (next) => {
-						state = next;
-					},
-					mutationId: () => MUTATION_ID_2,
-					now: () => NOW,
-					allowManual: true,
-					fetchImpl: async () => {
-						throw new Error("offline");
-					},
-					broadcast: events.broadcast,
-					dispatchSyncEvent: events.dispatchSyncEvent,
+				mutationId: () => MUTATION_ID_2,
+				now: () => NOW,
+				allowManual: true,
+				fetchImpl: async () => {
+					throw new Error("offline");
 				},
-			);
-		} catch (error) {
-			caught = error;
-		}
+				broadcast: events.broadcast,
+				dispatchSyncEvent: events.dispatchSyncEvent,
+			},
+		);
 
-		expect((caught as Error).message).toContain("Workspace mutation failed");
+		expect(result.status).toBe("retry-scheduled");
+		expect(result.mutationId).toBe(MUTATION_ID_2);
 		expect(events.syncEvents.map((event) => event.type)).toEqual([
 			"SYNC_CONTEXT_LOADED",
 			"SYNC_STARTED",
@@ -890,7 +1158,7 @@ describe("browser Workspace V2 session", () => {
 		expect(events.broadcasts[0]?.queueAction).toBe(undefined);
 	});
 
-	it("hydrates explicit failures before reporting reducer transitions and throwing", async () => {
+	it("hydrates explicit failures before returning exact blocked outcomes", async () => {
 		for (const testCase of [
 			{
 				status: 401,
@@ -943,44 +1211,43 @@ describe("browser Workspace V2 session", () => {
 			);
 			const order: string[] = [];
 			const events = collectSessionEvents(order);
-			let caught: unknown;
+			const result = await submitBrowserWorkspaceMutation(
+				{
+					token: "token",
+					kind: "output.delete",
+					payload: { fileName: "a.txt" },
+				},
+				{
+					persistence,
+					getState: () => state,
+					setState: (next) => {
+						state = next;
+						order.push("hydrated");
+					},
+					mutationId: () => MUTATION_ID_2,
+					now: () => NOW,
+					allowManual: true,
+					fetchImpl: async () =>
+						"invalidSuccess" in testCase && testCase.invalidSuccess
+							? Response.json({})
+							: failureResponse(
+									testCase.status,
+									testCase.code,
+									testCase.disposition,
+									"latest" in testCase ? testCase.latest : undefined,
+								),
+					broadcast: events.broadcast,
+					dispatchSyncEvent: events.dispatchSyncEvent,
+				},
+			);
 
-			try {
-				await submitBrowserWorkspaceMutation(
-					{
-						token: "token",
-						kind: "output.delete",
-						payload: { fileName: "a.txt" },
-					},
-					{
-						persistence,
-						getState: () => state,
-						setState: (next) => {
-							state = next;
-							order.push("hydrated");
-						},
-						mutationId: () => MUTATION_ID_2,
-						now: () => NOW,
-						allowManual: true,
-						fetchImpl: async () =>
-							"invalidSuccess" in testCase && testCase.invalidSuccess
-								? Response.json({})
-								: failureResponse(
-										testCase.status,
-										testCase.code,
-										testCase.disposition,
-										"latest" in testCase ? testCase.latest : undefined,
-									),
-						broadcast: events.broadcast,
-						dispatchSyncEvent: events.dispatchSyncEvent,
-					},
-				);
-			} catch (error) {
-				caught = error;
-				order.push("thrown");
+			expect(result.status).toBe("conflict-or-blocked");
+			if (result.status !== "conflict-or-blocked") {
+				throw new Error("Expected conflict-or-blocked result");
 			}
-
-			expect((caught as Error).message).toContain("Workspace mutation failed");
+			expect(result.code).toBe(testCase.code);
+			expect(result.disposition).toBe(testCase.disposition);
+			expect(result.mutationId).toBe(MUTATION_ID_2);
 			expect(events.syncEvents.map((event) => event.type)).toEqual([
 				"SYNC_CONTEXT_LOADED",
 				testCase.eventType,
@@ -989,9 +1256,6 @@ describe("browser Workspace V2 session", () => {
 			expect(events.getSyncStatus().phase).toBe(testCase.expectedPhase);
 			expect(
 				order.indexOf("hydrated") < order.indexOf(`sync:${testCase.eventType}`),
-			).toBe(true);
-			expect(
-				order.indexOf(`sync:${testCase.eventType}`) < order.indexOf("thrown"),
 			).toBe(true);
 			if (testCase.eventType === "STATE_CONFLICT") {
 				expect(events.broadcasts.map((event) => event.type)).toEqual([

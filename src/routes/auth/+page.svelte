@@ -33,6 +33,11 @@ import {
 } from "$lib/workspace";
 import { readBrowserWorkspaceSnapshot } from "$lib/workspace-browser-session-v2";
 import { subscribeWorkspaceEvents } from "$lib/workspace-events";
+import {
+	presentWorkspaceOperation,
+	type WorkspaceOperationPresentationOptions,
+} from "$lib/workspace-operation-presenter";
+import type { WorkspaceOperationResult } from "$lib/workspace-operation-result";
 import type {
 	WorkspacePersistenceRecord,
 	WorkspaceQueueInspection,
@@ -53,7 +58,10 @@ let workspaceBusy = false;
 let persistenceRecord: WorkspacePersistenceRecord | null = null;
 let queueInspection: WorkspaceQueueInspection | null = null;
 let queueActionWorkspaceId: string | null = null;
-let queueResult: { type: "success" | "error"; message: string } | null = null;
+let queueResult: {
+	type: "success" | "info" | "error";
+	message: string;
+} | null = null;
 let tombstoneNotice: string | null = null;
 let workspaceCandidates: WorkspaceCandidate[] = [];
 let pendingConnection: {
@@ -141,6 +149,18 @@ function setStatus(
 	showToast(message, type);
 }
 
+function showWorkspaceResult(
+	result: WorkspaceOperationResult,
+	options: WorkspaceOperationPresentationOptions = {},
+) {
+	const presentation = presentWorkspaceOperation(result, options);
+	setStatus(
+		$t(presentation.messageKey, presentation.messageParams),
+		presentation.tone,
+	);
+	return presentation;
+}
+
 function connectionErrorMessage(error: unknown): string {
 	const message = error instanceof Error ? error.message : "";
 	if (message.includes("migration_backup_conflict")) {
@@ -206,14 +226,21 @@ async function completeWorkspaceConnection(
 		conflict = result.conflict;
 		setStatus($t("Sync conflict detected"), "info");
 	} else {
-		setStatus(
-			$t(
-				result.status === "created"
-					? "Workspace created and connected"
-					: "Workspace connected (In Sync)",
-			),
-			"success",
-		);
+		if (
+			result.operation &&
+			!presentWorkspaceOperation(result.operation).remoteCommitted
+		) {
+			showWorkspaceResult(result.operation);
+		} else {
+			setStatus(
+				$t(
+					result.status === "created"
+						? "Workspace created and connected"
+						: "Workspace connected (In Sync)",
+				),
+				"success",
+			);
+		}
 		tokenInput = "";
 	}
 	workspaceCandidates = [];
@@ -347,6 +374,14 @@ async function handleResolveConflict(action: "local" | "remote" | "merge") {
 			);
 			return;
 		}
+		if (
+			action !== "remote" &&
+			result.operation &&
+			!presentWorkspaceOperation(result.operation).remoteCommitted
+		) {
+			showWorkspaceResult(result.operation);
+			return;
+		}
 		if (action === "remote") {
 			setStatus($t("Remote data loaded"), "success");
 		} else if (action === "local") {
@@ -458,7 +493,7 @@ async function handleManualPush() {
 		});
 		if (!confirmed) return;
 
-		await workspaceController.reconcile({
+		const result = await workspaceController.reconcile({
 			token,
 			gistId,
 			baseline: snapshot.document,
@@ -466,8 +501,11 @@ async function handleManualPush() {
 			syncMode: currentSyncMode(),
 		});
 		await refreshPersistenceView();
+		const presentation = showWorkspaceResult(result, {
+			remoteCommittedMessageKey: "Pushed successfully",
+		});
+		if (!presentation.remoteCommitted) return;
 		manualPushReview = null;
-		setStatus($t("Pushed successfully"), "success");
 	} catch (error) {
 		setStatus(connectionErrorMessage(error), "error");
 	} finally {
@@ -535,6 +573,13 @@ async function handleManualPushReview(action: "remote" | "merge" | "force") {
 			);
 			return;
 		}
+		if (
+			result.operation &&
+			!presentWorkspaceOperation(result.operation).remoteCommitted
+		) {
+			showWorkspaceResult(result.operation);
+			return;
+		}
 		await refreshPersistenceView();
 		manualPushReview = null;
 		tombstoneNotice =
@@ -574,6 +619,14 @@ async function handleManualForcePush() {
 			action: "local",
 			syncMode: currentSyncMode(),
 		});
+		if (result.status === "needs-choice") return;
+		if (
+			result.operation &&
+			!presentWorkspaceOperation(result.operation).remoteCommitted
+		) {
+			showWorkspaceResult(result.operation);
+			return;
+		}
 		await refreshPersistenceView();
 		manualPushReview = null;
 		setStatus(
@@ -756,12 +809,22 @@ async function handleQueueRebind(workspaceId: string) {
 	try {
 		const gistId = workspaceId.slice("gist:".length);
 		const snapshot = await loadWorkspaceSnapshot($authState.token, gistId);
-		applyPersistenceView(
+		const view = applyPersistenceView(
 			await workspaceController.rebindOrphan({ workspaceId, snapshot }),
 		);
+		const active = view.inspection.workspaces.find(
+			(item) => item.workspaceId === workspaceId,
+		);
+		const repairRequired = Boolean(
+			active?.blocked || active?.deadLetters.length,
+		);
 		queueResult = {
-			type: "success",
-			message: $t("Workspace rebound after identity and revision validation."),
+			type: repairRequired ? "info" : "success",
+			message: repairRequired
+				? $t(
+						"Workspace rebound; retained repair evidence still requires review.",
+					)
+				: $t("Workspace rebound after identity and revision validation."),
 		};
 	} catch (error) {
 		queueResult = { type: "error", message: connectionErrorMessage(error) };
@@ -770,10 +833,14 @@ async function handleQueueRebind(workspaceId: string) {
 	}
 }
 
-function handleImport() {
+async function handleImport() {
 	try {
-		if (!replaceState(importState(payload)).accepted) return;
-		setStatus($t("Config imported"), "success");
+		const result = await replaceState(importState(payload)).completion;
+		const presentation = showWorkspaceResult(result, {
+			localDurableMessageKey: "Config imported",
+			remoteCommittedMessageKey: "Config imported",
+		});
+		if (presentation.finalizeDraft) payload = "";
 	} catch (err) {
 		setStatus($t("Import failed"), "error");
 	}
@@ -1053,7 +1120,7 @@ function handleImport() {
 				<div class="bg-canvas-default p-3"><p class="text-xs text-fg-muted">{$t("Active")}</p><p class="text-lg font-semibold" data-testid="active-queue-count">{queueInspection?.activeQueueCount ?? 0}</p></div>
 				<div class="bg-canvas-default p-3"><p class="text-xs text-fg-muted">{$t("Total")}</p><p class="text-lg font-semibold" data-testid="total-queue-count">{queueInspection?.totalQueueCount ?? 0}</p></div>
 				<div class="bg-canvas-default p-3"><p class="text-xs text-fg-muted">{$t("Orphan Workspaces")}</p><p class="text-lg font-semibold" data-testid="orphan-queue-count">{queueInspection?.orphanedWorkspaceCount ?? 0}</p></div>
-				<div class="bg-canvas-default p-3"><p class="text-xs text-fg-muted">{$t("Blocked")}</p><p class="text-lg font-semibold">{queueInspection?.blockedCount ?? 0}</p></div>
+				<div class="bg-canvas-default p-3"><p class="text-xs text-fg-muted">{$t("Blocked")}</p><p class="text-lg font-semibold">{queueInspection?.blockedMutationCount ?? 0}</p></div>
 				<div class="bg-canvas-default p-3"><p class="text-xs text-fg-muted">{$t("Dead letters")}</p><p class="text-lg font-semibold">{queueInspection?.deadLetterCount ?? 0}</p></div>
 			</div>
 
@@ -1068,7 +1135,14 @@ function handleImport() {
 
 			{#if queueResult}
 				<div
-					class={cn("gh-alert", queueResult.type === "success" ? "gh-alert-success" : "gh-alert-danger")}
+					class={cn(
+						"gh-alert",
+						queueResult.type === "success"
+							? "gh-alert-success"
+							: queueResult.type === "info"
+								? "gh-alert-attention"
+								: "gh-alert-danger",
+					)}
 					role={queueResult.type === "error" ? "alert" : "status"}
 					data-testid="queue-action-result"
 				>

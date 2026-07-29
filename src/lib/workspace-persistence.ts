@@ -12,6 +12,7 @@ import {
 	parseWorkspaceMutation,
 	type WorkspaceMutation,
 } from "$lib/workspace-mutation";
+import { deriveWorkspaceQueueMetrics } from "$lib/workspace-queue-metrics";
 import {
 	createWorkspaceV2LocalState,
 	hydrateAppStateFromWorkspaceDocument,
@@ -62,6 +63,15 @@ export class WorkspaceQueueRecoveryError extends WorkspacePersistenceError {
 	}
 }
 
+export class WorkspaceConcurrentUpdateError extends Error {
+	readonly code = "concurrent-update" as const;
+
+	constructor(message = "Workspace changed in another browser context") {
+		super(message);
+		this.name = "WorkspaceConcurrentUpdateError";
+	}
+}
+
 export type WorkspacePersistenceFaultPoint =
 	| "before-transaction"
 	| "after-snapshot"
@@ -80,7 +90,7 @@ export type WorkspaceBlockedMutationMetadata = {
 	mutationId: string;
 	kind: WorkspaceMutation["kind"];
 	code: string;
-	disposition: WorkspaceFailureDisposition;
+	disposition: Exclude<WorkspaceFailureDisposition, "retryable-upstream">;
 	messageKey: string | null;
 	createdAt: string;
 	blockedAt: string;
@@ -165,7 +175,7 @@ export type WorkspaceQueueInspection = {
 	activeQueueCount: number;
 	totalQueueCount: number;
 	orphanedWorkspaceCount: number;
-	blockedCount: number;
+	blockedMutationCount: number;
 	deadLetterCount: number;
 	workspaces: Array<{
 		workspaceId: string;
@@ -202,6 +212,7 @@ export interface BrowserWorkspacePersistence {
 		snapshot: AppState;
 		binding: WorkspaceV2LocalState;
 		mutation: WorkspaceMutationDraft;
+		expectedSnapshot?: AppState | null;
 	}): Promise<WorkspaceMutation>;
 	commitExplicitAction(input: {
 		binding: WorkspaceV2LocalState;
@@ -211,6 +222,7 @@ export interface BrowserWorkspacePersistence {
 	commitLocalAction(input: {
 		snapshot: AppState;
 		binding: WorkspaceV2LocalState | null;
+		expectedSnapshot?: AppState | null;
 	}): Promise<void>;
 	commitDeliverySuccess(input: {
 		snapshot: AppState;
@@ -262,6 +274,11 @@ export interface BrowserWorkspacePersistence {
 		binding: WorkspaceV2LocalState;
 		mutations: WorkspaceMutation[];
 		blocked?: WorkspaceBlockedMutationMetadata;
+		expected: {
+			snapshot: AppState | null;
+			binding: WorkspaceV2LocalState | null;
+			queue: PersistedWorkspaceQueue | null;
+		};
 	}): Promise<void>;
 	quarantineWorkspaceQueue(input: {
 		workspaceId: string;
@@ -793,13 +810,14 @@ function validateRetry(value: unknown): WorkspaceRetryMetadata {
 	};
 }
 
-const DISPOSITIONS = new Set<WorkspaceFailureDisposition>([
+const DISPOSITIONS = new Set<
+	Exclude<WorkspaceFailureDisposition, "retryable-upstream">
+>([
 	"state-conflict",
 	"domain-conflict",
 	"auth-required",
 	"queue-corruption",
 	"operator-repair",
-	"retryable-upstream",
 	"permanent-upstream",
 	"invalid-request",
 ]);
@@ -815,7 +833,14 @@ function validateBlocked(value: unknown): WorkspaceBlockedMutationMetadata {
 		"createdAt",
 		"blockedAt",
 	]);
-	if (!DISPOSITIONS.has(value.disposition as WorkspaceFailureDisposition)) {
+	if (
+		!DISPOSITIONS.has(
+			value.disposition as Exclude<
+				WorkspaceFailureDisposition,
+				"retryable-upstream"
+			>,
+		)
+	) {
 		throw corrupt("blocked disposition is invalid");
 	}
 	if (!MUTATION_KINDS.has(value.kind as WorkspaceMutation["kind"])) {
@@ -825,7 +850,10 @@ function validateBlocked(value: unknown): WorkspaceBlockedMutationMetadata {
 		mutationId: nonempty(value.mutationId, "blocked.mutationId"),
 		kind: value.kind as WorkspaceMutation["kind"],
 		code: allowedMetadata(value.code, "blocked.code", SAFE_ERROR_CODES),
-		disposition: value.disposition as WorkspaceFailureDisposition,
+		disposition: value.disposition as Exclude<
+			WorkspaceFailureDisposition,
+			"retryable-upstream"
+		>,
 		messageKey: nullableAllowedMetadata(
 			value.messageKey,
 			"blocked.messageKey",
@@ -1227,6 +1255,10 @@ function workspaceBindingsEqual(
 	return JSON.stringify(left) === JSON.stringify(right);
 }
 
+function persistenceValuesEqual(left: unknown, right: unknown): boolean {
+	return JSON.stringify(left) === JSON.stringify(right);
+}
+
 function replayWorkspaceMutations(
 	snapshot: AppState,
 	baseline: WorkspaceDocumentV2,
@@ -1389,6 +1421,7 @@ export class TransactionalWorkspacePersistence
 		snapshot: AppState;
 		binding: WorkspaceV2LocalState;
 		mutation: WorkspaceMutationDraft;
+		expectedSnapshot?: AppState | null;
 	}): Promise<WorkspaceMutation> {
 		const snapshot = validateWorkspacePersistenceSnapshot(input.snapshot);
 		const binding = validatePersistenceBinding(input.binding);
@@ -1404,11 +1437,25 @@ export class TransactionalWorkspacePersistence
 				draft.binding.syncMode !== "automatic" ||
 				!workspaceBindingsEqual(draft.binding, binding)
 			) {
-				throw corrupt("Automatic action uses a stale Workspace binding");
+				throw new WorkspaceConcurrentUpdateError();
 			}
 			const queue =
 				draft.workspaces[binding.workspaceId] ??
 				createQueue(binding.workspaceId);
+			if (!draft.snapshot) {
+				throw corrupt("Automatic action requires a persisted snapshot");
+			}
+			ensureSnapshotMatchesQueue(
+				draft.snapshot,
+				draft.binding,
+				queue.mutations,
+			);
+			if (
+				input.expectedSnapshot !== undefined &&
+				!persistenceValuesEqual(draft.snapshot, input.expectedSnapshot)
+			) {
+				throw new WorkspaceConcurrentUpdateError();
+			}
 			const expected =
 				queue.mutations.at(-1)?.expectedRevision === undefined
 					? binding.revision
@@ -1433,11 +1480,16 @@ export class TransactionalWorkspacePersistence
 			if (!baseline) {
 				throw corrupt("Automatic action requires a committed baseline");
 			}
-			const optimisticDocument = replayWorkspaceMutations(snapshot, baseline, [
-				...queue.mutations,
-				mutation,
-			]);
-			ensureSnapshotMatchesDocument(snapshot, binding, optimisticDocument);
+			try {
+				const optimisticDocument = replayWorkspaceMutations(
+					snapshot,
+					baseline,
+					[...queue.mutations, mutation],
+				);
+				ensureSnapshotMatchesDocument(snapshot, binding, optimisticDocument);
+			} catch {
+				throw new WorkspaceConcurrentUpdateError();
+			}
 			draft.snapshot = snapshot;
 			checkpoint("after-snapshot");
 			draft.binding = binding;
@@ -1473,7 +1525,7 @@ export class TransactionalWorkspacePersistence
 		if (snapshot) ensureIdentity(snapshot, binding);
 		return this.backend.transact((draft, checkpoint) => {
 			if (!draft.binding || !workspaceBindingsEqual(draft.binding, binding)) {
-				throw corrupt("Explicit action uses a stale Workspace binding");
+				throw new WorkspaceConcurrentUpdateError();
 			}
 			const queue =
 				draft.workspaces[binding.workspaceId] ??
@@ -1531,6 +1583,7 @@ export class TransactionalWorkspacePersistence
 	async commitLocalAction(input: {
 		snapshot: AppState;
 		binding: WorkspaceV2LocalState | null;
+		expectedSnapshot?: AppState | null;
 	}): Promise<void> {
 		const snapshot = validateWorkspacePersistenceSnapshot(input.snapshot);
 		const binding = input.binding
@@ -1542,7 +1595,20 @@ export class TransactionalWorkspacePersistence
 		}
 		await this.backend.transact((draft, checkpoint) => {
 			if (!workspaceBindingsEqual(draft.binding, binding)) {
-				throw corrupt("Local action uses a stale Workspace binding");
+				throw new WorkspaceConcurrentUpdateError();
+			}
+			if (draft.binding && draft.snapshot) {
+				ensureSnapshotMatchesQueue(
+					draft.snapshot,
+					draft.binding,
+					draft.workspaces[draft.binding.workspaceId]?.mutations ?? [],
+				);
+			}
+			if (
+				input.expectedSnapshot !== undefined &&
+				!persistenceValuesEqual(draft.snapshot, input.expectedSnapshot)
+			) {
+				throw new WorkspaceConcurrentUpdateError();
 			}
 			draft.snapshot = snapshot;
 			checkpoint("after-snapshot");
@@ -1831,6 +1897,7 @@ export class TransactionalWorkspacePersistence
 			);
 		}
 		const record = await this.read();
+		const metrics = deriveWorkspaceQueueMetrics(record, activeWorkspaceId);
 		const workspaces = Object.values(record.workspaces)
 			.filter(
 				(queue) =>
@@ -1856,20 +1923,7 @@ export class TransactionalWorkspacePersistence
 			}));
 		return {
 			activeWorkspaceId,
-			activeQueueCount:
-				workspaces.find((workspace) => workspace.active)?.mutations.length ?? 0,
-			totalQueueCount: workspaces.reduce(
-				(total, workspace) => total + workspace.mutations.length,
-				0,
-			),
-			orphanedWorkspaceCount: workspaces.filter(
-				(workspace) => !workspace.active,
-			).length,
-			blockedCount: workspaces.filter((workspace) => workspace.blocked).length,
-			deadLetterCount: workspaces.reduce(
-				(total, workspace) => total + workspace.deadLetters.length,
-				0,
-			),
+			...metrics,
 			workspaces,
 		};
 	}
@@ -1941,6 +1995,11 @@ export class TransactionalWorkspacePersistence
 		binding: WorkspaceV2LocalState;
 		mutations: WorkspaceMutation[];
 		blocked?: WorkspaceBlockedMutationMetadata;
+		expected: {
+			snapshot: AppState | null;
+			binding: WorkspaceV2LocalState | null;
+			queue: PersistedWorkspaceQueue | null;
+		};
 	}): Promise<void> {
 		const snapshot = validateWorkspacePersistenceSnapshot(input.snapshot);
 		const binding = validatePersistenceBinding(input.binding);
@@ -1971,6 +2030,14 @@ export class TransactionalWorkspacePersistence
 		}
 		ensureSnapshotMatchesQueue(snapshot, binding, mutations);
 		await this.backend.transact((draft, checkpoint) => {
+			const currentQueue = draft.workspaces[binding.workspaceId] ?? null;
+			if (
+				!workspaceBindingsEqual(draft.binding, input.expected.binding) ||
+				!persistenceValuesEqual(draft.snapshot, input.expected.snapshot) ||
+				!persistenceValuesEqual(currentQueue, input.expected.queue)
+			) {
+				throw new WorkspaceConcurrentUpdateError();
+			}
 			const previousWorkspaceId = draft.binding?.workspaceId;
 			draft.snapshot = snapshot;
 			checkpoint("after-snapshot");

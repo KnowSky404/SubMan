@@ -18,6 +18,7 @@ import {
 	type WorkspaceMergeNotice,
 } from "$lib/workspace-merge";
 import { parseWorkspaceMutation } from "$lib/workspace-mutation";
+import type { WorkspaceOperationResult } from "$lib/workspace-operation-result";
 import type {
 	BrowserWorkspacePersistence,
 	WorkspacePersistenceRecord,
@@ -33,11 +34,9 @@ import {
 	rebindInspectedWorkspace,
 	refreshWorkspaceQueueInspection,
 } from "$lib/workspace-queue-inspector";
+import { deriveWorkspaceQueueMetrics } from "$lib/workspace-queue-metrics";
 import { bindWorkspaceOnly } from "$lib/workspace-session";
-import {
-	dispatchWorkspaceSyncEvent,
-	type WorkspaceQueueMetrics,
-} from "$lib/workspace-sync-status";
+import { dispatchWorkspaceSyncEvent } from "$lib/workspace-sync-status";
 import {
 	createWorkspaceV2LocalState,
 	hydrateAppStateFromWorkspaceDocument,
@@ -79,33 +78,12 @@ type ControllerDependencies = {
 };
 
 type ConflictResolution =
-	| { status: "resolved"; notices: WorkspaceMergeNotice[] }
+	| {
+			status: "resolved";
+			notices: WorkspaceMergeNotice[];
+			operation: WorkspaceOperationResult | null;
+	  }
 	| { status: "needs-choice"; notices: WorkspaceMergeNotice[] };
-
-function metrics(record: WorkspacePersistenceRecord): WorkspaceQueueMetrics {
-	const activeWorkspaceId = record.binding?.workspaceId ?? null;
-	const queues = Object.values(record.workspaces);
-	return {
-		activeQueueCount: activeWorkspaceId
-			? (record.workspaces[activeWorkspaceId]?.mutations.length ?? 0)
-			: 0,
-		totalQueueCount: queues.reduce(
-			(total, queue) => total + queue.mutations.length,
-			0,
-		),
-		orphanedWorkspaceCount: queues.filter(
-			(queue) =>
-				queue.workspaceId !== activeWorkspaceId && queue.mutations.length > 0,
-		).length,
-		blockedMutationCount: queues.filter(
-			(queue) => queue.delivery.blocked !== null,
-		).length,
-		deadLetterCount: queues.reduce(
-			(total, queue) => total + queue.delivery.deadLetters.length,
-			0,
-		),
-	};
-}
 
 export function createWorkspaceSettingsController(
 	dependencies: ControllerDependencies,
@@ -294,6 +272,11 @@ export function createWorkspaceSettingsController(
 			snapshot,
 			binding: paused,
 			mutations: [mutation],
+			expected: {
+				snapshot: current.record.snapshot,
+				binding: current.record.binding,
+				queue: persistedQueue ?? null,
+			},
 			blocked: {
 				mutationId: mutation.mutationId,
 				kind: mutation.kind,
@@ -315,11 +298,24 @@ export function createWorkspaceSettingsController(
 		const current = view?.record;
 		const currentBinding = current?.binding;
 		if (!current || !currentBinding) return;
+		const blocked =
+			current.workspaces[currentBinding.workspaceId]?.delivery.blocked;
 		dispatch({
 			type,
 			mode: currentBinding.syncMode === "manual" ? "manual" : "automatic",
 			revision: currentBinding.revision,
-			queue: metrics(current),
+			queue: deriveWorkspaceQueueMetrics(current),
+			...(type === "WORKSPACE_BOUND" && blocked
+				? {
+						blockedMutation: {
+							mutationId: blocked.mutationId,
+							kind: blocked.kind,
+							code: blocked.code,
+							disposition: blocked.disposition,
+							message: blocked.messageKey ?? blocked.code,
+						},
+					}
+				: {}),
 		});
 	}
 
@@ -345,10 +341,13 @@ export function createWorkspaceSettingsController(
 		resolvedState: AppState;
 		syncMode: "automatic" | "manual";
 		replacePending?: boolean;
-	}): Promise<AppState> {
-		const state = await reconcileBrowserWorkspace(input, sessionDependencies());
+	}): Promise<WorkspaceOperationResult> {
+		const result = await reconcileBrowserWorkspace(
+			input,
+			sessionDependencies(),
+		);
 		await refresh();
-		return state;
+		return result;
 	}
 
 	async function connect(input: {
@@ -358,36 +357,45 @@ export function createWorkspaceSettingsController(
 		snapshot: BrowserWorkspaceSnapshot;
 		previousBinding: WorkspaceV2LocalState | null;
 	}): Promise<
-		| { status: "created" | "synced" }
+		| {
+				status: "created" | "synced";
+				operation: WorkspaceOperationResult | null;
+		  }
 		| { status: "conflict"; conflict: WorkspaceSettingsConflict }
 	> {
 		if (input.created || input.snapshot.origin === "bootstrap") {
-			await reconcile({
+			const operation = await reconcile({
 				token: input.token,
 				gistId: input.gistId,
 				baseline: input.snapshot.document,
 				resolvedState: dependencies.getState(),
 				syncMode: "automatic",
 			});
-			dispatchPersistedState("WORKSPACE_BOUND");
-			return { status: "created" };
+			if (operation.status === "remote-committed") {
+				dispatchPersistedState("WORKSPACE_BOUND");
+			}
+			return { status: "created", operation };
 		}
 
 		const conflict = createConflict(input.snapshot.document, input.gistId);
 		if (conflict.remoteSignature === conflict.localSignature) {
 			if (input.snapshot.origin === "v2") {
 				await persistSnapshot(input.snapshot, input.gistId, "automatic");
+				dispatchPersistedState("WORKSPACE_BOUND");
+				return { status: "synced", operation: null };
 			} else {
-				await reconcile({
+				const operation = await reconcile({
 					token: input.token,
 					gistId: input.gistId,
 					baseline: input.snapshot.document,
 					resolvedState: input.snapshot.state,
 					syncMode: "automatic",
 				});
+				if (operation.status === "remote-committed") {
+					dispatchPersistedState("WORKSPACE_BOUND");
+				}
+				return { status: "synced", operation };
 			}
-			dispatchPersistedState("WORKSPACE_BOUND");
-			return { status: "synced" };
 		}
 
 		await commitPausedConflict({
@@ -443,6 +451,11 @@ export function createWorkspaceSettingsController(
 				snapshot: queuedSnapshot,
 				binding: nextBinding,
 				mutations: [mutation],
+				expected: {
+					snapshot: current.record.snapshot,
+					binding: current.record.binding,
+					queue: persistedQueue ?? null,
+				},
 			});
 			dependencies.setState(queuedSnapshot);
 			await refresh();
@@ -451,6 +464,11 @@ export function createWorkspaceSettingsController(
 				snapshot,
 				binding: nextBinding,
 				mutations: [],
+				expected: {
+					snapshot: current.record.snapshot,
+					binding: current.record.binding,
+					queue: persistedQueue ?? null,
+				},
 			});
 			dependencies.setState(snapshot);
 			await refresh();
@@ -476,7 +494,7 @@ export function createWorkspaceSettingsController(
 				input.syncMode ?? "automatic",
 			);
 			dispatchPersistedState("REPAIR_SUCCEEDED");
-			return { status: "resolved", notices: [] };
+			return { status: "resolved", notices: [], operation: null };
 		}
 
 		let state: AppState;
@@ -515,7 +533,7 @@ export function createWorkspaceSettingsController(
 			notices = merged.notices;
 		}
 
-		await reconcile({
+		const operation = await reconcile({
 			token: input.token,
 			gistId: input.conflict.gistId,
 			baseline: input.conflict.remoteDocument,
@@ -523,8 +541,10 @@ export function createWorkspaceSettingsController(
 			syncMode: input.syncMode ?? "automatic",
 			replacePending: true,
 		});
-		dispatchPersistedState("REPAIR_SUCCEEDED");
-		return { status: "resolved", notices };
+		if (operation.status === "remote-committed") {
+			dispatchPersistedState("REPAIR_SUCCEEDED");
+		}
+		return { status: "resolved", notices, operation };
 	}
 
 	function requireIdentity(): { workspaceId: string; gistId: string } {
@@ -547,7 +567,7 @@ export function createWorkspaceSettingsController(
 	function disconnect(): void {
 		const current = view?.record;
 		const queue = current
-			? metrics(current)
+			? deriveWorkspaceQueueMetrics(current)
 			: {
 					activeQueueCount: 0,
 					totalQueueCount: 0,
@@ -666,7 +686,9 @@ export function createWorkspaceSettingsController(
 			mode: "paused-conflict",
 			authenticated: true,
 			revision: paused.revision,
-			queue: metrics((view as WorkspaceSettingsView).record),
+			queue: deriveWorkspaceQueueMetrics(
+				(view as WorkspaceSettingsView).record,
+			),
 			blockedMutation: null,
 		});
 		return conflict;

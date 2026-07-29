@@ -120,6 +120,39 @@ class OneTimeUnrecoverablePersistence extends InMemoryWorkspacePersistence {
 	}
 }
 
+class ControllableReadFailurePersistence extends InMemoryWorkspacePersistence {
+	private remainingReadFailures = 0;
+
+	failNextReads(count: number): void {
+		this.remainingReadFailures = count;
+	}
+
+	override async read() {
+		if (this.remainingReadFailures > 0) {
+			this.remainingReadFailures -= 1;
+			throw new WorkspacePersistenceError(
+				"transaction-aborted",
+				"Injected post-commit cache refresh failure",
+			);
+		}
+		return super.read();
+	}
+}
+
+class DefiniteCommitFailurePersistence extends ControllableReadFailurePersistence {
+	override async commitAutomaticAction(
+		_input: Parameters<
+			InMemoryWorkspacePersistence["commitAutomaticAction"]
+		>[0],
+	): Promise<never> {
+		this.failNextReads(2);
+		throw new WorkspacePersistenceError(
+			"quota-exceeded",
+			"Injected definite commit rejection",
+		);
+	}
+}
+
 test("browser persistence initializes once, hydrates, and exposes a stable adapter", async () => {
 	const record = createEmptyWorkspacePersistenceRecord();
 	record.snapshot = createDefaultWorkspaceState(NOW);
@@ -313,5 +346,100 @@ test("automatic actions broadcast only after the queue transaction commits", asy
 	expect(error.message).toContain("Injected persistence failure");
 	expect(events).toHaveLength(1);
 	expect((await persistence.read()).workspaces[WORKSPACE_ID]).toBe(undefined);
+	setBrowserWorkspacePersistenceForTest(null);
+});
+
+test("post-commit cache refresh failure never reports the durable action as rejected", async () => {
+	workspaceSyncStatus.set(defaultWorkspaceSyncStatus);
+	const document = workspaceDocument();
+	const binding = createWorkspaceV2LocalState(GIST_ID, { baseline: document });
+	const record = createEmptyWorkspacePersistenceRecord();
+	record.binding = binding;
+	record.snapshot = hydrateAppStateFromWorkspaceDocument(
+		createDefaultWorkspaceState(NOW),
+		document,
+		GIST_ID,
+	);
+	const persistence = new ControllableReadFailurePersistence(record);
+	setBrowserWorkspacePersistenceForTest(persistence);
+	await initializeBrowserWorkspacePersistence({ storage: new MemoryStorage() });
+	const input = {
+		snapshot: { ...record.snapshot, lastUpdated: NOW },
+		mutation: {
+			mutationId: "b0000000-0000-4000-8000-000000000101",
+			workspaceId: WORKSPACE_ID,
+			source: "browser" as const,
+			createdAt: NOW,
+			kind: "workspace.reconcile" as const,
+			payload: { baselineRevision: 1, data: document.data },
+		},
+	};
+
+	persistence.failNextReads(1);
+	const recovered = await commitBrowserWorkspaceAction(input);
+	expect(recovered.acknowledgement).toBe("confirmed");
+	expect(recovered.mutation?.mutationId).toBe(input.mutation.mutationId);
+
+	await persistence.discardWorkspaceQueue({
+		workspaceId: WORKSPACE_ID,
+		snapshot: record.snapshot ?? undefined,
+		binding,
+	});
+	await refreshBrowserWorkspacePersistence();
+	const uncertainInput = {
+		...input,
+		mutation: {
+			...input.mutation,
+			mutationId: "b0000000-0000-4000-8000-000000000102",
+		},
+	};
+	persistence.failNextReads(2);
+	const uncertain = await commitBrowserWorkspaceAction(uncertainInput);
+	expect(uncertain.acknowledgement).toBe("uncertain");
+	expect(uncertain.mutation?.mutationId).toBe(
+		uncertainInput.mutation.mutationId,
+	);
+	expect(get(workspaceSyncStatus).phase).not.toBe("invalid-local-storage");
+	expect(
+		(await persistence.read()).workspaces[WORKSPACE_ID]?.mutations[0]
+			?.mutationId,
+	).toBe(uncertainInput.mutation.mutationId);
+	setBrowserWorkspacePersistenceForTest(null);
+});
+
+test("a definite transaction failure remains rejected when verification reads fail", async () => {
+	workspaceSyncStatus.set(defaultWorkspaceSyncStatus);
+	const document = workspaceDocument();
+	const record = createEmptyWorkspacePersistenceRecord();
+	record.binding = createWorkspaceV2LocalState(GIST_ID, { baseline: document });
+	record.snapshot = hydrateAppStateFromWorkspaceDocument(
+		createDefaultWorkspaceState(NOW),
+		document,
+		GIST_ID,
+	);
+	const persistence = new DefiniteCommitFailurePersistence(record);
+	setBrowserWorkspacePersistenceForTest(persistence);
+	await initializeBrowserWorkspacePersistence({ storage: new MemoryStorage() });
+
+	const error = await captureError(
+		commitBrowserWorkspaceAction({
+			snapshot: { ...record.snapshot, lastUpdated: NOW },
+			mutation: {
+				mutationId: "b0000000-0000-4000-8000-000000000103",
+				workspaceId: WORKSPACE_ID,
+				source: "browser",
+				createdAt: NOW,
+				kind: "workspace.reconcile",
+				payload: { baselineRevision: 1, data: document.data },
+			},
+		}),
+	);
+	expect((error as WorkspacePersistenceError).code).toBe("quota-exceeded");
+	expect(get(workspaceSyncStatus).phase).toBe("invalid-local-storage");
+	await captureError(persistence.read());
+	await captureError(persistence.read());
+	expect(
+		(await persistence.read()).workspaces[WORKSPACE_ID]?.mutations ?? [],
+	).toEqual([]);
 	setBrowserWorkspacePersistenceForTest(null);
 });

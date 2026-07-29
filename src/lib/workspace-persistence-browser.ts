@@ -9,10 +9,13 @@ import {
 	IndexedDbWorkspacePersistence,
 	migrateLegacyWorkspacePersistence,
 	validateWorkspacePersistenceRecord,
+	WorkspaceConcurrentUpdateError,
 	type WorkspaceMutationDraft,
+	WorkspacePersistenceError,
 	type WorkspacePersistenceRecord,
 	WorkspaceQueueRecoveryError,
 } from "$lib/workspace-persistence";
+import { deriveWorkspaceQueueMetrics } from "$lib/workspace-queue-metrics";
 import {
 	dispatchWorkspaceSyncEvent,
 	type WorkspaceQueueMetrics,
@@ -25,10 +28,11 @@ type InitializeOptions = {
 };
 
 export type BrowserWorkspaceCommitResult = {
+	acknowledgement: "confirmed" | "uncertain";
 	binding: WorkspaceV2LocalState | null;
 	mutation: WorkspaceMutation | null;
 	queue: WorkspaceQueueMetrics;
-	record: WorkspacePersistenceRecord;
+	record: WorkspacePersistenceRecord | null;
 };
 
 let productionPersistence: IndexedDbWorkspacePersistence | null = null;
@@ -40,32 +44,6 @@ function persistence(): BrowserWorkspacePersistence {
 	if (persistenceOverride) return persistenceOverride;
 	productionPersistence ??= new IndexedDbWorkspacePersistence();
 	return productionPersistence;
-}
-
-function metricsFor(record: WorkspacePersistenceRecord): WorkspaceQueueMetrics {
-	const activeWorkspaceId = record.binding?.workspaceId ?? null;
-	const queues = Object.values(record.workspaces);
-	const activeQueueCount = activeWorkspaceId
-		? (record.workspaces[activeWorkspaceId]?.mutations.length ?? 0)
-		: 0;
-	return {
-		activeQueueCount,
-		totalQueueCount: queues.reduce(
-			(total, queue) => total + queue.mutations.length,
-			0,
-		),
-		orphanedWorkspaceCount: queues.filter(
-			(queue) =>
-				queue.workspaceId !== activeWorkspaceId && queue.mutations.length > 0,
-		).length,
-		blockedMutationCount: queues.filter(
-			(queue) => queue.delivery.blocked !== null,
-		).length,
-		deadLetterCount: queues.reduce(
-			(total, queue) => total + queue.delivery.deadLetters.length,
-			0,
-		),
-	};
 }
 
 function storageFailure(error: unknown): never {
@@ -80,7 +58,9 @@ function storageFailure(error: unknown): never {
 	dispatchWorkspaceSyncEvent({
 		type: "STORAGE_QUARANTINED",
 		kind: error instanceof WorkspaceQueueRecoveryError ? "queue" : "state",
-		queue: currentRecord ? metricsFor(currentRecord) : emptyQueueMetrics(),
+		queue: currentRecord
+			? deriveWorkspaceQueueMetrics(currentRecord)
+			: emptyQueueMetrics(),
 		error: {
 			code,
 			message,
@@ -92,6 +72,10 @@ function storageFailure(error: unknown): never {
 
 function retryableInitializationFailure(error: unknown): boolean {
 	return error instanceof WorkspaceQueueRecoveryError;
+}
+
+function definitelyRejectedBeforeCommit(error: unknown): boolean {
+	return error instanceof WorkspacePersistenceError;
 }
 
 function emptyQueueMetrics(): WorkspaceQueueMetrics {
@@ -112,6 +96,61 @@ async function readAndCache(): Promise<WorkspacePersistenceRecord> {
 	});
 	currentRecord = record;
 	return record;
+}
+
+async function readAndCacheAfterCommit(): Promise<WorkspacePersistenceRecord | null> {
+	for (let attempt = 0; attempt < 2; attempt += 1) {
+		try {
+			return await readAndCache();
+		} catch {
+			// Re-read once before admitting that commit acknowledgement is uncertain.
+		}
+	}
+	return null;
+}
+
+function draftMutation(
+	draft: WorkspaceMutationDraft | null,
+	binding: WorkspaceV2LocalState | null,
+): WorkspaceMutation | null {
+	return draft
+		? ({
+				...draft,
+				expectedRevision: binding?.revision ?? 0,
+			} as WorkspaceMutation)
+		: null;
+}
+
+function mutationFromRecord(
+	record: WorkspacePersistenceRecord,
+	mutationId: string,
+): WorkspaceMutation | null {
+	for (const queue of Object.values(record.workspaces)) {
+		const mutation = queue.mutations.find(
+			(candidate) => candidate.mutationId === mutationId,
+		);
+		if (mutation) return mutation;
+	}
+	return null;
+}
+
+function commitIsDurable(
+	record: WorkspacePersistenceRecord,
+	input: { snapshot: AppState; mutation: WorkspaceMutationDraft | null },
+): WorkspaceMutation | null | false {
+	if (input.mutation) {
+		const persisted = mutationFromRecord(record, input.mutation.mutationId);
+		if (persisted) return persisted;
+		if (
+			record.binding?.baseline?.lastMutationId === input.mutation.mutationId
+		) {
+			return draftMutation(input.mutation, record.binding);
+		}
+		return false;
+	}
+	return JSON.stringify(record.snapshot) === JSON.stringify(input.snapshot)
+		? null
+		: false;
 }
 
 export function setBrowserWorkspacePersistenceForTest(
@@ -161,6 +200,10 @@ export async function refreshBrowserWorkspacePersistence(): Promise<WorkspacePer
 	}
 }
 
+export async function refreshBrowserWorkspacePersistenceAfterDurableCommit(): Promise<WorkspacePersistenceRecord | null> {
+	return readAndCacheAfterCommit();
+}
+
 export function getBrowserWorkspacePersistence(): BrowserWorkspacePersistence {
 	if (!initializePromise) {
 		throw new Error("Browser Workspace persistence is not initialized");
@@ -177,7 +220,9 @@ export function getBrowserWorkspaceBinding(): WorkspaceV2LocalState | null {
 }
 
 export function getBrowserWorkspaceQueueMetrics(): WorkspaceQueueMetrics {
-	return currentRecord ? metricsFor(currentRecord) : emptyQueueMetrics();
+	return currentRecord
+		? deriveWorkspaceQueueMetrics(currentRecord)
+		: emptyQueueMetrics();
 }
 
 export async function commitBrowserWorkspaceAction(input: {
@@ -191,6 +236,7 @@ export async function commitBrowserWorkspaceAction(input: {
 	await initializePromise;
 	const binding = currentRecord?.binding ?? null;
 	let mutation: WorkspaceMutation | null = null;
+	let committedCore = false;
 	try {
 		if (binding?.syncMode === "automatic") {
 			if (!input.mutation) {
@@ -200,30 +246,73 @@ export async function commitBrowserWorkspaceAction(input: {
 				snapshot: input.snapshot,
 				binding,
 				mutation: input.mutation,
+				expectedSnapshot: currentRecord?.snapshot ?? null,
 			});
 		} else {
 			await persistence().commitLocalAction({
 				snapshot: input.snapshot,
 				binding,
+				expectedSnapshot: currentRecord?.snapshot ?? null,
 			});
 		}
-		const record = await readAndCache();
+		committedCore = true;
+	} catch (error) {
+		if (error instanceof WorkspaceConcurrentUpdateError) throw error;
+		if (definitelyRejectedBeforeCommit(error)) return storageFailure(error);
+		const record = await readAndCacheAfterCommit();
+		if (record) {
+			const durableMutation = commitIsDurable(record, input);
+			if (durableMutation !== false) {
+				mutation = durableMutation;
+				committedCore = true;
+			} else {
+				return storageFailure(error);
+			}
+		} else {
+			return {
+				acknowledgement: "uncertain",
+				binding,
+				mutation: mutation ?? draftMutation(input.mutation, binding),
+				queue: currentRecord
+					? deriveWorkspaceQueueMetrics(currentRecord)
+					: emptyQueueMetrics(),
+				record: null,
+			};
+		}
+	}
+	if (committedCore) {
+		const record = await readAndCacheAfterCommit();
+		if (!record) {
+			return {
+				acknowledgement: "uncertain",
+				binding,
+				mutation: mutation ?? draftMutation(input.mutation, binding),
+				queue: currentRecord
+					? deriveWorkspaceQueueMetrics(currentRecord)
+					: emptyQueueMetrics(),
+				record: null,
+			};
+		}
 		if (mutation && binding) {
-			(input.broadcast ?? broadcastWorkspaceEvent)({
-				type: "mutation-queue-changed",
-				gistId: binding.gistId,
-				fileName: binding.fileName,
-				mutationId: mutation.mutationId,
-				queueAction: "enqueued",
-			});
+			try {
+				(input.broadcast ?? broadcastWorkspaceEvent)({
+					type: "mutation-queue-changed",
+					gistId: binding.gistId,
+					fileName: binding.fileName,
+					mutationId: mutation.mutationId,
+					queueAction: "enqueued",
+				});
+			} catch {
+				// Broadcast is a wake-up hint; IndexedDB remains authoritative.
+			}
 		}
 		return {
+			acknowledgement: "confirmed",
 			binding: record.binding,
 			mutation,
-			queue: metricsFor(record),
+			queue: deriveWorkspaceQueueMetrics(record),
 			record,
 		};
-	} catch (error) {
-		return storageFailure(error);
 	}
+	throw new Error("Workspace commit did not produce a result");
 }

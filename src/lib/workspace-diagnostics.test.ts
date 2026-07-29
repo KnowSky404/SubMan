@@ -330,7 +330,7 @@ describe("Workspace diagnostics", () => {
 			activeQueueCount: 1,
 			totalQueueCount: 1,
 			orphanedWorkspaceCount: 0,
-			blockedCount: 1,
+			blockedMutationCount: 1,
 			deadLetterCount: 1,
 			workspaces: [
 				{

@@ -37,6 +37,11 @@ import {
 } from "$lib/workspace-file-inventory";
 import { requireWorkspaceIdentity } from "$lib/workspace-identity";
 import {
+	presentWorkspaceOperation,
+	type WorkspaceOperationPresentationOptions,
+} from "$lib/workspace-operation-presenter";
+import type { WorkspaceOperationResult } from "$lib/workspace-operation-result";
+import {
 	getBrowserWorkspaceBinding,
 	initializeBrowserWorkspacePersistence,
 } from "$lib/workspace-persistence-browser";
@@ -71,6 +76,18 @@ function setStatus(
 	type: "success" | "info" | "error" = "success",
 ) {
 	showToast(message, type);
+}
+
+function showWorkspaceResult(
+	result: WorkspaceOperationResult,
+	options: WorkspaceOperationPresentationOptions = {},
+) {
+	const presentation = presentWorkspaceOperation(result, options);
+	setStatus(
+		$t(presentation.messageKey, presentation.messageParams),
+		presentation.tone,
+	);
+	return presentation;
 }
 
 function fileKindLabel(kind: WorkspaceFileKind): string {
@@ -155,13 +172,15 @@ async function deleteFile(filename: string) {
 
 	deleting = true;
 	try {
-		await submitBrowserWorkspaceMutation({
+		const result = await submitBrowserWorkspaceMutation({
 			token,
 			kind: "output.delete",
 			payload: { fileName: filename },
 		});
-		await refreshWorkspace();
-		setStatus($t("Deleted file successfully"), "success");
+		const presentation = showWorkspaceResult(result, {
+			remoteCommittedMessageKey: "Deleted file successfully",
+		});
+		if (presentation.remoteCommitted) await refreshWorkspace();
 	} catch (err) {
 		setStatus($t("Delete failed"), "error");
 	} finally {
@@ -185,13 +204,15 @@ async function cleanupBootstrapMarker() {
 
 	deleting = true;
 	try {
-		await submitBrowserWorkspaceMutation({
+		const result = await submitBrowserWorkspaceMutation({
 			token,
 			kind: "workspace.bootstrap.cleanup",
 			payload: {},
 		});
-		await refreshWorkspace();
-		setStatus($t("Stale bootstrap marker removed"), "success");
+		const presentation = showWorkspaceResult(result, {
+			remoteCommittedMessageKey: "Stale bootstrap marker removed",
+		});
+		if (presentation.remoteCommitted) await refreshWorkspace();
 	} catch (error) {
 		setStatus(
 			workspaceFailureMessage(error, "Bootstrap cleanup failed"),
@@ -224,15 +245,17 @@ async function resumeBootstrapInitialization() {
 		if (snapshot.origin !== "bootstrap") {
 			throw new Error("Workspace bootstrap state changed");
 		}
-		await reconcileBrowserWorkspace({
+		const result = await reconcileBrowserWorkspace({
 			token,
 			gistId,
 			baseline: snapshot.document,
 			resolvedState: $appState,
 			syncMode: "automatic",
 		});
-		await refreshWorkspace();
-		setStatus($t("Workspace initialization completed"), "success");
+		const presentation = showWorkspaceResult(result, {
+			remoteCommittedMessageKey: "Workspace initialization completed",
+		});
+		if (presentation.remoteCommitted) await refreshWorkspace();
 	} catch (error) {
 		setStatus(
 			workspaceFailureMessage(error, "Workspace initialization failed"),

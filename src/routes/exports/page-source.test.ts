@@ -66,12 +66,6 @@ test("exports page validates listen port before saving", () => {
 	);
 });
 
-test("exports page keeps rejected Workspace drafts unsaved", () => {
-	expect(exportsPageSource).toContain(
-		"if (!upsertClientExport(nextProfile).accepted) return;",
-	);
-});
-
 test("exports page clears stale live link metadata only after output changes", () => {
 	expect(exportsPageSource).toContain("hasClientExportOutputChanged");
 	expect(exportsPageSource).toContain("const outputChanged");
@@ -104,15 +98,6 @@ test("exports page blocks dirty or conflicting profile publication", () => {
 	expect(exportsPageSource).toContain("findWorkspaceOutputConflicts");
 	expect(exportsPageSource).toContain("profile.fileName = `sing-box-client-");
 	expect(exportsPageSource).toContain("$" + "{suffix}.json`");
-});
-
-test("exports page resets deletion state only after deferred acceptance", () => {
-	expect(exportsPageSource).toContain("const result = await handle.completion");
-	expect(exportsPageSource).toContain('result.status === "rejected"');
-	expect(exportsPageSource).toContain(
-		"showDeleteActionFeedback(result.status)",
-	);
-	expect(exportsPageSource).toContain('status === "queued"');
 });
 
 test("exports page localizes legacy exclusion warnings", () => {

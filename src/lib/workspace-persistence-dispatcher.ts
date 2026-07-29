@@ -481,10 +481,14 @@ export async function dispatchPersistedWorkspaceMutation(
 		);
 		return submission;
 	} finally {
-		await options.persistence.releaseLease({
-			name: leaseName,
-			ownerId,
-			fencingToken: fence.fencingToken,
-		});
+		try {
+			await options.persistence.releaseLease({
+				name: leaseName,
+				ownerId,
+				fencingToken: fence.fencingToken,
+			});
+		} catch {
+			// The fenced lease expires by TTL; cleanup cannot revoke a durable commit.
+		}
 	}
 }

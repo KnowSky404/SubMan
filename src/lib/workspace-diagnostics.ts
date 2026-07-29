@@ -335,7 +335,7 @@ export async function exportWorkspaceDiagnosticsFromPersistence(
 				activeQueue: inspection.activeQueueCount,
 				totalQueue: inspection.totalQueueCount,
 				orphanedWorkspaces: inspection.orphanedWorkspaceCount,
-				blockedMutations: inspection.blockedCount,
+				blockedMutations: inspection.blockedMutationCount,
 				deadLetters: inspection.deadLetterCount,
 			},
 			mutations,

@@ -10,6 +10,11 @@ import {
 } from "$lib/workspace-persistence";
 import { createWorkspaceSettingsController } from "$lib/workspace-settings-controller";
 import {
+	createDefaultWorkspaceSyncStatus,
+	transitionWorkspaceSyncState,
+	type WorkspaceSyncEvent,
+} from "$lib/workspace-sync-state-machine";
+import {
 	createWorkspaceV2LocalState,
 	hydrateAppStateFromWorkspaceDocument,
 } from "$lib/workspace-v2-state";
@@ -99,8 +104,7 @@ function controller(
 	initialState = state(),
 ) {
 	let current = initialState;
-	const events: Array<{ type: string; queue?: { totalQueueCount: number } }> =
-		[];
+	const events: WorkspaceSyncEvent[] = [];
 	return {
 		controller: createWorkspaceSettingsController({
 			persistence,
@@ -347,6 +351,70 @@ describe("Workspace settings controller", () => {
 		expect(
 			(await persistence.read()).workspaces[WORKSPACE_ID]?.delivery.deadLetters,
 		).toHaveLength(1);
+	});
+
+	it("preserves dead-letter-only orphan evidence after a validated rebind", async () => {
+		const persistence = queuedPersistence();
+		const lease = await persistence.acquireLease({
+			name: workspaceDispatcherLeaseName(WORKSPACE_ID),
+			ownerId: "orphan-rebind-test",
+			now: Date.now(),
+			ttlMs: 30_000,
+		});
+		if (!lease.acquired) throw new Error("Expected test lease");
+		await persistence.quarantineWorkspaceQueue({
+			workspaceId: WORKSPACE_ID,
+			reason: "queue-corruption",
+			code: "queue_corruption",
+			createdAt: NOW,
+			fence: {
+				ownerId: lease.lease.ownerId,
+				fencingToken: lease.lease.fencingToken,
+			},
+		});
+		const otherGistId = "other-settings-gist";
+		const otherDocument = {
+			...document(),
+			workspaceId: `gist:${otherGistId}`,
+		};
+		const otherState = hydrateAppStateFromWorkspaceDocument(
+			createDefaultWorkspaceState(NOW),
+			otherDocument,
+			otherGistId,
+		);
+		await persistence.rebindWorkspace({
+			snapshot: otherState,
+			binding: createWorkspaceV2LocalState(otherGistId, {
+				baseline: otherDocument,
+			}),
+		});
+		const setup = controller(persistence, otherState);
+		await setup.controller.initialize();
+
+		const view = await setup.controller.rebindOrphan({
+			workspaceId: WORKSPACE_ID,
+			snapshot: { origin: "v2", document: document(), state: state() },
+		});
+
+		const active = view.inspection.workspaces.find(
+			(workspace) => workspace.workspaceId === WORKSPACE_ID,
+		);
+		expect(view.record.binding?.workspaceId).toBe(WORKSPACE_ID);
+		expect(active?.active).toBe(true);
+		expect(active?.mutations).toEqual([]);
+		expect(active?.deadLetters).toHaveLength(1);
+		expect(view.inspection.deadLetterCount).toBe(1);
+		const reboundEvent = setup.events.at(-1);
+		expect(reboundEvent?.type).toBe("WORKSPACE_BOUND");
+		if (!reboundEvent) throw new Error("Expected Workspace rebind event");
+		const transition = transitionWorkspaceSyncState(
+			createDefaultWorkspaceSyncStatus(),
+			reboundEvent,
+		);
+		expect(transition.accepted).toBe(true);
+		expect(transition.state.phase).toBe("queue-repair-required");
+		expect(transition.state.repairRequired).toBe(true);
+		expect(transition.state.deadLetterCount).toBe(1);
 	});
 
 	it("discards a complete active queue with baseline realignment", async () => {

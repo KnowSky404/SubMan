@@ -62,26 +62,6 @@ test("aggregate preview generation does not show a success toast", () => {
 	expect(aggregatePageSource).toContain('{$t("Preview generated {time}"');
 });
 
-test("aggregate save feedback requires an accepted Workspace mutation", () => {
-	expect(aggregatePageSource).toContain("const handle = upsertAggregate(rule)");
-	expect(aggregatePageSource).toContain("if (!handle.accepted) return null");
-	expect(aggregatePageSource).toContain("const handle = upsertPublishTarget(");
-});
-
-test("aggregate destructive actions are confirmed and reset only after acceptance", () => {
-	expect(aggregatePageSource).toContain("analyzePublishTargetDelete");
-	expect(aggregatePageSource).toContain("analyzeAggregateDelete");
-	expect(aggregatePageSource).toContain("await handle.completion");
-	expect(aggregatePageSource).toContain("if (!actionSaved(result)) return;");
-	expect(aggregatePageSource).toContain("cleanupUnreferencedOutputs");
-	expect(aggregatePageSource).toContain("showDeleteActionFeedback");
-	expect(aggregatePageSource).toContain('result.status === "queued"');
-	expect(aggregatePageSource).toContain("resetBoundTarget");
-	expect(aggregatePageSource).toContain(
-		"if (resetBoundTarget) resetTargetForm()",
-	);
-});
-
 test("aggregate publishing distinguishes drafts, saved state, and manual push", () => {
 	expect(aggregatePageSource).toContain("ruleDirty");
 	expect(aggregatePageSource).toContain("targetDirty");
@@ -97,20 +77,6 @@ test("aggregate publishing distinguishes drafts, saved state, and manual push", 
 		'action.previousFileCleanup === "delete-if-unreferenced"',
 	);
 	expect(aggregatePageSource).not.toContain("// Auto-save the rule");
-});
-
-test("aggregate Workspace delivery uses the transactional browser persistence", () => {
-	expect(aggregatePageSource).toContain("getBrowserWorkspaceBinding()");
-	expect(aggregatePageSource).toContain(
-		"await commitQueuedBrowserWorkspaceMutation({",
-	);
-	expect(aggregatePageSource).toContain(
-		"await submitBrowserWorkspaceMutation(",
-	);
-	expect(aggregatePageSource).toContain("{ allowManual: true }");
-	expect(aggregatePageSource).not.toContain("WorkspaceMutationQueue");
-	expect(aggregatePageSource).not.toContain("WorkspaceV2StateStore");
-	expect(aggregatePageSource).not.toContain("workspaceDependencies");
 });
 
 test("aggregate failures never roll back only the Svelte store", () => {

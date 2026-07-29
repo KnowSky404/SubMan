@@ -19,6 +19,7 @@ import {
 	download,
 	fileCode,
 	pencil,
+	sync,
 	trash,
 	upload,
 } from "$lib/octicons";
@@ -26,7 +27,6 @@ import {
 	appState,
 	removeClientExport,
 	upsertClientExport,
-	type WorkspaceActionResult,
 } from "$lib/stores/app";
 import { authState } from "$lib/stores/auth";
 import { requestConfirm } from "$lib/stores/confirm";
@@ -34,6 +34,11 @@ import { showToast } from "$lib/stores/toast";
 import { cn } from "$lib/utils/cn";
 import { nowIso } from "$lib/utils/time";
 import { submitBrowserWorkspaceMutation } from "$lib/workspace-browser-session-v2";
+import {
+	presentWorkspaceOperation,
+	type WorkspaceOperationPresentationOptions,
+} from "$lib/workspace-operation-presenter";
+import type { WorkspaceOperationResult } from "$lib/workspace-operation-result";
 import { findWorkspaceOutputConflicts } from "$lib/workspace-output";
 import { workspaceSyncStatus } from "$lib/workspace-sync-status";
 
@@ -46,6 +51,7 @@ let totalLines = 0;
 let outboundCount = 0;
 let skippedCount = 0;
 let publishing = false;
+let deletingProfileId = "";
 
 let draftName = "";
 let draftFileName = "";
@@ -169,17 +175,16 @@ function clearPreview(): void {
 	skippedCount = 0;
 }
 
-function showDeleteActionFeedback(
-	status: WorkspaceActionResult["status"],
-): void {
+function showWorkspaceResult(
+	result: WorkspaceOperationResult,
+	options: WorkspaceOperationPresentationOptions = {},
+): boolean {
+	const presentation = presentWorkspaceOperation(result, options);
 	showToast(
-		status === "committed"
-			? $t("Deleted export profile")
-			: status === "queued"
-				? $t("Queued")
-				: $t("Saved locally"),
-		"success",
+		$t(presentation.messageKey, presentation.messageParams),
+		presentation.tone,
 	);
+	return presentation.finalizeDraft;
 }
 
 function getProfileRuleName(profile: ClientExportProfile): string {
@@ -199,7 +204,7 @@ function editProfile(profile: ClientExportProfile): void {
 	selectProfile(profile.id);
 }
 
-function createProfile(): void {
+async function createProfile(): Promise<void> {
 	if (!firstRule) return;
 
 	const profile = createDefaultSingBoxClientProfile(firstRule.id, nowIso());
@@ -212,13 +217,23 @@ function createProfile(): void {
 		suffix += 1;
 		profile.fileName = `sing-box-client-${suffix}.json`;
 	}
-	if (!upsertClientExport(profile).accepted) return;
+	const result = await upsertClientExport(profile).completion;
+	if (
+		!showWorkspaceResult(result, {
+			localDurableMessageKey: "Export profile created",
+			remoteCommittedMessageKey: "Export profile created",
+		})
+	)
+		return;
 	selectedProfileId = profile.id;
-	syncDraftFromProfile(profile);
+	const committed = $appState.clientExports.find(
+		(item) => item.id === profile.id,
+	);
+	if (committed) syncDraftFromProfile(committed);
 	clearPreview();
 }
 
-function saveProfile(): void {
+async function saveProfile(): Promise<void> {
 	if (!selectedProfile) return;
 
 	const listenPort = Number(draftListenPort);
@@ -256,13 +271,24 @@ function saveProfile(): void {
 			}
 		: draftProfile;
 
-	if (!upsertClientExport(nextProfile).accepted) return;
+	const result = await upsertClientExport(nextProfile).completion;
+	if (
+		!showWorkspaceResult(result, {
+			localDurableMessageKey: "Export profile saved",
+			remoteCommittedMessageKey: "Export profile saved",
+		})
+	)
+		return;
 	selectedProfileId = nextProfile.id;
-	syncDraftFromProfile(nextProfile);
+	const committed = $appState.clientExports.find(
+		(item) => item.id === nextProfile.id,
+	);
+	if (committed) syncDraftFromProfile(committed);
 	clearPreview();
 }
 
 async function deleteProfile(profile: ClientExportProfile): Promise<void> {
+	if (deletingProfileId) return;
 	const confirmed = await requestConfirm({
 		title: $t("Delete Profile"),
 		message: $t("Delete export profile {name}?", { name: profile.name }),
@@ -271,20 +297,24 @@ async function deleteProfile(profile: ClientExportProfile): Promise<void> {
 	});
 	if (!confirmed) return;
 
-	const handle = removeClientExport(profile.id);
-	if (!handle.accepted) return;
-	const result = await handle.completion;
-	if (
-		result.status === "rejected" ||
-		result.status === "permanent-error" ||
-		result.status === "invalid-local-state"
-	)
-		return;
-	if (selectedProfileId === profile.id) {
-		selectedProfileId = "";
+	deletingProfileId = profile.id;
+	try {
+		const handle = removeClientExport(profile.id);
+		const result = await handle.completion;
+		if (
+			!showWorkspaceResult(result, {
+				localDurableMessageKey: "Deleted export profile",
+				remoteCommittedMessageKey: "Deleted export profile",
+			})
+		)
+			return;
+		if (selectedProfileId === profile.id) {
+			selectedProfileId = "";
+		}
+		clearPreview();
+	} finally {
+		deletingProfileId = "";
 	}
-	clearPreview();
-	showDeleteActionFeedback(result.status);
 }
 
 async function refreshPreview(): Promise<string> {
@@ -377,7 +407,7 @@ async function publishPreview(): Promise<void> {
 		) {
 			throw new Error(publicationBuild.errors[0] ?? "No output generated");
 		}
-		await submitBrowserWorkspaceMutation({
+		const result = await submitBrowserWorkspaceMutation({
 			token,
 			kind: "client-export.publish",
 			payload: {
@@ -396,7 +426,10 @@ async function publishPreview(): Promise<void> {
 			outboundCount = publicationBuild.outbounds;
 			skippedCount = publicationBuild.skipped;
 		}
-		showToast($t("Published sing-box config"), "success");
+		showWorkspaceResult(result, {
+			remoteCommittedMessageKey: "Published sing-box config",
+			rejectedMessageKey: "Publish failed: {error}",
+		});
 	} catch (error) {
 		showToast(
 			$t("Publish failed: {error}", {
@@ -509,7 +542,8 @@ async function publishPreview(): Promise<void> {
 											<button
 												type="button"
 												class="gh-btn gh-btn-sm"
-												on:click={() => editProfile(profile)}
+													on:click={() => editProfile(profile)}
+													disabled={deletingProfileId === profile.id}
 												aria-label={$t("Edit export profile")}
 												title={$t("Edit export profile")}
 											>
@@ -519,10 +553,11 @@ async function publishPreview(): Promise<void> {
 											<button
 												type="button"
 												class="gh-btn gh-btn-sm gh-btn-danger"
-												on:click={() => deleteProfile(profile)}
-												aria-label={$t("Delete export profile")}
-											>
-												<Octicon icon={trash} className="h-3.5 w-3.5" />
+													on:click={() => deleteProfile(profile)}
+													aria-label={$t("Delete export profile")}
+													disabled={deletingProfileId === profile.id}
+												>
+													{#if deletingProfileId === profile.id}<Octicon icon={sync} className="h-3.5 w-3.5 animate-spin" />{:else}<Octicon icon={trash} className="h-3.5 w-3.5" />{/if}
 												{$t("Delete")}
 											</button>
 										</div>

@@ -17,6 +17,7 @@ import {
 	validateWorkspaceMutationSequence,
 	validateWorkspacePersistenceRecord,
 	WORKSPACE_PERSISTENCE_ROOT_KEY,
+	WorkspaceConcurrentUpdateError,
 	type WorkspaceLeaseFence,
 	WorkspacePersistenceError,
 	type WorkspacePersistenceFaultPoint,
@@ -133,6 +134,26 @@ function manualPersistence(): InMemoryWorkspacePersistence {
 	record.snapshot = committedSnapshot();
 	record.binding = manualBinding();
 	return new InMemoryWorkspacePersistence(record);
+}
+
+async function repairQueue(
+	persistence: InMemoryWorkspacePersistence,
+	input: Omit<
+		Parameters<BrowserWorkspacePersistence["repairWorkspaceQueue"]>[0],
+		"expected"
+	>,
+): Promise<void> {
+	const current = await persistence.read();
+	await persistence.repairWorkspaceQueue({
+		...input,
+		expected: {
+			snapshot: current.snapshot,
+			binding: current.binding,
+			queue: Object.hasOwn(current.workspaces, input.binding.workspaceId)
+				? (current.workspaces[input.binding.workspaceId] ?? null)
+				: null,
+		},
+	});
 }
 
 function structurallyCorruptQueueRecord(): WorkspacePersistenceRecord {
@@ -518,18 +539,16 @@ describe("transactional Workspace persistence", () => {
 		expect(stored.binding).toEqual(manualBinding());
 	});
 
-	it("rejects an explicit enqueue from a stale or paused binding", async () => {
+	it("distinguishes a stale explicit binding from an invalid paused binding", async () => {
 		const persistence = manualPersistence();
-		expect(
-			(
-				await captureError(
-					persistence.commitExplicitAction({
-						binding: manualBinding(1),
-						mutation: mutationDraft(reconcileMutation()),
-					}),
-				)
-			).code,
-		).toBe("corrupt-data");
+		const stale = await captureError(
+			persistence.commitExplicitAction({
+				binding: manualBinding(1),
+				mutation: mutationDraft(reconcileMutation()),
+			}),
+		);
+		expect(stale instanceof WorkspaceConcurrentUpdateError).toBe(true);
+		expect(stale.code).toBe("concurrent-update");
 
 		const paused = createWorkspaceV2LocalState(GIST_ID, {
 			baseline: document(1),
@@ -909,7 +928,7 @@ describe("transactional Workspace persistence", () => {
 		expect((await persistence.read()).binding?.syncMode).toBe("manual");
 	});
 
-	it("rejects an automatic snapshot that differs from queue replay", async () => {
+	it("classifies an automatic snapshot that differs from queue replay as concurrent", async () => {
 		const persistence = automaticPersistence();
 		expect(
 			(
@@ -921,7 +940,7 @@ describe("transactional Workspace persistence", () => {
 					}),
 				)
 			).code,
-		).toBe("corrupt-data");
+		).toBe("concurrent-update");
 		expect((await persistence.read()).workspaces).toEqual({});
 	});
 
@@ -947,7 +966,7 @@ describe("transactional Workspace persistence", () => {
 		).toEqual([0, 1]);
 	});
 
-	it("rejects a stale automatic binding without changing persisted state", async () => {
+	it("classifies a stale automatic binding as a concurrent update", async () => {
 		const persistence = automaticPersistence();
 		await persistence.rebindWorkspace({
 			snapshot: committedSnapshot(),
@@ -963,14 +982,112 @@ describe("transactional Workspace persistence", () => {
 			}),
 		);
 
-		expect(error.code).toBe("corrupt-data");
+		expect(error instanceof WorkspaceConcurrentUpdateError).toBe(true);
+		expect(error.code).toBe("concurrent-update");
 		const after = await persistence.read();
 		expect(after.snapshot).toEqual(before.snapshot);
 		expect(after.binding).toEqual(before.binding);
 		expect(after.workspaces).toEqual(before.workspaces);
 	});
 
-	it("rejects a stale local binding without changing persisted state", async () => {
+	it("classifies an intervening same-binding queue append as a concurrent update", async () => {
+		const persistence = automaticPersistence();
+		const before = await persistence.read();
+		const peerNode = {
+			id: "node-peer",
+			name: "Peer Node",
+			type: "vless" as const,
+			raw: "vless://peer",
+			tags: [],
+			enabled: true,
+			updatedAt: NOW,
+			source: "single" as const,
+		};
+		await persistence.commitAutomaticAction({
+			snapshot: { ...(before.snapshot as AppState), nodes: [peerNode] },
+			binding: before.binding as WorkspaceV2LocalState,
+			mutation: {
+				mutationId: MUTATION_ID,
+				workspaceId: WORKSPACE_ID,
+				source: "browser",
+				createdAt: NOW,
+				kind: "node.upsert",
+				payload: { operation: "replace", node: peerNode },
+			},
+			expectedSnapshot: before.snapshot,
+		});
+
+		const error = await captureError(
+			persistence.commitAutomaticAction({
+				snapshot: before.snapshot as AppState,
+				binding: before.binding as WorkspaceV2LocalState,
+				mutation: mutationDraft(reconcileMutation(MUTATION_ID_2)),
+				expectedSnapshot: before.snapshot,
+			}),
+		);
+
+		expect(error instanceof WorkspaceConcurrentUpdateError).toBe(true);
+		const stored = await persistence.read();
+		expect(stored.snapshot?.nodes.map((node) => node.id)).toEqual([
+			"node-peer",
+		]);
+		expect(
+			stored.workspaces[WORKSPACE_ID]?.mutations.map((item) => item.mutationId),
+		).toEqual([MUTATION_ID]);
+		expect(stored.quarantines).toEqual([]);
+	});
+
+	it("refuses an optimistic queue repair after a peer changes the active record", async () => {
+		const persistence = automaticPersistence();
+		const expected = await persistence.read();
+		const peerNode = {
+			id: "node-peer-repair",
+			name: "Peer Repair Node",
+			type: "vless" as const,
+			raw: "vless://peer-repair",
+			tags: [],
+			enabled: true,
+			updatedAt: NOW,
+			source: "single" as const,
+		};
+		await persistence.commitAutomaticAction({
+			snapshot: { ...(expected.snapshot as AppState), nodes: [peerNode] },
+			binding: expected.binding as WorkspaceV2LocalState,
+			mutation: {
+				mutationId: MUTATION_ID,
+				workspaceId: WORKSPACE_ID,
+				source: "browser",
+				createdAt: NOW,
+				kind: "node.upsert",
+				payload: { operation: "replace", node: peerNode },
+			},
+			expectedSnapshot: expected.snapshot,
+		});
+
+		const error = await captureError(
+			persistence.repairWorkspaceQueue({
+				snapshot: committedSnapshot(),
+				binding: binding(),
+				mutations: [reconcileMutation(MUTATION_ID_2)],
+				expected: {
+					snapshot: expected.snapshot,
+					binding: expected.binding,
+					queue: expected.workspaces[WORKSPACE_ID] ?? null,
+				},
+			}),
+		);
+
+		expect(error instanceof WorkspaceConcurrentUpdateError).toBe(true);
+		const stored = await persistence.read();
+		expect(stored.snapshot?.nodes.map((node) => node.id)).toEqual([
+			"node-peer-repair",
+		]);
+		expect(
+			stored.workspaces[WORKSPACE_ID]?.mutations.map((item) => item.mutationId),
+		).toEqual([MUTATION_ID]);
+	});
+
+	it("classifies a stale local binding as a concurrent update", async () => {
 		const persistence = manualPersistence();
 		await persistence.rebindWorkspace({
 			snapshot: committedSnapshot(),
@@ -985,7 +1102,8 @@ describe("transactional Workspace persistence", () => {
 			}),
 		);
 
-		expect(error.code).toBe("corrupt-data");
+		expect(error instanceof WorkspaceConcurrentUpdateError).toBe(true);
+		expect(error.code).toBe("concurrent-update");
 		const after = await persistence.read();
 		expect(after.snapshot).toEqual(before.snapshot);
 		expect(after.binding).toEqual(before.binding);
@@ -1106,7 +1224,7 @@ describe("queue inspection and repair", () => {
 		expect(inspection.activeQueueCount).toBe(1);
 		expect(inspection.totalQueueCount).toBe(1);
 		expect(inspection.orphanedWorkspaceCount).toBe(1);
-		expect(inspection.blockedCount).toBe(1);
+		expect(inspection.blockedMutationCount).toBe(1);
 		expect(inspection.deadLetterCount).toBe(1);
 		expect(JSON.stringify(inspection)).not.toContain("node-1");
 	});
@@ -1257,7 +1375,7 @@ describe("queue inspection and repair", () => {
 		);
 		expect(error.code).toBe("corrupt-data");
 
-		await persistence.repairWorkspaceQueue({
+		await repairQueue(persistence, {
 			snapshot: { ...snapshot("other", OTHER_GIST_ID), lastUpdated: NOW },
 			binding: otherBinding,
 			mutations: [reconcileMutation(MUTATION_ID_3, 3, OTHER_WORKSPACE_ID)],
@@ -1285,7 +1403,7 @@ describe("queue inspection and repair", () => {
 			blockedAt: NOW,
 		};
 		const persistence = automaticPersistence();
-		await persistence.repairWorkspaceQueue({
+		await repairQueue(persistence, {
 			snapshot: committedSnapshot(),
 			binding: paused,
 			mutations: [head],
@@ -1299,7 +1417,7 @@ describe("queue inspection and repair", () => {
 		const before = await rollback.read();
 		rollback.setFault("after-binding");
 		await captureError(
-			rollback.repairWorkspaceQueue({
+			repairQueue(rollback, {
 				snapshot: committedSnapshot(),
 				binding: paused,
 				mutations: [head],
@@ -1323,7 +1441,7 @@ describe("queue inspection and repair", () => {
 			"tab-a",
 			nowMs,
 		);
-		await persistence.repairWorkspaceQueue({
+		await repairQueue(persistence, {
 			snapshot: committedSnapshot(OTHER_GIST_ID),
 			binding: binding(0, OTHER_GIST_ID),
 			mutations: [],
@@ -1367,7 +1485,7 @@ describe("queue inspection and repair", () => {
 		).toHaveLength(1);
 		expect(JSON.stringify(inspection)).not.toContain("node-3");
 
-		await persistence.repairWorkspaceQueue({
+		await repairQueue(persistence, {
 			snapshot: committedSnapshot(),
 			binding: binding(),
 			mutations: [reconcileMutation(MUTATION_ID_3)],
@@ -1391,7 +1509,7 @@ describe("queue inspection and repair", () => {
 		expect(
 			(
 				await captureError(
-					persistence.repairWorkspaceQueue({
+					repairQueue(persistence, {
 						snapshot: snapshot("repair"),
 						binding: uninitialized,
 						mutations: [mutation()],
@@ -1424,7 +1542,7 @@ describe("dispatcher lease fencing", () => {
 		for (const operation of [
 			() => persistence.discardWorkspaceQueue({ workspaceId: "__proto__" }),
 			() =>
-				persistence.repairWorkspaceQueue({
+				repairQueue(persistence, {
 					snapshot: snapshot("unsafe", "__proto__"),
 					binding: unsafeBinding,
 					mutations: [],

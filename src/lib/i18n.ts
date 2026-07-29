@@ -727,12 +727,26 @@ const zhCN: Record<string, string> = {
 	"Workspace linked. No sync needed.": "工作区已绑定，无需同步。",
 	"Saved locally": "已保存到本机",
 	Queued: "等待工作区同步",
+	"Saved locally and queued for Workspace sync":
+		"已保存到本机并加入工作区同步队列",
+	"Saved locally; another tab is synchronizing":
+		"已保存到本机，另一个标签页正在同步",
+	"Imported {count} items; skipped {skipped}; failed {failed}":
+		"已导入 {count} 项；跳过 {skipped} 项；失败 {failed} 项",
+	"Export profile created": "导出配置已创建",
+	"Export profile saved": "导出配置已保存",
+	"Rule saved": "规则已保存",
+	"Target saved": "发布目标已保存",
 	Syncing: "正在同步",
 	"Saved to Workspace": "已保存到工作区",
 	"Saved locally; retrying Workspace sync":
 		"已保存到本机，工作区同步失败，将自动重试",
 	"Saved locally; manual push required": "已保存到本机，等待手动推送",
 	"Saved locally; sync paused by conflict": "已保存到本机，同步因冲突暂停",
+	"Workspace save acknowledgement is uncertain; reload before retrying":
+		"工作区保存确认状态不明确；请刷新页面后再重试",
+	"Workspace rebound; retained repair evidence still requires review.":
+		"工作区已重新绑定；保留的修复证据仍需检查。",
 	"Sign in to resume Workspace sync": "请登录以恢复工作区同步",
 	"Workspace sync needs repair": "工作区同步需要修复",
 	"Workspace local state needs repair": "工作区本地状态需要修复",

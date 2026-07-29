@@ -205,6 +205,35 @@ describe("persistence-backed Workspace dispatcher", () => {
 		expect(stored.leases).toEqual({});
 	});
 
+	it("preserves a committed result when lease cleanup fails", async () => {
+		const shared = backend();
+		const persistence = client(shared, () => NOW_MS);
+		const cleanupFailure = new Proxy(persistence, {
+			get(target, property) {
+				if (property === "releaseLease") {
+					return async () => {
+						throw new Error("injected lease cleanup failure");
+					};
+				}
+				const value = Reflect.get(target, property);
+				return typeof value === "function" ? value.bind(target) : value;
+			},
+		}) as BrowserWorkspacePersistence;
+
+		expect(
+			await dispatchPersistedWorkspaceMutation({
+				persistence: cleanupFailure,
+				githubToken: "token",
+				ownerId: "tab-a",
+				now: () => NOW_MS,
+				submit: async () => committed(),
+			}),
+		).toEqual({ status: "committed" });
+		expect(
+			(await persistence.read()).workspaces[WORKSPACE_ID]?.mutations,
+		).toEqual([]);
+	});
+
 	it("allows only one of two independent dispatchers to submit", async () => {
 		const shared = backend();
 		const first = client(shared, () => NOW_MS);
@@ -599,6 +628,44 @@ describe("persistence-backed Workspace dispatcher", () => {
 		expect(stored.binding?.syncMode).toBe("automatic");
 		expect(stored.binding?.conflictBaseline).toBeNull();
 		expect(stored.snapshot?.lastUpdated).toBe(NOW_2);
+		expect(stored.workspaces[WORKSPACE_ID]?.mutations).toEqual([]);
+	});
+
+	it("keeps recovered delivery committed when lease cleanup fails", async () => {
+		const shared = backend();
+		const persistence = client(shared, () => NOW_MS);
+		const cleanupFailure = new Proxy(persistence, {
+			get(target, property) {
+				if (property === "releaseLease") {
+					return async () => {
+						throw new Error("injected lease cleanup failure");
+					};
+				}
+				const value = Reflect.get(target, property);
+				return typeof value === "function" ? value.bind(target) : value;
+			},
+		}) as BrowserWorkspacePersistence;
+		let submits = 0;
+		const options = {
+			persistence: cleanupFailure,
+			githubToken: "token",
+			ownerId: "tab-a",
+			now: () => NOW_MS,
+			submit: async () => {
+				submits += 1;
+				return advancedAlreadyCommitted();
+			},
+		};
+
+		expect(await dispatchPersistedWorkspaceMutation(options)).toEqual({
+			status: "committed",
+		});
+		expect(await dispatchPersistedWorkspaceMutation(options)).toEqual({
+			status: "empty",
+		});
+		expect(submits).toBe(1);
+		const stored = await persistence.read();
+		expect(stored.binding?.revision).toBe(3);
 		expect(stored.workspaces[WORKSPACE_ID]?.mutations).toEqual([]);
 	});
 

@@ -72,25 +72,7 @@ test("resource deletion interpolates the target name in confirmation and toast t
 	expect(nodesPageSource).toContain(
 		'message: $t("Delete {name} forever?", { name }),',
 	);
-	expect(nodesPageSource).toContain(
-		'showToastNotify($t("Deleted {name}", { name }));',
-	);
-	expect(nodesPageSource).not.toContain(
-		'showToastNotify($t("Deleted {name}"));',
-	);
-});
-
-test("resource deletion shows per-row loading while the delete action settles", () => {
-	expect(nodesPageSource).toContain(
-		"let deletingResourceId: string | null = null;",
-	);
-	expect(nodesPageSource).toContain("deletingResourceId = id;");
-	expect(nodesPageSource).toContain("deletingResourceId = null;");
-	expect(nodesPageSource).toContain("deletingResourceId === node.id");
-	expect(nodesPageSource).toContain("deletingResourceId === sub.id");
-	expect(nodesPageSource).toContain("Deleting...");
-	expect(nodesPageSource).toContain("animate-spin");
-	expect(nodesPageSource).toContain("out:slide");
+	expect(nodesPageSource).toContain("successMessageParams: { name },");
 });
 
 test("resource editing opens a modal instead of expanding inline editors", () => {
