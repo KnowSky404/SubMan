@@ -79,9 +79,18 @@ test("exports page exposes gist live link publishing for remote profiles", () =>
 	expect(exportsPageSource).toContain("Publish to Gist");
 	expect(exportsPageSource).toContain("Live Link");
 	expect(exportsPageSource).toContain("copyPublishedUrl");
-	expect(exportsPageSource).toContain("selectedProfile.lastPublishedUrl");
+	expect(exportsPageSource).toContain("publishedUrl");
 	expect(exportsPageSource).toContain("remote profile URL");
 	expect(exportsPageSource).toContain("Connect to Publish");
+});
+
+test("exports live link is gated on proven remote commitment", () => {
+	expect(exportsPageSource).toContain("getCommittedClientExportUrl");
+	expect(exportsPageSource).toContain("baseline?.data.clientExports.find");
+	expect(exportsPageSource).toContain('result.status !== "remote-committed"');
+	expect(exportsPageSource).toContain("!presentation.remoteCommitted");
+	expect(exportsPageSource).toContain("result.state.clientExports.find");
+	expect(exportsPageSource).not.toContain("selectedProfile.lastPublishedUrl");
 });
 
 test("exports publication uses the default transactional browser adapter", () => {

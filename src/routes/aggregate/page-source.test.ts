@@ -79,6 +79,17 @@ test("aggregate publishing distinguishes drafts, saved state, and manual push", 
 	expect(aggregatePageSource).not.toContain("// Auto-save the rule");
 });
 
+test("aggregate live link is gated on proven remote commitment", () => {
+	expect(aggregatePageSource).toContain("getCommittedPublishTargetUrl");
+	expect(aggregatePageSource).toContain("baseline?.data.publishTargets.find");
+	expect(aggregatePageSource).toContain('result.status !== "remote-committed"');
+	expect(aggregatePageSource).toContain("!presentation.remoteCommitted");
+	expect(aggregatePageSource).toContain("result.state.publishTargets.find");
+	expect(aggregatePageSource).not.toContain(
+		"$appState.publishTargets.find((target) => target.id === selectedTargetId)\n\t\t\t\t?.lastPublishedUrl",
+	);
+});
+
 test("aggregate failures never roll back only the Svelte store", () => {
 	expect(aggregatePageSource).not.toContain("appState.set(localSnapshot)");
 	expect(aggregatePageSource).not.toContain("appState.set(");

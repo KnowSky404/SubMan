@@ -253,6 +253,22 @@ $: ordinaryPublishDisabled =
 	targetDirty ||
 	workspaceIsManual ||
 	Boolean(selectedOutputConflict);
+$: publishUrl = selectedTargetId
+	? getCommittedPublishTargetUrl(selectedTargetId, $appState)
+	: null;
+
+function getCommittedPublishTargetUrl(
+	targetId: string,
+	state: AppState,
+): string | null {
+	const binding = getBrowserWorkspaceBinding();
+	if (!binding || state.activeGistId !== binding.gistId) return null;
+	return (
+		binding.baseline?.data.publishTargets.find(
+			(target) => target.id === targetId,
+		)?.lastPublishedUrl ?? null
+	);
+}
 
 function getSavedRuleSignature(rule: AggregateRule): string {
 	return JSON.stringify({
@@ -393,7 +409,6 @@ function loadPublishTarget(target: AggregatePublishTarget) {
 	publishTargetName = target.name;
 	publishTargetRuleId = target.ruleId;
 	publishTargetFile = target.fileName;
-	publishUrl = target.lastPublishedUrl;
 }
 
 function resetTargetForm() {
@@ -401,7 +416,6 @@ function resetTargetForm() {
 	publishTargetName = "";
 	publishTargetRuleId = $appState.aggregates[0]?.id || "";
 	publishTargetFile = "aggregate.txt";
-	publishUrl = null;
 }
 
 type PendingWorkspaceAction = {
@@ -859,13 +873,16 @@ async function publishSaved(allowManual = false): Promise<void> {
 			},
 			{ allowManual },
 		);
-		publishUrl =
-			$appState.publishTargets.find((target) => target.id === selectedTargetId)
-				?.lastPublishedUrl ?? null;
-		showWorkspaceResult(result, {
+		const presentation = showWorkspaceResult(result, {
 			remoteCommittedMessageKey: "Published successfully to GitHub Gist",
 			rejectedMessageKey: "Publish failed: {error}",
 		});
+		if (!presentation.remoteCommitted || result.status !== "remote-committed")
+			return;
+		publishUrl =
+			result.state.publishTargets.find(
+				(target) => target.id === selectedTargetId,
+			)?.lastPublishedUrl ?? null;
 	} catch (err) {
 		showToast(
 			$t("Publish failed: {error}", {

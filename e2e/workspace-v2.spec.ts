@@ -16,6 +16,8 @@ const NOW = "2026-07-23T10:00:00.000Z";
 const LATER = "2026-07-23T10:01:00.000Z";
 const GIST_ID = "gist-e2e";
 const WORKSPACE_ID = `gist:${GIST_ID}`;
+const EXISTING_EXPORT_URL =
+	"https://gist.githubusercontent.com/e2e/gist-e2e/raw/previous-client.json";
 const EMPTY_DATA = {
 	nodes: [],
 	subscriptions: [],
@@ -65,15 +67,27 @@ function snapshot(
 	options: {
 		gistId?: string | null;
 		data?: typeof EMPTY_DATA | JsonRecord;
+		gists?: JsonRecord[];
 		lastUpdated?: string;
 	} = {},
 ): JsonRecord {
 	return {
 		...(options.data ?? structuredClone(EMPTY_DATA)),
-		gists: [],
+		gists: options.gists ?? [],
 		activeGistId: options.gistId === undefined ? GIST_ID : options.gistId,
 		activeGistFile: "subman.json",
 		lastUpdated: options.lastUpdated ?? NOW,
+	};
+}
+
+function gistMetadata(): JsonRecord {
+	return {
+		id: GIST_ID,
+		ownerLogin: "e2e",
+		description: "SubMan-Data",
+		files: [],
+		updatedAt: NOW,
+		url: `https://api.github.com/gists/${GIST_ID}`,
 	};
 }
 
@@ -180,6 +194,42 @@ function aggregateData(): JsonRecord {
 				lastPublishTransitionFromFileName: null,
 				lastPublishTransitionToFileName: null,
 				lastPublishTransitionOutcome: null,
+				updatedAt: NOW,
+			},
+		],
+	};
+}
+
+function clientExportData(): JsonRecord {
+	const data = aggregateData();
+	return {
+		...data,
+		nodes: [
+			{
+				...(data.nodes as JsonRecord[])[0],
+				raw: "vless://00000000-0000-4000-8000-000000000001@example.com:443?security=tls&sni=example.com#E2E%20Node",
+			},
+		],
+		clientExports: [
+			{
+				id: "export-e2e",
+				name: "E2E Client Export",
+				type: "sing-box-client",
+				ruleId: "aggregate-e2e",
+				fileName: "client-e2e.json",
+				options: {
+					listenAddress: "127.0.0.1",
+					listenPort: 2080,
+					inboundType: "mixed",
+					dnsMode: "conservative",
+					routeMode: "global-proxy",
+					includeExperimental: false,
+					selectorTag: "proxy",
+					urlTestTag: "auto",
+				},
+				lastGeneratedAt: NOW,
+				lastPublishedAt: NOW,
+				lastPublishedUrl: EXISTING_EXPORT_URL,
 				updatedAt: NOW,
 			},
 		],
@@ -489,6 +539,23 @@ function committedResult(
 			),
 		};
 		receipt = { kind: mutation.kind, entityId: targetId };
+	} else if (mutation.kind === "client-export.publish") {
+		const profileId = payload.profileId;
+		data = {
+			...data,
+			clientExports: (data.clientExports as JsonRecord[]).map((profile) =>
+				profile.id === profileId
+					? {
+							...profile,
+							lastGeneratedAt: mutation.createdAt,
+							lastPublishedAt: mutation.createdAt,
+							lastPublishedUrl: `https://gist.githubusercontent.com/e2e/${GIST_ID}/raw/${String((payload.output as JsonRecord).fileName)}`,
+							updatedAt: mutation.createdAt,
+						}
+					: profile,
+			),
+		};
+		receipt = { kind: mutation.kind, entityId: profileId };
 	} else {
 		throw new Error(
 			`Unsupported E2E committed mutation: ${String(mutation.kind)}`,
@@ -958,6 +1025,7 @@ test("manual Push and Publish stops when the local target draft is rejected", as
 	await expect(
 		page.getByText("Published successfully to GitHub Gist", { exact: true }),
 	).toHaveCount(0);
+	await expect(page.getByText("Live Link", { exact: true })).toHaveCount(0);
 	expect(submissions).toEqual([]);
 	const stored = await readIndexedDb(page);
 	expect(
@@ -975,7 +1043,7 @@ test("Save and Publish reports peer ownership until another tab commits once", a
 	await seedIndexedDb(
 		page,
 		persistenceRecord({
-			snapshot: snapshot({ data }),
+			snapshot: snapshot({ data, gists: [gistMetadata()] }),
 			binding: binding({ baseline }),
 			leases: {
 				[leaseName]: {
@@ -1009,6 +1077,7 @@ test("Save and Publish reports peer ownership until another tab commits once", a
 		}),
 	).toBeVisible();
 	await expect(page.getByText(/Publish failed/)).toHaveCount(0);
+	await expect(page.getByText("Live Link", { exact: true })).toHaveCount(0);
 	const queued = await readIndexedDb(page);
 	const mutation = (
 		(queued.workspaces as JsonRecord)[WORKSPACE_ID] as JsonRecord
@@ -1032,6 +1101,7 @@ test("Save and Publish reports peer ownership until another tab commits once", a
 	await expect(
 		page.getByText("Saved to Workspace", { exact: true }).first(),
 	).toBeVisible();
+	await expect(page.getByText("Live Link", { exact: true })).toBeVisible();
 	expect(submissions).toHaveLength(1);
 	expect(submissions[0]?.mutationId).toBe(mutationId);
 });
@@ -1045,7 +1115,7 @@ test("aggregate publish keeps one mutation across retry, reload, and recovery", 
 	await seedIndexedDb(
 		page,
 		persistenceRecord({
-			snapshot: snapshot({ data }),
+			snapshot: snapshot({ data, gists: [gistMetadata()] }),
 			binding: binding({ baseline }),
 		}),
 	);
@@ -1118,6 +1188,89 @@ test("aggregate publish keeps one mutation across retry, reload, and recovery", 
 		((recovered.snapshot as JsonRecord).publishTargets as JsonRecord[])[0]
 			?.lastPublishedAt,
 	).not.toBeNull();
+	await page.locator("#aggregate-target-select").click();
+	await page.getByRole("button", { name: "E2E Target", exact: true }).click();
+	await expect(page.getByText("Live Link", { exact: true })).toBeVisible();
+	await expect(
+		page.getByText(
+			`https://gist.githubusercontent.com/e2e/${GIST_ID}/raw/aggregate-e2e.txt`,
+			{ exact: true },
+		),
+	).toBeVisible();
+});
+
+test("client export publication hides its live link until remote commitment", async ({
+	context,
+	page,
+}) => {
+	const data = clientExportData();
+	const baseline = workspaceDocument({ data });
+	await seedIndexedDb(
+		page,
+		persistenceRecord({
+			snapshot: snapshot({ data, gists: [gistMetadata()] }),
+			binding: binding({ baseline }),
+		}),
+	);
+	await seedAuth(page, { persistent: "fake-export-retry-token" });
+	let offline = true;
+	await context.route("**/api/workspaces/**/mutations", async (route) => {
+		const mutation = route.request().postDataJSON() as JsonRecord;
+		if (offline) {
+			await route.fulfill({
+				status: 503,
+				json: {
+					error: {
+						code: "upstream_unavailable",
+						message: "E2E unavailable",
+						disposition: "retryable-upstream",
+					},
+				},
+			});
+			return;
+		}
+		await fulfillCommitted(route, mutation, data);
+	});
+
+	await page.goto("/exports");
+	await expect(
+		page.getByText(EXISTING_EXPORT_URL, { exact: true }),
+	).toBeVisible();
+	await page.getByRole("button", { name: "Generate Preview" }).click();
+	await page
+		.getByRole("button", { name: "Publish", exact: true })
+		.last()
+		.click();
+	await expect(
+		page
+			.getByRole("status")
+			.getByText("Saved locally; retrying Workspace sync", { exact: true }),
+	).toBeVisible();
+	await expect(page.getByText("Published sing-box config")).toHaveCount(0);
+	await expect(
+		page.getByText(EXISTING_EXPORT_URL, { exact: true }),
+	).toBeVisible();
+	await expect(
+		page.getByText(
+			`https://gist.githubusercontent.com/e2e/${GIST_ID}/raw/client-e2e.json`,
+			{ exact: true },
+		),
+	).toHaveCount(0);
+
+	offline = false;
+	await page.reload();
+	await expect(page.getByText("Live Link", { exact: true })).toBeVisible({
+		timeout: 10_000,
+	});
+	await expect(
+		page.getByText(EXISTING_EXPORT_URL, { exact: true }),
+	).toHaveCount(0);
+	await expect(
+		page.getByText(
+			`https://gist.githubusercontent.com/e2e/${GIST_ID}/raw/client-e2e.json`,
+			{ exact: true },
+		),
+	).toBeVisible();
 });
 
 test("stale tabs without BroadcastChannel rebase without reviving a deletion", async ({

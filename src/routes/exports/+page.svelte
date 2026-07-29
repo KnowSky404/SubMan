@@ -11,7 +11,7 @@ import {
 import GitHubSelect from "$lib/components/GitHubSelect.svelte";
 import Octicon from "$lib/components/Octicon.svelte";
 import { t } from "$lib/i18n";
-import type { ClientExportProfile } from "$lib/models";
+import type { AppState, ClientExportProfile } from "$lib/models";
 import {
 	checkCircle,
 	copy,
@@ -36,10 +36,12 @@ import { nowIso } from "$lib/utils/time";
 import { submitBrowserWorkspaceMutation } from "$lib/workspace-browser-session-v2";
 import {
 	presentWorkspaceOperation,
+	type WorkspaceOperationPresentation,
 	type WorkspaceOperationPresentationOptions,
 } from "$lib/workspace-operation-presenter";
 import type { WorkspaceOperationResult } from "$lib/workspace-operation-result";
 import { findWorkspaceOutputConflicts } from "$lib/workspace-output";
+import { getBrowserWorkspaceBinding } from "$lib/workspace-persistence-browser";
 import { workspaceSyncStatus } from "$lib/workspace-sync-status";
 
 let selectedProfileId = "";
@@ -52,6 +54,7 @@ let outboundCount = 0;
 let skippedCount = 0;
 let publishing = false;
 let deletingProfileId = "";
+let publishedUrl: string | null = null;
 
 let draftName = "";
 let draftFileName = "";
@@ -138,6 +141,9 @@ $: publishDisabled =
 	Boolean(selectedOutputConflict) ||
 	workspaceIsManual ||
 	publishing;
+$: publishedUrl = selectedProfileId
+	? getCommittedClientExportUrl(selectedProfileId, $appState)
+	: null;
 
 $: if (
 	selectedProfile &&
@@ -178,13 +184,26 @@ function clearPreview(): void {
 function showWorkspaceResult(
 	result: WorkspaceOperationResult,
 	options: WorkspaceOperationPresentationOptions = {},
-): boolean {
+): WorkspaceOperationPresentation {
 	const presentation = presentWorkspaceOperation(result, options);
 	showToast(
 		$t(presentation.messageKey, presentation.messageParams),
 		presentation.tone,
 	);
-	return presentation.finalizeDraft;
+	return presentation;
+}
+
+function getCommittedClientExportUrl(
+	profileId: string,
+	state: AppState,
+): string | null {
+	const binding = getBrowserWorkspaceBinding();
+	if (!binding || state.activeGistId !== binding.gistId) return null;
+	return (
+		binding.baseline?.data.clientExports.find(
+			(profile) => profile.id === profileId,
+		)?.lastPublishedUrl ?? null
+	);
 }
 
 function getProfileRuleName(profile: ClientExportProfile): string {
@@ -222,7 +241,7 @@ async function createProfile(): Promise<void> {
 		!showWorkspaceResult(result, {
 			localDurableMessageKey: "Export profile created",
 			remoteCommittedMessageKey: "Export profile created",
-		})
+		}).finalizeDraft
 	)
 		return;
 	selectedProfileId = profile.id;
@@ -276,7 +295,7 @@ async function saveProfile(): Promise<void> {
 		!showWorkspaceResult(result, {
 			localDurableMessageKey: "Export profile saved",
 			remoteCommittedMessageKey: "Export profile saved",
-		})
+		}).finalizeDraft
 	)
 		return;
 	selectedProfileId = nextProfile.id;
@@ -305,7 +324,7 @@ async function deleteProfile(profile: ClientExportProfile): Promise<void> {
 			!showWorkspaceResult(result, {
 				localDurableMessageKey: "Deleted export profile",
 				remoteCommittedMessageKey: "Deleted export profile",
-			})
+			}).finalizeDraft
 		)
 			return;
 		if (selectedProfileId === profile.id) {
@@ -380,9 +399,9 @@ async function downloadPreview(): Promise<void> {
 }
 
 async function copyPublishedUrl(): Promise<void> {
-	if (!selectedProfile?.lastPublishedUrl) return;
+	if (!publishedUrl) return;
 
-	await navigator.clipboard.writeText(selectedProfile.lastPublishedUrl);
+	await navigator.clipboard.writeText(publishedUrl);
 	showToast($t("Link copied to clipboard"), "success");
 }
 
@@ -426,10 +445,15 @@ async function publishPreview(): Promise<void> {
 			outboundCount = publicationBuild.outbounds;
 			skippedCount = publicationBuild.skipped;
 		}
-		showWorkspaceResult(result, {
+		const presentation = showWorkspaceResult(result, {
 			remoteCommittedMessageKey: "Published sing-box config",
 			rejectedMessageKey: "Publish failed: {error}",
 		});
+		if (!presentation.remoteCommitted || result.status !== "remote-committed")
+			return;
+		publishedUrl =
+			result.state.clientExports.find((profile) => profile.id === profileId)
+				?.lastPublishedUrl ?? null;
 	} catch (error) {
 		showToast(
 			$t("Publish failed: {error}", {
@@ -733,13 +757,13 @@ async function publishPreview(): Promise<void> {
 							{$t("Connect to Publish")}
 						</a>
 					{/if}
-					{#if selectedProfile?.lastPublishedUrl}
+					{#if publishedUrl}
 						<div class="gh-alert gh-alert-success flex-col items-stretch gap-2">
 							<div class="flex items-center justify-between text-xs font-semibold text-[color:var(--success-emphasis)]">
 								<span>{$t("Live Link")}</span>
 								<Octicon icon={checkCircle} className="h-3 w-3" />
 							</div>
-							<code class="gh-code-block break-all">{selectedProfile.lastPublishedUrl}</code>
+							<code class="gh-code-block break-all">{publishedUrl}</code>
 							<button type="button" class="gh-btn gh-btn-sm" on:click={copyPublishedUrl}>
 								<Octicon icon={copy} className="h-3 w-3" />
 								{$t("Copy remote profile URL")}
