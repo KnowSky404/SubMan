@@ -35,6 +35,7 @@ import {
 import {
 	type BrowserWorkspaceCommitResult,
 	commitBrowserWorkspaceAction,
+	getBrowserWorkspaceBinding,
 	initializeBrowserWorkspacePersistence,
 	refreshBrowserWorkspacePersistence,
 } from "$lib/workspace-persistence-browser";
@@ -205,6 +206,14 @@ function runPreparedWorkspaceAction(
 		} catch (error) {
 			return rejectedActionHandle(error);
 		}
+	}
+
+	try {
+		const binding = getBrowserWorkspaceBinding();
+		const preliminary = prepare(get(appState), binding, VALIDATION_TIMESTAMP);
+		createMutationDraft(kind, preliminary.payload, binding);
+	} catch (error) {
+		return rejectedActionHandle(error);
 	}
 
 	const completion = serializedAction(

@@ -156,6 +156,13 @@ test("faulted destructive actions roll back while offline commits survive reload
 	const persistence = new persistenceModule.InMemoryWorkspacePersistence(
 		record,
 	);
+	let automaticCommitCount = 0;
+	const commitAutomaticAction =
+		persistence.commitAutomaticAction.bind(persistence);
+	persistence.commitAutomaticAction = async (input) => {
+		automaticCommitCount += 1;
+		return commitAutomaticAction(input);
+	};
 	runtime.setBrowserWorkspacePersistenceForTest(persistence);
 	await appStore.initializeAppStatePersistence();
 	authStore.authState.set({
@@ -169,10 +176,18 @@ test("faulted destructive actions roll back while offline commits survive reload
 		id: "target-2",
 		name: "Target Two",
 	});
-	expect(conflictingAction.submitted).toBe(true);
+	expect(conflictingAction.submitted).toBe(false);
 	expect((await conflictingAction.completion).status).toBe(
 		"rejected-before-durable-commit",
 	);
+	expect(automaticCommitCount).toBe(0);
+	expect((await persistence.read()).snapshot).toEqual(initialSnapshot);
+	let visibleTargetIds: string[] = [];
+	const unsubscribeRejected = appStore.appState.subscribe((state) => {
+		visibleTargetIds = state.publishTargets.map((item) => item.id);
+	});
+	expect(visibleTargetIds).toEqual([target.id]);
+	unsubscribeRejected();
 	persistence.setFault("before-commit", "quota-exceeded");
 
 	const action = appStore.removeAggregate(rule.id, {
