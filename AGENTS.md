@@ -184,6 +184,13 @@ Use `bun add`, `bun add -d`, and `bun remove` for dependency changes.
   observability warnings, not permission to compact them.
 - Preserve the response security-header contract, including CSP and
   `frame-ancestors`; keep the first-paint theme script compatible with that CSP.
+- When a public API route, request/response type, error mapping, limit, header,
+  or authentication rule changes, update `docs/api/openapi.yaml`,
+  `docs/api/server-api.md`, the README quick starts, and
+  `docs/agents/subman-skill/references/server-api.md` in the same scope. Keep the
+  OpenAPI contract test green.
+- Keep `/api/workspaces/:workspaceId/mutations` documented as an internal browser
+  protocol. Do not advertise it as a supported third-party integration surface.
 - By default, do not deploy, run `wrangler deploy`, access or mutate a real Gist,
   push commits, create releases, or use production secrets. Those operations
   require explicit user authorization.

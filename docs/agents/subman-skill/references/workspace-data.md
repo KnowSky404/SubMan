@@ -39,7 +39,8 @@ pause automatic delivery.
 
 ## Modes
 
-- Local: no GitHub token or V2 binding; business data remains in localStorage.
+- Local: no GitHub token or V2 binding; business data remains in the
+  `subman-workspace` IndexedDB transactional root.
 - Automatic: browser business actions enqueue and deliver mutations.
 - Manual: only explicit pull, push, reconcile, or publication actions send.
 - Paused conflict: local optimistic state and queued mutations are retained,

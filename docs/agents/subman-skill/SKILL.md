@@ -28,6 +28,12 @@ API endpoints from the same Cloudflare Worker.
 - Do not give external automation the GitHub token. Store `GITHUB_TOKEN` in
   Cloudflare Secrets and give scripts only `SUBMAN_API_TOKEN`.
 - For machine-managed nodes, prefer `PUT /api/nodes/by-key/:externalKey`.
+- Treat that endpoint as resource-identity idempotent, not request-replay
+  idempotent. The API does not support `Idempotency-Key`.
+- A public Node API `2xx` response proves a verified remote commit. Use response
+  `ETag` values with optional `If-Match` for optimistic concurrency.
+- Treat `/api/workspaces/:workspaceId/mutations` as an internal browser protocol,
+  never as an integration surface.
 - Node names must remain distinguishable for aggregate filtering. UI and API
   writes automatically add a timestamp suffix on name collision.
 - Treat duplicate node raw URIs as content duplicates. UI and API writes reject
@@ -42,16 +48,18 @@ API endpoints from the same Cloudflare Worker.
 
 ### Add or update an automation script
 
-Read `references/server-api.md`. Use idempotent upserts with stable external
-keys. Use `curl -fsS` or equivalent failure handling. Treat SubMan as a
-low-frequency Gist-backed write target, not a high-concurrency database. Handle
-`409 duplicate_node_raw` as "this node URI already exists elsewhere".
+Read `references/server-api.md` and `docs/api/openapi.yaml`. Use stable external
+keys and `curl --fail-with-body -sS` or equivalent status-plus-body handling.
+Treat SubMan as a low-frequency Gist-backed write target, not a high-concurrency
+database. Branch on stable error codes and dispositions, preserve retry timing,
+and handle `409 duplicate_node_raw` as "this node URI already exists elsewhere".
 
 ### Change workspace behavior
 
 Read `references/workspace-data.md` and inspect `src/lib/workspace.ts`,
 `src/lib/workspace-browser-session-v2.ts`,
-`src/lib/workspace-mutation-sync.ts`, and
+`src/lib/workspace-persistence.ts`, `src/lib/workspace-mutation-sync.ts`,
+`src/lib/workspace-operation-result.ts`, and
 `src/lib/server/workspace-coordinator-core.ts`. Preserve the protected
 `subman.json` file, revisioned mutation queue, and same-gist publishing model.
 

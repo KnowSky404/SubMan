@@ -1,0 +1,788 @@
+openapi: 3.1.1
+info:
+  title: SubMan Server API
+  version: 1.0.0
+  summary: Trusted backend automation for a SubMan Workspace
+  license:
+    name: GNU Affero General Public License v3.0 only
+    identifier: AGPL-3.0-only
+  description: |
+    The supported public API for owner-operated backend automation.
+
+    Node writes are synchronous. A successful 2xx response is returned only
+    after WorkspaceCoordinator has committed and verified the remote Workspace
+    revision. Locally queued browser-operation outcomes are not part of this API.
+
+    The API is intended for low-frequency, trusted server-to-server callers.
+    Callers receive SUBMAN_API_TOKEN, never the GitHub token used by the Worker.
+  x-documentation:
+    narrative: docs/api/server-api.md
+    readme: README.md
+    readmeEnglish: README.en.md
+    agentSkill: docs/agents/subman-skill/references/server-api.md
+externalDocs:
+  description: Narrative Server API guide
+  url: ./server-api.md
+servers:
+  - url: https://subman.invalid
+    description: Replace with the deployed SubMan origin
+tags:
+  - name: Health
+    description: Server-side configuration readiness
+  - name: Nodes
+    description: Node inventory stored in the authoritative Workspace
+security:
+  - BearerAuth: []
+paths:
+  /api/health:
+    get:
+      tags: [Health]
+      operationId: getApiHealth
+      summary: Check API secret configuration
+      description: |
+        Reports whether both required Worker secrets are configured. This does
+        not authenticate with GitHub or prove that a Workspace read or write is
+        currently healthy.
+      security: []
+      responses:
+        "200":
+          description: Configuration flags; secret values are never returned.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+              examples:
+                ready:
+                  value:
+                    ok: true
+                    config:
+                      githubToken: true
+                      submanApiToken: true
+  /api/nodes:
+    get:
+      tags: [Nodes]
+      operationId: listNodes
+      summary: List nodes
+      description: Reads the authoritative remote Workspace node collection.
+      responses:
+        "200":
+          $ref: "#/components/responses/NodeListSuccess"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/UnprocessableContent"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "502":
+          $ref: "#/components/responses/BadGateway"
+    post:
+      tags: [Nodes]
+      operationId: createNode
+      summary: Create a node
+      description: |
+        Creates a new node using a server-generated node ID and mutation ID.
+        This operation is not request-replay idempotent. If the client cannot
+        determine whether a request committed, do not blindly repeat it; use an
+        external-key upsert for retryable automation workflows.
+      x-success-semantics: remote-committed
+      x-idempotency-scope: none
+      parameters:
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        $ref: "#/components/requestBodies/NodeCreate"
+      responses:
+        "201":
+          $ref: "#/components/responses/NodeCreated"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "422":
+          $ref: "#/components/responses/UnprocessableContent"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "502":
+          $ref: "#/components/responses/BadGateway"
+        "504":
+          $ref: "#/components/responses/GatewayTimeout"
+  /api/nodes/{id}:
+    parameters:
+      - $ref: "#/components/parameters/NodeId"
+    get:
+      tags: [Nodes]
+      operationId: getNode
+      summary: Get a node
+      description: Reads one node and the revision of its authoritative Workspace.
+      responses:
+        "200":
+          $ref: "#/components/responses/NodeSuccess"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/UnprocessableContent"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "502":
+          $ref: "#/components/responses/BadGateway"
+    patch:
+      tags: [Nodes]
+      operationId: updateNode
+      summary: Update a node
+      description: |
+        Applies the supplied fields to one node. A 200 response proves the new
+        Workspace revision was remotely committed and verified.
+      x-success-semantics: remote-committed
+      parameters:
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        $ref: "#/components/requestBodies/NodePatch"
+      responses:
+        "200":
+          $ref: "#/components/responses/NodeSuccess"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "422":
+          $ref: "#/components/responses/UnprocessableContent"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "502":
+          $ref: "#/components/responses/BadGateway"
+        "504":
+          $ref: "#/components/responses/GatewayTimeout"
+    delete:
+      tags: [Nodes]
+      operationId: deleteNode
+      summary: Delete a node
+      description: |
+        Deletes one node, records its tombstone, and removes its ID from
+        aggregate node selections in the same remote Workspace commit.
+      x-success-semantics: remote-committed
+      parameters:
+        - $ref: "#/components/parameters/IfMatch"
+      responses:
+        "200":
+          $ref: "#/components/responses/NodeDeleted"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/UnprocessableContent"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "502":
+          $ref: "#/components/responses/BadGateway"
+        "504":
+          $ref: "#/components/responses/GatewayTimeout"
+  /api/nodes/by-key/{externalKey}:
+    put:
+      tags: [Nodes]
+      operationId: upsertNodeByExternalKey
+      summary: Upsert a node by a stable external key
+      description: |
+        Creates or updates the single node identified by externalKey. This is
+        resource idempotency, not request-replay idempotency: every accepted
+        request receives a new server-owned mutation ID and may update the node
+        timestamp and advance the Workspace revision. No Idempotency-Key header
+        or client-owned mutation ID is supported.
+
+        The external key is stored in the reserved `external:<externalKey>` tag
+        namespace. Callers must not submit their own tags in that namespace.
+      x-success-semantics: remote-committed
+      x-idempotency-scope: resource
+      parameters:
+        - $ref: "#/components/parameters/ExternalKey"
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        $ref: "#/components/requestBodies/NodeCreate"
+      responses:
+        "200":
+          $ref: "#/components/responses/NodeSuccess"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "422":
+          $ref: "#/components/responses/UnprocessableContent"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "502":
+          $ref: "#/components/responses/BadGateway"
+        "504":
+          $ref: "#/components/responses/GatewayTimeout"
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: SUBMAN_API_TOKEN
+      description: |
+        One owner-managed bearer token for trusted backend callers. This token
+        has full access to the documented node API and must be sent only over TLS.
+  parameters:
+    NodeId:
+      name: id
+      in: path
+      required: true
+      description: Opaque SubMan node ID.
+      schema:
+        type: string
+        minLength: 1
+      example: a0000000-0000-4000-8000-000000000001
+    ExternalKey:
+      name: externalKey
+      in: path
+      required: true
+      description: |
+        Stable caller-owned resource key. Encode it as one URL path segment.
+        The decoded, trimmed value must be non-empty and at most 256 UTF-8 bytes.
+      schema:
+        type: string
+        minLength: 1
+        x-maxUtf8Bytes: 256
+      example: vps-1-vless-reality
+    IfMatch:
+      name: If-Match
+      in: header
+      required: false
+      description: |
+        Optional optimistic concurrency guard. Send a strong ETag previously
+        returned by a node response, or `*` to accept any current revision.
+        A stale or weak validator returns 412 precondition_failed and the current
+        Workspace revision in the error envelope.
+      schema:
+        type: string
+      examples:
+        exactRevision:
+          value: '"subman-revision-12"'
+        anyRevision:
+          value: "*"
+  headers:
+    WorkspaceETag:
+      description: Strong opaque validator for the returned Workspace revision.
+      required: true
+      schema:
+        type: string
+        pattern: '^"subman-revision-[0-9]+"$'
+      example: '"subman-revision-12"'
+    WorkspaceRevision:
+      description: Decimal form of the returned Workspace revision.
+      required: true
+      schema:
+        type: integer
+        minimum: 0
+      example: 12
+    NoStore:
+      description: Workspace API responses must not be stored by shared or private caches.
+      required: true
+      schema:
+        type: string
+        const: no-store
+      example: no-store
+    RetryAfter:
+      description: Minimum number of seconds before retrying a rate-limited upstream operation.
+      schema:
+        type: integer
+        minimum: 0
+      example: 60
+  requestBodies:
+    NodeCreate:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/NodeCreateInput"
+          examples:
+            vless:
+              value:
+                name: vps-1 vless
+                type: vless
+                raw: vless://example
+                enabled: true
+                tags: [sing-box-vps, auto]
+                source: single
+    NodePatch:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/NodePatchInput"
+          examples:
+            disableAndRename:
+              value:
+                name: vps-1 disabled
+                enabled: false
+  responses:
+    NodeListSuccess:
+      description: The current remote node collection and Workspace revision.
+      headers:
+        ETag:
+          $ref: "#/components/headers/WorkspaceETag"
+        X-SubMan-Revision:
+          $ref: "#/components/headers/WorkspaceRevision"
+        Cache-Control:
+          $ref: "#/components/headers/NoStore"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/NodeListResponse"
+    NodeSuccess:
+      description: The node and the remotely committed or read Workspace revision.
+      headers:
+        ETag:
+          $ref: "#/components/headers/WorkspaceETag"
+        X-SubMan-Revision:
+          $ref: "#/components/headers/WorkspaceRevision"
+        Cache-Control:
+          $ref: "#/components/headers/NoStore"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/NodeResponse"
+    NodeCreated:
+      description: The node was remotely committed in a new Workspace revision.
+      headers:
+        ETag:
+          $ref: "#/components/headers/WorkspaceETag"
+        X-SubMan-Revision:
+          $ref: "#/components/headers/WorkspaceRevision"
+        Cache-Control:
+          $ref: "#/components/headers/NoStore"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/NodeResponse"
+    NodeDeleted:
+      description: The node deletion and tombstone were remotely committed.
+      headers:
+        ETag:
+          $ref: "#/components/headers/WorkspaceETag"
+        X-SubMan-Revision:
+          $ref: "#/components/headers/WorkspaceRevision"
+        Cache-Control:
+          $ref: "#/components/headers/NoStore"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/NodeDeleteResponse"
+    BadRequest:
+      description: Malformed JSON or invalid request fields.
+      $ref: "#/components/responses/ErrorResponse"
+    Unauthorized:
+      description: Missing or invalid SUBMAN_API_TOKEN.
+      $ref: "#/components/responses/ErrorResponse"
+    Forbidden:
+      description: The Worker GitHub token lacks permission for the upstream operation.
+      $ref: "#/components/responses/ErrorResponse"
+    NotFound:
+      description: The node or upstream Workspace was not found.
+      $ref: "#/components/responses/ErrorResponse"
+    Conflict:
+      description: Revision, tombstone, duplicate URI, or other domain conflict.
+      $ref: "#/components/responses/ErrorResponse"
+    PreconditionFailed:
+      description: If-Match does not match the current Workspace revision.
+      $ref: "#/components/responses/ErrorResponse"
+    PayloadTooLarge:
+      description: The streamed JSON request body exceeds 9 MiB.
+      $ref: "#/components/responses/ErrorResponse"
+    UnsupportedMediaType:
+      description: Content-Type is not application/json or a +json media type.
+      $ref: "#/components/responses/ErrorResponse"
+    UnprocessableContent:
+      description: The Workspace schema or an upstream validation result is unsupported.
+      $ref: "#/components/responses/ErrorResponse"
+    RateLimited:
+      description: GitHub rate limited the operation; follow Retry-After when present.
+      headers:
+        Retry-After:
+          $ref: "#/components/headers/RetryAfter"
+        Cache-Control:
+          $ref: "#/components/headers/NoStore"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    InternalError:
+      description: Required Worker configuration or an internal coordinator operation failed.
+      $ref: "#/components/responses/ErrorResponse"
+    BadGateway:
+      description: A GitHub I/O or verification operation failed.
+      $ref: "#/components/responses/ErrorResponse"
+    GatewayTimeout:
+      description: The bounded GitHub operation timed out.
+      $ref: "#/components/responses/ErrorResponse"
+    ErrorResponse:
+      description: Stable machine-readable API error.
+      headers:
+        Cache-Control:
+          $ref: "#/components/headers/NoStore"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+  schemas:
+    HealthResponse:
+      type: object
+      additionalProperties: false
+      required: [ok, config]
+      properties:
+        ok:
+          type: boolean
+        config:
+          type: object
+          additionalProperties: false
+          required: [githubToken, submanApiToken]
+          properties:
+            githubToken:
+              type: boolean
+            submanApiToken:
+              type: boolean
+    ProxyType:
+      type: string
+      enum: [vless, vmess, trojan, ss, ssr, hysteria2, tuic, anytls, other]
+    SourceType:
+      type: string
+      enum: [single, subscription]
+    NodeTag:
+      type: object
+      additionalProperties: false
+      required: [id, label]
+      properties:
+        id:
+          type: string
+          minLength: 1
+        label:
+          type: string
+          minLength: 1
+          x-maxUtf8Bytes: 128
+    NodeTagInput:
+      oneOf:
+        - type: string
+          minLength: 1
+          x-maxUtf8Bytes: 128
+        - type: object
+          required: [label]
+          properties:
+            id:
+              type: string
+              minLength: 1
+            label:
+              type: string
+              minLength: 1
+              x-maxUtf8Bytes: 128
+    Node:
+      type: object
+      additionalProperties: false
+      required: [id, name, type, raw, tags, enabled, updatedAt, source]
+      properties:
+        id:
+          type: string
+          minLength: 1
+        name:
+          type: string
+          minLength: 1
+          x-maxUtf8Bytes: 256
+        type:
+          $ref: "#/components/schemas/ProxyType"
+        raw:
+          type: string
+          minLength: 1
+          x-maxUtf8Bytes: 16384
+        tags:
+          type: array
+          maxItems: 64
+          items:
+            $ref: "#/components/schemas/NodeTag"
+        enabled:
+          type: boolean
+        updatedAt:
+          type: string
+          format: date-time
+        source:
+          $ref: "#/components/schemas/SourceType"
+    NodeCreateInput:
+      type: object
+      description: |
+        Duplicate names receive a timestamp suffix. A trimmed raw URI already
+        owned by another node is rejected with 409 duplicate_node_raw.
+      required: [name, type, raw]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          x-maxUtf8Bytes: 256
+        type:
+          $ref: "#/components/schemas/ProxyType"
+        raw:
+          type: string
+          minLength: 1
+          x-maxUtf8Bytes: 16384
+        tags:
+          type: array
+          maxItems: 64
+          default: []
+          description: Tags in the reserved `external:` namespace are rejected.
+          items:
+            $ref: "#/components/schemas/NodeTagInput"
+        enabled:
+          type: boolean
+          default: true
+        source:
+          allOf:
+            - $ref: "#/components/schemas/SourceType"
+          default: single
+    NodePatchInput:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          x-maxUtf8Bytes: 256
+        type:
+          $ref: "#/components/schemas/ProxyType"
+        raw:
+          type: string
+          minLength: 1
+          x-maxUtf8Bytes: 16384
+        tags:
+          type: array
+          maxItems: 64
+          description: Replaces all tags. The reserved `external:` namespace is rejected.
+          items:
+            $ref: "#/components/schemas/NodeTagInput"
+        enabled:
+          type: boolean
+        source:
+          $ref: "#/components/schemas/SourceType"
+    WorkspaceMetadata:
+      type: object
+      additionalProperties: false
+      required: [gistId, file, revision]
+      properties:
+        gistId:
+          type: string
+          minLength: 1
+        file:
+          type: string
+          const: subman.json
+        revision:
+          type: integer
+          minimum: 0
+    NodeListResponse:
+      type: object
+      additionalProperties: false
+      required: [data, workspace]
+      properties:
+        data:
+          type: array
+          maxItems: 5000
+          items:
+            $ref: "#/components/schemas/Node"
+        workspace:
+          $ref: "#/components/schemas/WorkspaceMetadata"
+    NodeResponse:
+      type: object
+      additionalProperties: false
+      required: [data, workspace]
+      properties:
+        data:
+          $ref: "#/components/schemas/Node"
+        workspace:
+          $ref: "#/components/schemas/WorkspaceMetadata"
+    NodeDeleteResponse:
+      type: object
+      additionalProperties: false
+      required: [data, workspace]
+      properties:
+        data:
+          type: object
+          additionalProperties: false
+          required: [deleted]
+          properties:
+            deleted:
+              type: boolean
+              const: true
+        workspace:
+          $ref: "#/components/schemas/WorkspaceMetadata"
+    WorkspaceFailureDisposition:
+      type: string
+      enum:
+        - state-conflict
+        - domain-conflict
+        - auth-required
+        - queue-corruption
+        - operator-repair
+        - retryable-upstream
+        - permanent-upstream
+        - invalid-request
+    ApiErrorCode:
+      type: string
+      enum:
+        - bad_request
+        - invalid_json
+        - payload_too_large
+        - unsupported_media_type
+        - unauthorized
+        - not_found
+        - precondition_failed
+        - invalid_mutation
+        - workspace_size_limit
+        - workspace_mismatch
+        - revision_conflict
+        - entity_deleted
+        - entity_not_found
+        - entity_exists
+        - duplicate_node_raw
+        - duplicate_subscription_url
+        - output_file_conflict
+        - publication_file_mismatch
+        - workspace_not_found
+        - invalid_bootstrap_marker
+        - migration_backup_conflict
+        - mutation_id_reused
+        - mutation_recovery_failed
+        - gist_read_failed
+        - gist_write_failed
+        - write_verification_failed
+        - commit_index_failed
+        - invalid_gateway_response
+        - invalid_journal_record
+        - invalid_workspace_document
+        - unsupported_schema
+        - server_error
+    GitHubGatewayMetadata:
+      type: object
+      additionalProperties: false
+      required:
+        - operation
+        - status
+        - category
+        - requestId
+        - retryAfter
+        - rateLimitReset
+      properties:
+        operation:
+          type: string
+          enum: [gist.read, gist.raw.read, gist.patch]
+        status:
+          type: [integer, "null"]
+          minimum: 100
+          maximum: 599
+        category:
+          type: string
+          enum:
+            - authentication
+            - authorization
+            - not-found
+            - conflict
+            - validation
+            - rate-limit
+            - timeout
+            - network
+            - upstream
+            - invalid-response
+            - http
+        requestId:
+          type: [string, "null"]
+        retryAfter:
+          type: [integer, "null"]
+          minimum: 0
+          description: Retry delay in seconds when supplied by GitHub.
+        rateLimitReset:
+          type: [integer, "null"]
+          minimum: 0
+          description: GitHub rate-limit reset as Unix epoch seconds.
+    ApiError:
+      type: object
+      additionalProperties: false
+      required: [code, message, disposition]
+      properties:
+        code:
+          $ref: "#/components/schemas/ApiErrorCode"
+          description: Stable machine-readable code. Do not branch on message text.
+        message:
+          type: string
+        disposition:
+          $ref: "#/components/schemas/WorkspaceFailureDisposition"
+        gateway:
+          $ref: "#/components/schemas/GitHubGatewayMetadata"
+    ErrorWorkspaceMetadata:
+      type: object
+      additionalProperties: false
+      required: [revision]
+      properties:
+        revision:
+          type: integer
+          minimum: 0
+    ErrorEnvelope:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          $ref: "#/components/schemas/ApiError"
+        workspace:
+          $ref: "#/components/schemas/ErrorWorkspaceMetadata"

@@ -2,8 +2,9 @@
 
 [中文 README](README.md)
 
-A Gist-first, frontend-only subscription manager for VLESS/VMess and more.
-The core idea is to manage data and publish stable subscriptions within a single GitHub Workspace Gist.
+A Gist-first, browser-oriented subscription manager for VLESS/VMess and more.
+SvelteKit runs on Cloudflare Workers, and one SQLite-backed Durable Object per
+Workspace serializes writes to a single GitHub Workspace Gist.
 
 Default workspace identity:
 - Description: `SubMan-Data`
@@ -11,7 +12,8 @@ Default workspace identity:
 
 ## Key Features
 - Workspace Gist: finds or creates the fixed workspace Gist after token setup
-- Local and cloud modes: localStorage only without token; auto sync with Gist when token is present
+- Local and cloud modes: transactional IndexedDB business state in the browser;
+  automatic Gist synchronization when a token and Workspace binding are active
 - Conflict handling and repair: local overwrite, remote overwrite, merge, or bind only; health check and config repair
 - Auto sync: browser changes enter a persistent queue and a Cloudflare Durable Object commits them in revision order
 - Nodes and subscriptions: add, edit, enable/disable, tag, search, and filter
@@ -90,7 +92,8 @@ The `/auth` page shows conflict-resolution options:
 
 - Pull Remote: replace the local view with remote data.
 - Push Local: write current local data to the Gist.
-- Merge & Save: merge local and remote items by `updatedAt`, then save.
+- Merge & Save: perform a three-way, tombstone-aware merge against the trusted
+  baseline. Client `updatedAt` values do not grant overwrite authority.
 - Bind only: bind the workspace without syncing immediately.
 
 ## Development
@@ -114,7 +117,8 @@ bun run dev:cf
 ## Server API
 SubMan can expose owner-operated API endpoints for backend scripts such as
 `sing-box-vps`. See the full API reference in
-[docs/api/server-api.md](docs/api/server-api.md).
+[docs/api/server-api.md](docs/api/server-api.md) and the machine-readable
+[OpenAPI 3.1 contract](docs/api/openapi.yaml).
 
 Usage flow:
 
@@ -146,23 +150,37 @@ configured.
 6. Use `SUBMAN_API_TOKEN` from your backend script to sync a node:
 
 ```bash
-curl -sS -X PUT "https://subman.example.com/api/nodes/by-key/vps-1-vless" \
+curl --fail-with-body -sS -X PUT "https://subman.example.com/api/nodes/by-key/vps-1-vless" \
   -H "Authorization: Bearer $SUBMAN_API_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"name":"vps-1 vless","type":"vless","raw":"vless://...","enabled":true,"tags":["sing-box-vps"]}'
 ```
 
-Scripts should prefer `PUT /api/nodes/by-key/:externalKey` because it is
-idempotent: repeated calls with the same `externalKey` update the existing node
-instead of creating duplicates.
+Scripts should prefer `PUT /api/nodes/by-key/:externalKey` because one stable
+`externalKey` always addresses the same node instead of creating duplicates.
+This is resource-identity idempotency, not request-replay idempotency: every
+successful update may advance the Workspace revision, and the API does not
+currently support `Idempotency-Key`.
 When nodes are created or updated through either the UI or API, duplicate names
 receive a timestamp suffix so aggregate filtering remains distinguishable.
 Duplicate raw URIs are treated as duplicate content and rejected.
 
 `GITHUB_TOKEN` stays in Cloudflare Secrets. External scripts do not need and
 should not hold the GitHub token.
-The first API version is intended for trusted backend scripts, so it does not
-enable broad browser CORS by default.
+Node API `2xx` responses mean the coordinator committed and read-back verified
+the remote Workspace. Responses include an `ETag` and `X-SubMan-Revision`;
+clients may send that ETag in `If-Match` on a write and receive
+`412 precondition_failed` when it is stale.
+
+`SUBMAN_API_TOKEN` is one shared, full-access bearer without scopes, per-client
+revocation, or caller rate limits. Give it only to trusted backend scripts over
+TLS and rotate it periodically. CORS is not an authentication boundary.
+
+The supported public integration surface currently covers health and node
+CRUD/external-key updates only. Subscriptions, aggregates, publication, and
+exports do not yet have public REST endpoints. External programs must not PATCH
+the Gist directly or call the internal browser mutation route at
+`/api/workspaces/:workspaceId/mutations`.
 
 ## AI / Agent Adaptation
 This repository includes project context and a skill for automation agents such

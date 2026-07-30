@@ -119,7 +119,8 @@ bun run dev:cf
 
 ## Server API
 SubMan 可以为 `sing-box-vps` 这类后端脚本提供自用 API。完整接口文档见
-[docs/api/server-api.md](docs/api/server-api.md)。
+[docs/api/server-api.md](docs/api/server-api.md)，机器可读契约见
+[docs/api/openapi.yaml](docs/api/openapi.yaml)。
 
 使用步骤：
 
@@ -150,19 +151,31 @@ curl -sS "https://subman.example.com/api/health"
 6. 在后端脚本中使用 `SUBMAN_API_TOKEN` 同步节点：
 
 ```bash
-curl -sS -X PUT "https://subman.example.com/api/nodes/by-key/vps-1-vless" \
+curl --fail-with-body -sS -X PUT "https://subman.example.com/api/nodes/by-key/vps-1-vless" \
   -H "Authorization: Bearer $SUBMAN_API_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"name":"vps-1 vless","type":"vless","raw":"vless://...","enabled":true,"tags":["sing-box-vps"]}'
 ```
 
-推荐脚本使用 `PUT /api/nodes/by-key/:externalKey`，因为它是幂等接口：同一个
-`externalKey` 重复调用会更新已有节点，不会产生重复节点。
+推荐脚本使用 `PUT /api/nodes/by-key/:externalKey`，因为同一个 `externalKey`
+始终定位同一个节点，不会产生重复节点。它是资源身份幂等，不是请求重放幂等：
+每次成功更新仍会推进 Workspace revision；当前 API 不支持 `Idempotency-Key`。
 通过 UI 或 API 新增/更新节点时，同名会自动追加时间后缀以便聚合筛选区分；
 相同原始 URI 会被视为重复内容并拒绝保存。
 
+节点 API 的 `2xx` 表示协调器已经提交并回读验证远端 Workspace。成功响应包含
+`ETag: "subman-revision-<revision>"` 和 `X-SubMan-Revision`；写请求可携带上一轮
+响应的 `ETag` 作为 `If-Match`，过期时返回 `412 precondition_failed`，避免基于旧版本更新。
+网络中断后不要盲目重放 `POST` 或 `DELETE`；先读取节点和 revision，再按完整文档中的
+方法级重试规则处理。
+
 `GITHUB_TOKEN` 只保存在 Cloudflare Secrets 中，外部脚本不需要也不应该持有 GitHub Token。
-第一版 API 面向可信后端脚本调用，不默认开放浏览器跨域访问。
+`SUBMAN_API_TOKEN` 是单一全权限共享 Bearer，不提供 scope、单客户端撤销或内置调用方限流；
+只应通过 TLS 交给可信后端脚本，并定期轮换。CORS 不是鉴权边界。
+
+当前受支持的公共集成面仅包括健康检查和节点 CRUD/按 external key 更新。订阅、聚合、
+发布与导出尚无公共 REST API；外部程序不得直接 PATCH Gist，也不得调用浏览器内部的
+`/api/workspaces/:workspaceId/mutations` 协议。
 
 ## 浏览器存储与安全
 

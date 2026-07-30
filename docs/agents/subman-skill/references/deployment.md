@@ -99,6 +99,8 @@ Follow `docs/workspace-v2-operations.md`. In particular:
   export while using the verified V1 transaction paths.
 - Keep the Durable Object namespace and SQLite records during rollback.
 
-The browser UI can still run in localStorage-only mode without a GitHub token.
+The browser UI can still run in local mode without a GitHub token. Business
+state remains in the `subman-workspace` IndexedDB database; only explicit token
+persistence uses localStorage.
 The trusted Server API always depends on Worker secrets and the
 `WORKSPACE_COORDINATOR` binding.

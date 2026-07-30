@@ -7,6 +7,22 @@ or updating nodes in the SubMan workspace.
 The API runs inside the existing SvelteKit app on Cloudflare Workers. It writes
 to the same Workspace Gist used by the browser UI.
 
+The machine-readable source for schemas, operation IDs, parameters, response
+headers, and examples is [`openapi.yaml`](openapi.yaml).
+
+## Supported Surface And Compatibility
+
+The supported public API consists of `GET /api/health` and the node endpoints
+documented below. The current unversioned paths are the first compatibility
+generation: compatible changes should remain additive. A future breaking
+contract must use a new versioned path or an explicitly negotiated version.
+
+Subscriptions, aggregate rules, publication, output files, and client exports do
+not yet have public REST endpoints. External callers must not PATCH the Gist or
+call `/api/workspaces/:workspaceId/mutations`. That route is an internal browser
+transport with a different credential and mutation envelope and has no public
+compatibility guarantee.
+
 ## Base URL
 
 Use the origin where SubMan is deployed:
@@ -27,7 +43,10 @@ Authorization: Bearer <SUBMAN_API_TOKEN>
 ```
 
 `SUBMAN_API_TOKEN` is your own SubMan API token. It is separate from the GitHub
-token and is safe to give to trusted automation scripts.
+token, but it is one shared full-access bearer: there are no scopes, per-client
+identities, per-client revocation, or built-in caller rate limits. Give it only
+to trusted backend scripts over TLS, keep it out of URLs and logs, and rotate it
+periodically. CORS is not an authentication boundary.
 
 ## Server Configuration
 
@@ -66,6 +85,11 @@ latest document, applies one mutation, and commits `subman.json` in a verified
 Gist PATCH. Browser and Server API writes therefore share the same ordering,
 idempotency, tombstone, and conflict rules.
 
+The public Node API is synchronous. A `2xx` response means the coordinator
+committed and read-back verified the remote Workspace. Browser completion states
+such as `local-durable-queued`, `peer-owned`, and `retry-scheduled` do not apply
+to public API callers.
+
 The first write to a V1 Workspace preserves the exact original bytes as
 `subman.v1.backup.json` before committing V2. See
 `docs/workspace-v2-operations.md` for migration and rollback procedures.
@@ -77,10 +101,21 @@ For JSON requests:
 ```http
 Authorization: Bearer <SUBMAN_API_TOKEN>
 Content-Type: application/json
+If-Match: "subman-revision-12"
 ```
 
-The API is intended for backend scripts. It does not enable broad browser CORS
-by default.
+`If-Match` is optional on writes. Use the strong ETag from a previous successful
+node response to prevent a stale read-modify-write. `If-Match: *` means the
+caller does not require a specific revision. A stale or weak validator returns
+`412 precondition_failed` and the current revision.
+
+Every successful node response includes:
+
+```http
+ETag: "subman-revision-13"
+X-SubMan-Revision: 13
+Cache-Control: no-store
+```
 
 ## Data Types
 
@@ -218,8 +253,14 @@ Error responses:
 Errors always use a stable `code` and `disposition`. A GitHub failure may add a
 bounded `gateway` object containing only operation, status, category, request ID,
 retry-after, and rate-limit reset. Raw GitHub response bodies, credentials,
-exception messages, and stacks are never returned. Only `state-conflict` may
-include a validated latest Workspace document and revision.
+exception messages, stacks, and Workspace documents are never returned. A
+conflict may add only `{ "workspace": { "revision": 13 } }`. Branch on `code`
+and `disposition`, not the human-readable `message`.
+
+When safe GitHub metadata includes `retryAfter`, the response also carries the
+standard `Retry-After` header. The `gateway` object is optional: discovery/read
+failures that occur before coordinator submission may return a sanitized 502
+without upstream metadata.
 
 ## Request And Domain Limits
 
@@ -297,7 +338,8 @@ Response:
   ],
   "workspace": {
     "gistId": "gist-id",
-    "file": "subman.json"
+    "file": "subman.json",
+    "revision": 12
   }
 }
 ```
@@ -316,7 +358,7 @@ creating separate records for the same machine-managed node.
 Example:
 
 ```bash
-curl -sS -X POST "https://subman.example.com/api/nodes" \
+curl --fail-with-body -sS -X POST "https://subman.example.com/api/nodes" \
   -H "Authorization: Bearer $SUBMAN_API_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"name":"vps-1 vless","type":"vless","raw":"vless://...","enabled":true,"tags":["manual"]}'
@@ -346,9 +388,10 @@ PATCH /api/nodes/:id
 Example:
 
 ```bash
-curl -sS -X PATCH "https://subman.example.com/api/nodes/node-id" \
+curl --fail-with-body -sS -X PATCH "https://subman.example.com/api/nodes/node-id" \
   -H "Authorization: Bearer $SUBMAN_API_TOKEN" \
   -H "Content-Type: application/json" \
+  -H 'If-Match: "subman-revision-12"' \
   -d '{"enabled":false,"name":"vps-1 disabled"}'
 ```
 
@@ -363,7 +406,7 @@ Deletes the node and removes its id from aggregate rule `nodeIds`.
 Example:
 
 ```bash
-curl -sS -X DELETE "https://subman.example.com/api/nodes/node-id" \
+curl --fail-with-body -sS -X DELETE "https://subman.example.com/api/nodes/node-id" \
   -H "Authorization: Bearer $SUBMAN_API_TOKEN"
 ```
 
@@ -376,7 +419,8 @@ Response:
   },
   "workspace": {
     "gistId": "gist-id",
-    "file": "subman.json"
+    "file": "subman.json",
+    "revision": 13
   }
 }
 ```
@@ -387,9 +431,11 @@ Response:
 PUT /api/nodes/by-key/:externalKey
 ```
 
-This is the recommended endpoint for automation scripts. It is idempotent:
-running the same command again updates the existing node instead of creating a
-duplicate.
+This is the recommended endpoint for automation scripts. One stable
+`externalKey` addresses one node, so repeated calls update that resource instead
+of creating duplicates. This is resource-identity idempotency, not request
+replay idempotency: each successful update may change `updatedAt` and advance the
+Workspace revision. The API does not support `Idempotency-Key`.
 
 It still follows normal node validation: duplicate names are made unique, and a
 raw URI that already belongs to a different node is rejected with
@@ -407,10 +453,14 @@ Choose a stable `externalKey`, for example:
 - `hostname-vless-reality`
 - `server-id-protocol-port`
 
+URL-encode the path segment and keep the decoded value within 256 UTF-8 bytes.
+The `external:` tag label namespace is reserved for this identity mapping; do not
+use it for unrelated caller tags.
+
 Example:
 
 ```bash
-curl -sS -X PUT "https://subman.example.com/api/nodes/by-key/vps-1-vless" \
+curl --fail-with-body -sS -X PUT "https://subman.example.com/api/nodes/by-key/vps-1-vless" \
   -H "Authorization: Bearer $SUBMAN_API_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"name":"vps-1 vless","type":"vless","raw":"vless://...","enabled":true,"tags":["sing-box-vps"]}'
@@ -425,16 +475,68 @@ set -euo pipefail
 SUBMAN_BASE_URL="https://subman.example.com"
 SUBMAN_API_TOKEN="${SUBMAN_API_TOKEN:?SUBMAN_API_TOKEN is required}"
 
-HOSTNAME="$(hostname)"
-NODE_KEY="${HOSTNAME}-vless-reality"
-NODE_NAME="${HOSTNAME} vless reality"
+NODE_HOSTNAME="$(hostname)"
+NODE_KEY="${NODE_HOSTNAME}-vless-reality"
+NODE_NAME="${NODE_HOSTNAME} vless reality"
 NODE_RAW="vless://..."
 
-curl -fsS -X PUT "${SUBMAN_BASE_URL}/api/nodes/by-key/${NODE_KEY}" \
+PAYLOAD="$(jq -cn \
+  --arg name "${NODE_NAME}" \
+  --arg raw "${NODE_RAW}" \
+  '{name: $name, type: "vless", raw: $raw, enabled: true, tags: ["sing-box-vps", "auto"]}')"
+
+curl --fail-with-body -sS -X PUT "${SUBMAN_BASE_URL}/api/nodes/by-key/${NODE_KEY}" \
   -H "Authorization: Bearer ${SUBMAN_API_TOKEN}" \
   -H "Content-Type: application/json" \
-  -d "{\"name\":\"${NODE_NAME}\",\"type\":\"vless\",\"raw\":\"${NODE_RAW}\",\"enabled\":true,\"tags\":[\"sing-box-vps\",\"auto\"]}"
+  --data-binary "${PAYLOAD}"
 ```
+
+Use a URL encoder when `NODE_KEY` is not already limited to unreserved URL
+characters. A JSON serializer such as `jq` is required when values are dynamic;
+do not build JSON by string interpolation.
+
+## TypeScript Integration Example
+
+```ts
+type SubManResult = {
+  error?: { code: string; disposition: string };
+};
+
+const response = await fetch(
+  `${submanOrigin}/api/nodes/by-key/${encodeURIComponent(externalKey)}`,
+  {
+    method: "PUT",
+    headers: {
+      Authorization: `Bearer ${submanApiToken}`,
+      "Content-Type": "application/json",
+      ...(previousEtag ? { "If-Match": previousEtag } : {}),
+    },
+    body: JSON.stringify(node),
+  },
+);
+const result = (await response.json()) as SubManResult;
+if (!response.ok) {
+  if (!result.error) throw new Error(`Unexpected HTTP ${response.status}`);
+  throw new Error(`${result.error.code}: ${result.error.disposition}`);
+}
+const committedEtag = response.headers.get("etag");
+```
+
+Production integrations should map stable codes/dispositions to typed outcomes
+instead of throwing a generic error as this compact example does.
+
+## Retry Matrix
+
+| Method | Known non-commit failure | Unknown outcome or lost response |
+| --- | --- | --- |
+| `GET` | Retry `retryable-upstream` with bounded backoff. | Retry safely. |
+| `PUT .../by-key` | Retry `retryable-upstream`; honor `Retry-After`. | GET first. Blind replay can advance revision again. |
+| `PATCH` | Re-read on state conflict; retry only after reapplying intent. | GET first and compare the node plus revision. |
+| `POST` | Correct validation/domain errors before a new request. | Do not blindly retry; a node may already exist. |
+| `DELETE` | Resolve tombstone/not-found responses as current state. | GET first; repeated delete is not request-idempotent. |
+
+The API does not accept `Idempotency-Key`. `If-Match` protects optimistic
+concurrency but does not make an unknown-outcome request safe to replay.
 
 ## Status Codes
 
@@ -447,7 +549,9 @@ curl -fsS -X PUT "${SUBMAN_BASE_URL}/api/nodes/by-key/${NODE_KEY}" \
 | `401` | `unauthorized` | Missing or invalid `SUBMAN_API_TOKEN`. |
 | `401` / `403` | `gist_read_failed` / `gist_write_failed` | GitHub authentication or permission failed; reconnect or repair the Worker secret. |
 | `404` | `not_found` | Requested node id does not exist. |
+| `404` | `entity_not_found` | A write targeted a node that does not exist. |
 | `404` | `workspace_not_found` | The configured Workspace Gist no longer exists. |
+| `412` | `precondition_failed` | `If-Match` does not match the current Workspace revision. |
 | `409` | `duplicate_node_raw` | Submitted raw URI already belongs to another node. |
 | `409` | `revision_conflict` | Another mutation committed after this request loaded the Workspace; retry from the latest revision. |
 | `409` | `entity_deleted` | A stale write attempted to restore a tombstoned entity. |
@@ -464,12 +568,17 @@ curl -fsS -X PUT "${SUBMAN_BASE_URL}/api/nodes/by-key/${NODE_KEY}" \
 
 - Keep `GITHUB_TOKEN` only in Cloudflare Secrets.
 - Give backend scripts only `SUBMAN_API_TOKEN`.
-- Rotate `SUBMAN_API_TOKEN` if a script host is compromised.
+- Rotate `SUBMAN_API_TOKEN` periodically and immediately if a script host is
+  compromised.
 - The Durable Object serializes concurrent mutations and rejects stale
   revisions, but GitHub Gist remains a low-frequency storage backend.
 - Retry only `retryable-upstream` responses with bounded backoff and safe
-  `Retry-After`/rate-limit metadata. A `revision_conflict` is `state-conflict`:
-  reload current state and deliberately reissue an idempotent operation rather
-  than blindly replaying an old revision. Prefer external-key upsert for retries.
-- CORS is intentionally not opened for arbitrary browser origins in this API
-  version.
+  `Retry-After`/rate-limit metadata. A `revision_conflict` or
+  `precondition_failed` is `state-conflict`: reload current state and
+  deliberately reapply the intent.
+- `GET` is safe to retry. After an unknown write outcome, re-read before acting:
+  `PUT .../by-key` can advance revision again, `PATCH` can reapply a change,
+  `POST` can create another node, and repeated `DELETE` can return a tombstone or
+  not-found conflict.
+- CORS is intentionally not opened for arbitrary browser origins and must not be
+  treated as access control.

@@ -44,6 +44,12 @@ vless, vmess, trojan, ss, ssr, hysteria2, tuic, anytls, other
 - `src/lib/gist.ts`: GitHub Gist API client.
 - `src/lib/workspace-browser-mutation.ts`: translate browser store actions to
   mutations.
+- `src/lib/workspace-persistence.ts`: transactional browser snapshot, binding,
+  queue, retry, repair, and lease boundary.
+- `src/lib/workspace-operation-result.ts`: authoritative browser operation
+  completion states.
+- `src/lib/workspace-operation-presenter.ts`: the shared UI interpretation
+  boundary for completion results.
 - `src/lib/workspace-mutation-queue.ts`: persistent ordered browser queue.
 - `src/lib/workspace-mutation-sync.ts`: committed-state persistence, optimistic
   replay, and conflict pausing.
@@ -54,6 +60,7 @@ vless, vmess, trojan, ss, ssr, hysteria2, tuic, anytls, other
 - `src/lib/merge.ts`: conflict merge behavior.
 - `src/lib/server/api/*`: server API auth, env, node mutation, workspace access,
   and error envelopes.
+- `docs/api/openapi.yaml`: machine-readable public Server API contract.
 
 ## Development Notes
 
@@ -61,5 +68,9 @@ vless, vmess, trojan, ss, ssr, hysteria2, tuic, anytls, other
 - Keep shared business rules in `src/lib` rather than duplicating them in route
   components.
 - Server API and browser writes use the same coordinator and revision contract.
+- Public Node API success is synchronous: `2xx` proves a verified remote commit.
+  Browser queue completion states do not apply to public API callers.
+- `/api/workspaces/:workspaceId/mutations` is an internal browser transport, not
+  a public integration endpoint.
 - See `docs/workspace-v2-operations.md` before migration, deployment, or
   rollback work.
