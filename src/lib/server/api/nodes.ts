@@ -65,18 +65,30 @@ function tagIdFromLabel(label: string): string {
 		.replace(/^-+|-+$/g, "");
 }
 
+function rejectReservedExternalTag(label: string): void {
+	if (label.toLowerCase().startsWith(EXTERNAL_KEY_TAG_PREFIX)) {
+		throw new ApiError(
+			400,
+			"bad_request",
+			"external: tag namespace is reserved",
+		);
+	}
+}
+
 function normalizeTag(value: unknown): NodeTag {
 	if (typeof value === "string") {
 		const label = value.trim();
 		if (!label) {
 			throw new ApiError(400, "bad_request", "tag label is required");
 		}
+		rejectReservedExternalTag(label);
 		return { id: tagIdFromLabel(label) || crypto.randomUUID(), label };
 	}
 
 	if (value && typeof value === "object") {
 		const tag = value as Partial<NodeTag>;
 		const label = requireString(tag.label, "tag label");
+		rejectReservedExternalTag(label);
 		const id =
 			typeof tag.id === "string" && tag.id.trim()
 				? tag.id.trim()

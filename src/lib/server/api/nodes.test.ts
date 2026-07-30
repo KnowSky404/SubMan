@@ -6,6 +6,7 @@ import {
 	applyNodePatch,
 	applyNodeUpsertByExternalKey,
 	EXTERNAL_KEY_TAG_PREFIX,
+	parseNodePatchPayload,
 	parseNodePayload,
 } from "./nodes";
 
@@ -79,6 +80,25 @@ describe("parseNodePayload", () => {
 		expect(() => parseNodePayload({ name: "vps-1", type: "vless" })).toThrow(
 			"raw is required",
 		);
+	});
+
+	it("reserves external-key tags for the by-key route", () => {
+		for (const tags of [
+			["external:vps-1"],
+			[{ id: "claimed", label: "EXTERNAL:vps-1" }],
+		]) {
+			expect(() =>
+				parseNodePayload({
+					name: "vps-1",
+					type: "vless",
+					raw: "vless://example",
+					tags,
+				}),
+			).toThrow("external: tag namespace is reserved");
+			expect(() => parseNodePatchPayload({ tags })).toThrow(
+				"external: tag namespace is reserved",
+			);
+		}
 	});
 });
 
