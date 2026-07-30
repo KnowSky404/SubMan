@@ -1,7 +1,12 @@
 import { readBoundedJson } from "$lib/server/api/bounded-json";
 import { ApiError } from "$lib/server/api/errors";
 import { parseNodePayload } from "$lib/server/api/nodes";
-import { handleApiError, requireApiAccess } from "$lib/server/api/routes";
+import {
+	assertWorkspacePrecondition,
+	handleApiError,
+	requireApiAccess,
+	workspaceJson,
+} from "$lib/server/api/routes";
 import {
 	createServerMutationIdentity,
 	loadServerWorkspace,
@@ -20,14 +25,17 @@ export async function GET({
 	try {
 		const githubToken = await requireApiAccess(request, platform);
 		const workspace = await loadServerWorkspace(githubToken);
-		return Response.json({
-			data: workspace.data.nodes,
-			workspace: {
-				gistId: workspace.gist.id,
-				file: WORKSPACE_FILE_NAME,
-				revision: workspace.revision,
+		return workspaceJson(
+			{
+				data: workspace.data.nodes,
+				workspace: {
+					gistId: workspace.gist.id,
+					file: WORKSPACE_FILE_NAME,
+					revision: workspace.revision,
+				},
 			},
-		});
+			workspace.revision,
+		);
 	} catch (error) {
 		return handleApiError(error);
 	}
@@ -44,6 +52,7 @@ export async function POST({
 		const githubToken = await requireApiAccess(request, platform);
 		const payload = parseNodePayload(await readBoundedJson(request));
 		const workspace = await loadServerWorkspace(githubToken);
+		assertWorkspacePrecondition(request, workspace.revision);
 		const nodeId = crypto.randomUUID();
 		const mutation = {
 			...createServerMutationIdentity(workspace),
@@ -60,7 +69,7 @@ export async function POST({
 		if (!node)
 			throw new ApiError(500, "server_error", "Node was not committed");
 
-		return Response.json(
+		return workspaceJson(
 			{
 				data: node,
 				workspace: {
@@ -69,6 +78,7 @@ export async function POST({
 					revision: result.committedRevision,
 				},
 			},
+			result.committedRevision,
 			{ status: 201 },
 		);
 	} catch (error) {

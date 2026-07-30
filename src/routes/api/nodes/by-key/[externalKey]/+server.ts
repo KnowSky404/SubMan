@@ -1,7 +1,12 @@
 import { readBoundedJson } from "$lib/server/api/bounded-json";
 import { ApiError } from "$lib/server/api/errors";
 import { parseNodePayload } from "$lib/server/api/nodes";
-import { handleApiError, requireApiAccess } from "$lib/server/api/routes";
+import {
+	assertWorkspacePrecondition,
+	handleApiError,
+	requireApiAccess,
+	workspaceJson,
+} from "$lib/server/api/routes";
 import {
 	createServerMutationIdentity,
 	loadServerWorkspace,
@@ -28,6 +33,7 @@ export async function PUT({
 		const githubToken = await requireApiAccess(request, platform);
 		const payload = parseNodePayload(await readBoundedJson(request));
 		const workspace = await loadServerWorkspace(githubToken);
+		assertWorkspacePrecondition(request, workspace.revision);
 		const nodeId = crypto.randomUUID();
 		const mutation = {
 			...createServerMutationIdentity(workspace),
@@ -52,14 +58,17 @@ export async function PUT({
 		if (!node)
 			throw new ApiError(500, "server_error", "Node was not committed");
 
-		return Response.json({
-			data: node,
-			workspace: {
-				gistId: workspace.gist.id,
-				file: WORKSPACE_FILE_NAME,
-				revision: result.committedRevision,
+		return workspaceJson(
+			{
+				data: node,
+				workspace: {
+					gistId: workspace.gist.id,
+					file: WORKSPACE_FILE_NAME,
+					revision: result.committedRevision,
+				},
 			},
-		});
+			result.committedRevision,
+		);
 	} catch (error) {
 		return handleApiError(error);
 	}

@@ -1,7 +1,12 @@
 import { readBoundedJson } from "$lib/server/api/bounded-json";
 import { ApiError } from "$lib/server/api/errors";
 import { parseNodePatchPayload } from "$lib/server/api/nodes";
-import { handleApiError, requireApiAccess } from "$lib/server/api/routes";
+import {
+	assertWorkspacePrecondition,
+	handleApiError,
+	requireApiAccess,
+	workspaceJson,
+} from "$lib/server/api/routes";
 import {
 	createServerMutationIdentity,
 	loadServerWorkspace,
@@ -26,7 +31,17 @@ export async function GET({
 		if (!node) {
 			throw new ApiError(404, "not_found", "Node not found");
 		}
-		return Response.json({ data: node });
+		return workspaceJson(
+			{
+				data: node,
+				workspace: {
+					gistId: workspace.gist.id,
+					file: WORKSPACE_FILE_NAME,
+					revision: workspace.revision,
+				},
+			},
+			workspace.revision,
+		);
 	} catch (error) {
 		return handleApiError(error);
 	}
@@ -45,6 +60,7 @@ export async function PATCH({
 		const githubToken = await requireApiAccess(request, platform);
 		const payload = parseNodePatchPayload(await readBoundedJson(request));
 		const workspace = await loadServerWorkspace(githubToken);
+		assertWorkspacePrecondition(request, workspace.revision);
 		const mutation = {
 			...createServerMutationIdentity(workspace),
 			kind: "node.upsert",
@@ -61,14 +77,17 @@ export async function PATCH({
 		);
 		if (!node)
 			throw new ApiError(500, "server_error", "Node was not committed");
-		return Response.json({
-			data: node,
-			workspace: {
-				gistId: workspace.gist.id,
-				file: WORKSPACE_FILE_NAME,
-				revision: result.committedRevision,
+		return workspaceJson(
+			{
+				data: node,
+				workspace: {
+					gistId: workspace.gist.id,
+					file: WORKSPACE_FILE_NAME,
+					revision: result.committedRevision,
+				},
 			},
-		});
+			result.committedRevision,
+		);
 	} catch (error) {
 		return handleApiError(error);
 	}
@@ -86,6 +105,7 @@ export async function DELETE({
 	try {
 		const githubToken = await requireApiAccess(request, platform);
 		const workspace = await loadServerWorkspace(githubToken);
+		assertWorkspacePrecondition(request, workspace.revision);
 		const mutation = {
 			...createServerMutationIdentity(workspace),
 			kind: "node.delete",
@@ -97,14 +117,17 @@ export async function DELETE({
 			workspace.gist,
 			mutation,
 		);
-		return Response.json({
-			data: { deleted: true },
-			workspace: {
-				gistId: workspace.gist.id,
-				file: WORKSPACE_FILE_NAME,
-				revision: result.committedRevision,
+		return workspaceJson(
+			{
+				data: { deleted: true },
+				workspace: {
+					gistId: workspace.gist.id,
+					file: WORKSPACE_FILE_NAME,
+					revision: result.committedRevision,
+				},
 			},
-		});
+			result.committedRevision,
+		);
 	} catch (error) {
 		return handleApiError(error);
 	}

@@ -53,6 +53,9 @@ describe("Workspace failure disposition", () => {
 	});
 
 	it("classifies transport failures without a stable coordinator code", () => {
+		expect(classifyWorkspaceFailure({ code: "precondition_failed" })).toBe(
+			"state-conflict",
+		);
 		expect(classifyWorkspaceFailure({ status: 401 })).toBe("auth-required");
 		expect(classifyWorkspaceFailure({ status: 403 })).toBe("auth-required");
 		expect(classifyWorkspaceFailure({ status: 408 })).toBe(

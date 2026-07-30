@@ -152,8 +152,17 @@ export async function submitServerWorkspaceMutation(
 	}
 	if (response.ok) return response.result;
 	throw new ApiError(
-		getWorkspaceCoordinatorErrorStatus(response.error.code),
+		getWorkspaceCoordinatorErrorStatus(
+			response.error.code,
+			response.error.gateway,
+		),
 		response.error.code,
 		response.error.message,
+		{
+			...(response.error.gateway ? { gateway: response.error.gateway } : {}),
+			...(response.error.revision !== undefined
+				? { revision: response.error.revision }
+				: {}),
+		},
 	);
 }

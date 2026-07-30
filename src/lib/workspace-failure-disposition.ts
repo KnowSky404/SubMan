@@ -52,6 +52,9 @@ export function classifyWorkspaceFailure({
 	status,
 	hasTrustedLatestDocument = false,
 }: WorkspaceFailureInput): WorkspaceFailureDisposition {
+	if (code === "precondition_failed") {
+		return "state-conflict";
+	}
 	if (code === "unauthorized" || status === 401 || status === 403) {
 		return "auth-required";
 	}

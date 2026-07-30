@@ -231,5 +231,44 @@ describe("Server API coordinator submission", () => {
 		}
 		expect((failure as { status?: number }).status).toBe(409);
 		expect((failure as { code?: string }).code).toBe("revision_conflict");
+		expect((failure as { details?: unknown }).details).toEqual({ revision: 5 });
+	});
+
+	it("preserves safe gateway metadata and its HTTP status", async () => {
+		const gateway = {
+			operation: "gist.patch" as const,
+			status: 429,
+			category: "rate-limit" as const,
+			requestId: "request-1",
+			retryAfter: 45,
+			rateLimitReset: 1_780_000_000,
+		};
+		const namespace: WorkspaceCoordinatorNamespace = {
+			getByName() {
+				return {
+					async mutate() {
+						return {
+							ok: false,
+							error: {
+								code: "gist_write_failed",
+								message: "GitHub rate limited the write",
+								gateway,
+							},
+						};
+					},
+				};
+			},
+		};
+
+		let failure: unknown;
+		try {
+			await submitServerWorkspaceMutation(namespace, TOKEN, gist(), mutation());
+		} catch (error) {
+			failure = error;
+		}
+
+		expect((failure as { status?: number }).status).toBe(429);
+		expect((failure as { code?: string }).code).toBe("gist_write_failed");
+		expect((failure as { details?: unknown }).details).toEqual({ gateway });
 	});
 });
