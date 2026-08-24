@@ -28,6 +28,49 @@ describe("subscription fetch reliability", () => {
 		expect(result.warning).toContain("timed out");
 	});
 
+	it("classifies a timeout while reading a streamed response", async () => {
+		const result = await loadSubscriptionContent(URL, {
+			timeoutMs: 5,
+			fetchImpl: async (_input, init) =>
+				new Response(
+					new ReadableStream<Uint8Array>({
+						start(controller) {
+							init?.signal?.addEventListener("abort", () =>
+								controller.error(new DOMException("aborted", "AbortError")),
+							);
+						},
+					}),
+				),
+		});
+
+		expect(result.error?.code).toBe("timeout");
+		expect(result.warning).toContain("while reading");
+	});
+
+	it("classifies a streamed network failure separately from invalid UTF-8", async () => {
+		const result = await loadSubscriptionContent(URL, {
+			fetchImpl: async () =>
+				new Response(
+					new ReadableStream<Uint8Array>({
+						start(controller) {
+							controller.error(new TypeError("connection reset"));
+						},
+					}),
+				),
+		});
+
+		expect(result.error?.code).toBe("network-or-cors");
+		expect(result.warning).toContain("network");
+	});
+
+	it("treats a successful empty body as an empty subscription", async () => {
+		const result = await loadSubscriptionContent(URL, {
+			fetchImpl: async () => new Response(null),
+		});
+
+		expect(result.error?.code).toBe("empty-subscription");
+	});
+
 	it("stops reading an oversized streamed response", async () => {
 		const result = await loadSubscriptionContent(URL, {
 			maxBytes: 4,

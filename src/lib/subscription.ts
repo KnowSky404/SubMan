@@ -226,7 +226,11 @@ export async function loadSubscriptionContent(
 				`Subscription response is too large; the limit is ${maxBytes} bytes.`,
 			);
 		}
-		const textResult = await readBoundedResponseText(res, maxBytes);
+		const textResult = await readBoundedResponseText(
+			res,
+			maxBytes,
+			controller.signal,
+		);
 		if (!textResult.ok) return failure(textResult.code, textResult.message);
 
 		const text = textResult.text;
@@ -253,20 +257,21 @@ type BoundedTextResult =
 	| { ok: true; text: string }
 	| {
 			ok: false;
-			code: "response-too-large" | "malformed-utf8";
+			code:
+				| "timeout"
+				| "network-or-cors"
+				| "response-too-large"
+				| "malformed-utf8";
 			message: string;
 	  };
 
 async function readBoundedResponseText(
 	response: Response,
 	maxBytes: number,
+	signal?: AbortSignal,
 ): Promise<BoundedTextResult> {
 	if (!response.body) {
-		return {
-			ok: false,
-			code: "malformed-utf8",
-			message: "Subscription response body is unavailable.",
-		};
+		return { ok: true, text: "" };
 	}
 
 	const reader = response.body.getReader();
@@ -275,26 +280,67 @@ async function readBoundedResponseText(
 	let text = "";
 	try {
 		while (true) {
-			const { done, value } = await reader.read();
+			let chunk: ReadableStreamReadResult<Uint8Array>;
+			try {
+				chunk = await reader.read();
+			} catch {
+				if (signal?.aborted) {
+					return {
+						ok: false,
+						code: "timeout",
+						message:
+							"Subscription request timed out while reading the response.",
+					};
+				}
+				return {
+					ok: false,
+					code: "network-or-cors",
+					message:
+						"Subscription response failed due to network or browser CORS policy.",
+				};
+			}
+			const { done, value } = chunk;
 			if (done) break;
 			bytes += value.byteLength;
 			if (bytes > maxBytes) {
-				await reader.cancel();
+				try {
+					await reader.cancel();
+				} catch {
+					// The size limit remains the authoritative classification.
+				}
 				return {
 					ok: false,
 					code: "response-too-large",
 					message: `Subscription response is too large; the limit is ${maxBytes} bytes.`,
 				};
 			}
-			text += decoder.decode(value, { stream: true });
+			try {
+				text += decoder.decode(value, { stream: true });
+			} catch {
+				return {
+					ok: false,
+					code: "malformed-utf8",
+					message: "Subscription response is not valid UTF-8.",
+				};
+			}
 		}
-		text += decoder.decode();
+		try {
+			text += decoder.decode();
+		} catch {
+			return {
+				ok: false,
+				code: "malformed-utf8",
+				message: "Subscription response is not valid UTF-8.",
+			};
+		}
 		return { ok: true, text };
 	} catch {
 		return {
 			ok: false,
-			code: "malformed-utf8",
-			message: "Subscription response is not valid UTF-8.",
+			code: signal?.aborted ? "timeout" : "network-or-cors",
+			message: signal?.aborted
+				? "Subscription request timed out while reading the response."
+				: "Subscription response failed due to network or browser CORS policy.",
 		};
 	} finally {
 		reader.releaseLock();
