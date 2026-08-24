@@ -2,7 +2,8 @@
 
 [中文 README](README.md)
 
-A Gist-first, browser-oriented subscription manager for VLESS/VMess and more.
+A Gist-first, browser-oriented subscription manager for VLESS, VMess, TUIC,
+AnyTLS, and more.
 SvelteKit runs on Cloudflare Workers, and one SQLite-backed Durable Object per
 Workspace serializes writes to a single GitHub Workspace Gist.
 
@@ -19,6 +20,7 @@ Default workspace identity:
 - Nodes and subscriptions: add, edit, enable/disable, tag, search, and filter
 - Batch import: multi-line import with dedupe and preview; supports base64 subscription content
 - Aggregation rules: select nodes/subscriptions, exclude tags, filter by proxy types, regex renaming, region flags
+- sing-box client exports: VLESS, VMess, Trojan, Shadowsocks, Hysteria2, TUIC, and AnyTLS; SSR remains aggregatable but is skipped with a warning
 - Result sorting: support automatic sorting by name, protocol, or region (flags), and fully custom ordering via priority keywords or manual drag-and-drop
 - Custom region rules: custom flag map with built-in template and lookup
 - Publish targets: bind a rule to multiple targets with file name, description, and visibility
@@ -31,20 +33,24 @@ Default workspace identity:
 1. Save a GitHub token in `/auth` (requires `gist` scope) and bind the workspace
 2. Add nodes and subscriptions in `/nodes` (batch import supported)
 3. Build rules in `/aggregate`, configure sorting and renaming, then preview output
-4. Create publish targets and publish to the workspace gist, then copy the stable subscription link
+4. Select an aggregate rule in `/exports`, then preview, copy, or download a sing-box config
+5. Create publish targets and publish to the workspace gist, then copy the stable subscription link
 
 ## Pages
 - `/auth`: workspace settings, conflict handling, health check, import/export, sync status
 - `/gists`: workspace file list, raw link copy, file cleanup
 - `/nodes`: nodes and subscriptions management (search, filters, batch import)
 - `/aggregate`: rule editor, visual drag-and-drop sorting, publish target management, output publishing
+- `/exports`: sing-box client configuration preview, copy, download, and Workspace publishing
 
 ## Aggregation and Publishing
 - Rule options: node/subscription selection, tag exclusions, proxy type filtering, regex renaming map
 - Sorting engine: hybrid sort mode supporting priority keywords and syncing manual preview reordering to config
 - Subscription fetch: pulls subscription URLs at publish time and decodes base64 content when detected
+- Subscription limits: browser fetches use a 15 second timeout and 4 MiB response limit, with separate CORS/network, HTTP, size, encoding, and empty-content states
 - Region flags: detect region keywords in names and prepend flags automatically
 - Preview: line count, protocol hints, warnings, and errors; supports real-time drag-and-drop reordering
+- sing-box export: TUIC and AnyTLS use the current outbound field mappings; SSR and unknown or malformed lines do not block other convertible entries
 - Publish strategy: keep file name for stable links; renames create a new stable link and provide cleanup guidance
 
 ## Workspace Model
@@ -57,6 +63,7 @@ Default workspace identity:
 
 See [Workspace V2 Operations](docs/workspace-v2-operations.md) for deployment,
 migration verification, and rollback.
+See the [Roadmap](docs/ROADMAP.md) for current work and deferred protocol items.
 
 ## FAQ
 
@@ -103,6 +110,18 @@ bun run dev
 bun run preview
 ```
 
+Full local verification:
+
+```bash
+bun test
+bun run check
+bun run lint
+bun run build
+bun run test:cf
+bun run test:e2e
+bun run check:worker-types
+```
+
 ## Cloudflare Workers Deployment
 ```bash
 bun run build
@@ -114,11 +133,19 @@ Local preview for Workers:
 bun run dev:cf
 ```
 
+Worker Observability is enabled with structured logs. Application events use
+an allowlisted set of operation, revision, error-class, and safe GitHub fields;
+Workspace identifiers are hashed, and tokens, raw mutations, full documents,
+outputs, and exception messages are excluded. Regenerate types with
+`bun run generate:worker-types`; the compatibility date should change only
+after the complete runtime gates pass.
+
 ## Server API
 SubMan can expose owner-operated API endpoints for backend scripts such as
 `sing-box-vps`. See the full API reference in
 [docs/api/server-api.md](docs/api/server-api.md) and the machine-readable
-[OpenAPI 3.1 contract](docs/api/openapi.yaml).
+[OpenAPI 3.1 contract](docs/api/openapi.yaml). The staged design for future
+resource endpoints is in the [API Roadmap](docs/api/roadmap.md).
 
 Usage flow:
 
@@ -181,6 +208,9 @@ CRUD/external-key updates only. Subscriptions, aggregates, publication, and
 exports do not yet have public REST endpoints. External programs must not PATCH
 the Gist directly or call the internal browser mutation route at
 `/api/workspaces/:workspaceId/mutations`.
+
+See the [API Roadmap](docs/api/roadmap.md) for the staged design of future
+subscription, aggregate, publication, and export endpoints.
 
 ## AI / Agent Adaptation
 This repository includes project context and a skill for automation agents such

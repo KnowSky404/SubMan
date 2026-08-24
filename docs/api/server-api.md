@@ -23,6 +23,9 @@ call `/api/workspaces/:workspaceId/mutations`. That route is an internal browser
 transport with a different credential and mutation envelope and has no public
 compatibility guarantee.
 
+The staged design for expanding this surface is documented in
+[`roadmap.md`](roadmap.md). It does not change the current supported contract.
+
 ## Base URL
 
 Use the origin where SubMan is deployed:

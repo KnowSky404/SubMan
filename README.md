@@ -2,7 +2,8 @@
 
 [English README](README.en.md)
 
-Gist-first、浏览器优先的代理订阅管理工具，支持 VLESS / VMess 等节点与订阅聚合。
+Gist-first、浏览器优先的代理订阅管理工具，支持 VLESS / VMess / TUIC / AnyTLS
+等节点与订阅聚合。
 SvelteKit 运行在 Cloudflare Workers 上，并由每个 Workspace 一个的 Durable Object
 串行协调写入。核心目标是在一个固定的 GitHub Workspace Gist 内完成数据管理与稳定订阅发布。
 
@@ -19,6 +20,7 @@ SvelteKit 运行在 Cloudflare Workers 上，并由每个 Workspace 一个的 Du
 - 节点与订阅管理：新增、编辑、启用/停用、标签、搜索与过滤
 - 批量导入：支持多行导入节点或订阅，自动去重与预览；支持解析 base64 订阅内容
 - 聚合规则：按节点/订阅选择、排除标签、协议类型过滤、正则表达式重命名、自动区域旗标
+- sing-box 客户端导出：支持 VLESS、VMess、Trojan、Shadowsocks、Hysteria2、TUIC 与 AnyTLS；SSR 保留聚合但导出时给出跳过警告
 - 结果排序：支持按名称、协议、区域（旗标）自动排序，并支持通过关键词优先级或手动拖拽实现完全自定义排序
 - 自定义区域规则：自定义区域旗标映射，内置模板导入与快速查找
 - 发布目标：规则可绑定多个发布目标，支持文件名、描述、可见性设置
@@ -31,20 +33,24 @@ SvelteKit 运行在 Cloudflare Workers 上，并由每个 Workspace 一个的 Du
 1. 在 `/auth` 保存 GitHub Token（需要 `gist` 权限）并绑定 Workspace
 2. 在 `/nodes` 添加节点与订阅（支持批量导入）
 3. 在 `/aggregate` 创建规则，配置排序与重命名并预览输出
-4. 创建发布目标并发布到 Workspace Gist，复制稳定订阅链接
+4. 在 `/exports` 选择聚合规则，预览、复制或下载 sing-box 配置
+5. 创建发布目标并发布到 Workspace Gist，复制稳定订阅链接
 
 ## 页面说明
 - `/auth`：Workspace 设置、冲突处理、健康检查、导入导出、同步状态
 - `/gists`：Workspace 文件列表、raw 链接复制、文件清理
 - `/nodes`：节点与订阅管理（搜索、筛选、批量导入）
 - `/aggregate`：规则编辑、可视化拖拽排序、发布目标管理、聚合输出发布
+- `/exports`：sing-box 客户端配置预览、复制、下载与 Workspace 发布
 
 ## 聚合与发布细节
 - 规则支持：节点/订阅选择、排除标签、协议类型过滤、正则表达式重命名映射
 - 排序引擎：混合排序模式，支持优先级关键词与预览结果手动拖拽同步到配置
 - 订阅内容：发布时拉取订阅链接，自动识别并解码 base64 内容
+- 订阅拉取：浏览器端请求使用 15 秒超时和 4 MiB 响应上限，并区分 CORS/网络、HTTP、大小、编码和空内容问题
 - 区域旗标：可开启自动识别节点名称中的地区关键字并添加旗标
 - 输出预览：提供行数统计、协议识别、警告与错误提示，支持实时拖拽调整顺序
+- sing-box 导出：TUIC 与 AnyTLS 使用当前 sing-box 字段映射；SSR 和未知/非法行不会阻断其他可转换节点
 - 发布策略：保持文件名可维持稳定链接；改名会生成新稳定链接并提示旧文件清理策略
 
 ## Workspace 机制
@@ -57,6 +63,7 @@ SvelteKit 运行在 Cloudflare Workers 上，并由每个 Workspace 一个的 Du
 - 提供健康检查与配置修复入口
 
 部署、迁移验证与回滚流程见 [Workspace V2 Operations](docs/workspace-v2-operations.md)。
+当前阶段与延后项见 [Roadmap](docs/ROADMAP.md)。
 
 ## FAQ
 
@@ -101,6 +108,7 @@ bun run lint
 bun run build
 bun run test:cf
 bun run test:e2e
+bun run check:worker-types
 ```
 
 GitHub Actions 在 `main` push 和 pull request 上执行同一检查链，不读取仓库 Secret，
@@ -117,10 +125,16 @@ bun run deploy
 bun run dev:cf
 ```
 
+Worker 已启用结构化 Observability 日志。应用日志只包含 allowlist 中的
+操作、revision、错误分类和 GitHub 安全元数据；Workspace 标识使用哈希，
+不会记录 Token、原始 mutation、完整文档、输出或异常消息。类型生成使用
+`bun run generate:worker-types`，兼容日期只有在完整运行时门禁通过后才调整。
+
 ## Server API
 SubMan 可以为 `sing-box-vps` 这类后端脚本提供自用 API。完整接口文档见
 [docs/api/server-api.md](docs/api/server-api.md)，机器可读契约见
-[docs/api/openapi.yaml](docs/api/openapi.yaml)。
+[docs/api/openapi.yaml](docs/api/openapi.yaml)，公共 API 的后续资源扩展设计见
+[API Roadmap](docs/api/roadmap.md)。
 
 使用步骤：
 

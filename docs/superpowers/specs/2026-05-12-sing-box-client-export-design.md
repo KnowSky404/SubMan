@@ -234,7 +234,11 @@ The parser should start with protocols already represented in SubMan's node mode
 - Shadowsocks
 - Hysteria2
 
-Protocols in the model but not implemented for sing-box export yet, such as SSR, TUIC, AnyTLS, or `other`, should be skipped with clear warnings until their mapping is implemented.
+The current implementation extends this initial scope with TUIC and AnyTLS
+mapping. ShadowsocksR remains in the model for import and aggregation, but is
+skipped from sing-box output with a clear warning because the upstream
+sing-box outbound is deprecated. `other` and malformed lines remain
+warning-first and are skipped.
 
 The implementation should be structured so more protocols can be added in `uri.ts` without changing the page.
 
