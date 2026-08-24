@@ -34,6 +34,8 @@ vless, vmess, trojan, ss, ssr, hysteria2, tuic, anytls, other
 - `src/routes/nodes/+page.svelte`: nodes and subscriptions.
 - `src/routes/aggregate/+page.svelte`: aggregate rules, sorting, preview,
   publish targets.
+- `src/routes/exports/+page.svelte`: sing-box client preview, copy, download,
+  and Workspace publication.
 - `src/routes/api/health/+server.ts`: server API secret health.
 - `src/routes/api/nodes/+server.ts`: trusted node automation endpoints.
 
@@ -56,11 +58,19 @@ vless, vmess, trojan, ss, ssr, hysteria2, tuic, anytls, other
 - `src/lib/server/workspace-coordinator.ts`: Durable Object RPC boundary.
 - `src/lib/server/workspace-coordinator-core.ts`: the only `subman.json` writer.
 - `src/lib/aggregate.ts`: aggregate output generation.
+- `src/lib/proxy-protocol.ts`: canonical protocol list, scheme detection, and
+  warning-first URI metadata validation.
+- `src/lib/subscription.ts`: bounded browser subscription fetching and stable
+  failure classification.
+- `src/lib/client-export/`: pure sing-box outbound parsers and client config
+  generation; this layer has no UI or GitHub dependency.
 - `src/lib/serialization.ts`: import/export and workspace serialization.
 - `src/lib/merge.ts`: conflict merge behavior.
 - `src/lib/server/api/*`: server API auth, env, node mutation, workspace access,
   and error envelopes.
 - `docs/api/openapi.yaml`: machine-readable public Server API contract.
+- `docs/sing-box-export.md`: current export protocol matrix and browser fetch
+  contract.
 
 ## Development Notes
 

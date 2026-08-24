@@ -31,6 +31,7 @@ and active Workspace binding, revisioned mutations synchronize to the Gist.
 - Workspace V2 operations: `docs/workspace-v2-operations.md`
 - Workspace data reference: `docs/agents/subman-skill/references/workspace-data.md`
 - Automation API reference: `docs/agents/subman-skill/references/server-api.md`
+- sing-box export contract: `docs/sing-box-export.md`
 
 Agents that support skills should load `docs/agents/subman-skill/SKILL.md` when
 working on SubMan deployment, automation, API integration, workspace sync, or

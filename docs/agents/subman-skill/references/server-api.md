@@ -1,8 +1,10 @@
 # SubMan Server API Reference
 
 For full endpoint documentation, see `docs/api/server-api.md`. For schemas and
-code generation, use `docs/api/openapi.yaml`. This file is the short
-agent-facing version for automation work.
+code generation, use `docs/api/openapi.yaml`. The staged design for future
+subscription, aggregate, publication, and export routes is in
+`docs/api/roadmap.md`. This file is the short agent-facing version for
+automation work.
 
 ## Purpose
 

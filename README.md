@@ -64,6 +64,8 @@ SvelteKit 运行在 Cloudflare Workers 上，并由每个 Workspace 一个的 Du
 
 部署、迁移验证与回滚流程见 [Workspace V2 Operations](docs/workspace-v2-operations.md)。
 当前阶段与延后项见 [Roadmap](docs/ROADMAP.md)。
+sing-box 协议矩阵、订阅 CORS/大小限制与导出发布边界见
+[sing-box Export](docs/sing-box-export.md)。
 
 ## FAQ
 
@@ -214,6 +216,7 @@ curl --fail-with-body -sS -X PUT "https://subman.example.com/api/nodes/by-key/vp
 
 - Agent Guide：[docs/agents/subman-agent-guide.md](docs/agents/subman-agent-guide.md)
 - Project Skill：[docs/agents/subman-skill/SKILL.md](docs/agents/subman-skill/SKILL.md)
+- sing-box Export：[docs/sing-box-export.md](docs/sing-box-export.md)
 
 这些文档覆盖 Workspace Gist、Cloudflare Workers 部署、Server API 自动化调用、关键源码路径和开发边界。
 

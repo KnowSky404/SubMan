@@ -64,6 +64,8 @@ Default workspace identity:
 See [Workspace V2 Operations](docs/workspace-v2-operations.md) for deployment,
 migration verification, and rollback.
 See the [Roadmap](docs/ROADMAP.md) for current work and deferred protocol items.
+See [sing-box Export](docs/sing-box-export.md) for the protocol matrix,
+subscription CORS/size limits, and the export publication boundary.
 
 ## FAQ
 
@@ -218,6 +220,7 @@ as Codex and Hermes agents:
 
 - Agent Guide: [docs/agents/subman-agent-guide.md](docs/agents/subman-agent-guide.md)
 - Project Skill: [docs/agents/subman-skill/SKILL.md](docs/agents/subman-skill/SKILL.md)
+- sing-box Export: [docs/sing-box-export.md](docs/sing-box-export.md)
 
 These documents cover the Workspace Gist, Cloudflare Workers deployment, Server
 API automation, key source paths, and development boundaries.
