@@ -375,7 +375,7 @@ describe("sing-box proxy uri parsing", () => {
 
 	it("parses a TUIC URI with transport and TLS options", () => {
 		const result = parseProxyUriToSingBoxOutbound(
-			"tuic://00000000-0000-4000-8000-000000000003:tuic-pass@example.com:443?network=tcp&congestion_control=bbr&udp_relay_mode=native&zero_rtt_handshake=1&heartbeat=10s&sni=tuic.example.com&alpn=h3,hq&allow_insecure=1#TUIC",
+			"tuic://00000000-0000-4000-8000-000000000003:tuic-pass@example.com:443?network=tcp&congestion_control=bbr&udp_relay_mode=native&udp_over_stream=1&zero_rtt_handshake=1&heartbeat=10s&sni=tuic.example.com&alpn=h3,hq&allow_insecure=1#TUIC",
 			"TUIC",
 		);
 
@@ -390,6 +390,7 @@ describe("sing-box proxy uri parsing", () => {
 			network: "tcp",
 			congestion_control: "bbr",
 			udp_relay_mode: "native",
+			udp_over_stream: true,
 			zero_rtt_handshake: true,
 			heartbeat: "10s",
 			tls: {
