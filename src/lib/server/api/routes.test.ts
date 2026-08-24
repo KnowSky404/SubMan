@@ -33,8 +33,10 @@ describe("Server API error logging", () => {
 		expect(logged).toEqual([
 			[
 				JSON.stringify({
-					message: "Unhandled server API error",
-					errorType: "error",
+					source: "subman",
+					event: "api.request.unhandled",
+					operation: "server-api",
+					errorCode: "unhandled-error",
 				}),
 			],
 		]);

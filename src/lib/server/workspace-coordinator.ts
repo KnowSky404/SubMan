@@ -1,4 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
+import { hashWorkspaceId, logWorkerEvent } from "$lib/server/observability";
 import {
 	WorkspaceCoordinatorCore,
 	WorkspaceCoordinatorError,
@@ -14,6 +15,7 @@ import {
 	WorkspaceDocumentError,
 	type WorkspaceDocumentV2,
 } from "$lib/workspace-document";
+import { classifyWorkspaceFailure } from "$lib/workspace-failure-disposition";
 import {
 	type WorkspaceMutation,
 	WorkspaceMutationError,
@@ -89,13 +91,65 @@ export class WorkspaceCoordinator extends DurableObject<Cloudflare.Env> {
 		command: WorkspaceCoordinatorCommand,
 		githubToken: string,
 	): Promise<WorkspaceCoordinatorRpcResponse> {
-		const outcome = await this.core.mutateSettled({
-			githubToken,
-			gistId: command.gistId,
-			mutation: command.mutation,
-		});
-		return outcome.ok
-			? { ok: true, result: outcome.result }
-			: { ok: false, error: rpcError(outcome.error) };
+		const startedAt = Date.now();
+		const requestId = crypto.randomUUID();
+		const workspaceHash = await hashWorkspaceId(`gist:${command.gistId}`);
+		const baseFields = {
+			requestId,
+			operation: "workspace.mutation",
+			...(workspaceHash ? { workspaceHash } : {}),
+			mutationId: command.mutation.mutationId,
+			mutationKind: command.mutation.kind,
+			expectedRevision: command.mutation.expectedRevision,
+		};
+		logWorkerEvent("info", "workspace.mutation.started", baseFields);
+
+		try {
+			const outcome = await this.core.mutateSettled({
+				githubToken,
+				gistId: command.gistId,
+				mutation: command.mutation,
+			});
+			const latencyMs = Date.now() - startedAt;
+			if (outcome.ok) {
+				logWorkerEvent("info", "workspace.mutation.completed", {
+					...baseFields,
+					latencyMs,
+					committedRevision: outcome.result.committedRevision,
+					disposition: outcome.result.status,
+				});
+				return { ok: true, result: outcome.result };
+			}
+
+			const error = rpcError(outcome.error);
+			logWorkerEvent("warn", "workspace.mutation.rejected", {
+				...baseFields,
+				latencyMs,
+				errorCode: error.code,
+				disposition: classifyWorkspaceFailure({
+					code: error.code,
+					status: error.gateway?.status ?? undefined,
+					hasTrustedLatestDocument: Boolean(error.document),
+				}),
+				...(error.gateway
+					? {
+							githubOperation: error.gateway.operation,
+							githubStatus: error.gateway.status,
+							githubCategory: error.gateway.category,
+							githubRequestId: error.gateway.requestId,
+						}
+					: {}),
+			});
+			return { ok: false, error };
+		} catch (error) {
+			const rpc = rpcError(error);
+			logWorkerEvent("error", "workspace.mutation.failed", {
+				...baseFields,
+				latencyMs: Date.now() - startedAt,
+				errorCode: rpc.code,
+				disposition: classifyWorkspaceFailure({ code: rpc.code }),
+			});
+			return { ok: false, error: rpc };
+		}
 	}
 }

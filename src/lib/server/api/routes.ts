@@ -1,3 +1,4 @@
+import { logWorkerEvent } from "$lib/server/observability";
 import { isAuthorized } from "./auth";
 import { getServerApiEnv } from "./env";
 import { ApiError, jsonError } from "./errors";
@@ -56,14 +57,29 @@ export async function requireApiAccess(
 
 export function handleApiError(error: unknown): Response {
 	if (error instanceof ApiError) {
+		logWorkerEvent(
+			error.status >= 500 ? "error" : "warn",
+			"api.request.failed",
+			{
+				operation: "server-api",
+				status: error.status,
+				errorCode: error.code,
+				...(error.details.gateway
+					? {
+							githubOperation: error.details.gateway.operation,
+							githubStatus: error.details.gateway.status,
+							githubCategory: error.details.gateway.category,
+							githubRequestId: error.details.gateway.requestId,
+						}
+					: {}),
+			},
+		);
 		return jsonError(error);
 	}
 
-	console.error(
-		JSON.stringify({
-			message: "Unhandled server API error",
-			errorType: error instanceof Error ? "error" : "unknown",
-		}),
-	);
+	logWorkerEvent("error", "api.request.unhandled", {
+		operation: "server-api",
+		errorCode: error instanceof Error ? "unhandled-error" : "unhandled-unknown",
+	});
 	return jsonError(new ApiError(500, "server_error", "Internal server error"));
 }
