@@ -102,7 +102,7 @@ test("nodes select menus support keyboard navigation", async ({ page }) => {
 	const menu = page.locator('[role="menu"]').last();
 	await expect(menu).toBeVisible();
 	await page.keyboard.press("ArrowDown");
-	await expect(menu.locator('[role="menuitemradio"]').nth(1)).toBeFocused();
+	await expect(menu.locator("button").nth(1)).toBeFocused();
 	await page.keyboard.press("Enter");
 	await expect(menu).toBeHidden();
 	await expect(statusSelect).toContainText("Enabled");

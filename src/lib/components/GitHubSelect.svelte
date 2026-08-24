@@ -48,7 +48,7 @@ function focusMenuOption(offset: number): void {
 		buttonElement?.parentElement?.querySelector<HTMLElement>('[role="menu"]');
 	if (!menu) return;
 	const items = Array.from(
-		menu.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]'),
+		menu.querySelectorAll<HTMLButtonElement>("button:not([disabled])"),
 	).filter((item) => !item.disabled);
 	if (items.length === 0) return;
 	const currentIndex = items.indexOf(
@@ -104,7 +104,7 @@ function handleMenuKeydown(event: KeyboardEvent): void {
 		const menu =
 			buttonElement?.parentElement?.querySelector<HTMLElement>('[role="menu"]');
 		const items = Array.from(
-			menu?.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]') ?? [],
+			menu?.querySelectorAll<HTMLButtonElement>("button:not([disabled])") ?? [],
 		).filter((item) => !item.disabled);
 		(
 			items[event.key === "Home" ? 0 : items.length - 1] as
@@ -156,8 +156,6 @@ function selectValue(nextValue: string) {
 				{#each options as option}
 					<button
 						type="button"
-						role="menuitemradio"
-						aria-checked={value === option.value}
 						tabindex={value === option.value ? 0 : -1}
 						class={cn(
 							"gh-dropdown-item",
