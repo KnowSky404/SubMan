@@ -1,5 +1,44 @@
 import type { ProxyType } from "$lib/models";
 
+export const SUBSCRIPTION_FETCH_LIMITS = {
+	timeoutMs: 15_000,
+	maxBytes: 4 * 1024 * 1024,
+} as const;
+
+export type SubscriptionFetchErrorCode =
+	| "timeout"
+	| "network-or-cors"
+	| "http-4xx"
+	| "http-5xx"
+	| "http-error"
+	| "response-too-large"
+	| "malformed-utf8"
+	| "malformed-base64"
+	| "empty-subscription";
+
+export type SubscriptionFetchError = {
+	code: SubscriptionFetchErrorCode;
+	message: string;
+	status?: number;
+};
+
+export type SubscriptionFetchResult = {
+	content: string;
+	warning?: string;
+	error?: SubscriptionFetchError;
+};
+
+export type SubscriptionFetchImpl = (
+	input: RequestInfo | URL,
+	init?: RequestInit,
+) => Promise<Response>;
+
+export type SubscriptionFetchOptions = {
+	timeoutMs?: number;
+	maxBytes?: number;
+	fetchImpl?: SubscriptionFetchImpl;
+};
+
 const KNOWN_PROXY_TYPES = new Set<ProxyType>([
 	"vless",
 	"vmess",
@@ -163,19 +202,142 @@ export function inferNodeNameFromRaw(
 
 export async function loadSubscriptionContent(
 	url: string,
-): Promise<{ content: string; warning?: string }> {
-	const res = await fetch(url);
-	if (!res.ok) {
-		return { content: "", warning: `Failed to fetch ${url}` };
-	}
+	options: SubscriptionFetchOptions = {},
+): Promise<SubscriptionFetchResult> {
+	const timeoutMs = options.timeoutMs ?? SUBSCRIPTION_FETCH_LIMITS.timeoutMs;
+	const maxBytes = options.maxBytes ?? SUBSCRIPTION_FETCH_LIMITS.maxBytes;
+	const fetchImpl = options.fetchImpl ?? fetch;
+	const controller = new AbortController();
+	const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
-	const text = await res.text();
-	if (looksLikeBase64(text)) {
-		const decoded = decodeBase64Utf8(text);
-		if (decoded?.includes("://")) {
-			return { content: decoded };
+	try {
+		let res: Response;
+		try {
+			res = await fetchImpl(url, { signal: controller.signal });
+		} catch {
+			if (controller.signal.aborted) {
+				return failure(
+					"timeout",
+					`Subscription request timed out after ${timeoutMs} ms.`,
+				);
+			}
+			return failure(
+				"network-or-cors",
+				"Subscription request failed due to network or browser CORS policy.",
+			);
 		}
+
+		if (!res.ok) {
+			const family =
+				res.status >= 500
+					? "http-5xx"
+					: res.status >= 400
+						? "http-4xx"
+						: "http-error";
+			return failure(
+				family,
+				`Subscription returned HTTP ${family === "http-5xx" ? "5xx" : family === "http-4xx" ? "4xx" : "error"} (${res.status}).`,
+				res.status,
+			);
+		}
+
+		const declaredLength = Number(res.headers.get("content-length"));
+		if (Number.isSafeInteger(declaredLength) && declaredLength > maxBytes) {
+			return failure(
+				"response-too-large",
+				`Subscription response is too large; the limit is ${maxBytes} bytes.`,
+			);
+		}
+		const textResult = await readBoundedResponseText(res, maxBytes);
+		if (!textResult.ok) return failure(textResult.code, textResult.message);
+
+		const text = textResult.text;
+		if (!text.trim()) {
+			return failure("empty-subscription", "Subscription response is empty.");
+		}
+
+		const decoded = decodeBase64Utf8(text);
+		if (decoded?.includes("://")) return { content: decoded };
+		if (isMalformedBase64Candidate(text)) {
+			return failure(
+				"malformed-base64",
+				"Subscription contains malformed base64 content.",
+			);
+		}
+
+		return { content: text };
+	} finally {
+		clearTimeout(timeoutId);
+	}
+}
+
+type BoundedTextResult =
+	| { ok: true; text: string }
+	| {
+			ok: false;
+			code: "response-too-large" | "malformed-utf8";
+			message: string;
+	  };
+
+async function readBoundedResponseText(
+	response: Response,
+	maxBytes: number,
+): Promise<BoundedTextResult> {
+	if (!response.body) {
+		return {
+			ok: false,
+			code: "malformed-utf8",
+			message: "Subscription response body is unavailable.",
+		};
 	}
 
-	return { content: text };
+	const reader = response.body.getReader();
+	const decoder = new TextDecoder("utf-8", { fatal: true });
+	let bytes = 0;
+	let text = "";
+	try {
+		while (true) {
+			const { done, value } = await reader.read();
+			if (done) break;
+			bytes += value.byteLength;
+			if (bytes > maxBytes) {
+				await reader.cancel();
+				return {
+					ok: false,
+					code: "response-too-large",
+					message: `Subscription response is too large; the limit is ${maxBytes} bytes.`,
+				};
+			}
+			text += decoder.decode(value, { stream: true });
+		}
+		text += decoder.decode();
+		return { ok: true, text };
+	} catch {
+		return {
+			ok: false,
+			code: "malformed-utf8",
+			message: "Subscription response is not valid UTF-8.",
+		};
+	} finally {
+		reader.releaseLock();
+	}
+}
+
+function isMalformedBase64Candidate(value: string): boolean {
+	const compact = value.trim().replace(/\s+/g, "");
+	if (!compact || compact.includes("://")) return false;
+	if (looksLikeBase64(value)) return true;
+	return /^[A-Za-z0-9+/_-]{4,}[^A-Za-z0-9+/_=-]/.test(compact);
+}
+
+function failure(
+	code: SubscriptionFetchErrorCode,
+	message: string,
+	status?: number,
+): SubscriptionFetchResult {
+	return {
+		content: "",
+		warning: message,
+		error: { code, message, ...(status === undefined ? {} : { status }) },
+	};
 }

@@ -1013,9 +1013,13 @@ export async function buildAggregateOutput(
 	const subscriptionLines: string[] = [];
 	for (const sub of selectedSubs) {
 		try {
-			const { content, warning } = await loadSubscriptionContent(sub.url);
+			const { content, warning, error } = await loadSubscriptionContent(
+				sub.url,
+			);
 			if (warning) {
-				warnings.push(warning);
+				warnings.push(
+					`subscription:${sub.name}:${error?.code ?? "fetch-error"}: ${warning}`,
+				);
 				continue;
 			}
 			if (!content) {
@@ -1024,9 +1028,9 @@ export async function buildAggregateOutput(
 			subscriptionLines.push(
 				...normalizeSubscriptionContent(content).split("\n"),
 			);
-		} catch (err) {
-			errors.push(
-				err instanceof Error ? err.message : `Failed to load ${sub.url}`,
+		} catch {
+			warnings.push(
+				`subscription:${sub.name}:network-or-cors: Subscription request failed due to network or browser CORS policy.`,
 			);
 		}
 	}
