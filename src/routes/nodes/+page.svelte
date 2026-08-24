@@ -103,6 +103,12 @@ let nodeDrafts: Record<
 	{ name: string; type: ProxyType; raw: string; tags: string }
 > = {};
 let subDrafts: Record<string, { name: string; url: string; tags: string }> = {};
+let editDialogElement: HTMLDivElement | null = null;
+let editWasOpen = false;
+let editReturnFocus: HTMLElement | null = null;
+let previewDialogElement: HTMLDivElement | null = null;
+let previewWasOpen = false;
+let previewReturnFocus: HTMLElement | null = null;
 const addFormIds = {
 	nodeName: "node-name",
 	nodeType: "node-type",
@@ -220,6 +226,84 @@ function updateNodeDraftRaw(id: string, value: string) {
 $: nodeUriValidation = nodeRaw.trim()
 	? validateProxyUri(nodeRaw, nodeType)
 	: null;
+
+$: if (editingResource && !editWasOpen) {
+	editWasOpen = true;
+	editReturnFocus =
+		typeof document === "undefined"
+			? null
+			: document.activeElement instanceof HTMLElement
+				? document.activeElement
+				: null;
+	void tick()
+		.then(() => tick())
+		.then(() => focusDialogFirst(editDialogElement));
+} else if (!editingResource && editWasOpen) {
+	editWasOpen = false;
+	editReturnFocus?.focus();
+	editReturnFocus = null;
+}
+
+$: if (previewSubscriptionId && !previewWasOpen) {
+	previewWasOpen = true;
+	previewReturnFocus =
+		typeof document === "undefined"
+			? null
+			: document.activeElement instanceof HTMLElement
+				? document.activeElement
+				: null;
+	void tick()
+		.then(() => tick())
+		.then(() => focusDialogFirst(previewDialogElement));
+} else if (!previewSubscriptionId && previewWasOpen) {
+	previewWasOpen = false;
+	previewReturnFocus?.focus();
+	previewReturnFocus = null;
+}
+
+function dialogFocusable(element: HTMLElement): HTMLElement[] {
+	return Array.from(
+		element.querySelectorAll<HTMLElement>(
+			'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+		),
+	);
+}
+
+function focusDialogFirst(dialog: HTMLElement | null): void {
+	const first =
+		dialog?.querySelector<HTMLElement>(
+			"input:not([disabled]), textarea:not([disabled]), select:not([disabled])",
+		) ?? (dialog ? dialogFocusable(dialog)[0] : null);
+	first?.focus();
+}
+
+function focusOnMount(element: HTMLElement): void {
+	element.focus();
+}
+
+function handleDialogKeydown(
+	event: KeyboardEvent,
+	dialog: HTMLElement | null,
+	close: () => void,
+): void {
+	if (event.key === "Escape") {
+		event.preventDefault();
+		close();
+		return;
+	}
+	if (event.key !== "Tab" || !dialog) return;
+	const focusable = dialogFocusable(dialog);
+	const first = focusable[0];
+	const last = focusable.at(-1);
+	if (!first || !last) return;
+	if (event.shiftKey && document.activeElement === first) {
+		event.preventDefault();
+		last.focus();
+	} else if (!event.shiftKey && document.activeElement === last) {
+		event.preventDefault();
+		first.focus();
+	}
+}
 
 function uniqueNodeName(name: string, excludeId?: string) {
 	return makeUniqueResourceName(
@@ -962,10 +1046,13 @@ async function copy(text: string) {
 	<div class="fixed inset-0 z-[150] flex items-center justify-center p-4">
 		<button type="button" class="fixed inset-0 bg-black/50 backdrop-blur-sm" on:click={closeEditModal} aria-label={$t("Close edit modal")}></button>
 		<div
+			bind:this={editDialogElement}
 			class="gh-box relative flex max-h-[85vh] w-full max-w-2xl flex-col shadow-[var(--shadow-medium)]"
 			role="dialog"
 			aria-modal="true"
 			aria-label={edit.type === "node" ? $t("Edit Node") : $t("Edit Subscription")}
+			tabindex="-1"
+			on:keydown={(event) => handleDialogKeydown(event, editDialogElement, closeEditModal)}
 			in:fly={{ y: 20 }}
 		>
 			<div class="gh-box-header">
@@ -981,7 +1068,7 @@ async function copy(text: string) {
 					<div class="grid grid-cols-1 gap-3 md:grid-cols-2">
 						<div class="flex flex-col gap-1.5">
 							<label class="gh-form-label" for={`node-name-${edit.id}`}>{$t("Name")}</label>
-							<input id={`node-name-${edit.id}`} class="gh-input" bind:value={nodeDrafts[edit.id].name} />
+			<input use:focusOnMount id={`node-name-${edit.id}`} class="gh-input" bind:value={nodeDrafts[edit.id].name} />
 						</div>
 						<div class="flex flex-col gap-1.5">
 							<label class="gh-form-label" for={`node-type-${edit.id}`}>{$t("Protocol")}</label>
@@ -1000,7 +1087,7 @@ async function copy(text: string) {
 					<div class="flex flex-col gap-3">
 						<div class="flex flex-col gap-1.5">
 							<label class="gh-form-label" for={`sub-name-${edit.id}`}>{$t("Name")}</label>
-							<input id={`sub-name-${edit.id}`} class="gh-input" bind:value={subDrafts[edit.id].name} />
+			<input use:focusOnMount id={`sub-name-${edit.id}`} class="gh-input" bind:value={subDrafts[edit.id].name} />
 						</div>
 						<div class="flex flex-col gap-1.5">
 							<label class="gh-form-label" for={`sub-url-${edit.id}`}>{$t("URL")}</label>
@@ -1032,7 +1119,16 @@ async function copy(text: string) {
 	{@const cache = subscriptionPreviewCache[previewSubscriptionId]}
 	<div class="fixed inset-0 z-[150] flex items-center justify-center p-4">
 		<button type="button" class="fixed inset-0 bg-black/50 backdrop-blur-sm" on:click={closeSubscriptionPreview} aria-label={$t("Close subscription preview")}></button>
-		<div class="gh-box relative flex max-h-[80vh] w-full max-w-2xl flex-col shadow-[var(--shadow-medium)]" in:fly={{ y: 20 }}>
+		<div
+			bind:this={previewDialogElement}
+			class="gh-box relative flex max-h-[80vh] w-full max-w-2xl flex-col shadow-[var(--shadow-medium)]"
+			role="dialog"
+			aria-modal="true"
+			aria-label={$t("Subscription Preview")}
+			tabindex="-1"
+			on:keydown={(event) => handleDialogKeydown(event, previewDialogElement, closeSubscriptionPreview)}
+			in:fly={{ y: 20 }}
+		>
 			<div class="gh-box-header">
 				<div class="flex min-w-0 items-center gap-2">
 					<Octicon icon={eye} className="h-4 w-4" />

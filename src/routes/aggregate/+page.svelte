@@ -1,4 +1,5 @@
 <script lang="ts">
+import { tick } from "svelte";
 import { fade, fly, slide } from "svelte/transition";
 import { type DndEvent, dndzone } from "svelte-dnd-action";
 import {
@@ -97,6 +98,9 @@ let subSearchQuery = "";
 // Region Browser State
 let showBuiltInRegionMap = false;
 let builtInRegionMapSearch = "";
+let regionDialogElement: HTMLDivElement | null = null;
+let regionDialogWasOpen = false;
+let regionDialogReturnFocus: HTMLElement | null = null;
 
 type PreviewEntry = {
 	id: string;
@@ -193,6 +197,55 @@ $: filteredRegionRules = BUILT_IN_REGION_FLAG_RULES.filter(
 			k.toLowerCase().includes(builtInRegionMapSearch.toLowerCase()),
 		),
 );
+
+$: if (showBuiltInRegionMap && !regionDialogWasOpen) {
+	regionDialogWasOpen = true;
+	regionDialogReturnFocus =
+		typeof document === "undefined"
+			? null
+			: document.activeElement instanceof HTMLElement
+				? document.activeElement
+				: null;
+	void tick()
+		.then(() => tick())
+		.then(() => {
+			regionDialogElement
+				?.querySelector<HTMLElement>("#aggregate-region-map-search")
+				?.focus();
+		});
+} else if (!showBuiltInRegionMap && regionDialogWasOpen) {
+	regionDialogWasOpen = false;
+	regionDialogReturnFocus?.focus();
+	regionDialogReturnFocus = null;
+}
+
+function handleRegionDialogKeydown(event: KeyboardEvent): void {
+	if (event.key === "Escape") {
+		event.preventDefault();
+		showBuiltInRegionMap = false;
+		return;
+	}
+	if (event.key !== "Tab" || !regionDialogElement) return;
+	const focusable = Array.from(
+		regionDialogElement.querySelectorAll<HTMLElement>(
+			'button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])',
+		),
+	);
+	const first = focusable[0];
+	const last = focusable.at(-1);
+	if (!first || !last) return;
+	if (event.shiftKey && document.activeElement === first) {
+		event.preventDefault();
+		last.focus();
+	} else if (!event.shiftKey && document.activeElement === last) {
+		event.preventDefault();
+		first.focus();
+	}
+}
+
+function focusOnMount(element: HTMLElement): void {
+	element.focus();
+}
 
 $: activeNodeCount = selectedNodeIds.filter((id) =>
 	$appState.nodes.some((n) => n.id === id),
@@ -1492,11 +1545,20 @@ function handleExcludeTagsInput() {
 {#if showBuiltInRegionMap}
 	<div class="fixed inset-0 z-[150] flex items-center justify-center p-4">
 		<button type="button" class="fixed inset-0 bg-black/60 backdrop-blur-sm" on:click={() => (showBuiltInRegionMap = false)} aria-label={$t("Close region flag rules")}></button>
-		<div class="gh-box relative flex max-h-[85vh] w-full max-w-4xl flex-col bg-canvas-default shadow-[var(--shadow-medium)]" in:fly={{ y: 20 }}>
+		<div
+			bind:this={regionDialogElement}
+			class="gh-box relative flex max-h-[85vh] w-full max-w-4xl flex-col bg-canvas-default shadow-[var(--shadow-medium)]"
+			role="dialog"
+			aria-modal="true"
+			aria-labelledby="aggregate-region-dialog-title"
+			tabindex="-1"
+			on:keydown={handleRegionDialogKeydown}
+			in:fly={{ y: 20 }}
+		>
 				<div class="gh-box-header">
 					<div class="flex items-center gap-2">
 						<Octicon icon={globe} className="h-4 w-4" />
-						<span>{$t("Built-in Region Flag Rules")}</span>
+						<span id="aggregate-region-dialog-title">{$t("Built-in Region Flag Rules")}</span>
 					</div>
 					<button type="button" class="gh-icon-button h-7 w-7" on:click={() => (showBuiltInRegionMap = false)} aria-label={$t("Close region flag rules")}><Octicon icon={x} className="h-4 w-4" /></button>
 				</div>
@@ -1505,7 +1567,7 @@ function handleExcludeTagsInput() {
 					<div class="relative">
 						<Octicon icon={search} className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-fg-subtle" />
 						<label class="sr-only" for={fieldIds.builtInRegionMapSearch}>{$t("Search code or keyword")}</label>
-						<input id={fieldIds.builtInRegionMapSearch} class="gh-input pl-9 h-10" placeholder={$t("Search code or keyword...")} bind:value={builtInRegionMapSearch} />
+							<input use:focusOnMount id={fieldIds.builtInRegionMapSearch} class="gh-input pl-9 h-10" placeholder={$t("Search code or keyword...")} bind:value={builtInRegionMapSearch} />
 					</div>
 				</div>
 

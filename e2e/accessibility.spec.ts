@@ -63,3 +63,64 @@ test.describe("basic route accessibility", () => {
 		});
 	}
 });
+
+test("nodes edit dialog traps focus and restores it after Escape", async ({
+	page,
+}) => {
+	await page.goto("/nodes");
+	await page.getByRole("button", { name: "New Resource" }).first().click();
+	await page.locator("#node-name").fill("Accessibility Node");
+	await page
+		.locator("#node-raw")
+		.fill("vless://00000000-0000-4000-8000-000000000001@example.com:443#A11y");
+	await page.getByRole("button", { name: "Save Resource" }).click();
+
+	const editButton = page.getByRole("button", { name: "Edit node" }).first();
+	await expect(editButton).toBeVisible();
+	await editButton.click();
+	const dialog = page.getByRole("dialog", { name: "Edit Node" });
+	await expect(dialog).toBeVisible();
+	await expect(dialog.locator("input").first()).toBeFocused();
+
+	await page.keyboard.press("Shift+Tab");
+	await expect(
+		dialog.getByRole("button", { name: "Close edit modal" }),
+	).toBeFocused();
+	await page.keyboard.press("Shift+Tab");
+	await expect(dialog.getByRole("button", { name: "Save" })).toBeFocused();
+	await page.keyboard.press("Escape");
+	await expect(dialog).toBeHidden();
+	await expect(editButton).toBeFocused();
+});
+
+test("nodes select menus support keyboard navigation", async ({ page }) => {
+	await page.goto("/nodes");
+	const statusSelect = page.locator("#resource-filter-status");
+	await statusSelect.focus();
+	await page.keyboard.press("Enter");
+
+	const menu = page.locator('[role="menu"]').last();
+	await expect(menu).toBeVisible();
+	await page.keyboard.press("ArrowDown");
+	await expect(menu.locator('[role="menuitemradio"]').nth(1)).toBeFocused();
+	await page.keyboard.press("Enter");
+	await expect(menu).toBeHidden();
+	await expect(statusSelect).toContainText("Enabled");
+});
+
+test("aggregate region dialog exposes focus and Escape behavior", async ({
+	page,
+}) => {
+	await page.goto("/aggregate");
+	const openButton = page.getByRole("button", { name: "Browse Icons" });
+	await openButton.click();
+
+	const dialog = page.getByRole("dialog", {
+		name: "Built-in Region Flag Rules",
+	});
+	await expect(dialog).toBeVisible();
+	await expect(page.locator("#aggregate-region-map-search")).toBeFocused();
+	await page.keyboard.press("Escape");
+	await expect(dialog).toBeHidden();
+	await expect(openButton).toBeFocused();
+});
