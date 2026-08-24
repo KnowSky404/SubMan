@@ -91,8 +91,10 @@ export function parseVmess(
 			const value = stringValue(data[source]);
 			if (value) tlsQuery.set(target, value);
 		}
-		const allowInsecure = data.allowInsecure ?? data.allow_insecure;
-		if (typeof allowInsecure === "boolean") {
+		const allowInsecure = booleanValue(
+			data.allowInsecure ?? data.allow_insecure,
+		);
+		if (allowInsecure !== null) {
 			tlsQuery.set("insecure", allowInsecure ? "1" : "0");
 		}
 		if (tlsValue === "tls" || tlsQuery.size > 0) {
@@ -113,7 +115,8 @@ export function parseVmess(
 			if (packetEncoding) outbound.packet_encoding = packetEncoding;
 		}
 
-		const muxEnabled = data.mux === true || data.multiplex === true;
+		const muxValue = data.mux ?? data.multiplex;
+		const muxEnabled = booleanValue(muxValue) === true;
 		if (muxEnabled) {
 			const muxQuery = new URLSearchParams([["mux", "1"]]);
 			const concurrency = stringOrNumber(data.muxConcurrency);
@@ -125,4 +128,16 @@ export function parseVmess(
 	} catch {
 		return `Invalid vmess URI: ${fallbackTag}`;
 	}
+}
+
+function booleanValue(value: unknown): boolean | null {
+	if (typeof value === "boolean") return value;
+	if (typeof value === "number" && (value === 0 || value === 1)) {
+		return value === 1;
+	}
+	if (typeof value !== "string") return null;
+	const normalized = value.trim().toLowerCase();
+	if (["1", "true", "yes", "on"].includes(normalized)) return true;
+	if (["0", "false", "no", "off"].includes(normalized)) return false;
+	return null;
 }

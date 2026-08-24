@@ -478,6 +478,79 @@ describe("sing-box proxy uri parsing", () => {
 		});
 	});
 
+	it("maps VLESS HTTP and HTTPUpgrade transports with network and multiplexing", () => {
+		const http = parseProxyUriToSingBoxOutbound(
+			"vless://00000000-0000-4000-8000-000000000007@example.com:443?security=tls&network=tcp&type=http&host=cdn.example.com&path=%2Fproxy&mux=1&muxConcurrency=4#HTTP",
+			"HTTP",
+		);
+		const httpUpgrade = parseProxyUriToSingBoxOutbound(
+			"vless://00000000-0000-4000-8000-000000000008@example.com:443?security=tls&type=httpupgrade&host=edge.example.com&path=%2Fupgrade#HTTPUpgrade",
+			"HTTPUpgrade",
+		);
+
+		expect(http.warning).toBeNull();
+		expect(http.outbound).toEqual({
+			type: "vless",
+			tag: "HTTP",
+			server: "example.com",
+			server_port: 443,
+			uuid: "00000000-0000-4000-8000-000000000007",
+			network: "tcp",
+			tls: { enabled: true },
+			transport: {
+				type: "http",
+				host: ["cdn.example.com"],
+				path: "/proxy",
+			},
+			multiplex: { enabled: true, max_connections: 4 },
+		});
+		expect(httpUpgrade.warning).toBeNull();
+		expect(httpUpgrade.outbound).toEqual({
+			type: "vless",
+			tag: "HTTPUpgrade",
+			server: "example.com",
+			server_port: 443,
+			uuid: "00000000-0000-4000-8000-000000000008",
+			tls: { enabled: true },
+			transport: {
+				type: "httpupgrade",
+				host: "edge.example.com",
+				path: "/upgrade",
+			},
+		});
+	});
+
+	it("accepts common string VMess mux and TLS verification flags", () => {
+		const payload = {
+			add: "example.com",
+			port: "443",
+			id: "00000000-0000-4000-8000-000000000009",
+			net: "grpc",
+			serviceName: "proxy",
+			tls: "tls",
+			allowInsecure: "1",
+			mux: "1",
+			muxConcurrency: "4",
+		};
+		const encoded = btoa(JSON.stringify(payload));
+		const result = parseProxyUriToSingBoxOutbound(
+			`vmess://${encoded}`,
+			"VMess mux",
+		);
+
+		expect(result.warning).toBeNull();
+		expect(result.outbound).toEqual({
+			type: "vmess",
+			tag: "VMess mux",
+			server: "example.com",
+			server_port: 443,
+			uuid: "00000000-0000-4000-8000-000000000009",
+			transport: { type: "grpc", service_name: "proxy" },
+			tls: { enabled: true, insecure: true },
+			multiplex: { enabled: true, max_connections: 4 },
+		});
+	});
+
 	it("rejects malformed percent and base64 encodings", () => {
 		const malformedPercent = parseProxyUriToSingBoxOutbound(
 			"trojan://bad%ZZ@example.com:443#bad",
