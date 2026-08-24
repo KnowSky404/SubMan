@@ -68,6 +68,14 @@ test("nodes page makes saved resource names unique", () => {
 	expect(nodesPageSource).toContain("formatResourceNameTimestamp()");
 });
 
+test("nodes page uses shared URI validation with a live warning", () => {
+	expect(nodesPageSource).toContain(
+		'import { validateProxyUri } from "$lib/proxy-protocol";',
+	);
+	expect(nodesPageSource).toContain("nodeUriValidation");
+	expect(nodesPageSource).toContain('aria-live="polite"');
+});
+
 test("resource deletion interpolates the target name in confirmation and toast text", () => {
 	expect(nodesPageSource).toContain(
 		'message: $t("Delete {name} forever?", { name }),',

@@ -1,3 +1,4 @@
+import { detectProxyScheme } from "$lib/proxy-protocol";
 import { parseAnyTls } from "./anytls";
 import { type ProtocolParseResult, parseProxyUrl } from "./common";
 import { parseHysteria2 } from "./hysteria2";
@@ -31,8 +32,7 @@ export function parseProxyUriToSingBoxOutbound(
 	fallbackTag: string,
 ): UriParseResult {
 	const normalized = raw.trim();
-	const match = normalized.match(/^([a-z][a-z0-9+.-]*):\/\//i);
-	const protocol = match?.[1]?.toLowerCase() ?? "";
+	const protocol = detectProxyScheme(normalized) ?? "";
 	if (!protocol) return warning(`Invalid proxy URI: ${fallbackTag}`);
 	if (protocol === "ssr") {
 		return warning(`Skipped ShadowsocksR outbound: ${fallbackTag}`);

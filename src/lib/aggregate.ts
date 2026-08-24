@@ -4,6 +4,7 @@ import type {
 	SortMode,
 	SubscriptionItem,
 } from "$lib/models";
+import { inferProxyTypeFromRaw } from "$lib/proxy-protocol";
 import {
 	loadSubscriptionContent,
 	normalizeSubscriptionContent,
@@ -22,16 +23,6 @@ export type RegionFlagRule = {
 	keywords: string[];
 };
 
-const KNOWN_PROXY_TYPES = new Set([
-	"vless",
-	"vmess",
-	"trojan",
-	"ss",
-	"ssr",
-	"hysteria2",
-	"tuic",
-	"anytls",
-]);
 const LEADING_FLAG_REGEX = /^(?:[\u{1F1E6}-\u{1F1FF}]{2})\s*/u;
 const CUSTOM_REGION_RULE_LINE_REGEX = /^([A-Za-z]{2})\s*=\s*(.+)$/;
 export const BUILT_IN_REGION_FLAG_RULES: RegionFlagRule[] = [
@@ -863,21 +854,7 @@ function getLineName(rawLine: string): string | null {
 }
 
 function inferTypeFromLine(line: string): NodeItem["type"] {
-	const index = line.indexOf("://");
-	if (index <= 0) {
-		return "other";
-	}
-
-	const scheme = line.slice(0, index).toLowerCase();
-	if (scheme === "hy2") {
-		return "hysteria2";
-	}
-
-	if (KNOWN_PROXY_TYPES.has(scheme)) {
-		return scheme as NodeItem["type"];
-	}
-
-	return "other";
+	return inferProxyTypeFromRaw(line);
 }
 
 function filterByAllowedTypes(

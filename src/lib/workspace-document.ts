@@ -12,6 +12,7 @@ import type {
 	SourceType,
 	SubscriptionItem,
 } from "$lib/models";
+import { PROXY_TYPES } from "$lib/proxy-protocol";
 import { resolveLegacyExcludeTags } from "$lib/tags";
 import type { SyncBaselineEnvelope } from "$lib/workspace-data";
 
@@ -70,17 +71,7 @@ export function isValidWorkspaceBootstrapMarker(content: string): boolean {
 	}
 }
 
-const PROXY_TYPES = new Set<ProxyType>([
-	"vless",
-	"vmess",
-	"trojan",
-	"ss",
-	"ssr",
-	"hysteria2",
-	"tuic",
-	"anytls",
-	"other",
-]);
+const PROXY_TYPE_SET = new Set<ProxyType>(PROXY_TYPES);
 const SOURCE_TYPES = new Set<SourceType>(["single", "subscription"]);
 const SORT_MODES = new Set<SortMode>(["none", "name", "type", "region"]);
 const PUBLISH_TRANSITION_OUTCOMES = new Set<PublishTransitionOutcome>([
@@ -308,7 +299,7 @@ function parseNode(value: unknown, path: string): NodeItem {
 	return {
 		id: string(input.id, `${path}.id`),
 		name: string(input.name, `${path}.name`),
-		type: enumValue(input.type, `${path}.type`, PROXY_TYPES),
+		type: enumValue(input.type, `${path}.type`, PROXY_TYPE_SET),
 		raw: string(input.raw, `${path}.raw`),
 		tags,
 		enabled: boolean(input.enabled, `${path}.enabled`),
@@ -387,7 +378,7 @@ function parseAggregate(
 			input.allowedTypes === undefined
 				? []
 				: array(input.allowedTypes, `${path}.allowedTypes`, (entry, itemPath) =>
-						enumValue(entry, itemPath, PROXY_TYPES),
+						enumValue(entry, itemPath, PROXY_TYPE_SET),
 					),
 		updatedAt: timestamp(input.updatedAt, `${path}.updatedAt`),
 	};

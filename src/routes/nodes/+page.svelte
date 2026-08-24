@@ -27,6 +27,7 @@ import {
 	trash,
 	x,
 } from "$lib/octicons";
+import { validateProxyUri } from "$lib/proxy-protocol";
 import {
 	findDuplicateNodeRaw,
 	findDuplicateSubscriptionUrl,
@@ -215,6 +216,10 @@ function updateNodeDraftRaw(id: string, value: string) {
 	draft.raw = value;
 	draft.type = inferNodeTypeFromDraft(value, draft.type);
 }
+
+$: nodeUriValidation = nodeRaw.trim()
+	? validateProxyUri(nodeRaw, nodeType)
+	: null;
 
 function uniqueNodeName(name: string, excludeId?: string) {
 	return makeUniqueResourceName(
@@ -722,6 +727,11 @@ async function copy(text: string) {
 							<label class="gh-form-label" for={activeTab === "nodes" ? addFormIds.nodeRaw : addFormIds.subUrl}>{activeTab === "nodes" ? $t("Raw URI") : $t("URL")}</label>
 							{#if activeTab === "nodes"}
 								<textarea id={addFormIds.nodeRaw} class="gh-input gh-textarea font-mono" placeholder="vless://..." value={nodeRaw} on:input={(event) => updateSingleNodeRaw(event.currentTarget.value)}></textarea>
+								{#if nodeUriValidation && nodeUriValidation.issues.length > 0}
+									<p class="text-xs text-attention-fg" aria-live="polite">
+										{$t("URI warning: {issues}", { issues: nodeUriValidation.issues.join(", ") })}
+									</p>
+								{/if}
 							{:else}
 								<textarea id={addFormIds.subUrl} class="gh-input gh-textarea font-mono" placeholder="https://..." bind:value={subUrl}></textarea>
 							{/if}

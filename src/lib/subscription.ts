@@ -1,4 +1,5 @@
 import type { ProxyType } from "$lib/models";
+import { inferProxyTypeFromRaw } from "$lib/proxy-protocol";
 
 export const SUBSCRIPTION_FETCH_LIMITS = {
 	timeoutMs: 15_000,
@@ -38,18 +39,6 @@ export type SubscriptionFetchOptions = {
 	maxBytes?: number;
 	fetchImpl?: SubscriptionFetchImpl;
 };
-
-const KNOWN_PROXY_TYPES = new Set<ProxyType>([
-	"vless",
-	"vmess",
-	"trojan",
-	"ss",
-	"ssr",
-	"hysteria2",
-	"tuic",
-	"anytls",
-	"other",
-]);
 
 const MULTI_NODE_SCHEME_REGEX =
 	/(vless|vmess|trojan|ssr?|hysteria2|hy2|tuic|anytls):\/\//gi;
@@ -141,18 +130,7 @@ export function extractSubscriptionNodeLines(text: string): string[] {
 }
 
 export function inferNodeTypeFromRaw(raw: string): ProxyType {
-	const index = raw.indexOf("://");
-	if (index <= 0) {
-		return "other";
-	}
-	const scheme = raw.slice(0, index).toLowerCase();
-	if (scheme === "hy2") {
-		return "hysteria2";
-	}
-	if (KNOWN_PROXY_TYPES.has(scheme as ProxyType)) {
-		return scheme as ProxyType;
-	}
-	return "other";
+	return inferProxyTypeFromRaw(raw);
 }
 
 export function inferNodeTypeFromDraft(

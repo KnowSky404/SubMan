@@ -5,6 +5,7 @@ import type {
 	ProxyType,
 	SourceType,
 } from "$lib/models";
+import { PROXY_TYPES } from "$lib/proxy-protocol";
 import {
 	findDuplicateNodeRaw,
 	formatResourceNameTimestamp,
@@ -13,17 +14,7 @@ import {
 import { reconcileWorkspaceState } from "$lib/workspace-data";
 import { ApiError } from "./errors";
 
-const PROXY_TYPES = new Set<ProxyType>([
-	"vless",
-	"vmess",
-	"trojan",
-	"ss",
-	"ssr",
-	"hysteria2",
-	"tuic",
-	"anytls",
-	"other",
-]);
+const PROXY_TYPE_SET = new Set<ProxyType>(PROXY_TYPES);
 
 const SOURCE_TYPES = new Set<SourceType>(["single", "subscription"]);
 
@@ -149,7 +140,7 @@ export function parseNodePayload(input: unknown): NodePayload {
 	const body = input as Record<string, unknown>;
 	const name = requireString(body.name, "name");
 	const typeValue = requireString(body.type, "type");
-	if (!PROXY_TYPES.has(typeValue as ProxyType)) {
+	if (!PROXY_TYPE_SET.has(typeValue as ProxyType)) {
 		throw new ApiError(400, "bad_request", "type is unsupported");
 	}
 
@@ -186,7 +177,7 @@ export function parseNodePatchPayload(input: unknown): NodePatchPayload {
 	}
 	if ("type" in body) {
 		const typeValue = requireString(body.type, "type");
-		if (!PROXY_TYPES.has(typeValue as ProxyType)) {
+		if (!PROXY_TYPE_SET.has(typeValue as ProxyType)) {
 			throw new ApiError(400, "bad_request", "type is unsupported");
 		}
 		patch.type = typeValue as ProxyType;
