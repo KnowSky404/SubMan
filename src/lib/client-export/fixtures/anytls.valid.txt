@@ -1,0 +1,1 @@
+anytls://anytls-pass@example.com:443?sni=anytls.example.com&alpn=h2,http%2F1.1&insecure=1&idle_session_check_interval=30s&idle_session_timeout=45s&min_idle_session=2#AnyTLS%20fixture

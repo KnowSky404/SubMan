@@ -1,0 +1,1 @@
+tuic://00000000-0000-4000-8000-000000000003:tuic-pass@example.com:443?congestion_control=bbr&udp_relay_mode=native&zero_rtt_handshake=1&heartbeat=10s&sni=tuic.example.com&alpn=h3,hq#TUIC%20fixture

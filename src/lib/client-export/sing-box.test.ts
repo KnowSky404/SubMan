@@ -8,6 +8,10 @@ import {
 import { buildSingBoxClientConfig } from "./sing-box";
 import { parseProxyUriToSingBoxOutbound } from "./uri";
 
+declare const Bun: {
+	file(path: URL): { text(): Promise<string> };
+};
+
 describe("sing-box client export profile", () => {
 	it("creates a default profile for an aggregate rule", () => {
 		const profile = createDefaultSingBoxClientProfile(
@@ -125,6 +129,34 @@ describe("sing-box client export profile", () => {
 });
 
 describe("sing-box proxy uri parsing", () => {
+	it("accepts the checked-in TUIC and AnyTLS fixtures", async () => {
+		const tuic = (
+			await Bun.file(
+				new URL("./fixtures/tuic.valid.txt", import.meta.url),
+			).text()
+		).trim();
+		const anytls = (
+			await Bun.file(
+				new URL("./fixtures/anytls.valid.txt", import.meta.url),
+			).text()
+		).trim();
+		const invalidTuic = (
+			await Bun.file(
+				new URL("./fixtures/tuic.invalid.txt", import.meta.url),
+			).text()
+		).trim();
+
+		expect(
+			Boolean(parseProxyUriToSingBoxOutbound(tuic, "fixture").outbound),
+		).toBe(true);
+		expect(
+			Boolean(parseProxyUriToSingBoxOutbound(anytls, "fixture").outbound),
+		).toBe(true);
+		expect(
+			parseProxyUriToSingBoxOutbound(invalidTuic, "fixture").outbound,
+		).toBe(null);
+	});
+
 	it("parses a VLESS reality URI", () => {
 		const result = parseProxyUriToSingBoxOutbound(
 			"vless://00000000-0000-4000-8000-000000000001@example.com:443?security=reality&sni=www.cloudflare.com&pbk=pubkey&sid=abcd&flow=xtls-rprx-vision#HK%20VLESS",
@@ -206,6 +238,26 @@ describe("sing-box proxy uri parsing", () => {
 		});
 	});
 
+	it("maps Shadowsocks SIP003 plugin options and base64 authority form", () => {
+		const encoded = btoa("aes-128-gcm:password@example.com:8388");
+		const result = parseProxyUriToSingBoxOutbound(
+			`ss://${encoded}?plugin=obfs-local%3Bobfs%3Dhttp%3Bobfs-host%3Dcdn.example.com#SS%20Plugin`,
+			"fallback",
+		);
+
+		expect(result.warning).toBeNull();
+		expect(result.outbound).toEqual({
+			type: "shadowsocks",
+			tag: "SS Plugin",
+			server: "example.com",
+			server_port: 8388,
+			method: "aes-128-gcm",
+			password: "password",
+			plugin: "obfs-local",
+			plugin_opts: "obfs=http;obfs-host=cdn.example.com",
+		});
+	});
+
 	it("parses VMess base64 JSON with UTF-8 values", () => {
 		const payload = {
 			add: "example.com",
@@ -239,6 +291,41 @@ describe("sing-box proxy uri parsing", () => {
 		});
 	});
 
+	it("maps VMess WebSocket transport and packet encoding", () => {
+		const payload = {
+			add: "example.com",
+			port: "443",
+			id: "00000000-0000-4000-8000-000000000006",
+			net: "ws",
+			host: "cdn.example.com",
+			path: "/vmess",
+			tls: "tls",
+			sni: "edge.example.com",
+			packetEncoding: "packetaddr",
+		};
+		const encoded = btoa(JSON.stringify(payload));
+		const result = parseProxyUriToSingBoxOutbound(
+			`vmess://${encoded}`,
+			"VMess",
+		);
+
+		expect(result.warning).toBeNull();
+		expect(result.outbound).toEqual({
+			type: "vmess",
+			tag: "VMess",
+			server: "example.com",
+			server_port: 443,
+			uuid: "00000000-0000-4000-8000-000000000006",
+			tls: { enabled: true, server_name: "edge.example.com" },
+			transport: {
+				type: "ws",
+				path: "/vmess",
+				headers: { Host: "cdn.example.com" },
+			},
+			packet_encoding: "packetaddr",
+		});
+	});
+
 	it("parses a Hysteria2 URI", () => {
 		const result = parseProxyUriToSingBoxOutbound(
 			"hysteria2://password@example.com:443?sni=hy2.example.com&obfs=salamander&obfs-password=obfs-pass#HY2",
@@ -263,14 +350,146 @@ describe("sing-box proxy uri parsing", () => {
 		});
 	});
 
-	it("returns a warning for unsupported protocols", () => {
+	it("maps Hysteria2 TLS ALPN and insecure settings", () => {
 		const result = parseProxyUriToSingBoxOutbound(
-			"tuic://token@example.com:443#TUIC",
+			"hy2://password@example.com:443?sni=hy2.example.com&alpn=h3&insecure=1#HY2%20TLS",
+			"fallback",
+		);
+
+		expect(result.warning).toBeNull();
+		expect(result.outbound).toEqual({
+			type: "hysteria2",
+			tag: "HY2 TLS",
+			server: "example.com",
+			server_port: 443,
+			password: "password",
+			tls: {
+				enabled: true,
+				server_name: "hy2.example.com",
+				alpn: ["h3"],
+				insecure: true,
+			},
+		});
+	});
+
+	it("parses a TUIC URI with transport and TLS options", () => {
+		const result = parseProxyUriToSingBoxOutbound(
+			"tuic://00000000-0000-4000-8000-000000000003:tuic-pass@example.com:443?congestion_control=bbr&udp_relay_mode=native&zero_rtt_handshake=1&heartbeat=10s&sni=tuic.example.com&alpn=h3,hq&allow_insecure=1#TUIC",
 			"TUIC",
 		);
 
+		expect(result.warning).toBeNull();
+		expect(result.outbound).toEqual({
+			type: "tuic",
+			tag: "TUIC",
+			server: "example.com",
+			server_port: 443,
+			uuid: "00000000-0000-4000-8000-000000000003",
+			password: "tuic-pass",
+			congestion_control: "bbr",
+			udp_relay_mode: "native",
+			zero_rtt_handshake: true,
+			heartbeat: "10s",
+			tls: {
+				enabled: true,
+				server_name: "tuic.example.com",
+				alpn: ["h3", "hq"],
+				insecure: true,
+			},
+		});
+	});
+
+	it("parses AnyTLS without generating client metadata", () => {
+		const result = parseProxyUriToSingBoxOutbound(
+			"anytls://anytls-pass@example.com:443?sni=anytls.example.com&alpn=h2,http/1.1&insecure=1&idle_session_check_interval=30s&idle_session_timeout=45s&min_idle_session=2#AnyTLS",
+			"AnyTLS",
+		);
+
+		expect(result.warning).toBeNull();
+		expect(result.outbound).toEqual({
+			type: "anytls",
+			tag: "AnyTLS",
+			server: "example.com",
+			server_port: 443,
+			password: "anytls-pass",
+			idle_session_check_interval: "30s",
+			idle_session_timeout: "45s",
+			min_idle_session: 2,
+			tls: {
+				enabled: true,
+				server_name: "anytls.example.com",
+				alpn: ["h2", "http/1.1"],
+				insecure: true,
+			},
+		});
+		expect(JSON.stringify(result.outbound)).not.toContain("client_metadata");
+	});
+
+	it("skips ShadowsocksR with a stable warning", () => {
+		const result = parseProxyUriToSingBoxOutbound(
+			"ssr://ignored@example.com:443#SSR",
+			"SSR",
+		);
+
 		expect(result.outbound).toBeNull();
-		expect(result.warning).toContain("Unsupported protocol");
+		expect(result.warning).toBe("Skipped ShadowsocksR outbound: SSR");
+	});
+
+	it("maps VLESS WebSocket and gRPC transports", () => {
+		const websocket = parseProxyUriToSingBoxOutbound(
+			"vless://00000000-0000-4000-8000-000000000004@example.com:443?security=tls&sni=edge.example.com&type=ws&host=cdn.example.com&path=%2Fproxy&alpn=h2,http%2F1.1&allowInsecure=1#WS",
+			"WS",
+		);
+		const grpc = parseProxyUriToSingBoxOutbound(
+			"vless://00000000-0000-4000-8000-000000000005@example.com:443?security=tls&type=grpc&serviceName=proxy&mode=gun#GRPC",
+			"GRPC",
+		);
+
+		expect(websocket.warning).toBeNull();
+		expect(websocket.outbound).toEqual({
+			type: "vless",
+			tag: "WS",
+			server: "example.com",
+			server_port: 443,
+			uuid: "00000000-0000-4000-8000-000000000004",
+			tls: {
+				enabled: true,
+				server_name: "edge.example.com",
+				alpn: ["h2", "http/1.1"],
+				insecure: true,
+			},
+			transport: {
+				type: "ws",
+				path: "/proxy",
+				headers: { Host: "cdn.example.com" },
+			},
+		});
+		expect(grpc.warning).toBeNull();
+		expect(grpc.outbound).toEqual({
+			type: "vless",
+			tag: "GRPC",
+			server: "example.com",
+			server_port: 443,
+			uuid: "00000000-0000-4000-8000-000000000005",
+			tls: { enabled: true },
+			transport: { type: "grpc", service_name: "proxy" },
+		});
+	});
+
+	it("rejects malformed percent and base64 encodings", () => {
+		const malformedPercent = parseProxyUriToSingBoxOutbound(
+			"trojan://bad%ZZ@example.com:443#bad",
+			"bad-percent",
+		);
+		const malformedBase64 = parseProxyUriToSingBoxOutbound(
+			"vmess://%%%",
+			"bad-base64",
+		);
+
+		expect(malformedPercent.outbound).toBeNull();
+		expect(malformedPercent.warning).toContain("Invalid Trojan URI");
+		expect(malformedBase64.outbound).toBeNull();
+		expect(malformedBase64.warning).toContain("Invalid vmess URI");
 	});
 
 	it("returns warnings for missing URL credentials", () => {
@@ -339,7 +558,7 @@ describe("sing-box client config export", () => {
 			id: "node-2",
 			name: "TUIC",
 			type: "tuic",
-			raw: "tuic://token@example.com:443#TUIC",
+			raw: "tuic://00000000-0000-4000-8000-000000000003:tuic-pass@example.com:443#TUIC",
 			tags: [],
 			enabled: true,
 			updatedAt,
@@ -353,9 +572,9 @@ describe("sing-box client config export", () => {
 
 		expect(result.errors).toEqual([]);
 		expect(result.totalLines).toBe(2);
-		expect(result.outbounds).toBe(1);
-		expect(result.skipped).toBe(1);
-		expect(result.warnings[0]).toContain("Unsupported protocol");
+		expect(result.outbounds).toBe(2);
+		expect(result.skipped).toBe(0);
+		expect(result.warnings).toEqual([]);
 
 		const config = result.config as {
 			inbounds: Array<Record<string, unknown>>;
@@ -370,6 +589,7 @@ describe("sing-box client config export", () => {
 		expect(config.outbounds[0].outbounds).toEqual([
 			"auto",
 			"HK VLESS",
+			"TUIC",
 			"direct",
 			"block",
 		]);
@@ -381,9 +601,37 @@ describe("sing-box client config export", () => {
 		).toBe(false);
 		expect(config.outbounds[1].type).toBe("urltest");
 		expect(config.outbounds[1].tag).toBe("auto");
-		expect(config.outbounds[1].outbounds).toEqual(["HK VLESS"]);
+		expect(config.outbounds[1].outbounds).toEqual(["HK VLESS", "TUIC"]);
 		expect(config.route.final).toBe("proxy");
 		expect(JSON.parse(result.content)).toEqual(config);
+	});
+
+	it("skips SSR while keeping supported aggregate entries", async () => {
+		const profile = createDefaultSingBoxClientProfile("rule-1", updatedAt);
+		const ssrRule: AggregateRule = { ...rule, nodeIds: ["node-1", "ssr-node"] };
+		const result = await buildSingBoxClientConfig(
+			profile,
+			ssrRule,
+			[
+				...nodes,
+				{
+					id: "ssr-node",
+					name: "SSR",
+					type: "ssr",
+					raw: "ssr://ignored@example.com:443#SSR",
+					tags: [],
+					enabled: true,
+					updatedAt,
+					source: "single",
+				},
+			],
+			[],
+		);
+
+		expect(result.errors).toEqual([]);
+		expect(result.outbounds).toBe(1);
+		expect(result.skipped).toBe(1);
+		expect(result.warnings).toEqual(["Skipped ShadowsocksR outbound: SSR"]);
 	});
 
 	it("returns a blocking error when every aggregate line is unsupported", async () => {
@@ -392,10 +640,19 @@ describe("sing-box client config export", () => {
 			...rule,
 			nodeIds: ["node-2"],
 		};
+		const unsupportedNodes = nodes.map((node) =>
+			node.id === "node-2"
+				? {
+						...node,
+						type: "ssr" as const,
+						raw: "ssr://ignored@example.com:443#SSR",
+					}
+				: node,
+		);
 		const result = await buildSingBoxClientConfig(
 			profile,
 			unsupportedOnlyRule,
-			nodes,
+			unsupportedNodes,
 			[],
 		);
 
