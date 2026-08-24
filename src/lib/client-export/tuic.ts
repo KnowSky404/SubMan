@@ -33,6 +33,13 @@ export function parseTuic(
 		udp_relay_mode: "native",
 		tls: buildTls(parsed.query),
 	};
+	const network = queryValue(parsed.query, "network");
+	if (network) {
+		if (network !== "tcp" && network !== "udp") {
+			return `Invalid TUIC URI: unsupported network for ${fallbackTag}`;
+		}
+		outbound.network = network;
+	}
 	const congestion = queryValue(parsed.query, "congestion_control");
 	if (congestion) {
 		if (!CONGESTION_CONTROLS.has(congestion)) {

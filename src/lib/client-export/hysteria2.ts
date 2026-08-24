@@ -30,6 +30,13 @@ export function parseHysteria2(
 		password,
 		tls: buildTls(parsed.query),
 	};
+	const network = queryValue(parsed.query, "network");
+	if (network) {
+		if (network !== "tcp" && network !== "udp") {
+			return `Invalid Hysteria2 URI: unsupported network for ${fallbackTag}`;
+		}
+		outbound.network = network;
+	}
 	const obfsPassword = queryValue(
 		parsed.query,
 		"obfs-password",

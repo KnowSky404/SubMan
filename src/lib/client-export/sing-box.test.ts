@@ -328,7 +328,7 @@ describe("sing-box proxy uri parsing", () => {
 
 	it("parses a Hysteria2 URI", () => {
 		const result = parseProxyUriToSingBoxOutbound(
-			"hysteria2://password@example.com:443?sni=hy2.example.com&obfs=salamander&obfs-password=obfs-pass#HY2",
+			"hysteria2://password@example.com:443?network=udp&sni=hy2.example.com&obfs=salamander&obfs-password=obfs-pass#HY2",
 			"fallback",
 		);
 
@@ -339,6 +339,7 @@ describe("sing-box proxy uri parsing", () => {
 			server: "example.com",
 			server_port: 443,
 			password: "password",
+			network: "udp",
 			tls: {
 				enabled: true,
 				server_name: "hy2.example.com",
@@ -374,7 +375,7 @@ describe("sing-box proxy uri parsing", () => {
 
 	it("parses a TUIC URI with transport and TLS options", () => {
 		const result = parseProxyUriToSingBoxOutbound(
-			"tuic://00000000-0000-4000-8000-000000000003:tuic-pass@example.com:443?congestion_control=bbr&udp_relay_mode=native&zero_rtt_handshake=1&heartbeat=10s&sni=tuic.example.com&alpn=h3,hq&allow_insecure=1#TUIC",
+			"tuic://00000000-0000-4000-8000-000000000003:tuic-pass@example.com:443?network=tcp&congestion_control=bbr&udp_relay_mode=native&zero_rtt_handshake=1&heartbeat=10s&sni=tuic.example.com&alpn=h3,hq&allow_insecure=1#TUIC",
 			"TUIC",
 		);
 
@@ -386,6 +387,7 @@ describe("sing-box proxy uri parsing", () => {
 			server_port: 443,
 			uuid: "00000000-0000-4000-8000-000000000003",
 			password: "tuic-pass",
+			network: "tcp",
 			congestion_control: "bbr",
 			udp_relay_mode: "native",
 			zero_rtt_handshake: true,
