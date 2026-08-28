@@ -1,0 +1,12 @@
+hy2://password@example.com:0#Zero
+hy2://password@example.com:65536#Overflow
+hy2://password@example.com:6000-5000#Reverse
+hy2://password@example.com:-6000#MissingStart
+hy2://password@example.com:5000-#MissingEnd
+hy2://password@example.com:443,,8443#EmptySegment
+hy2://password@example.com:443,#TrailingSeparator
+hy2://bad%ZZ@example.com:443#BadPercent
+hy2://password@example.com:443?obfs=salamander#MissingObfsPassword
+hy2://password@example.com:443?obfs=unknown&obfs-password=secret#UnknownObfs
+hy2://blocked-secret@example.com:443?pinSHA256=deadbeef#Pinned
+hy2://blocked-secret@example.com:443?ech=ZWNoLWNvbmZpZw==#ECH

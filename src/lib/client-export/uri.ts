@@ -1,7 +1,8 @@
+import { parseHysteria2Uri } from "$lib/hysteria2-uri";
 import { detectProxyScheme } from "$lib/proxy-protocol";
 import { parseAnyTls } from "./anytls";
 import { type ProtocolParseResult, parseProxyUrl } from "./common";
-import { parseHysteria2 } from "./hysteria2";
+import { describeHysteria2UriIssue, parseHysteria2 } from "./hysteria2";
 import { parseShadowsocks } from "./shadowsocks";
 import { parseTrojan } from "./trojan";
 import { parseTuic } from "./tuic";
@@ -41,6 +42,15 @@ export function parseProxyUriToSingBoxOutbound(
 	if (protocol === "vmess") {
 		return finish(parseVmess(normalized, fallbackTag));
 	}
+	if (protocol === "hysteria2" || protocol === "hy2") {
+		const parsedHysteria2 = parseHysteria2Uri(normalized);
+		if (!parsedHysteria2.ok) {
+			return warning(
+				describeHysteria2UriIssue(parsedHysteria2.issue, fallbackTag),
+			);
+		}
+		return finish(parseHysteria2(parsedHysteria2.value, fallbackTag));
+	}
 
 	const parsed = parseProxyUrl(normalized, fallbackTag, protocol);
 	if (typeof parsed === "string") {
@@ -60,10 +70,6 @@ export function parseProxyUriToSingBoxOutbound(
 			break;
 		case "ss":
 			result = parseShadowsocks(normalized, parsed, fallbackTag);
-			break;
-		case "hysteria2":
-		case "hy2":
-			result = parseHysteria2(parsed, fallbackTag);
 			break;
 		case "tuic":
 			result = parseTuic(parsed, fallbackTag);

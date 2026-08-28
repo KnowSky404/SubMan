@@ -1,0 +1,10 @@
+hy2://password@example.com#Default
+hysteria2://username:password@example.com:8443#Userpass
+hy2://password@example.com:443,8443,9443#Ports
+hy2://password@example.com:5000-6000#Range
+hy2://password@example.com:443,5000-6000,8443#Mixed
+hy2://password@[2001:db8::1]:443,5000-6000#IPv6
+hy2://user%3Aname:pass%40word@example.com:443#Encoded
+hy2://password@example.com:443?obfs=salamander&obfs-password=obfs-pass#Salamander
+hy2://password@example.com:443?obfs=gecko&obfs-password=gecko-pass#Gecko
+hy2://password@example.com:443?sni=edge.example.com&alpn=h3&insecure=1#TLS

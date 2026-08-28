@@ -13,6 +13,10 @@ not a promise to deploy or mutate a production Workspace.
   Hysteria2, TUIC, and AnyTLS. ShadowsocksR remains importable and is skipped
   from sing-box output with a warning; unknown and malformed lines are
   warning-first.
+- Shared Hysteria2 URI validation and export parsing for implicit port `443`,
+  password and userpass authentication, bracketed IPv6, port-hopping lists and
+  ranges, and Salamander or Gecko obfuscation. Hysteria2 certificate pinning,
+  ECH, and Realm sharing fail closed instead of being silently mis-mapped.
 - Bounded subscription fetching with a 15 second timeout, a 4 MiB response
   limit, fatal UTF-8 decoding, HTTP status classes, and network/CORS-safe
   diagnostics.
@@ -32,9 +36,11 @@ not a promise to deploy or mutate a production Workspace.
 
 ## Next product and reliability work
 
-1. Expand sing-box protocol fidelity from the current URI matrix using checked-in
-   fixtures and upstream schema review. Each new mapping must preserve the
-   warning-first behavior for partial or legacy input.
+1. Continue sing-box protocol fidelity using checked-in fixtures and upstream
+   schema review. Candidate slices include verified Hysteria2 ECH semantics,
+   Realm as a separate sharing scheme, and additional transport/TLS fields for
+   other supported protocols. Each mapping must preserve warning-first behavior
+   for partial or legacy input and fail closed for security-sensitive fields.
 2. Add the first public API expansion only after the contract in
    [`docs/api/roadmap.md`](api/roadmap.md) is reviewed. All writes continue to
    use the Workspace coordinator.

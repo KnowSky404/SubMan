@@ -1,3 +1,4 @@
+import { type Hysteria2UriIssue, parseHysteria2Uri } from "$lib/hysteria2-uri";
 import type { ProxyType } from "$lib/models";
 
 export const PROXY_TYPES = [
@@ -70,6 +71,38 @@ export function validateProxyUri(
 		};
 	}
 
+	if (
+		declaredType &&
+		declaredType !== "other" &&
+		inferredType !== "other" &&
+		declaredType !== inferredType
+	) {
+		issues.push("declared-type-mismatch");
+	}
+
+	if (inferredType === "hysteria2") {
+		const parsed = parseHysteria2Uri(raw);
+		if (!parsed.ok) {
+			issues.push(hysteria2ValidationIssue(parsed.issue));
+			return {
+				scheme,
+				inferredType,
+				declaredType: declaredType ?? null,
+				syntaxValid: parsed.issue !== "malformed-uri",
+				coreFieldsValid: false,
+				issues,
+			};
+		}
+		return {
+			scheme,
+			inferredType,
+			declaredType: declaredType ?? null,
+			syntaxValid: true,
+			coreFieldsValid: true,
+			issues,
+		};
+	}
+
 	let url: URL;
 	try {
 		url = new URL(raw.trim());
@@ -85,14 +118,6 @@ export function validateProxyUri(
 	}
 
 	if (inferredType === "other") issues.push("unsupported-scheme");
-	if (
-		declaredType &&
-		declaredType !== "other" &&
-		inferredType !== "other" &&
-		declaredType !== inferredType
-	) {
-		issues.push("declared-type-mismatch");
-	}
 
 	const decoded = decodeBase64Json(raw, scheme);
 	const server = decoded?.server ?? url.hostname;
@@ -106,7 +131,7 @@ export function validateProxyUri(
 		if (!isUuid(decoded?.credential ?? url.username))
 			issues.push("missing-uuid");
 	}
-	if (inferredType === "trojan" || inferredType === "hysteria2") {
+	if (inferredType === "trojan") {
 		if (!(url.username || url.password)) issues.push("missing-password");
 	}
 	if (inferredType === "tuic") {
@@ -135,6 +160,27 @@ export function validateProxyUri(
 		coreFieldsValid: !issues.some((issue) => coreIssues.has(issue)),
 		issues,
 	};
+}
+
+function hysteria2ValidationIssue(issue: Hysteria2UriIssue): string {
+	switch (issue) {
+		case "missing-auth":
+			return "missing-password";
+		case "missing-server":
+			return "missing-server";
+		case "invalid-port":
+			return "invalid-port";
+		case "unsupported-obfs":
+			return "unsupported-obfs";
+		case "missing-obfs-password":
+			return "missing-obfs-password";
+		case "unsupported-pin-sha256":
+			return "unsupported-pin-sha256";
+		case "unsupported-ech":
+			return "unsupported-ech";
+		case "malformed-uri":
+			return "malformed-uri";
+	}
 }
 
 function isUuid(value: string | null | undefined): boolean {
