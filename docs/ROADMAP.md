@@ -25,6 +25,10 @@ not a promise to deploy or mutate a production Workspace.
 - Structured Worker observability with an allowlisted field set and hashed
   Workspace identifiers. Wrangler type generation is reproducible and checked
   for drift.
+- GitHub CI validates generated Worker types, the Cloudflare integration suite,
+  a Wrangler deployment dry run, and browser behavior through the local Workers
+  runtime before Chromium-dependent checks. Production deployment is an
+  explicit, environment-gated workflow rather than an automatic push action.
 
 ## Next product and reliability work
 
@@ -39,7 +43,8 @@ not a promise to deploy or mutate a production Workspace.
    Workspace or production evidence.
 4. Keep generated Worker types and Cloudflare configuration in the normal local
    and CI verification path; change the compatibility date only after the
-   complete runtime, Cloudflare, and browser gates pass.
+   complete runtime, Cloudflare, browser, deployment dry-run, and type gates
+   pass.
 
 ## Deferred Workspace V3 design work
 
@@ -67,6 +72,7 @@ bun run check
 bun run lint
 bun run build
 bun run test:cf
+bun run deploy:check
 bun run test:e2e
 ```
 
