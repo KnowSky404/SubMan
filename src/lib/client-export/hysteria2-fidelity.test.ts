@@ -24,7 +24,7 @@ describe("Hysteria2 sing-box URI fidelity", () => {
 			expect(validation.syntaxValid).toBe(true);
 			expect(validation.coreFieldsValid).toBe(true);
 			expect(parsed.warning).toBeNull();
-			expect(parsed.outbound).not.toBeNull();
+			expect(Boolean(parsed.outbound)).toBe(true);
 		}
 
 		for (const raw of await fixtureLines("hysteria2.invalid.txt")) {
@@ -32,7 +32,7 @@ describe("Hysteria2 sing-box URI fidelity", () => {
 			const parsed = parseProxyUriToSingBoxOutbound(raw, "fixture");
 			expect(validation.coreFieldsValid).toBe(false);
 			expect(parsed.outbound).toBeNull();
-			expect(parsed.warning).not.toBeNull();
+			expect(Boolean(parsed.warning)).toBe(true);
 		}
 	});
 
