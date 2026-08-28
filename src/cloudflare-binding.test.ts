@@ -38,10 +38,7 @@ function interfaceMembers(source: ts.SourceFile, name: string): string[] {
 				if (clause.token !== ts.SyntaxKind.ExtendsKeyword) continue;
 				for (const inherited of clause.types) {
 					if (!ts.isIdentifier(inherited.expression)) continue;
-					for (const member of resolve(
-						inherited.expression.text,
-						nextSeen,
-					)) {
+					for (const member of resolve(inherited.expression.text, nextSeen)) {
 						members.add(member);
 					}
 				}
