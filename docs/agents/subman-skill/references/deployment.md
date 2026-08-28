@@ -5,13 +5,14 @@
 Install and validate:
 
 ```bash
-bun install
+bun install --frozen-lockfile
 bun test
 bun run check
 bun run lint
 bun run build
 bun run test:cf
-bun wrangler deploy --dry-run
+bun run deploy:check
+bun run test:e2e
 ```
 
 Local runtimes:
@@ -20,6 +21,14 @@ Local runtimes:
 bun run dev
 bun run dev:cf -- --ip :: --port 8787
 ```
+
+`dev:cf` builds first and then starts `wrangler dev --local`, which is the
+required local runtime when validating Durable Object exports, migrations, and
+bindings. The Vite development server remains the faster UI-only path.
+
+GitHub Actions behavior, required production environment secrets, and the
+historical Worker-type CI failure are documented in
+[`docs/ci-cd.md`](../../../ci-cd.md).
 
 ## Worker types and compatibility date
 
@@ -38,10 +47,10 @@ configuration and declaration drift fails locally and in CI.
 
 The current compatibility date is intentionally the newest date supported by
 the local Workers test runtime. Advance it only after the complete build,
-Cloudflare, browser, and type-generation gates pass, then rerun all gates. If a
-local `workerd` or Wrangler binary reports that a newer date is unsupported,
-upgrade that toolchain first or keep the last supported date; do not silently
-skip the Cloudflare test suite.
+Cloudflare, browser, deployment dry-run, and type-generation gates pass, then
+rerun all gates. If a local `workerd` or Wrangler binary reports that a newer
+date is unsupported, upgrade that toolchain first or keep the last supported
+date; do not silently skip the Cloudflare test suite.
 
 ## Safe Worker observability
 
@@ -56,14 +65,18 @@ code, and safe GitHub operation/status/category/request ID metadata.
 Never add tokens, Authorization or Cookie values, subscription URLs, raw proxy
 URIs, mutation payloads, Workspace documents, generated outputs, quarantine
 contents, exception messages, or stacks to Worker logs. Tombstone counts may be
-warnings, but they never authorize compaction. There is no time-based cleanup
-of tombstones or processed mutations.
+warnings, but they never authorize compaction. There is no time-based cleanup of
+tombstones or processed mutations.
 
 Deploy only with explicit operator approval:
 
 ```bash
 bun run deploy
 ```
+
+The deploy script builds and uses Wrangler strict mode. For GitHub Actions, use
+the manually dispatched `Deploy production` workflow; do not add a push-triggered
+production deploy.
 
 ## Durable Object Configuration
 
@@ -97,8 +110,8 @@ bun wrangler secret put SUBMAN_API_TOKEN
   Worker request and coordinator RPC.
 - `SUBMAN_API_TOKEN`: bearer token for trusted backend scripts.
 
-Neither secret belongs in source, Wrangler variables, mutation payloads, or
-local test fixtures.
+Neither secret belongs in source, Wrangler variables, mutation payloads, GitHub
+Actions deployment credentials, or local test fixtures.
 
 ## Post-Deployment Verification
 
@@ -139,9 +152,9 @@ Follow `docs/workspace-v2-operations.md`. In particular:
 
 The browser UI can still run in local mode without a GitHub token. Business
 state remains in the `subman-workspace` IndexedDB database; only explicit token
-persistence uses localStorage.
-The trusted Server API always depends on Worker secrets and the
-`WORKSPACE_COORDINATOR` binding.
+persistence uses localStorage. The trusted Server API always depends on Worker
+secrets and the `WORKSPACE_COORDINATOR` binding.
 
 For the current URI support matrix, subscription CORS requirements, and export
-publication boundary, see [`docs/sing-box-export.md`](../../../sing-box-export.md).
+publication boundary, see
+[`docs/sing-box-export.md`](../../../sing-box-export.md).

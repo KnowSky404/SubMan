@@ -9,11 +9,12 @@ export default defineConfig({
 	forbidOnly: Boolean(process.env.CI),
 	retries: process.env.CI ? 2 : 0,
 	workers: process.env.CI ? 1 : undefined,
-	reporter: "line",
+	reporter: process.env.CI ? [["github"], ["line"]] : "line",
 	use: {
 		baseURL,
 		trace: "on-first-retry",
 		screenshot: "only-on-failure",
+		video: "retain-on-failure",
 	},
 	projects: [
 		{
@@ -22,7 +23,7 @@ export default defineConfig({
 		},
 	],
 	webServer: {
-		command: `bun run build && bun run preview -- --host 127.0.0.1 --port ${port}`,
+		command: `bun run dev:cf -- --ip 127.0.0.1 --port ${port}`,
 		url: baseURL,
 		env: {
 			WRANGLER_LOG_PATH: "/tmp/subman-playwright-wrangler-logs",
