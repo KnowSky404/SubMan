@@ -1,35 +1,31 @@
+import type {
+	Hysteria2UriIssue,
+	ParsedHysteria2Uri,
+} from "$lib/hysteria2-uri";
 import {
 	buildTls,
-	decodeComponent,
-	type ParsedProxyUri,
 	type ProtocolParseResult,
 	queryValue,
 } from "./common";
 import type { SingBoxOutbound } from "./uri-types";
 
 export function parseHysteria2(
-	parsed: ParsedProxyUri,
+	parsed: ParsedHysteria2Uri,
 	fallbackTag: string,
 ): ProtocolParseResult {
-	const username = decodeComponent(parsed.url.username);
-	const passwordPart = decodeComponent(parsed.url.password);
-	const password = passwordPart || username;
-	if (!password) {
-		return `Invalid Hysteria2 URI: missing password for ${fallbackTag}`;
-	}
-
-	const obfs = queryValue(parsed.query, "obfs");
-	if (obfs && obfs !== "salamander") {
-		return `Invalid Hysteria2 URI: unsupported obfs for ${fallbackTag}`;
-	}
 	const outbound: SingBoxOutbound = {
 		type: "hysteria2",
-		tag: parsed.tag,
+		tag: parsed.tag ?? fallbackTag,
 		server: parsed.server,
-		server_port: parsed.serverPort,
-		password,
+		password: parsed.password,
 		tls: buildTls(parsed.query),
 	};
+	if (parsed.serverPort !== null) {
+		outbound.server_port = parsed.serverPort;
+	} else {
+		outbound.server_ports = parsed.serverPorts;
+	}
+
 	const network = queryValue(parsed.query, "network");
 	if (network) {
 		if (network !== "tcp" && network !== "udp") {
@@ -37,16 +33,35 @@ export function parseHysteria2(
 		}
 		outbound.network = network;
 	}
-	const obfsPassword = queryValue(
-		parsed.query,
-		"obfs-password",
-		"obfs_password",
-	);
-	if (obfs) {
+	if (parsed.obfs) {
 		outbound.obfs = {
-			type: obfs,
-			...(obfsPassword ? { password: obfsPassword } : {}),
+			type: parsed.obfs.type,
+			password: parsed.obfs.password,
 		};
 	}
 	return outbound;
+}
+
+export function describeHysteria2UriIssue(
+	issue: Hysteria2UriIssue,
+	fallbackTag: string,
+): string {
+	switch (issue) {
+		case "missing-auth":
+			return `Invalid Hysteria2 URI: missing authentication for ${fallbackTag}`;
+		case "missing-server":
+			return `Invalid Hysteria2 URI: missing server for ${fallbackTag}`;
+		case "invalid-port":
+			return `Invalid Hysteria2 URI: invalid port specification for ${fallbackTag}`;
+		case "unsupported-obfs":
+			return `Invalid Hysteria2 URI: unsupported obfs for ${fallbackTag}`;
+		case "missing-obfs-password":
+			return `Invalid Hysteria2 URI: missing obfs password for ${fallbackTag}`;
+		case "unsupported-pin-sha256":
+			return `Skipped Hysteria2 URI: certificate pinning is not supported for ${fallbackTag}`;
+		case "unsupported-ech":
+			return `Skipped Hysteria2 URI: ECH is not supported for ${fallbackTag}`;
+		case "malformed-uri":
+			return `Invalid Hysteria2 URI: ${fallbackTag}`;
+	}
 }
