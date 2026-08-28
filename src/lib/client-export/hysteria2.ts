@@ -1,12 +1,5 @@
-import type {
-	Hysteria2UriIssue,
-	ParsedHysteria2Uri,
-} from "$lib/hysteria2-uri";
-import {
-	buildTls,
-	type ProtocolParseResult,
-	queryValue,
-} from "./common";
+import type { Hysteria2UriIssue, ParsedHysteria2Uri } from "$lib/hysteria2-uri";
+import { buildTls, type ProtocolParseResult, queryValue } from "./common";
 import type { SingBoxOutbound } from "./uri-types";
 
 export function parseHysteria2(
