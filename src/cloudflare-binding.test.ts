@@ -49,7 +49,5 @@ test("Cloudflare declaration matches the Wrangler Durable Object binding", () =>
 	expect(declarationText).toContain(
 		'import("./lib/server/workspace-coordinator").WorkspaceCoordinator',
 	);
-	expect(declarationText).toContain(
-		'durableNamespaces: "WorkspaceCoordinator"',
-	);
+	expect(interfaceMembers(declaration, "Env")).toContain("ASSETS");
 });

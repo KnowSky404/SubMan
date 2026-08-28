@@ -51,6 +51,11 @@ import {
 	inferNodeTypeFromRaw,
 	loadSubscriptionContent,
 } from "$lib/subscription";
+import {
+	presentSubscriptionFetchDiagnostic,
+	type SubscriptionFetchDiagnostic,
+	toSubscriptionFetchDiagnostic,
+} from "$lib/subscription-diagnostics";
 import { reconcileTags } from "$lib/tags";
 import { cn } from "$lib/utils/cn";
 import { createId } from "$lib/utils/id";
@@ -89,7 +94,7 @@ let subscriptionPreviewCache: Record<
 	{
 		status: "loading" | "ready" | "error";
 		nodes: Pick<NodeItem, "id" | "name" | "type" | "raw">[];
-		error: string | null;
+		error: SubscriptionFetchDiagnostic | null;
 	}
 > = {};
 
@@ -653,10 +658,15 @@ async function loadSubscriptionPreview(
 		error: null,
 	};
 	try {
-		const { content, warning } = await loadSubscriptionContent(
-			subscription.url,
-		);
-		if (warning) throw new Error(warning);
+		const { content, error } = await loadSubscriptionContent(subscription.url);
+		if (error) {
+			subscriptionPreviewCache[subscription.id] = {
+				status: "error",
+				nodes: [],
+				error: toSubscriptionFetchDiagnostic(error),
+			};
+			return;
+		}
 
 		const lines = extractSubscriptionNodeLines(content);
 		const nodes = lines.map((raw, idx) => ({
@@ -671,11 +681,11 @@ async function loadSubscriptionPreview(
 			nodes,
 			error: null,
 		};
-	} catch (err) {
+	} catch {
 		subscriptionPreviewCache[subscription.id] = {
 			status: "error",
 			nodes: [],
-			error: err instanceof Error ? err.message : String(err),
+			error: { code: "network-or-cors" },
 		};
 	}
 }
@@ -1144,13 +1154,22 @@ async function copy(text: string) {
 						<Octicon icon={sync} className="h-8 w-8 animate-spin" />
 						<p>{$t("Fetching subscription content...")}</p>
 					</div>
-				{:else if cache?.status === 'error'}
-					<div class="gh-alert gh-alert-danger">
-						<Octicon icon={alert} className="mt-0.5 h-5 w-5 shrink-0 text-[color:var(--danger-emphasis)]" />
-						<div class="min-w-0">
-							<p class="font-semibold">{$t("Failed to load subscription")}</p>
-							<p class="text-sm text-fg-muted">{cache.error}</p>
+				{:else if cache?.status === "error" && cache.error}
+					{@const presentation = presentSubscriptionFetchDiagnostic(cache.error)}
+					<div class="gh-alert gh-alert-danger flex-col items-start" role="alert" aria-live="assertive">
+						<div class="flex items-start gap-2">
+							<Octicon icon={alert} className="mt-0.5 h-5 w-5 shrink-0 text-[color:var(--danger-emphasis)]" />
+							<div class="min-w-0">
+								<p class="font-semibold">{$t(presentation.titleKey, presentation.params)}</p>
+								<p class="text-sm text-fg-muted">{$t(presentation.detailKey, presentation.params)}</p>
+							</div>
 						</div>
+						{#if sub}
+							<button type="button" class="gh-btn gh-btn-sm" on:click={() => loadSubscriptionPreview(sub, true)}>
+								<Octicon icon={sync} className="h-3.5 w-3.5" />
+								{$t("Retry subscription preview")}
+							</button>
+						{/if}
 					</div>
 				{:else if cache?.status === 'ready'}
 					<div class="flex flex-col gap-2">

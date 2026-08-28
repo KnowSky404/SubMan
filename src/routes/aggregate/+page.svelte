@@ -3,6 +3,7 @@ import { tick } from "svelte";
 import { fade, fly, slide } from "svelte/transition";
 import { type DndEvent, dndzone } from "svelte-dnd-action";
 import {
+	type AggregateSubscriptionIssue,
 	BUILT_IN_REGION_FLAG_RULES,
 	buildAggregateOutput,
 	type RegionFlagRule,
@@ -46,6 +47,7 @@ import {
 import { authState } from "$lib/stores/auth";
 import { requestConfirm } from "$lib/stores/confirm";
 import { showToast } from "$lib/stores/toast";
+import { presentSubscriptionFetchDiagnostic } from "$lib/subscription-diagnostics";
 import {
 	type LegacyExcludeTagWarning,
 	normalizeTagLabel,
@@ -110,6 +112,7 @@ type PreviewEntry = {
 };
 
 let previewEntries: PreviewEntry[] = [];
+let previewSubscriptionIssues: AggregateSubscriptionIssue[] = [];
 let previewLoading = false;
 let previewGeneratedAt: string | null = null;
 let previewSource: "draft" | "saved" = "draft";
@@ -438,6 +441,12 @@ $: previewGeneratedText = previewGeneratedAt
 		}).format(new Date(previewGeneratedAt))
 	: null;
 
+function closePreviewResults() {
+	previewEntries = [];
+	previewSubscriptionIssues = [];
+	previewGeneratedAt = null;
+}
+
 function resetRuleForm() {
 	editingRuleId = "";
 	ruleName = "";
@@ -453,8 +462,7 @@ function resetRuleForm() {
 	prependRegionFlags = true;
 	sortMode = "none";
 	sortPriority = "";
-	previewEntries = [];
-	previewGeneratedAt = null;
+	closePreviewResults();
 }
 
 function loadPublishTarget(target: AggregatePublishTarget) {
@@ -936,6 +944,15 @@ async function publishSaved(allowManual = false): Promise<void> {
 			result.state.publishTargets.find(
 				(target) => target.id === selectedTargetId,
 			)?.lastPublishedUrl ?? null;
+		if (output.subscriptionIssues.length > 0) {
+			showToast(
+				$t(
+					"Published with {count} subscription source issues. Review the failed sources before relying on this output.",
+					{ count: output.subscriptionIssues.length },
+				),
+				"info",
+			);
+		}
 	} catch (err) {
 		showToast(
 			$t("Publish failed: {error}", {
@@ -1034,6 +1051,7 @@ async function buildPreview() {
 		return;
 	}
 	previewLoading = true;
+	closePreviewResults();
 	try {
 		const renameRules = renameMap
 			.split("\n")
@@ -1059,6 +1077,7 @@ async function buildPreview() {
 			$appState.nodes,
 			$appState.subscriptions,
 		);
+		previewSubscriptionIssues = result.subscriptionIssues;
 		const lines = result.content
 			.split("\n")
 			.map((l) => l.trim())
@@ -1077,7 +1096,7 @@ async function buildPreview() {
 			}
 			return { id: `p-${idx}-${line}`, line, protocol, name };
 		});
-		if (previewEntries.length === 0)
+		if (previewEntries.length === 0 && previewSubscriptionIssues.length === 0)
 			showToast($t("No nodes matched criteria"), "info");
 		else {
 			previewGeneratedAt = new Date().toISOString();
@@ -1407,20 +1426,44 @@ function handleExcludeTagsInput() {
 				</div>
 			</div>
 
-			{#if previewEntries.length > 0}
+			{#if previewEntries.length > 0 || previewSubscriptionIssues.length > 0}
 				<div class="gh-box shadow-sm" transition:slide>
 					<div class="gh-box-header">
 						<div class="flex items-center gap-2">
 							<Octicon icon={fileCode} className="h-4 w-4" />
 							<span>{$t("Preview Results")}</span>
 							<span class="badge ml-2">{previewEntries.length} {$t("Nodes")}</span>
+							{#if previewSubscriptionIssues.length > 0}
+								<span class="badge">{$t("{count} source issues", { count: previewSubscriptionIssues.length })}</span>
+							{/if}
 							<span class="badge">{previewSource === "draft" ? $t("Draft Preview") : $t("Saved Rule Preview")}</span>
 							{#if previewGeneratedText}
 								<span class="text-xs font-normal text-fg-muted">{$t("Preview generated {time}", { time: previewGeneratedText })}</span>
 							{/if}
 						</div>
-						<button type="button" class="gh-icon-button h-7 w-7" on:click={() => (previewEntries = [])} aria-label={$t("Close preview results")}><Octicon icon={x} className="h-4 w-4" /></button>
+						<button type="button" class="gh-icon-button h-7 w-7" on:click={closePreviewResults} aria-label={$t("Close preview results")}><Octicon icon={x} className="h-4 w-4" /></button>
 					</div>
+					{#if previewSubscriptionIssues.length > 0}
+						<div class="border-b border-border-default bg-canvas-subtle p-3" role="alert" aria-live="polite">
+							<div class="gh-alert gh-alert-warning flex-col items-start">
+								<div class="flex items-center gap-2 font-semibold">
+									<Octicon icon={alert} className="h-4 w-4 shrink-0" />
+									<span>{$t("{count} subscription sources could not be loaded", { count: previewSubscriptionIssues.length })}</span>
+								</div>
+								<p class="text-xs text-fg-muted">{$t("Successful sources are still included. Review each failed source before publishing.")}</p>
+								<div class="flex w-full flex-col gap-2">
+									{#each previewSubscriptionIssues as issue}
+										{@const presentation = presentSubscriptionFetchDiagnostic(issue.diagnostic)}
+										<div class="rounded-md border border-border-default bg-canvas-default p-2">
+											<p class="text-xs font-semibold">{issue.subscriptionName}</p>
+											<p class="text-xs text-fg-default">{$t(presentation.titleKey, presentation.params)}</p>
+											<p class="text-xs text-fg-muted">{$t(presentation.detailKey, presentation.params)}</p>
+										</div>
+									{/each}
+								</div>
+							</div>
+						</div>
+					{/if}
 					<div 
 						class="flex max-h-96 flex-col gap-1 overflow-y-auto bg-canvas-default p-2"
 						use:dndzone={{ items: previewEntries, flipDurationMs: 200, dragDisabled: false }}

@@ -913,6 +913,55 @@ const zhCN: Record<string, string> = {
 	"Token replaced; Workspace sync is resuming":
 		"Token 已替换，工作区同步正在继续",
 	"{file} is protected.": "{file} 受保护。",
+	"Subscription request timed out": "订阅请求超时",
+	"The provider did not respond in time. Check its availability and retry.":
+		"订阅提供方未及时响应。请检查其可用性后重试。",
+	"Subscription could not be reached": "无法访问订阅源",
+	"Check your network and confirm the provider allows browser requests (CORS), then retry.":
+		"请检查网络，并确认订阅提供方允许浏览器跨域请求（CORS），然后重试。",
+	"Subscription access was rejected (HTTP {status})":
+		"订阅访问被拒绝（HTTP {status}）",
+	"Check whether the subscription link is still authorized or has expired.":
+		"请检查订阅链接是否仍有访问权限，或是否已经过期。",
+	"Subscription endpoint was not found (HTTP 404)":
+		"未找到订阅端点（HTTP 404）",
+	"Check whether the provider changed or removed the endpoint.":
+		"请检查订阅提供方是否已变更或移除该端点。",
+	"Subscription request was rate limited (HTTP 429)":
+		"订阅请求受到限流（HTTP 429）",
+	"Wait before retrying or reduce how often this source is refreshed.":
+		"请稍后重试，或降低该订阅源的刷新频率。",
+	"Subscription request was rejected (HTTP {status})":
+		"订阅请求被拒绝（HTTP {status}）",
+	"Check the subscription link and provider access settings.":
+		"请检查订阅链接和提供方的访问设置。",
+	"Subscription provider is unavailable (HTTP {status})":
+		"订阅提供方暂不可用（HTTP {status}）",
+	"The provider returned a server error. Retry later.":
+		"订阅提供方返回服务器错误，请稍后重试。",
+	"Subscription returned an unexpected HTTP status":
+		"订阅返回了非预期的 HTTP 状态",
+	"Check the provider response and retry.": "请检查提供方响应后重试。",
+	"Subscription response is too large": "订阅响应过大",
+	"The response exceeds the {limit} MiB browser limit. Split or reduce the subscription before retrying.":
+		"响应超过浏览器端 {limit} MiB 的限制。请拆分或精简订阅后重试。",
+	"Subscription response is not valid UTF-8": "订阅响应不是有效的 UTF-8",
+	"Ask the provider for UTF-8 text or a valid Base64-encoded subscription.":
+		"请让提供方返回 UTF-8 文本或有效的 Base64 编码订阅。",
+	"Subscription Base64 payload is malformed": "订阅的 Base64 内容格式错误",
+	"Refresh the link or ask the provider to regenerate the subscription payload.":
+		"请刷新订阅链接，或让提供方重新生成订阅内容。",
+	"Subscription returned no content": "订阅未返回内容",
+	"Confirm the subscription is active and contains proxy node URIs.":
+		"请确认订阅仍然有效，并且包含代理节点 URI。",
+	"Retry subscription preview": "重试订阅预览",
+	"{count} subscription sources could not be loaded":
+		"有 {count} 个订阅源无法加载",
+	"Successful sources are still included. Review each failed source before publishing.":
+		"成功加载的订阅源仍会参与聚合。发布前请逐一检查失败来源。",
+	"{count} source issues": "{count} 个来源异常",
+	"Published with {count} subscription source issues. Review the failed sources before relying on this output.":
+		"已发布，但有 {count} 个订阅源异常。依赖该输出前请先检查失败来源。",
 };
 
 function normalizeLocale(value: string | null | undefined): Locale {
