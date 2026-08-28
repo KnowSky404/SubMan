@@ -1,13 +1,11 @@
 import { describe, expect, it } from "bun:test";
-import {
-	parseHysteria2Uri,
-	type ParsedHysteria2Uri,
-} from "./hysteria2-uri";
+import { parseHysteria2Uri, type ParsedHysteria2Uri } from "./hysteria2-uri";
 import { validateProxyUri } from "./proxy-protocol";
 
 function parse(raw: string): ParsedHysteria2Uri {
 	const result = parseHysteria2Uri(raw);
-	if (!result.ok) throw new Error(`unexpected Hysteria2 issue: ${result.issue}`);
+	if (!result.ok)
+		throw new Error(`unexpected Hysteria2 issue: ${result.issue}`);
 	return result.value;
 }
 
@@ -32,33 +30,19 @@ describe("Hysteria2 shared URI parsing", () => {
 	});
 
 	it("converts multi-port and range syntax for sing-box", () => {
-		const ports = parse(
-			"hy2://password@example.com:443,8443,9443#Ports",
-		);
+		const ports = parse("hy2://password@example.com:443,8443,9443#Ports");
 		const range = parse("hy2://password@example.com:5000-6000#Range");
-		const mixed = parse(
-			"hy2://password@example.com:443,5000-6000,8443#Mixed",
-		);
+		const mixed = parse("hy2://password@example.com:443,5000-6000,8443#Mixed");
 
 		expect(ports.serverPort).toBeNull();
-		expect(ports.serverPorts).toEqual([
-			"443:443",
-			"8443:8443",
-			"9443:9443",
-		]);
+		expect(ports.serverPorts).toEqual(["443:443", "8443:8443", "9443:9443"]);
 		expect(range.serverPort).toBeNull();
 		expect(range.serverPorts).toEqual(["5000:6000"]);
-		expect(mixed.serverPorts).toEqual([
-			"443:443",
-			"5000:6000",
-			"8443:8443",
-		]);
+		expect(mixed.serverPorts).toEqual(["443:443", "5000:6000", "8443:8443"]);
 	});
 
 	it("accepts bracketed IPv6 with port hopping", () => {
-		const parsed = parse(
-			"hy2://password@[2001:db8::1]:443,5000-6000#IPv6",
-		);
+		const parsed = parse("hy2://password@[2001:db8::1]:443,5000-6000#IPv6");
 
 		expect(parsed.server).toBe("2001:db8::1");
 		expect(parsed.serverPort).toBeNull();
@@ -84,22 +68,16 @@ describe("Hysteria2 shared URI parsing", () => {
 
 	it("fails closed for unsupported security semantics", () => {
 		expect(
-			parseHysteria2Uri(
-				"hy2://password@example.com:443?pinSHA256=deadbeef",
-			),
+			parseHysteria2Uri("hy2://password@example.com:443?pinSHA256=deadbeef"),
 		).toEqual({ ok: false, issue: "unsupported-pin-sha256" });
 		expect(
-			parseHysteria2Uri(
-				"hy2://password@example.com:443?ech=ZWNoLWNvbmZpZw==",
-			),
+			parseHysteria2Uri("hy2://password@example.com:443?ech=ZWNoLWNvbmZpZw=="),
 		).toEqual({ ok: false, issue: "unsupported-ech" });
 	});
 
 	it("requires passwords for supported obfuscation types", () => {
 		expect(
-			parseHysteria2Uri(
-				"hy2://password@example.com:443?obfs=salamander",
-			),
+			parseHysteria2Uri("hy2://password@example.com:443?obfs=salamander"),
 		).toEqual({ ok: false, issue: "missing-obfs-password" });
 		expect(
 			parseHysteria2Uri(
