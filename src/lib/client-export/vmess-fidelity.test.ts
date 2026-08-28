@@ -3,9 +3,7 @@ import { parseProxyUriToSingBoxOutbound } from "./uri";
 
 function vmessUri(payload: Record<string, unknown>): string {
 	const json = JSON.stringify(payload);
-	const encoded = btoa(
-		String.fromCharCode(...new TextEncoder().encode(json)),
-	);
+	const encoded = btoa(String.fromCharCode(...new TextEncoder().encode(json)));
 	return `vmess://${encoded}`;
 }
 
