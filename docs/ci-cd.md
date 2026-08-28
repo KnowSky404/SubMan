@@ -4,7 +4,9 @@
 
 The `CI` workflow runs for pushes to `main`, pull requests, and manual
 dispatches. It uses the repository-pinned Bun and Wrangler toolchain and keeps
-`GITHUB_TOKEN` read-only.
+`GITHUB_TOKEN` read-only. Wrangler is pinned exactly at `4.127.0`; the frozen
+lockfile therefore carries a `workerd` release new enough to execute the
+project's `compatibility_date = "2026-07-28"` locally.
 
 The verification order is intentionally fail-fast:
 
@@ -27,7 +29,9 @@ When Playwright fails, traces, screenshots, videos, and reports are uploaded as
 a seven-day GitHub Actions artifact. If an earlier gate fails, the workflow does
 not spend time installing Chromium.
 
-## Historical CI failure
+## Historical CI failures
+
+### Generated Worker type drift
 
 The formal `CI` run on 2026-08-24 (`run #5`, commit
 `e82147c5d370734c27a03fa681fccf07028721d8`) passed all unit tests, then failed
@@ -46,6 +50,21 @@ bun run check:worker-types
 Do not hand-edit the generated declaration. Any future `wrangler.toml`, Wrangler,
 binding, migration, or compatibility-date change must regenerate the file and
 pass the complete CI workflow.
+
+### Local Workers runtime behind the compatibility date
+
+The first CI run that replaced `vite preview` with `wrangler dev --local`
+successfully passed unit, type, lint, build, Cloudflare integration, and
+deployment dry-run gates, but the browser server could not start. The locked
+Wrangler `4.81.0` bundled a `workerd` runtime supporting compatibility dates only
+through `2026-04-12`, while SubMan requires `2026-07-28`.
+
+The production compatibility date was not rolled back. Wrangler was upgraded
+and pinned to `4.127.0`, whose lockfile resolves `workerd` `1.20260826.1`. This
+keeps local browser evidence aligned with the checked-in production
+configuration. Future compatibility-date changes must first update the pinned
+runtime and pass local Worker startup, deployment dry-run, Cloudflare
+integration, and browser gates.
 
 ## Production deployment
 
