@@ -17,7 +17,7 @@ describe("sing-box VMess fidelity", () => {
 		);
 
 		expect(result.warning).toBeNull();
-		expect(result.outbound).not.toBeNull();
+		expect(Boolean(result.outbound)).toBe(true);
 		expect(result.outbound && "packet_encoding" in result.outbound).toBe(false);
 	});
 
@@ -33,7 +33,7 @@ describe("sing-box VMess fidelity", () => {
 		);
 
 		expect(result.warning).toBeNull();
-		expect(result.outbound).not.toBeNull();
+		expect(Boolean(result.outbound)).toBe(true);
 		expect(result.outbound && "packet_encoding" in result.outbound).toBe(false);
 	});
 
