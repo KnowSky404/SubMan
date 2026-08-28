@@ -62,10 +62,10 @@ jobs:
       - name: Refresh generated Worker types
         run: bun run generate:worker-types
 
-      - name: Format changed sources
+      - name: Format and organize changed sources
         shell: bash
         run: |
-          bunx biome format --write \
+          bunx biome check --write \
             src/lib/subscription-diagnostics.ts \
             src/lib/subscription-diagnostics.test.ts \
             src/lib/aggregate.ts \
