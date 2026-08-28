@@ -7,7 +7,7 @@ editing and presentation; Workspace publication goes through the existing
 revisioned mutation boundary.
 
 The URI mappings in this document were checked against the current sing-box
-outbound documentation for the v1.13 line on 2026-08-24. A mapping is added
+outbound documentation for the v1.14 line on 2026-08-28. A mapping is added
 only when the source URI field has a reliable sing-box equivalent.
 
 ## Supported outbound matrix
@@ -15,7 +15,7 @@ only when the source URI field has a reliable sing-box equivalent.
 | Source URI | Generated outbound | Mapped fields | Notes |
 | --- | --- | --- | --- |
 | `vless://` | `vless` | server, port, UUID, flow, network, packet encoding, TLS/Reality, transport, multiplex | `none`, `tls`, and `reality` security; only `xtls-rprx-vision` flow is accepted |
-| `vmess://` | `vmess` | base64 JSON server/port/UUID, security, alter ID, network, TLS, transport, packet encoding, multiplex | Payload must be valid base64 UTF-8 JSON |
+| `vmess://` | `vmess` | base64 JSON server/port/UUID, security, alter ID, global padding, authenticated length, network, TLS, transport, packet encoding, multiplex | Includes the legacy `aes-128-ctr` security value; payload must be valid base64 UTF-8 JSON |
 | `trojan://` | `trojan` | server, port, password, TLS, transport, multiplex | Trojan's TLS outbound is enabled by default |
 | `ss://` | `shadowsocks` | method, password, server/port, SIP003 plugin/options, UDP-over-TCP, multiplex | Direct and base64 authority forms are accepted |
 | `hysteria2://`, `hy2://` | `hysteria2` | server/port, password, network, TLS/SNI/ALPN/insecure, Salamander obfuscation | Only the `salamander` obfuscation type is emitted |
@@ -26,7 +26,9 @@ only when the source URI field has a reliable sing-box equivalent.
 TLS mappings include SNI, ALPN, certificate verification bypass (`insecure`),
 and the VLESS Reality public key/short ID when present. WebSocket, gRPC, HTTP,
 and HTTPUpgrade transport fields preserve their path, host, and service name
-where the source format provides them. Unsupported transport, security,
+where the source format provides them. Packet encoding values `packetaddr` and
+`xudp` are emitted directly; an explicit `none` disables the field and is
+therefore omitted from generated JSON. Unsupported transport, security,
 packet-encoding, or malformed percent/base64 values produce a warning for that
 line and do not discard other convertible lines.
 

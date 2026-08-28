@@ -37,9 +37,14 @@ export function parseVmess(
 		const security = stringValue(data.scy) ?? stringValue(data.security);
 		if (
 			security &&
-			!["auto", "none", "zero", "aes-128-gcm", "chacha20-poly1305"].includes(
-				security,
-			)
+			![
+				"auto",
+				"none",
+				"zero",
+				"aes-128-gcm",
+				"chacha20-poly1305",
+				"aes-128-ctr",
+			].includes(security)
 		) {
 			return `Invalid vmess URI: unsupported security for ${fallbackTag}`;
 		}
@@ -58,6 +63,17 @@ export function parseVmess(
 			if (Number.isSafeInteger(parsedAlterId) && parsedAlterId >= 0) {
 				outbound.alter_id = parsedAlterId;
 			}
+		}
+
+		const globalPadding = booleanValue(
+			data.global_padding ?? data.globalPadding,
+		);
+		if (globalPadding !== null) outbound.global_padding = globalPadding;
+		const authenticatedLength = booleanValue(
+			data.authenticated_length ?? data.authenticatedLength,
+		);
+		if (authenticatedLength !== null) {
+			outbound.authenticated_length = authenticatedLength;
 		}
 
 		const network = stringValue(data.net) ?? stringValue(data.network);
