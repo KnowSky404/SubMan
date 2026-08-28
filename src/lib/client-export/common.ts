@@ -229,11 +229,12 @@ export function buildMultiplex(
 
 export function buildPacketEncoding(
 	query: URLSearchParams,
-): string | null | "invalid" {
+): "packetaddr" | "xudp" | null | "invalid" {
 	const value = queryValue(query, "packetEncoding", "packet_encoding");
 	if (!value) return null;
 	const normalized = value.toLowerCase();
-	if (["none", "packetaddr", "xudp"].includes(normalized)) {
+	if (normalized === "none") return null;
+	if (normalized === "packetaddr" || normalized === "xudp") {
 		return normalized;
 	}
 	return "invalid";
