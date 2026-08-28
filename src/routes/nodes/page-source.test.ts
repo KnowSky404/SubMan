@@ -101,3 +101,12 @@ test("resource editing preserves tag IDs for unchanged labels", () => {
 	);
 	expect(nodesPageSource).not.toContain("function parseTags(");
 });
+
+test("subscription preview shows safe actionable fetch diagnostics", () => {
+	expect(nodesPageSource).toContain("presentSubscriptionFetchDiagnostic");
+	expect(nodesPageSource).toContain("toSubscriptionFetchDiagnostic");
+	expect(nodesPageSource).toContain("Retry subscription preview");
+	expect(nodesPageSource).not.toContain(
+		"err instanceof Error ? err.message : String(err)",
+	);
+});

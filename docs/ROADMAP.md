@@ -1,6 +1,6 @@
 # SubMan Roadmap
 
-Status: 2026-08-24. This roadmap is deliberately split between shipped
+Status: 2026-08-28. This roadmap is deliberately split between shipped
 capabilities, contract work, and protocol work that still needs design. It is
 not a promise to deploy or mutate a production Workspace.
 
@@ -16,6 +16,10 @@ not a promise to deploy or mutate a production Workspace.
 - Bounded subscription fetching with a 15 second timeout, a 4 MiB response
   limit, fatal UTF-8 decoding, HTTP status classes, and network/CORS-safe
   diagnostics.
+- Localized, actionable subscription diagnostics in node and aggregate previews
+  for timeout, CORS, HTTP, response-size, encoding, Base64, and empty-content
+  failures. UI diagnostics retain only the safe error class and HTTP status;
+  source URLs and credentials are excluded.
 - One shared proxy URI compatibility layer used by node entry, aggregation,
   Server API type validation, and sing-box export parsing.
 - Structured Worker observability with an allowlisted field set and hashed
@@ -27,16 +31,13 @@ not a promise to deploy or mutate a production Workspace.
 1. Expand sing-box protocol fidelity from the current URI matrix using checked-in
    fixtures and upstream schema review. Each new mapping must preserve the
    warning-first behavior for partial or legacy input.
-2. Improve subscription UX around the existing bounded fetch contract: show
-   actionable timeout, CORS, HTTP, size, encoding, and empty-content states
-   without exposing source URLs or credentials.
-3. Add the first public API expansion only after the contract in
+2. Add the first public API expansion only after the contract in
    [`docs/api/roadmap.md`](api/roadmap.md) is reviewed. All writes continue to
    use the Workspace coordinator.
-4. Continue accessibility and responsive browser coverage for every primary
+3. Continue accessibility and responsive browser coverage for every primary
    route. Browser checks must distinguish local/mock evidence from authenticated
    Workspace or production evidence.
-5. Keep generated Worker types and Cloudflare configuration in the normal local
+4. Keep generated Worker types and Cloudflare configuration in the normal local
    and CI verification path; change the compatibility date only after the
    complete runtime, Cloudflare, and browser gates pass.
 

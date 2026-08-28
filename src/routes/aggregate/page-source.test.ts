@@ -105,3 +105,15 @@ test("aggregate rules migrate legacy tag IDs to stable labels with warnings", ()
 		"excludeTagMigrationWarnings = [];\n\t\t\t\t\t\t\t\t\texcludeTagIdsMigrated = false;",
 	);
 });
+
+test("aggregate preview exposes safe subscription diagnostics", () => {
+	expect(aggregatePageSource).toContain("previewSubscriptionIssues");
+	expect(aggregatePageSource).toContain("result.subscriptionIssues");
+	expect(aggregatePageSource).toContain("presentSubscriptionFetchDiagnostic");
+	expect(aggregatePageSource).toContain(
+		"previewEntries.length > 0 || previewSubscriptionIssues.length > 0",
+	);
+	expect(aggregatePageSource).toContain(
+		"Published with {count} subscription source issues.",
+	);
+});

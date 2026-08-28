@@ -8,14 +8,30 @@ import { inferProxyTypeFromRaw } from "$lib/proxy-protocol";
 import {
 	loadSubscriptionContent,
 	normalizeSubscriptionContent,
+	type SubscriptionFetchResult,
 } from "$lib/subscription";
+import {
+	type SubscriptionFetchDiagnostic,
+	toSubscriptionFetchDiagnostic,
+} from "$lib/subscription-diagnostics";
 import { normalizeTagLabel, resolveLegacyExcludeTags } from "$lib/tags";
+
+export type AggregateSubscriptionIssue = {
+	subscriptionId: string;
+	subscriptionName: string;
+	diagnostic: SubscriptionFetchDiagnostic;
+};
 
 export type AggregateBuildResult = {
 	content: string;
 	lines: number;
 	warnings: string[];
 	errors: string[];
+	subscriptionIssues: AggregateSubscriptionIssue[];
+};
+
+export type AggregateBuildOptions = {
+	loadSubscription?: (url: string) => Promise<SubscriptionFetchResult>;
 };
 
 export type RegionFlagRule = {
@@ -936,9 +952,12 @@ export async function buildAggregateOutput(
 	rule: AggregateRule,
 	nodes: NodeItem[],
 	subscriptions: SubscriptionItem[],
+	options: AggregateBuildOptions = {},
 ): Promise<AggregateBuildResult> {
 	const warnings: string[] = [];
 	const errors: string[] = [];
+	const subscriptionIssues: AggregateSubscriptionIssue[] = [];
+	const loadSubscription = options.loadSubscription ?? loadSubscriptionContent;
 	const resolvedExclusions = resolveLegacyExcludeTags(
 		rule.excludeTagIds,
 		nodes,
@@ -990,10 +1009,15 @@ export async function buildAggregateOutput(
 	const subscriptionLines: string[] = [];
 	for (const sub of selectedSubs) {
 		try {
-			const { content, warning, error } = await loadSubscriptionContent(
-				sub.url,
-			);
+			const { content, warning, error } = await loadSubscription(sub.url);
 			if (warning) {
+				subscriptionIssues.push({
+					subscriptionId: sub.id,
+					subscriptionName: sub.name,
+					diagnostic: error
+						? toSubscriptionFetchDiagnostic(error)
+						: { code: "network-or-cors" },
+				});
 				warnings.push(
 					`subscription:${sub.name}:${error?.code ?? "fetch-error"}: ${warning}`,
 				);
@@ -1006,6 +1030,11 @@ export async function buildAggregateOutput(
 				...normalizeSubscriptionContent(content).split("\n"),
 			);
 		} catch {
+			subscriptionIssues.push({
+				subscriptionId: sub.id,
+				subscriptionName: sub.name,
+				diagnostic: { code: "network-or-cors" },
+			});
 			warnings.push(
 				`subscription:${sub.name}:network-or-cors: Subscription request failed due to network or browser CORS policy.`,
 			);
@@ -1039,5 +1068,6 @@ export async function buildAggregateOutput(
 		lines: content ? content.split("\n").length : 0,
 		warnings,
 		errors,
+		subscriptionIssues,
 	};
 }

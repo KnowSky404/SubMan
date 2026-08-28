@@ -224,7 +224,61 @@ describe("stable tag exclusions", () => {
 
 		const result = await buildAggregateOutput(rule, [], [subscription]);
 
-		expect(result).toEqual({ content: "", lines: 0, warnings: [], errors: [] });
+		expect(result).toEqual({
+			content: "",
+			lines: 0,
+			warnings: [],
+			errors: [],
+			subscriptionIssues: [],
+		});
+	});
+});
+
+describe("subscription fetch diagnostics", () => {
+	it("returns structured safe issues for failed subscription sources", async () => {
+		const subscription: SubscriptionItem = {
+			id: "subscription-private",
+			name: "Private source",
+			url: "https://user:secret@subscription.example/list?token=secret",
+			tags: [],
+			enabled: true,
+			updatedAt: "2026-08-28T00:00:00.000Z",
+		};
+		const rule: AggregateRule = {
+			id: "rule-subscription",
+			name: "Subscription diagnostics",
+			nodeIds: [],
+			subscriptionIds: [subscription.id],
+			excludeTagIds: [],
+			renameMap: {},
+			allowedTypes: [],
+			prependRegionFlags: false,
+			updatedAt: "2026-08-28T00:00:00.000Z",
+		};
+
+		const result = await buildAggregateOutput(rule, [], [subscription], {
+			loadSubscription: async () => ({
+				content: "",
+				warning: "Subscription returned HTTP 4xx (403).",
+				error: {
+					code: "http-4xx",
+					message: "Subscription returned HTTP 4xx (403).",
+					status: 403,
+				},
+			}),
+		});
+
+		expect(result.subscriptionIssues).toEqual([
+			{
+				subscriptionId: subscription.id,
+				subscriptionName: subscription.name,
+				diagnostic: { code: "http-4xx", status: 403 },
+			},
+		]);
+		expect(JSON.stringify(result.subscriptionIssues)).not.toContain("secret");
+		expect(result.warnings[0]).toContain(
+			"subscription:Private source:http-4xx",
+		);
 	});
 });
 
