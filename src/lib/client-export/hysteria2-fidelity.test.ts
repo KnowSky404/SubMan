@@ -221,9 +221,9 @@ describe("Hysteria2 warning-first client export", () => {
 			tls: { enabled: true },
 			obfs: { type: "gecko", password: "valid-gecko" },
 		});
-		expect(
-			config.outbounds.some((outbound) => outbound.type === "vless"),
-		).toBe(true);
+		expect(config.outbounds.some((outbound) => outbound.type === "vless")).toBe(
+			true,
+		);
 
 		const warnings = result.warnings.join("\n");
 		expect(warnings).not.toContain("blocked-hy2-secret");

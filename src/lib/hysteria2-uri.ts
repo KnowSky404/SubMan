@@ -56,9 +56,11 @@ export function parseHysteria2Uri(raw: string): Hysteria2UriParseResult {
 	const queryIndex = beforeFragment.indexOf("?");
 	const beforeQuery =
 		queryIndex >= 0 ? beforeFragment.slice(0, queryIndex) : beforeFragment;
-	const queryString = queryIndex >= 0 ? beforeFragment.slice(queryIndex + 1) : "";
+	const queryString =
+		queryIndex >= 0 ? beforeFragment.slice(queryIndex + 1) : "";
 	const slashIndex = beforeQuery.indexOf("/");
-	const authority = slashIndex >= 0 ? beforeQuery.slice(0, slashIndex) : beforeQuery;
+	const authority =
+		slashIndex >= 0 ? beforeQuery.slice(0, slashIndex) : beforeQuery;
 	const path = slashIndex >= 0 ? beforeQuery.slice(slashIndex) : "";
 	if (path && path !== "/") return failure("malformed-uri");
 
@@ -142,9 +144,7 @@ function parseAuthentication(rawAuth: string): string | null {
 	}
 }
 
-function parseServerAuthority(
-	value: string,
-):
+function parseServerAuthority(value: string):
 	| {
 			ok: true;
 			server: string;
@@ -261,10 +261,7 @@ function firstNonEmptyQueryValue(
 	return null;
 }
 
-function hasNonEmptyQueryValue(
-	query: URLSearchParams,
-	name: string,
-): boolean {
+function hasNonEmptyQueryValue(query: URLSearchParams, name: string): boolean {
 	return query.getAll(name).some((value) => Boolean(value.trim()));
 }
 

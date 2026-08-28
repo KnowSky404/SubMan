@@ -1,7 +1,4 @@
-import {
-	parseHysteria2Uri,
-	type Hysteria2UriIssue,
-} from "$lib/hysteria2-uri";
+import { type Hysteria2UriIssue, parseHysteria2Uri } from "$lib/hysteria2-uri";
 import type { ProxyType } from "$lib/models";
 
 export const PROXY_TYPES = [

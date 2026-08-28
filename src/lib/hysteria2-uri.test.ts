@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { parseHysteria2Uri, type ParsedHysteria2Uri } from "./hysteria2-uri";
+import { type ParsedHysteria2Uri, parseHysteria2Uri } from "./hysteria2-uri";
 import { validateProxyUri } from "./proxy-protocol";
 
 function parse(raw: string): ParsedHysteria2Uri {
