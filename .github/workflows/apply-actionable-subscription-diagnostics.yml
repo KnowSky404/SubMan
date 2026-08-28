@@ -38,25 +38,6 @@ jobs:
           echo "741e7a8fe79194edb30071dadf6e847c7cc040483096de37444f0d1475ac27b7  /tmp/apply-subman.py.gz.b64" | sha256sum --check
           base64 --decode /tmp/apply-subman.py.gz.b64 | gzip --decompress > /tmp/apply-subman.py
           python /tmp/apply-subman.py
-          python - <<'PY'
-          from pathlib import Path
-
-          path = Path("src/lib/subscription-diagnostics.test.ts")
-          content = path.read_text(encoding="utf-8")
-          old = '''\t\t).toMatchObject({
-          \t\t\ttitleKey: "Subscription access was rejected (HTTP {status})",
-          \t\t\tparams: { status: 403 },
-          \t\t});'''
-          new = '''\t\t).toEqual({
-          \t\t\ttitleKey: "Subscription access was rejected (HTTP {status})",
-          \t\t\tdetailKey:
-          \t\t\t\t"Check whether the subscription link is still authorized or has expired.",
-          \t\t\tparams: { status: 403 },
-          \t\t});'''
-          if content.count(old) != 1:
-              raise RuntimeError("expected typed matcher replacement exactly once")
-          path.write_text(content.replace(old, new, 1), encoding="utf-8")
-          PY
           rm -rf .github/automation
           rm -f .github/workflows/apply-actionable-subscription-diagnostics.yml
 
