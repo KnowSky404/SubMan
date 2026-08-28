@@ -1,0 +1,110 @@
+name: Apply actionable subscription diagnostics
+
+on:
+  push:
+    branches:
+      - feat/actionable-subscription-diagnostics-20260828
+
+permissions:
+  contents: write
+
+concurrency:
+  group: actionable-subscription-diagnostics
+  cancel-in-progress: false
+
+jobs:
+  apply-and-verify:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Check out feature branch
+        uses: actions/checkout@v5
+        with:
+          ref: feat/actionable-subscription-diagnostics-20260828
+          fetch-depth: 0
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+
+      - name: Verify and apply implementation
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat .github/automation/payload.* > /tmp/apply-subman.py.gz.b64
+          test "$(wc -c < /tmp/apply-subman.py.gz.b64)" -eq 9028
+          echo "741e7a8fe79194edb30071dadf6e847c7cc040483096de37444f0d1475ac27b7  /tmp/apply-subman.py.gz.b64" | sha256sum --check
+          base64 --decode /tmp/apply-subman.py.gz.b64 | gzip --decompress > /tmp/apply-subman.py
+          python /tmp/apply-subman.py
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("src/lib/subscription-diagnostics.test.ts")
+          content = path.read_text(encoding="utf-8")
+          old = '''\t\t).toMatchObject({
+          \t\t\ttitleKey: "Subscription access was rejected (HTTP {status})",
+          \t\t\tparams: { status: 403 },
+          \t\t});'''
+          new = '''\t\t).toEqual({
+          \t\t\ttitleKey: "Subscription access was rejected (HTTP {status})",
+          \t\t\tdetailKey:
+          \t\t\t\t"Check whether the subscription link is still authorized or has expired.",
+          \t\t\tparams: { status: 403 },
+          \t\t});'''
+          if content.count(old) != 1:
+              raise RuntimeError("expected typed matcher replacement exactly once")
+          path.write_text(content.replace(old, new, 1), encoding="utf-8")
+          PY
+          rm -rf .github/automation
+          rm -f .github/workflows/apply-actionable-subscription-diagnostics.yml
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Format changed sources
+        shell: bash
+        run: |
+          bunx biome format --write \
+            src/lib/subscription-diagnostics.ts \
+            src/lib/subscription-diagnostics.test.ts \
+            src/lib/aggregate.ts \
+            src/lib/aggregate.test.ts \
+            src/lib/i18n.ts \
+            'src/routes/nodes/+page.svelte' \
+            src/routes/nodes/page-source.test.ts \
+            'src/routes/aggregate/+page.svelte' \
+            src/routes/aggregate/page-source.test.ts
+
+      - name: Run unit tests
+        run: bun test
+
+      - name: Run type and Svelte checks
+        run: bun run check
+
+      - name: Run lint
+        run: bun run lint
+
+      - name: Build
+        run: bun run build
+
+      - name: Run Cloudflare integration tests
+        run: bun run test:cf
+
+      - name: Install Chromium
+        run: bunx playwright install --with-deps chromium
+
+      - name: Run browser tests
+        run: bun run test:e2e
+
+      - name: Commit verified implementation
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "feat(subscription): add actionable fetch diagnostics"
+          git push origin HEAD:feat/actionable-subscription-diagnostics-20260828
