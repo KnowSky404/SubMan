@@ -27,8 +27,7 @@ export default defineConfig({
 		url: baseURL,
 		env: {
 			WRANGLER_LOG_PATH: "/tmp/subman-playwright-wrangler-logs",
-			WRANGLER_REGISTRY_PATH:
-				"/tmp/subman-playwright-wrangler-registry",
+			WRANGLER_REGISTRY_PATH: "/tmp/subman-playwright-wrangler-registry",
 		},
 		reuseExistingServer: !process.env.CI,
 		timeout: 120_000,

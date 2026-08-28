@@ -4,18 +4,12 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
-const ciWorkflow = readFileSync(
-	`${root}/.github/workflows/ci.yml`,
-	"utf8",
-);
+const ciWorkflow = readFileSync(`${root}/.github/workflows/ci.yml`, "utf8");
 const deployWorkflow = readFileSync(
 	`${root}/.github/workflows/deploy.yml`,
 	"utf8",
 );
-const playwrightConfig = readFileSync(
-	`${root}/playwright.config.ts`,
-	"utf8",
-);
+const playwrightConfig = readFileSync(`${root}/playwright.config.ts`, "utf8");
 const packageJson = JSON.parse(
 	readFileSync(`${root}/package.json`, "utf8"),
 ) as {
