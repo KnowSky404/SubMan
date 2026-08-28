@@ -1,11 +1,8 @@
-import { detectProxyScheme } from "$lib/proxy-protocol";
 import { parseHysteria2Uri } from "$lib/hysteria2-uri";
+import { detectProxyScheme } from "$lib/proxy-protocol";
 import { parseAnyTls } from "./anytls";
 import { type ProtocolParseResult, parseProxyUrl } from "./common";
-import {
-	describeHysteria2UriIssue,
-	parseHysteria2,
-} from "./hysteria2";
+import { describeHysteria2UriIssue, parseHysteria2 } from "./hysteria2";
 import { parseShadowsocks } from "./shadowsocks";
 import { parseTrojan } from "./trojan";
 import { parseTuic } from "./tuic";
