@@ -7,23 +7,51 @@ import ts from "typescript";
 const root = fileURLToPath(new URL("../", import.meta.url));
 
 function interfaceMembers(source: ts.SourceFile, name: string): string[] {
-	const members: string[] = [];
+	const declarations = new Map<string, ts.InterfaceDeclaration[]>();
 	const visit = (node: ts.Node): void => {
-		if (ts.isInterfaceDeclaration(node) && node.name.text === name) {
-			for (const member of node.members) {
+		if (ts.isInterfaceDeclaration(node)) {
+			const existing = declarations.get(node.name.text) ?? [];
+			existing.push(node);
+			declarations.set(node.name.text, existing);
+		}
+		ts.forEachChild(node, visit);
+	};
+	visit(source);
+
+	const resolve = (interfaceName: string, seen: Set<string>): Set<string> => {
+		if (seen.has(interfaceName)) return new Set();
+		const nextSeen = new Set(seen).add(interfaceName);
+		const members = new Set<string>();
+
+		for (const declaration of declarations.get(interfaceName) ?? []) {
+			for (const member of declaration.members) {
 				if (
 					ts.isPropertySignature(member) &&
 					member.name &&
 					ts.isIdentifier(member.name)
 				) {
-					members.push(member.name.text);
+					members.add(member.name.text);
+				}
+			}
+
+			for (const clause of declaration.heritageClauses ?? []) {
+				if (clause.token !== ts.SyntaxKind.ExtendsKeyword) continue;
+				for (const inherited of clause.types) {
+					if (!ts.isIdentifier(inherited.expression)) continue;
+					for (const member of resolve(
+						inherited.expression.text,
+						nextSeen,
+					)) {
+						members.add(member);
+					}
 				}
 			}
 		}
-		ts.forEachChild(node, visit);
+
+		return members;
 	};
-	visit(source);
-	return members;
+
+	return [...resolve(name, new Set())];
 }
 
 test("Cloudflare declaration matches the Wrangler Durable Object binding", () => {
