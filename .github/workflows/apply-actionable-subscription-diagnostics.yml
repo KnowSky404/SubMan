@@ -38,6 +38,21 @@ jobs:
           echo "741e7a8fe79194edb30071dadf6e847c7cc040483096de37444f0d1475ac27b7  /tmp/apply-subman.py.gz.b64" | sha256sum --check
           base64 --decode /tmp/apply-subman.py.gz.b64 | gzip --decompress > /tmp/apply-subman.py
           python /tmp/apply-subman.py
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("src/cloudflare-binding.test.ts")
+          content = path.read_text(encoding="utf-8")
+          old = '''\texpect(declarationText).toContain(
+          \t\t'durableNamespaces: "WorkspaceCoordinator"',
+          \t);
+          '''
+          new = '''\texpect(interfaceMembers(declaration, "Env")).toContain("ASSETS");
+          '''
+          if content.count(old) != 1:
+              raise RuntimeError("expected obsolete Wrangler GlobalProps assertion exactly once")
+          path.write_text(content.replace(old, new, 1), encoding="utf-8")
+          PY
           rm -rf .github/automation
           rm -f .github/workflows/apply-actionable-subscription-diagnostics.yml
 
@@ -56,6 +71,7 @@ jobs:
             src/lib/aggregate.ts \
             src/lib/aggregate.test.ts \
             src/lib/i18n.ts \
+            src/cloudflare-binding.test.ts \
             'src/routes/nodes/+page.svelte' \
             src/routes/nodes/page-source.test.ts \
             'src/routes/aggregate/+page.svelte' \
