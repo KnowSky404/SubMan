@@ -33,6 +33,9 @@ export function parseVless(
 	if (security === "reality" && !queryValue(query, "pbk", "public_key")) {
 		return `Invalid VLESS reality URI: missing public key for ${fallbackTag}`;
 	}
+	if (security === "reality" && !queryValue(query, "fp", "fingerprint")) {
+		return `Invalid VLESS reality URI: Reality requires uTLS fingerprint for ${fallbackTag}`;
+	}
 
 	const outbound: SingBoxOutbound = {
 		type: "vless",
@@ -71,10 +74,14 @@ export function parseVless(
 				"allow_insecure",
 				"insecure",
 				"fp",
+				"fingerprint",
 			),
 		);
 	if (tlsRequired) {
 		outbound.tls = buildTls(query, { reality: security === "reality" });
+	}
+	if (transport?.type === "quic" && !outbound.tls) {
+		return `Invalid VLESS URI: QUIC transport requires TLS for ${fallbackTag}`;
 	}
 
 	const multiplex = buildMultiplex(query);

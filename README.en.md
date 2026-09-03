@@ -20,7 +20,7 @@ Default workspace identity:
 - Nodes and subscriptions: add, edit, enable/disable, tag, search, and filter
 - Batch import: multi-line import with dedupe and preview; supports base64 subscription content
 - Aggregation rules: select nodes/subscriptions, exclude tags, filter by proxy types, regex renaming, region flags
-- sing-box client exports: VLESS, VMess, Trojan, Shadowsocks, Hysteria2, TUIC, and AnyTLS; SSR remains aggregatable but is skipped with a warning
+- sing-box client exports against an explicit sing-box 1.14 target: VLESS, VMess, Trojan, Shadowsocks, Hysteria2, TUIC, and AnyTLS; SSR remains aggregatable but is skipped with a warning
 - Result sorting: support automatic sorting by name, protocol, or region (flags), and fully custom ordering via priority keywords or manual drag-and-drop
 - Custom region rules: custom flag map with built-in template and lookup
 - Publish targets: bind a rule to multiple targets with file name, description, and visibility
@@ -116,6 +116,7 @@ Full local verification:
 
 ```bash
 bun test
+bun run test:sing-box
 bun run check
 bun run lint
 bun run build
@@ -123,6 +124,10 @@ bun run test:cf
 bun run test:e2e
 bun run check:worker-types
 ```
+
+GitHub Actions runs the same checks with a digest-pinned sing-box 1.14.0
+container and synthetic exporter data. It does not read repository secrets,
+fetch a real subscription, deploy, or touch a real Gist.
 
 ## Cloudflare Workers Deployment
 ```bash

@@ -1,3 +1,10 @@
+import {
+	getSingBoxTarget,
+	type SingBoxTarget,
+	supportsHysteria2Obfs,
+	supportsUtlsFingerprint,
+} from "$lib/client-export/target";
+
 export type Hysteria2Obfs = {
 	type: "salamander" | "gecko";
 	password: string;
@@ -21,6 +28,8 @@ export type Hysteria2UriIssue =
 	| "invalid-port"
 	| "unsupported-obfs"
 	| "missing-obfs-password"
+	| "unsupported-parameter"
+	| "unsupported-utls-fingerprint"
 	| "unsupported-pin-sha256"
 	| "unsupported-ech";
 
@@ -37,8 +46,29 @@ type PortSegment = {
 const DEFAULT_HYSTERIA2_PORT = 443;
 const HYSTERIA2_SCHEME_PATTERN = /^(hysteria2|hy2):\/\//i;
 const INVALID_PERCENT_ENCODING = /%(?![0-9a-f]{2})/i;
+const HYSTERIA2_QUERY_PARAMETERS = new Set([
+	"obfs",
+	"obfs-password",
+	"obfs_password",
+	"sni",
+	"serverName",
+	"server_name",
+	"insecure",
+	"allowInsecure",
+	"allow_insecure",
+	"skip-cert-verify",
+	"alpn",
+	"fp",
+	"fingerprint",
+	"network",
+	"pinSHA256",
+	"ech",
+]);
 
-export function parseHysteria2Uri(raw: string): Hysteria2UriParseResult {
+export function parseHysteria2Uri(
+	raw: string,
+	target: SingBoxTarget = getSingBoxTarget(),
+): Hysteria2UriParseResult {
 	const normalized = raw.trim();
 	const schemeMatch = normalized.match(HYSTERIA2_SCHEME_PATTERN);
 	if (!schemeMatch || INVALID_PERCENT_ENCODING.test(normalized)) {
@@ -81,17 +111,29 @@ export function parseHysteria2Uri(raw: string): Hysteria2UriParseResult {
 	}
 
 	const query = new URLSearchParams(queryString);
+	for (const name of query.keys()) {
+		if (!HYSTERIA2_QUERY_PARAMETERS.has(name)) {
+			return failure("unsupported-parameter");
+		}
+	}
 	if (hasNonEmptyQueryValue(query, "pinSHA256")) {
 		return failure("unsupported-pin-sha256");
 	}
 	if (hasNonEmptyQueryValue(query, "ech")) {
 		return failure("unsupported-ech");
 	}
+	const fingerprint = firstNonEmptyQueryValue(query, "fp", "fingerprint");
+	if (
+		fingerprint &&
+		!supportsUtlsFingerprint(target, fingerprint.toLowerCase())
+	) {
+		return failure("unsupported-utls-fingerprint");
+	}
 
 	const obfsType = firstNonEmptyQueryValue(query, "obfs")?.toLowerCase();
 	let obfs: Hysteria2Obfs | null = null;
 	if (obfsType) {
-		if (obfsType !== "salamander" && obfsType !== "gecko") {
+		if (!supportsHysteria2Obfs(target, obfsType)) {
 			return failure("unsupported-obfs");
 		}
 		const obfsPassword = firstNonEmptyQueryValue(

@@ -8,6 +8,7 @@
 	"scripts": {
 		"dev": "vite dev",
 		"test": "bun test",
+		"test:sing-box": "bun run scripts/verify-sing-box-export.ts",
 		"test:cf": "bun run build && vitest run --config vitest.config.ts",
 		"test:e2e": "playwright test",
 		"build": "vite build",

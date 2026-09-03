@@ -20,7 +20,7 @@ SvelteKit 运行在 Cloudflare Workers 上，并由每个 Workspace 一个的 Du
 - 节点与订阅管理：新增、编辑、启用/停用、标签、搜索与过滤
 - 批量导入：支持多行导入节点或订阅，自动去重与预览；支持解析 base64 订阅内容
 - 聚合规则：按节点/订阅选择、排除标签、协议类型过滤、正则表达式重命名、自动区域旗标
-- sing-box 客户端导出：支持 VLESS、VMess、Trojan、Shadowsocks、Hysteria2、TUIC 与 AnyTLS；SSR 保留聚合但导出时给出跳过警告
+- sing-box 客户端导出：按明确的 sing-box 1.14 目标支持 VLESS、VMess、Trojan、Shadowsocks、Hysteria2、TUIC 与 AnyTLS；SSR 保留聚合但导出时给出跳过警告
 - 结果排序：支持按名称、协议、区域（旗标）自动排序，并支持通过关键词优先级或手动拖拽实现完全自定义排序
 - 自定义区域规则：自定义区域旗标映射，内置模板导入与快速查找
 - 发布目标：规则可绑定多个发布目标，支持文件名、描述、可见性设置
@@ -105,6 +105,7 @@ bun run preview
 
 ```bash
 bun test
+bun run test:sing-box
 bun run check
 bun run lint
 bun run build
@@ -113,8 +114,9 @@ bun run test:e2e
 bun run check:worker-types
 ```
 
-GitHub Actions 在 `main` push 和 pull request 上执行同一检查链，不读取仓库 Secret，
-也不执行部署或真实 Gist 操作。
+GitHub Actions 在 `main` push 和 pull request 上执行同一检查链，其中导出门禁使用
+固定摘要的 sing-box 1.14.0 容器与纯合成数据；流程不读取仓库 Secret，也不执行部署、
+真实订阅请求或真实 Gist 操作。
 
 ## Cloudflare Workers 部署
 ```bash

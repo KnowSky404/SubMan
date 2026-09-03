@@ -8,11 +8,17 @@ import {
 	stringOrNumber,
 	stringValue,
 } from "./common";
+import {
+	type SingBoxTarget,
+	supportsUtlsFingerprint,
+	supportsVmessSecurity,
+} from "./target";
 import type { SingBoxOutbound } from "./uri-types";
 
 export function parseVmess(
 	raw: string,
 	fallbackTag: string,
+	target: SingBoxTarget,
 ): ProtocolParseResult {
 	const payload = raw.slice(raw.indexOf("://") + 3);
 	const decoded = decodeBase64Utf8(payload);
@@ -35,17 +41,7 @@ export function parseVmess(
 		}
 
 		const security = stringValue(data.scy) ?? stringValue(data.security);
-		if (
-			security &&
-			![
-				"auto",
-				"none",
-				"zero",
-				"aes-128-gcm",
-				"chacha20-poly1305",
-				"aes-128-ctr",
-			].includes(security)
-		) {
+		if (security && !supportsVmessSecurity(target, security)) {
 			return `Invalid vmess URI: unsupported security for ${fallbackTag}`;
 		}
 
@@ -80,13 +76,13 @@ export function parseVmess(
 		if (network === "tcp" || network === "udp") outbound.network = network;
 		const transportQuery = new URLSearchParams();
 		if (network) transportQuery.set("type", network);
-		for (const [source, target] of [
+		for (const [source, targetKey] of [
 			["host", "host"],
 			["path", "path"],
 			["serviceName", "serviceName"],
 		] as const) {
 			const value = stringValue(data[source]);
-			if (value) transportQuery.set(target, value);
+			if (value) transportQuery.set(targetKey, value);
 		}
 		const transport = buildTransport(transportQuery, network);
 		if (typeof transport === "string") {
@@ -99,13 +95,17 @@ export function parseVmess(
 			return `Invalid vmess URI: unsupported TLS mode for ${fallbackTag}`;
 		}
 		const tlsQuery = new URLSearchParams();
-		for (const [source, target] of [
+		for (const [source, targetKey] of [
 			["sni", "sni"],
 			["alpn", "alpn"],
 			["fp", "fp"],
 		] as const) {
 			const value = stringValue(data[source]);
-			if (value) tlsQuery.set(target, value);
+			if (value) tlsQuery.set(targetKey, value);
+		}
+		const fingerprint = tlsQuery.get("fp")?.toLowerCase();
+		if (fingerprint && !supportsUtlsFingerprint(target, fingerprint)) {
+			return `Invalid vmess URI: unsupported uTLS fingerprint for ${fallbackTag}`;
 		}
 		const allowInsecure = booleanValue(
 			data.allowInsecure ?? data.allow_insecure,
@@ -115,6 +115,9 @@ export function parseVmess(
 		}
 		if (tlsValue === "tls" || tlsQuery.size > 0) {
 			outbound.tls = buildTls(tlsQuery);
+		}
+		if (transport?.type === "quic" && !outbound.tls) {
+			return `Invalid vmess URI: QUIC transport requires TLS for ${fallbackTag}`;
 		}
 
 		const packetValue = stringValue(

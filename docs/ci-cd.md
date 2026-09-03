@@ -12,13 +12,22 @@ The verification order is intentionally fail-fast:
 
 1. install the frozen lockfile;
 2. run unit tests;
-3. run Svelte and TypeScript checks, including generated Worker type drift;
-4. run Biome;
-5. build the SvelteKit Worker;
-6. run the Cloudflare Durable Object integration suite;
-7. run `wrangler deploy --dry-run` and retain its bundle under
+3. generate a synthetic local URI/subscription export and validate it with the
+   pinned sing-box `1.14.0` container;
+4. run Svelte and TypeScript checks, including generated Worker type drift;
+5. run Biome;
+6. build the SvelteKit Worker;
+7. run the Cloudflare Durable Object integration suite;
+8. run `wrangler deploy --dry-run` and retain its bundle under
    `.wrangler/deploy-check`;
-8. install Chromium and run Playwright through `wrangler dev --local`.
+9. install Chromium and run Playwright through `wrangler dev --local`.
+
+The executable exporter gate is available locally as `bun run test:sing-box`.
+It calls the real Aggregate and client-export code with an injected, in-memory
+subscription fixture, then runs `sing-box check` using an image pinned by tag
+and multi-architecture digest. It uses no real subscription, user data,
+credentials, Gist, or remote proxy connection. Docker is the only additional
+local prerequisite.
 
 Using Wrangler for the browser server validates the generated Worker entrypoint,
 the `WORKSPACE_COORDINATOR` class export, the Durable Object migration, and

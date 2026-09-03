@@ -35,6 +35,9 @@ jobs:
       - name: Run unit tests
         run: bun test
 
+      - name: Validate sing-box 1.14 export
+        run: bun run test:sing-box
+
       - name: Run type and Svelte checks
         run: bun run check
 

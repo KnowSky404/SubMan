@@ -30,7 +30,6 @@ export function parseTuic(
 		uuid,
 		password,
 		congestion_control: "cubic",
-		udp_relay_mode: "native",
 		tls: buildTls(parsed.query),
 	};
 	const network = queryValue(parsed.query, "network");
@@ -52,9 +51,14 @@ export function parseTuic(
 		if (!UDP_RELAY_MODES.has(relayMode)) {
 			return `Invalid TUIC URI: unsupported UDP relay mode for ${fallbackTag}`;
 		}
-		outbound.udp_relay_mode = relayMode;
 	}
 	const udpOverStream = queryBoolean(parsed.query, "udp_over_stream");
+	if (udpOverStream === true && relayMode) {
+		return `Invalid TUIC URI: conflicting UDP relay settings for ${fallbackTag}`;
+	}
+	if (udpOverStream !== true) {
+		outbound.udp_relay_mode = relayMode ?? "native";
+	}
 	if (udpOverStream !== null) outbound.udp_over_stream = udpOverStream;
 	const zeroRtt = queryBoolean(parsed.query, "zero_rtt_handshake", "zero_rtt");
 	if (zeroRtt !== null) outbound.zero_rtt_handshake = zeroRtt;

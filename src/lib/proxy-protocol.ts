@@ -174,6 +174,10 @@ function hysteria2ValidationIssue(issue: Hysteria2UriIssue): string {
 			return "unsupported-obfs";
 		case "missing-obfs-password":
 			return "missing-obfs-password";
+		case "unsupported-parameter":
+			return "unsupported-parameter";
+		case "unsupported-utls-fingerprint":
+			return "unsupported-utls-fingerprint";
 		case "unsupported-pin-sha256":
 			return "unsupported-pin-sha256";
 		case "unsupported-ech":

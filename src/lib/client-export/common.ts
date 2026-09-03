@@ -1,3 +1,4 @@
+import { type SingBoxTarget, supportsUtlsFingerprint } from "./target";
 import type { SingBoxOutbound } from "./uri-types";
 
 export type ParsedProxyUri = {
@@ -138,7 +139,9 @@ export function buildTls(
 	if (serverName) tls.server_name = serverName;
 	if (alpn.length > 0) tls.alpn = alpn;
 	if (insecure !== null) tls.insecure = insecure;
-	if (fingerprint) tls.utls = { enabled: true, fingerprint };
+	if (fingerprint) {
+		tls.utls = { enabled: true, fingerprint: fingerprint.toLowerCase() };
+	}
 
 	if (options.reality) {
 		const publicKey = queryValue(query, "pbk", "public_key");
@@ -151,6 +154,16 @@ export function buildTls(
 	}
 
 	return tls;
+}
+
+export function hasUnsupportedUtlsFingerprint(
+	query: URLSearchParams,
+	target: SingBoxTarget,
+): boolean {
+	const fingerprint = queryValue(query, "fp", "fingerprint");
+	return Boolean(
+		fingerprint && !supportsUtlsFingerprint(target, fingerprint.toLowerCase()),
+	);
 }
 
 export function buildTransport(
@@ -187,6 +200,14 @@ export function buildTransport(
 			type: "grpc",
 			...(serviceName ? { service_name: serviceName } : {}),
 		};
+	}
+	if (type === "quic") {
+		if (
+			queryValue(query, "host", "path", "quicSecurity", "quic_security", "key")
+		) {
+			return "unsupported QUIC settings";
+		}
+		return { type: "quic" };
 	}
 	if (type === "http" || type === "h2") {
 		return {

@@ -1,4 +1,7 @@
-import { buildAggregateOutput } from "$lib/aggregate";
+import {
+	type AggregateBuildOptions,
+	buildAggregateOutput,
+} from "$lib/aggregate";
 import type {
 	AggregateRule,
 	ClientExportProfile,
@@ -7,6 +10,10 @@ import type {
 } from "$lib/models";
 import { inferNodeNameFromRaw } from "$lib/subscription";
 import { validateSingBoxClientProfile } from "./profile";
+import {
+	DEFAULT_SING_BOX_TARGET_VERSION,
+	type SingBoxTargetVersion,
+} from "./target";
 import { parseProxyUriToSingBoxOutbound, type SingBoxOutbound } from "./uri";
 
 export type SingBoxClientBuildResult = {
@@ -17,6 +24,11 @@ export type SingBoxClientBuildResult = {
 	skipped: number;
 	warnings: string[];
 	errors: string[];
+};
+
+export type SingBoxClientBuildOptions = {
+	targetVersion?: SingBoxTargetVersion;
+	loadSubscription?: AggregateBuildOptions["loadSubscription"];
 };
 
 type SingBoxClientConfig = {
@@ -45,6 +57,7 @@ export async function buildSingBoxClientConfig(
 	rule: AggregateRule | null | undefined,
 	nodes: NodeItem[],
 	subscriptions: SubscriptionItem[],
+	options: SingBoxClientBuildOptions = {},
 ): Promise<SingBoxClientBuildResult> {
 	const validation = validateSingBoxClientProfile(profile);
 	const errors = [...validation.errors];
@@ -55,7 +68,9 @@ export async function buildSingBoxClientConfig(
 		return emptyResult({ errors });
 	}
 
-	const aggregate = await buildAggregateOutput(rule, nodes, subscriptions);
+	const aggregate = await buildAggregateOutput(rule, nodes, subscriptions, {
+		loadSubscription: options.loadSubscription,
+	});
 	if (aggregate.errors.length > 0) {
 		return emptyResult({
 			warnings: aggregate.warnings,
@@ -85,7 +100,11 @@ export async function buildSingBoxClientConfig(
 	for (const line of lines) {
 		const displayTag = inferNodeNameFromRaw(line, "proxy");
 		const tag = uniqueTag(displayTag, usedTags);
-		const { outbound, warning } = parseProxyUriToSingBoxOutbound(line, tag);
+		const { outbound, warning } = parseProxyUriToSingBoxOutbound(
+			line,
+			tag,
+			options.targetVersion ?? DEFAULT_SING_BOX_TARGET_VERSION,
+		);
 		if (!outbound) {
 			skipped += 1;
 			if (warning) {

@@ -146,6 +146,24 @@ describe("Hysteria2 sing-box URI fidelity", () => {
 			expect(warning).not.toContain("hy2://");
 		}
 	});
+
+	it("rejects unknown parameters and unsupported uTLS fingerprints", () => {
+		const futureParameter = parseProxyUriToSingBoxOutbound(
+			"hy2://password@example.com:443?future-security-mode=enabled#Future",
+			"Future",
+		);
+		const unknownFingerprint = parseProxyUriToSingBoxOutbound(
+			"hy2://password@example.com:443?fp=not-a-browser#Fingerprint",
+			"Fingerprint",
+		);
+
+		expect(futureParameter.outbound).toBeNull();
+		expect(futureParameter.warning).toContain("unsupported parameter");
+		expect(unknownFingerprint.outbound).toBeNull();
+		expect(unknownFingerprint.warning).toContain(
+			"unsupported uTLS fingerprint",
+		);
+	});
 });
 
 describe("Hysteria2 warning-first client export", () => {

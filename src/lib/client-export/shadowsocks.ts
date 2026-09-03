@@ -8,6 +8,11 @@ import {
 	queryBoolean,
 	queryValue,
 } from "./common";
+import {
+	type SingBoxTarget,
+	supportsShadowsocksMethod,
+	supportsShadowsocksPlugin,
+} from "./target";
 import type { SingBoxOutbound } from "./uri-types";
 
 function parseCredentials(value: string | null): string | null {
@@ -20,6 +25,7 @@ export function parseShadowsocks(
 	raw: string,
 	parsed: ParsedProxyUri | null,
 	fallbackTag: string,
+	target: SingBoxTarget,
 ): ProtocolParseResult {
 	let server = parsed?.server ?? "";
 	let serverPort = parsed?.serverPort ?? null;
@@ -64,26 +70,46 @@ export function parseShadowsocks(
 		return `Invalid shadowsocks URI: ${fallbackTag}`;
 	}
 
+	const method = credentials.slice(0, separatorIndex);
+	if (!supportsShadowsocksMethod(target, method)) {
+		return `Invalid shadowsocks URI: unsupported method for ${fallbackTag}`;
+	}
+
 	const outbound: SingBoxOutbound = {
 		type: "shadowsocks",
 		tag: tag,
 		server,
 		server_port: serverPort,
-		method: credentials.slice(0, separatorIndex),
+		method,
 		password: credentials.slice(separatorIndex + 1),
 	};
+	const network = queryValue(query, "network")?.toLowerCase();
+	if (network) {
+		if (network !== "tcp" && network !== "udp") {
+			return `Invalid shadowsocks URI: unsupported network for ${fallbackTag}`;
+		}
+		outbound.network = network;
+	}
 	const pluginValue = queryValue(query, "plugin");
 	if (pluginValue) {
 		const [plugin, ...options] = pluginValue.split(";");
-		if (!plugin) return `Invalid shadowsocks URI: plugin for ${fallbackTag}`;
+		if (!plugin || !supportsShadowsocksPlugin(target, plugin)) {
+			return `Invalid shadowsocks URI: unsupported plugin for ${fallbackTag}`;
+		}
 		outbound.plugin = plugin;
 		if (options.length > 0) outbound.plugin_opts = options.join(";");
 	}
 	const pluginOptions = queryValue(query, "plugin_opts", "plugin-options");
+	if (pluginOptions && !pluginValue) {
+		return `Invalid shadowsocks URI: plugin options require a plugin for ${fallbackTag}`;
+	}
 	if (pluginOptions) outbound.plugin_opts = pluginOptions;
 	const udpOverTcp = queryBoolean(query, "uot", "udp_over_tcp");
-	if (udpOverTcp === true) outbound.udp_over_tcp = { enabled: true };
 	const multiplex = buildMultiplex(query);
+	if (udpOverTcp === true && multiplex) {
+		return `Invalid shadowsocks URI: conflicting UDP settings for ${fallbackTag}`;
+	}
+	if (udpOverTcp === true) outbound.udp_over_tcp = { enabled: true };
 	if (multiplex) outbound.multiplex = multiplex;
 	return outbound;
 }

@@ -50,6 +50,10 @@ export function describeHysteria2UriIssue(
 			return `Invalid Hysteria2 URI: unsupported obfs for ${fallbackTag}`;
 		case "missing-obfs-password":
 			return `Invalid Hysteria2 URI: missing obfs password for ${fallbackTag}`;
+		case "unsupported-parameter":
+			return `Skipped Hysteria2 URI: unsupported parameter for ${fallbackTag}`;
+		case "unsupported-utls-fingerprint":
+			return `Skipped Hysteria2 URI: unsupported uTLS fingerprint for ${fallbackTag}`;
 		case "unsupported-pin-sha256":
 			return `Skipped Hysteria2 URI: certificate pinning is not supported for ${fallbackTag}`;
 		case "unsupported-ech":

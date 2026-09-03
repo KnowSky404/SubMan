@@ -1,6 +1,6 @@
 # SubMan Roadmap
 
-Status: 2026-08-28. This roadmap is deliberately split between shipped
+Status: 2026-09-03. This roadmap is deliberately split between shipped
 capabilities, contract work, and protocol work that still needs design. It is
 not a promise to deploy or mutate a production Workspace.
 
@@ -12,7 +12,8 @@ not a promise to deploy or mutate a production Workspace.
 - sing-box client export support for VLESS, VMess, Trojan, Shadowsocks,
   Hysteria2, TUIC, and AnyTLS. ShadowsocksR remains importable and is skipped
   from sing-box output with a warning; unknown and malformed lines are
-  warning-first.
+  warning-first. The explicit `1.14` target has versioned method, plugin,
+  obfuscation, and uTLS allowlists.
 - Shared Hysteria2 URI validation and export parsing for implicit port `443`,
   password and userpass authentication, bracketed IPv6, port-hopping lists and
   ranges, and Salamander or Gecko obfuscation. Hysteria2 certificate pinning,
@@ -29,10 +30,11 @@ not a promise to deploy or mutate a production Workspace.
 - Structured Worker observability with an allowlisted field set and hashed
   Workspace identifiers. Wrangler type generation is reproducible and checked
   for drift.
-- GitHub CI validates generated Worker types, the Cloudflare integration suite,
-  a Wrangler deployment dry run, and browser behavior through the local Workers
-  runtime before Chromium-dependent checks. Production deployment is an
-  explicit, environment-gated workflow rather than an automatic push action.
+- GitHub CI validates synthetic URI/subscription output with the digest-pinned
+  sing-box `1.14.0` binary, generated Worker types, the Cloudflare integration
+  suite, a Wrangler deployment dry run, and browser behavior through the local
+  Workers runtime before Chromium-dependent checks. Production deployment is
+  an explicit, environment-gated workflow rather than an automatic push action.
 
 ## Next product and reliability work
 
@@ -74,6 +76,7 @@ Every implementation slice should retain the local gates:
 
 ```bash
 bun test
+bun run test:sing-box
 bun run check
 bun run lint
 bun run build

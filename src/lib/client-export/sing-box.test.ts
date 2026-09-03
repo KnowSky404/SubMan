@@ -6,6 +6,7 @@ import {
 	validateSingBoxClientProfile,
 } from "./profile";
 import { buildSingBoxClientConfig } from "./sing-box";
+import { DEFAULT_SING_BOX_TARGET_VERSION, getSingBoxTarget } from "./target";
 import { parseProxyUriToSingBoxOutbound } from "./uri";
 
 declare const Bun: {
@@ -28,6 +29,13 @@ describe("sing-box client export profile", () => {
 		expect(profile.options.inboundType).toBe("mixed");
 		expect(profile.options.routeMode).toBe("global-proxy");
 		expect(profile.options.includeExperimental).toBe(true);
+		expect(DEFAULT_SING_BOX_TARGET_VERSION).toBe("1.14");
+		const target = getSingBoxTarget();
+		expect(target.binaryVersion).toBe("1.14.0");
+		expect(target.validationImage).toContain(
+			"ghcr.io/sagernet/sing-box:v1.14.0@sha256:",
+		);
+		expect(target.validationImage).not.toContain(":latest");
 	});
 
 	it("blocks invalid listen ports and protected filenames", () => {
@@ -159,7 +167,7 @@ describe("sing-box proxy uri parsing", () => {
 
 	it("parses a VLESS reality URI", () => {
 		const result = parseProxyUriToSingBoxOutbound(
-			"vless://00000000-0000-4000-8000-000000000001@example.com:443?security=reality&sni=www.cloudflare.com&pbk=pubkey&sid=abcd&flow=xtls-rprx-vision#HK%20VLESS",
+			"vless://00000000-0000-4000-8000-000000000001@example.com:443?security=reality&sni=www.cloudflare.com&pbk=pubkey&sid=abcd&flow=xtls-rprx-vision&fp=chrome#HK%20VLESS",
 			"HK VLESS",
 		);
 
@@ -174,6 +182,10 @@ describe("sing-box proxy uri parsing", () => {
 			tls: {
 				enabled: true,
 				server_name: "www.cloudflare.com",
+				utls: {
+					enabled: true,
+					fingerprint: "chrome",
+				},
 				reality: {
 					enabled: true,
 					public_key: "pubkey",
@@ -181,6 +193,16 @@ describe("sing-box proxy uri parsing", () => {
 				},
 			},
 		});
+	});
+
+	it("rejects VLESS reality without the required uTLS fingerprint", () => {
+		const result = parseProxyUriToSingBoxOutbound(
+			"vless://00000000-0000-4000-8000-000000000001@example.com:443?security=reality&sni=www.cloudflare.com&pbk=pubkey&sid=abcd#Reality",
+			"Reality",
+		);
+
+		expect(result.outbound).toBeNull();
+		expect(result.warning).toContain("Reality requires uTLS fingerprint");
 	});
 
 	it("parses a Trojan URI", () => {
@@ -258,6 +280,45 @@ describe("sing-box proxy uri parsing", () => {
 		});
 	});
 
+	it("maps a supported Shadowsocks network", () => {
+		const result = parseProxyUriToSingBoxOutbound(
+			"ss://aes-128-gcm:password@example.com:8388?network=udp#SS%20UDP",
+			"fallback",
+		);
+
+		expect(result.warning).toBeNull();
+		expect(result.outbound?.network).toBe("udp");
+	});
+
+	it("rejects unsupported Shadowsocks target values", () => {
+		const invalidMethod = parseProxyUriToSingBoxOutbound(
+			"ss://not-a-cipher:password@example.com:8388#SS",
+			"fallback",
+		);
+		const invalidPlugin = parseProxyUriToSingBoxOutbound(
+			"ss://aes-128-gcm:password@example.com:8388?plugin=unknown#SS",
+			"fallback",
+		);
+		const invalidNetwork = parseProxyUriToSingBoxOutbound(
+			"ss://aes-128-gcm:password@example.com:8388?network=icmp#SS",
+			"fallback",
+		);
+
+		expect(invalidMethod.warning).toContain("unsupported method");
+		expect(invalidPlugin.warning).toContain("unsupported plugin");
+		expect(invalidNetwork.warning).toContain("unsupported network");
+	});
+
+	it("rejects conflicting Shadowsocks UDP-over-TCP and multiplex", () => {
+		const result = parseProxyUriToSingBoxOutbound(
+			"ss://aes-128-gcm:password@example.com:8388?uot=1&mux=1#SS",
+			"fallback",
+		);
+
+		expect(result.outbound).toBeNull();
+		expect(result.warning).toContain("conflicting UDP settings");
+	});
+
 	it("parses VMess base64 JSON with UTF-8 values", () => {
 		const payload = {
 			add: "example.com",
@@ -326,6 +387,56 @@ describe("sing-box proxy uri parsing", () => {
 		});
 	});
 
+	it("maps VMess QUIC with TLS and rejects invalid QUIC combinations", () => {
+		const validPayload = {
+			add: "example.com",
+			port: "443",
+			id: "00000000-0000-4000-8000-000000000006",
+			net: "quic",
+			tls: "tls",
+			sni: "quic.example.com",
+		};
+		const configuredPayload = {
+			...validPayload,
+			host: "aes-128-gcm",
+			path: "transport-key",
+		};
+		const noTlsPayload = { ...validPayload, tls: "none", sni: undefined };
+		const valid = parseProxyUriToSingBoxOutbound(
+			`vmess://${btoa(JSON.stringify(validPayload))}`,
+			"VMess QUIC",
+		);
+		const configured = parseProxyUriToSingBoxOutbound(
+			`vmess://${btoa(JSON.stringify(configuredPayload))}`,
+			"VMess QUIC",
+		);
+		const noTls = parseProxyUriToSingBoxOutbound(
+			`vmess://${btoa(JSON.stringify(noTlsPayload))}`,
+			"VMess QUIC",
+		);
+
+		expect(valid.warning).toBeNull();
+		expect(valid.outbound?.transport).toEqual({ type: "quic" });
+		expect(valid.outbound?.tls).toEqual({
+			enabled: true,
+			server_name: "quic.example.com",
+		});
+		expect(configured.outbound).toBeNull();
+		expect(configured.warning).toContain("unsupported QUIC settings");
+		expect(noTls.outbound).toBeNull();
+		expect(noTls.warning).toContain("QUIC transport requires TLS");
+	});
+
+	it("rejects VLESS QUIC without TLS", () => {
+		const result = parseProxyUriToSingBoxOutbound(
+			"vless://00000000-0000-4000-8000-000000000010@example.com:443?security=none&type=quic#VLESS%20QUIC",
+			"VLESS QUIC",
+		);
+
+		expect(result.outbound).toBeNull();
+		expect(result.warning).toContain("QUIC transport requires TLS");
+	});
+
 	it("parses a Hysteria2 URI", () => {
 		const result = parseProxyUriToSingBoxOutbound(
 			"hysteria2://password@example.com:443?network=udp&sni=hy2.example.com&obfs=salamander&obfs-password=obfs-pass#HY2",
@@ -353,7 +464,7 @@ describe("sing-box proxy uri parsing", () => {
 
 	it("maps Hysteria2 TLS ALPN and insecure settings", () => {
 		const result = parseProxyUriToSingBoxOutbound(
-			"hy2://password@example.com:443?sni=hy2.example.com&alpn=h3&insecure=1#HY2%20TLS",
+			"hy2://password@example.com:443?sni=hy2.example.com&alpn=h3&insecure=1&fp=Firefox#HY2%20TLS",
 			"fallback",
 		);
 
@@ -369,13 +480,14 @@ describe("sing-box proxy uri parsing", () => {
 				server_name: "hy2.example.com",
 				alpn: ["h3"],
 				insecure: true,
+				utls: { enabled: true, fingerprint: "firefox" },
 			},
 		});
 	});
 
-	it("parses a TUIC URI with transport and TLS options", () => {
+	it("omits the conflicting relay mode when TUIC uses UDP over stream", () => {
 		const result = parseProxyUriToSingBoxOutbound(
-			"tuic://00000000-0000-4000-8000-000000000003:tuic-pass@example.com:443?network=tcp&congestion_control=bbr&udp_relay_mode=native&udp_over_stream=1&zero_rtt_handshake=1&heartbeat=10s&sni=tuic.example.com&alpn=h3,hq&allow_insecure=1#TUIC",
+			"tuic://00000000-0000-4000-8000-000000000003:tuic-pass@example.com:443?network=tcp&congestion_control=bbr&udp_over_stream=1&zero_rtt_handshake=1&heartbeat=10s&sni=tuic.example.com&alpn=h3,hq&allow_insecure=1#TUIC",
 			"TUIC",
 		);
 
@@ -389,7 +501,6 @@ describe("sing-box proxy uri parsing", () => {
 			password: "tuic-pass",
 			network: "tcp",
 			congestion_control: "bbr",
-			udp_relay_mode: "native",
 			udp_over_stream: true,
 			zero_rtt_handshake: true,
 			heartbeat: "10s",
@@ -400,6 +511,16 @@ describe("sing-box proxy uri parsing", () => {
 				insecure: true,
 			},
 		});
+	});
+
+	it("rejects contradictory TUIC UDP relay settings", () => {
+		const result = parseProxyUriToSingBoxOutbound(
+			"tuic://00000000-0000-4000-8000-000000000003:tuic-pass@example.com:443?udp_relay_mode=native&udp_over_stream=1#TUIC",
+			"TUIC",
+		);
+
+		expect(result.outbound).toBeNull();
+		expect(result.warning).toContain("conflicting UDP relay settings");
 	});
 
 	it("parses AnyTLS without generating client metadata", () => {
@@ -680,6 +801,44 @@ describe("sing-box client config export", () => {
 		expect(config.outbounds[1].outbounds).toEqual(["HK VLESS", "TUIC"]);
 		expect(config.route.final).toBe("proxy");
 		expect(JSON.parse(result.content)).toEqual(config);
+	});
+
+	it("builds through an injected local subscription loader", async () => {
+		const profile = createDefaultSingBoxClientProfile("rule-1", updatedAt);
+		const subscriptionRule: AggregateRule = {
+			...rule,
+			nodeIds: [],
+			subscriptionIds: ["fixture-subscription"],
+		};
+		const result = await buildSingBoxClientConfig(
+			profile,
+			subscriptionRule,
+			[],
+			[
+				{
+					id: "fixture-subscription",
+					name: "Local fixture",
+					url: "https://fixtures.invalid/subscription",
+					enabled: true,
+					tags: [],
+					updatedAt,
+				},
+			],
+			{
+				targetVersion: "1.14",
+				loadSubscription: async (url) => {
+					expect(url).toBe("https://fixtures.invalid/subscription");
+					return {
+						content:
+							"vless://00000000-0000-4000-8000-000000000009@example.com:443?security=tls&sni=example.com#Subscription",
+					};
+				},
+			},
+		);
+
+		expect(result.errors).toEqual([]);
+		expect(result.outbounds).toBe(1);
+		expect(result.content).toContain('"tag": "Subscription"');
 	});
 
 	it("skips SSR while keeping supported aggregate entries", async () => {
