@@ -7,6 +7,9 @@ interface __BaseEnv_Env {
 	>;
 }
 declare namespace Cloudflare {
+	interface GlobalProps {
+		durableNamespaces: "WorkspaceCoordinator";
+	}
 	interface Env extends __BaseEnv_Env {}
 }
 interface Env extends __BaseEnv_Env {}
