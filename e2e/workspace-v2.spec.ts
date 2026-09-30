@@ -813,6 +813,19 @@ test("keeps one mutation ID across offline enqueue, reload, and recovery", async
 	await page.goto("/nodes");
 	await addNode(page, "Offline Node", "vless://offline.example");
 	await expect.poll(() => attempts.length).toBeGreaterThan(0);
+	await expect
+		.poll(async () => {
+			const record = await readIndexedDb(page);
+			const queue = (record.workspaces as JsonRecord)[
+				WORKSPACE_ID
+			] as JsonRecord;
+			const retry = (queue.delivery as JsonRecord).retry as JsonRecord;
+			return (
+				Number(retry.attempt) > 0 &&
+				!(record.leases as JsonRecord)[`dispatcher:${WORKSPACE_ID}`]
+			);
+		})
+		.toBe(true);
 	const queuedBeforeReload = await readIndexedDb(page);
 	const queuedMutation = (
 		(queuedBeforeReload.workspaces as JsonRecord)[WORKSPACE_ID] as JsonRecord
@@ -1156,6 +1169,19 @@ test("aggregate publish keeps one mutation across retry, reload, and recovery", 
 	await expect(
 		page.getByText("Published successfully to GitHub Gist", { exact: true }),
 	).toHaveCount(0);
+	await expect
+		.poll(async () => {
+			const record = await readIndexedDb(page);
+			const queue = (record.workspaces as JsonRecord)[
+				WORKSPACE_ID
+			] as JsonRecord;
+			const retry = (queue.delivery as JsonRecord).retry as JsonRecord;
+			return (
+				Number(retry.attempt) > 0 &&
+				!(record.leases as JsonRecord)[`dispatcher:${WORKSPACE_ID}`]
+			);
+		})
+		.toBe(true);
 	const beforeReload = await readIndexedDb(page);
 	const queued = (
 		(beforeReload.workspaces as JsonRecord)[WORKSPACE_ID] as JsonRecord
@@ -1369,6 +1395,11 @@ test("stale tabs without BroadcastChannel rebase without reviving a deletion", a
 		page.getByText(existing.name as string, { exact: true }),
 	).toHaveCount(0);
 	await expect.poll(() => submissions.length).toBe(1);
+	await expect
+		.poll(
+			async () => ((await readIndexedDb(page)).binding as JsonRecord).revision,
+		)
+		.toBe(1);
 	let stored = await readIndexedDb(page);
 	expect((stored.binding as JsonRecord).revision).toBe(1);
 	await expect(
@@ -1377,6 +1408,12 @@ test("stale tabs without BroadcastChannel rebase without reviving a deletion", a
 	await addNode(stalePage, "Compatible Peer Node", "vless://compatible-peer");
 
 	await expect.poll(() => submissions.length).toBe(2);
+	await expect
+		.poll(
+			async () =>
+				((await readIndexedDb(stalePage)).binding as JsonRecord).revision,
+		)
+		.toBe(2);
 	stored = await readIndexedDb(stalePage);
 	const storedNodes = (stored.snapshot as JsonRecord).nodes as JsonRecord[];
 	expect(storedNodes.map((node) => node.name)).toEqual([
