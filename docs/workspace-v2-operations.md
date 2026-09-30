@@ -18,7 +18,8 @@ rollback for the Workspace Schema V2 coordinator.
   files. Generated outputs cannot replace or delete them.
 - The coordinator accepts node, subscription, aggregate, publish-target, and
   client-export upserts/deletes; aggregate/client publication; `output.delete`;
-  `workspace.bootstrap.cleanup`; and explicit `workspace.reconcile`. No browser
+  `workspace.bootstrap.cleanup`; explicit `workspace.migrate`; and
+  `workspace.reconcile`. No browser
   page or Server API route may PATCH `subman.json` directly.
 
 The checked-in Wrangler configuration binds `WORKSPACE_COORDINATOR` and creates
@@ -69,13 +70,17 @@ Run the complete local gate:
 
 ```bash
 bun test
+bun run test:sing-box
 bun run check
 bun run lint
 bun run build
 bun run test:cf
 bun run test:e2e
-bun wrangler deploy --dry-run
+bun run deploy:check
 ```
+
+Use Bun 1.3.14 and `bun install --frozen-lockfile`. The sing-box gate requires
+Docker; E2E needs installed Chromium. `check` includes generated Worker types.
 
 Start the local Cloudflare runtime, inspect the health payload, and verify the
 unauthenticated mutation boundary:
@@ -133,6 +138,12 @@ coordinator mutation, the Durable Object performs one verified Gist PATCH that:
 Browser connection now detects a recognized V1 document and presents an explicit
 migration preview before binding or changing the local snapshot. The user can
 download local-only data, cancel, recheck, or choose **Migrate and load Workspace**.
+If normal connection selected another Workspace, use **Manual Workspace
+migration** in `/auth`: leave the Gist ID blank to inspect all candidates without
+preferring the current binding, or enter the original ID to check it directly.
+This check only reads; it does not create a Gist. Multiple candidates require
+selection, and description, filename, document validity, and identity checks
+still apply. A token can be entered for checking before normal connection.
 The internal browser `workspace.migrate` mutation carries only `sourceSha256`,
 the SHA-256 hash of the exact previewed V1 bytes. It changes no business entities
 or publication metadata and sends no output-file changes. The Gist ID, output
@@ -276,6 +287,11 @@ map, and 8 MiB for canonical serialized `subman.json`. New and edited values mus
 fit. Unchanged oversized legacy fields remain readable and can be reduced;
 tombstones above 10,000 per collection produce an observability warning but are
 not rejected or compacted.
+
+For external-key node writes, the resulting `external:<key>` tag also consumes
+label bytes and a tag slot: new/changed keys fit 119 UTF-8 bytes and leave room
+for at most 63 caller tags. The 256-byte mutation key limit alone does not make
+a new key admissible.
 
 Diagnostics export only counts; safe Workspace, revision, and mode metadata;
 mutation ID/kind/revision/time plus payload byte length and SHA-256; retry and

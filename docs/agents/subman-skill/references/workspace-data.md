@@ -84,6 +84,40 @@ not rewrite it. The first successful coordinator mutation copies the exact V1
 bytes to `subman.v1.backup.json`, migrates all business collections, applies the
 mutation, and writes V2 in one verified Gist PATCH.
 
+Browser connection to recognized V1 data presents a preview before binding or
+replacing local data. Manual Workspace migration in `/auth` can check all
+candidates (ignoring the saved binding) or one Gist ID without creating a Gist.
+The description must still be `SubMan-Data`, the filename `subman.json`, and the
+document valid. Multiple candidates require choosing the original Workspace.
+
+Explicit migration uses internal browser `workspace.migrate` with the SHA-256
+of the previewed source bytes. It preserves output files, names, URLs, timestamps,
+and business entities without republishing. Changed source requires rechecking;
+an existing mismatching backup stops with `migration_backup_conflict`. Resolve
+pending queues/repair evidence first. Queued or retrying is not completion;
+wait for `remote-committed`.
+
+## Import, Audit, And Recovery
+
+`subman.json` is a revisioned Workspace document. Settings exports use
+`{ version: 2, kind: "subman-business-configuration", data: ... }` and omit
+binding, revision, tombstones, queues, and authentication. They are import files,
+not replacements for remote `subman.json`.
+
+`scripts/audit-workspace.ts` reads a downloaded file offline, reports schema/count
+metadata, and optionally verifies V2 Gist identity with `--gist-id`. Its
+`--export-v1` option converts valid V1 into an exclusively created `0600` import
+file. It does not contact GitHub, verify output freshness, or recreate targets
+from output files. Diagnostics likewise cannot restore business data.
+
+For a move to a new Gist, imported old URLs do not copy output files or establish
+trusted publication metadata. New targets lose claimed publication metadata until
+actually published. Prefer migration in the original Gist when old links matter.
+Do not bulk-clean external files before recovery: old outputs without target
+records are classified as external and may still be used by clients.
+
+See `docs/legacy-workspace-migration.md` for the full procedure.
+
 See `docs/workspace-v2-operations.md` for deployment evidence and rollback.
 
 ## Stability Rules

@@ -105,6 +105,13 @@ GitHub authentication remains outside that database:
 
 ## Migration And Recovery
 
+- Browser connection to recognized V1 data requires an explicit migration
+  preview and confirmation. Manual Workspace discovery checks all candidates
+  or one Gist ID without creating a Gist or preferring the current binding.
+- `workspace.migrate` is an internal, source-hash-checked browser mutation. It
+  preserves the original Gist, output bytes, filenames, and publication metadata;
+  it does not regenerate or republish outputs. Pending/repair evidence must be
+  resolved first, and only `remote-committed` completes migration.
 - The coordinator migrates V1 `subman.json` on the first accepted mutation.
 - The first V1 migration creates an immutable, byte-exact
   `subman.v1.backup.json`; a mismatching existing backup stops migration.
@@ -116,6 +123,9 @@ GitHub authentication remains outside that database:
   outputs, and credentials are excluded.
 - Tombstone compaction and processed-mutation pruning require a separate protocol
   design and must not be implemented as time-based deletion.
+- Business configuration exports (`kind: subman-business-configuration`) are
+  import files, not remote Workspace documents. Do not replace `subman.json`
+  with an export or use diagnostics as a business-data backup.
 
 ## Key Areas
 
@@ -136,6 +146,13 @@ GitHub authentication remains outside that database:
   - `src/lib/workspace-data.ts`
   - `src/lib/workspace-merge.ts`
   - `src/lib/workspace-limits.ts`
+- Discovery, migration, and file ownership:
+  - `src/lib/workspace.ts`
+  - `src/lib/workspace-settings-controller.ts`
+  - `src/lib/workspace-browser-session-v2.ts`
+  - `src/lib/workspace-file-inventory.ts`
+  - `scripts/audit-workspace.ts`
+  - `docs/legacy-workspace-migration.md`
 - Coordinator and GitHub gateway:
   - `src/lib/server/workspace-coordinator.ts`
   - `src/lib/server/workspace-coordinator-core.ts`
@@ -154,19 +171,25 @@ GitHub authentication remains outside that database:
 
 ## Commands
 
-Use Bun for package management and scripts:
+Use Bun 1.3.14 (the packageManager and CI version) for package management and
+scripts. `test:sing-box` requires Docker; E2E requires installed Chromium.
 
 ```bash
 bun install --frozen-lockfile
 bun test
+bun run test:sing-box
 bun run check
 bun run lint
 bun run build
 bun run test:cf
 bun run test:e2e
+bun run deploy:check
 ```
 
 Use `bun add`, `bun add -d`, and `bun remove` for dependency changes.
+`check` includes generated Worker type verification. After binding/config
+changes, use `bun run generate:worker-types` and keep its reproducibility check
+green. Vite is for UI iteration; use `dev:cf` for Worker/DO runtime evidence.
 
 ## Delivery Rules
 

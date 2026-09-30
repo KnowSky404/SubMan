@@ -2,11 +2,12 @@
 
 ## Commands
 
-Install and validate:
+Use Bun 1.3.14, matching `package.json` and CI. Install and validate:
 
 ```bash
 bun install --frozen-lockfile
 bun test
+bun run test:sing-box
 bun run check
 bun run lint
 bun run build
@@ -15,16 +16,33 @@ bun run deploy:check
 bun run test:e2e
 ```
 
+`test:sing-box` needs Docker and uses the digest-pinned synthetic verifier;
+E2E needs Chromium (`bunx playwright install --with-deps chromium`). `check`
+includes Worker type verification. These local/mock gates do not establish
+production health or real GitHub delivery. `deploy:check` is a build plus
+Wrangler dry-run and uploads nothing.
+Run build-based gates sequentially: `build`, `test:cf`, `test:e2e`, and
+`deploy:check` share `.svelte-kit` generated files.
+
 Local runtimes:
 
 ```bash
-bun run dev
+bun run dev -- --host :: --port 5173
 bun run dev:cf -- --ip :: --port 8787
 ```
 
 `dev:cf` builds first and then starts `wrangler dev --local`, which is the
 required local runtime when validating Durable Object exports, migrations, and
 bindings. The Vite development server remains the faster UI-only path.
+
+Build before `bun run preview -- --host :: --port 4173`. On this VPS use
+`http://oc-de-fra-1.knowsky.uk:5173`, `:4173`, or `:8787` for the chosen runtime,
+and verify listeners with `ss -lntp`. If `::` accepts only IPv6, test/start IPv4
+separately with `--host 0.0.0.0` (Vite) or `--ip 0.0.0.0` (Wrangler).
+Use project-local Wrangler via Bun; do not upgrade it just to match an example.
+CLI options are documented in the
+[Wrangler command reference](https://developers.cloudflare.com/workers/wrangler/commands/)
+and should be checked against installed `bun wrangler <command> --help`.
 
 GitHub Actions behavior, required production environment secrets, and the
 historical Worker-type CI failure are documented in
@@ -106,6 +124,10 @@ bun wrangler secret put GITHUB_TOKEN
 bun wrangler secret put SUBMAN_API_TOKEN
 ```
 
+These commands change the remote Worker and need explicit authorization; they
+are not part of local setup/verification. Check account and Worker identity
+first, use interactive input, and never include secret values in command text.
+
 - `GITHUB_TOKEN`: GitHub token with `gist` permission, used only inside the
   Worker request and coordinator RPC.
 - `SUBMAN_API_TOKEN`: bearer token for trusted backend scripts.
@@ -138,11 +160,19 @@ Then run one controlled browser or Server API mutation and verify that the
 Workspace revision advances exactly once. For a V1 Workspace, also verify the
 byte-exact `subman.v1.backup.json` before widening use.
 
+Health always returns HTTP 200, including `ok: false`; the successful shape
+above proves only secret presence. Real Gist reads/writes require separate
+authorization and evidence. Node API writes do not regenerate subscription or
+sing-box outputs. Recheck affected output publication separately.
+
 ## Migration And Rollback
 
 Follow `docs/workspace-v2-operations.md`. In particular:
 
 - V1 migration happens on the first coordinator mutation, not at discovery.
+- The browser requires an explicit preview and migration confirmation. Manual
+  discovery in `/auth` reads candidates or one Gist ID without creation; migration
+  preserves existing outputs and links rather than publishing them again.
 - New Gists use a bootstrap marker until the first coordinator commit.
 - Rollback requires stopping V2 writers, preserving the V2 document, restoring
   the exact V1 backup, and forward-deploying tested compatibility artifact

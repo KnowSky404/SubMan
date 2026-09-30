@@ -14,7 +14,9 @@ Types live in `src/lib/models.ts`.
 - `SubscriptionItem`: remote subscription source.
 - `AggregateRule`: selection, filtering, rename, flag, and sort rule.
 - `AggregatePublishTarget`: output file settings and last publish metadata.
-- `WorkspaceDocumentV2`: remote business data, revision metadata, and
+- `ClientExportProfile`: sing-box options, aggregate reference, output settings,
+  and publication metadata; profile helpers are in `src/lib/client-export/profile.ts`.
+- `WorkspaceDocumentV2` (`src/lib/workspace-document.ts`): remote business data, revision metadata, and
   tombstones.
 - `AppState`: browser view state. Gist identity and UI metadata remain local
   and are not serialized into the V2 document.
@@ -38,11 +40,20 @@ vless, vmess, trojan, ss, ssr, hysteria2, tuic, anytls, other
   and Workspace publication.
 - `src/routes/api/health/+server.ts`: server API secret health.
 - `src/routes/api/nodes/+server.ts`: trusted node automation endpoints.
+- `src/routes/api/nodes/[id]/+server.ts`: public node get/patch/delete.
+- `src/routes/api/nodes/by-key/[externalKey]/+server.ts`: public external-key PUT.
+- `src/routes/api/workspaces/[workspaceId]/mutations/+server.ts`: internal browser
+  transport; no public automation compatibility guarantee.
 
 ## Important Library Modules
 
 - `src/lib/workspace.ts`: discover the fixed Gist or create its bootstrap
-  marker.
+  marker; classify V1/V2/bootstrap/invalid candidates and require a chooser when
+  identity is ambiguous.
+- `src/lib/workspace-settings-controller.ts`: persistent settings view, conflict
+  choices, queue repair actions, and migration preparation.
+- `src/lib/workspace-browser-session-v2.ts`: revisioned binding, explicit V1
+  migration, and browser delivery orchestration.
 - `src/lib/gist.ts`: GitHub Gist API client.
 - `src/lib/workspace-browser-mutation.ts`: translate browser store actions to
   mutations.
@@ -65,7 +76,12 @@ vless, vmess, trojan, ss, ssr, hysteria2, tuic, anytls, other
 - `src/lib/client-export/`: pure sing-box outbound parsers and client config
   generation; this layer has no UI or GitHub dependency.
 - `src/lib/serialization.ts`: import/export and workspace serialization.
-- `src/lib/merge.ts`: conflict merge behavior.
+- `src/lib/workspace-merge.ts`: tombstone-aware three-way Workspace merge.
+- `src/lib/workspace-file-inventory.ts`: distinguish reserved, managed, and
+  external output files without reconstructing missing publish targets.
+- `src/lib/workspace-diagnostics.ts`: allowlisted diagnostics without raw data.
+- `scripts/audit-workspace.ts`: offline schema/identity audit and V1 import-file
+  conversion; no network or runtime Gist writer.
 - `src/lib/server/api/*`: server API auth, env, node mutation, workspace access,
   and error envelopes.
 - `docs/api/openapi.yaml`: machine-readable public Server API contract.
