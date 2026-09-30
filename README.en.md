@@ -63,11 +63,25 @@ Default workspace identity:
 
 See [Workspace V2 Operations](docs/workspace-v2-operations.md) for deployment,
 migration verification, and rollback.
+If historical rules or publication records disappear after an upgrade, follow
+the [legacy data migration guide (Chinese)](docs/legacy-workspace-migration.md)
+to check Gist identity, document validity, and output files. It includes an
+offline audit and V1 configuration conversion workflow.
 See the [Roadmap](docs/ROADMAP.md) for current work and deferred protocol items.
 See [sing-box Export](docs/sing-box-export.md) for the protocol matrix,
 subscription CORS/size limits, and the export publication boundary.
 
 ## FAQ
+
+### Why are old rules or publication records missing while Gist output files remain?
+
+Rules and last-publication metadata come from `subman.json` collections
+`aggregates`, `publishTargets`, and `clientExports`. Output files do not reconstruct
+those records. Early versions did not persist publish targets; fixed Gist identity,
+strict validation, and browser cache migration can also prevent old data from loading.
+Back up the sources and follow the [migration guide (Chinese)](docs/legacy-workspace-migration.md)
+before overwriting a Gist. Valid V1 documents migrate automatically; arbitrary historical
+files are not guaranteed to load.
 
 ### Will auto sync overwrite remote data with my local copy?
 Not blindly. After a Workspace is connected, each browser business action is

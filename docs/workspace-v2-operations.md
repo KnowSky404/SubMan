@@ -130,6 +130,17 @@ coordinator mutation, the Durable Object performs one verified Gist PATCH that:
 3. Applies the requested mutation.
 4. Writes the new `subman.json` and any publication output together.
 
+This applies to V1 documents accepted by the current strict parser, not every
+historical file. Missing legacy optional collections, `allowedTypes`, and
+publication transition fields are normalized; unknown fields, invalid timestamps,
+duplicate IDs, and dangling references reject the document. Gist discovery also
+requires the exact description `SubMan-Data` and the recognized config filename.
+The legacy browser snapshot path uses current snapshot validation and can
+quarantine shapes that the V1 Gist parser accepts. Output files alone do not
+reconstruct publish targets. See the
+[user migration guide (Chinese)](legacy-workspace-migration.md) for backup,
+offline audit, V1 conversion, and manual recovery steps.
+
 If a backup already exists but does not exactly match the current V1 file, the
 write stops with `migration_backup_conflict`. Do not replace that backup until
 the mismatch has been investigated.

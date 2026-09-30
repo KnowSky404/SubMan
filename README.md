@@ -63,11 +63,21 @@ SvelteKit 运行在 Cloudflare Workers 上，并由每个 Workspace 一个的 Du
 - 提供健康检查与配置修复入口
 
 部署、迁移验证与回滚流程见 [Workspace V2 Operations](docs/workspace-v2-operations.md)。
+升级后看不到历史规则或发布记录时，先按
+[旧版数据排查与迁移指南](docs/legacy-workspace-migration.md)
+核对 Gist 身份、配置格式和输出文件；其中包含离线检查与 V1 配置转换步骤。
 当前阶段与延后项见 [Roadmap](docs/ROADMAP.md)。
 sing-box 协议矩阵、订阅 CORS/大小限制与导出发布边界见
 [sing-box Export](docs/sing-box-export.md)。
 
 ## FAQ
+
+### Gist 中还有旧输出，为什么看不到原来的规则或发布目标？
+规则和最后一次发布记录来自 `subman.json` 的 `aggregates`、`publishTargets`
+（sing-box 导出使用 `clientExports`），不会从输出文件自动重建。
+早期版本没有持久化发布目标；旧配置也可能因固定 Gist 标识、严格校验或浏览器缓存迁移
+而未加载。先备份并查看[迁移指南](docs/legacy-workspace-migration.md)，
+不要用空白本地数据覆盖旧 Gist。正常 V1 有自动迁移，但不保证任意历史文件均可读取。
 
 ### 自动同步会不会直接用本地内容覆盖远端？
 不会直接覆盖。启用 Workspace 后，浏览器先把每个本地业务操作写入持久化队列，再按 `expectedRevision` 发送给 Workspace 协调器。
