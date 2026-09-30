@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import { WORKSPACE_COORDINATOR_FAILURE_DISPOSITIONS } from "$lib/workspace-failure-disposition";
+import { utf8ByteLength, WORKSPACE_LIMITS } from "$lib/workspace-limits";
 
 type Mapping = Record<string, unknown>;
 
@@ -178,7 +180,11 @@ describe("public Server API OpenAPI contract", () => {
 		).toBe(true);
 		const errorCodes = child(schemas, "ApiErrorCode").enum;
 		expect(Array.isArray(errorCodes)).toBe(true);
+		expect(new Set(errorCodes as unknown[]).size).toBe(
+			(errorCodes as unknown[]).length,
+		);
 		for (const code of [
+			...Object.keys(WORKSPACE_COORDINATOR_FAILURE_DISPOSITIONS),
 			"precondition_failed",
 			"duplicate_node_raw",
 			"revision_conflict",
@@ -201,6 +207,30 @@ describe("public Server API OpenAPI contract", () => {
 			"gist.raw.read",
 			"gist.patch",
 		]);
+	});
+
+	test("documents effective external-key limits and permits readable legacy responses", () => {
+		const components = child(document, "components");
+		const externalKey = child(child(components, "parameters"), "ExternalKey");
+		expect(child(externalKey, "schema")["x-maxUtf8Bytes"]).toBe(
+			Math.min(
+				WORKSPACE_LIMITS.externalKeyBytes,
+				WORKSPACE_LIMITS.labelBytes - utf8ByteLength("external:"),
+			),
+		);
+		const schemas = child(components, "schemas");
+		expect(
+			child(child(child(schemas, "Node"), "properties"), "raw")[
+				"x-maxUtf8Bytes"
+			],
+		).toBe(undefined);
+		expect(
+			child(child(child(schemas, "NodeListResponse"), "properties"), "data")
+				.maxItems,
+		).toBe(undefined);
+		expect(
+			operation("/api/nodes/by-key/{externalKey}", "put").description,
+		).toContain("63 distinct caller tags");
 	});
 
 	test("marks external-key upsert as resource idempotency and exposes doc links", async () => {

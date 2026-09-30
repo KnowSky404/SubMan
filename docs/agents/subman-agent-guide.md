@@ -84,7 +84,7 @@ Use this endpoint for VPS installers and other repeatable node updates. Avoid
 `POST /api/nodes` for automation unless duplicates are intended.
 
 This is resource-identity idempotency, not request-replay idempotency. Every
-successful update can advance the Workspace revision. A `2xx` response proves
+successful update can advance the Workspace revision. A write `2xx` response proves
 the coordinator committed and verified the remote Workspace. Read the returned
 `ETag` and optionally send it as `If-Match` on the next write; handle
 `412 precondition_failed` by re-reading state. Do not blindly replay an
@@ -102,6 +102,12 @@ curl --fail-with-body -sS -X PUT "https://subman.example.com/api/nodes/by-key/vp
   -H "Content-Type: application/json" \
   -d '{"name":"vps-1 vless","type":"vless","raw":"vless://...","enabled":true,"tags":["sing-box-vps"]}'
 ```
+
+API integration details, including the effective 119-byte external-key limit,
+63 caller-tag limit, full-field PUT defaults, and uncertain-write recovery, are in
+[the Server API guide](../api/server-api.md). API discovery uses Worker credentials independently of
+browser binding; check the returned Gist identity before writing. Node updates do
+not republish output files, and GET/health success does not prove a remote commit.
 
 ## Development Boundaries
 

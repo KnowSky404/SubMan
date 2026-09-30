@@ -25,7 +25,7 @@ export async function PUT({
 	params: { externalKey: string };
 }) {
 	try {
-		const externalKey = decodeURIComponent(params.externalKey).trim();
+		const externalKey = params.externalKey.trim();
 		if (!externalKey) {
 			throw new ApiError(400, "bad_request", "externalKey is required");
 		}

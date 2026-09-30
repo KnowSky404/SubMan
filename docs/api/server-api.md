@@ -88,10 +88,23 @@ latest document, applies one mutation, and commits `subman.json` in a verified
 Gist PATCH. Browser and Server API writes therefore share the same ordering,
 idempotency, tombstone, and conflict rules.
 
-The public Node API is synchronous. A `2xx` response means the coordinator
+Public Node API writes are synchronous. A write `2xx` response means the coordinator
 committed and read-back verified the remote Workspace. Browser completion states
 such as `local-durable-queued`, `peer-owned`, and `retry-scheduled` do not apply
 to public API callers.
+
+Reads return the observed remote snapshot; they do not commit or publish anything.
+Workspace discovery is shared with the UI, but the API does not use the browser's
+saved binding. It searches the Gists accessible to the Worker's `GITHUB_TOKEN`.
+With no matching Workspace, even a node GET can create a private bootstrap Gist;
+V1 and bootstrap reads report revision `0`. Multiple valid candidates or invalid
+matching candidates require operator selection/repair and currently return the
+sanitized `502 gist_read_failed`; the API has no Workspace selector parameter.
+Check `workspace.gistId` against the intended Gist before writing. A revision ETag
+is scoped to that Workspace and does not identify the Gist by itself.
+
+Updating a node does not regenerate existing aggregate or sing-box output files.
+Review and publish affected outputs separately in the browser.
 
 The first write to a V1 Workspace preserves the exact original bytes as
 `subman.v1.backup.json` before committing V2. See
@@ -187,6 +200,10 @@ Rules:
 - `source` defaults to `single`.
 - `tags` defaults to an empty array.
 - `tags` may be strings or `{ "id": "...", "label": "..." }` objects.
+- Strings are trimmed and tags are deduplicated by their normalized label.
+  Unknown body fields are ignored. Send the documented types: create/upsert
+  currently defaults non-boolean `enabled`, non-array `tags`, and missing,
+  empty, or non-string `source`; PATCH validates supplied optional fields.
 
 ### Node Patch Body
 
@@ -200,6 +217,11 @@ Rules:
 ```
 
 Missing fields keep their existing values.
+
+Supplying `tags` replaces the entire tag list, including an existing external-key
+marker. To update tags on a machine-managed node while preserving its key, use
+by-key PUT with the full desired node payload. Do not copy the returned
+`external:` marker into request tags; caller-supplied markers are rejected.
 
 Patch requests use the same duplicate handling as create requests: duplicate
 names are made unique, and duplicate raw URIs on another node are rejected.
@@ -279,6 +301,15 @@ entity, 5,000 entities per collection, rename maps of at most 1,000 entries and
 oversized legacy fields remain readable and may be reduced; unrelated changes do
 not reject them.
 
+For by-key writes the generated `external:` prefix takes 9 bytes of the 128-byte
+label limit. New or changed keys therefore fit **119 UTF-8 bytes**, and caller
+tags must leave one of the 64 slots for that marker (**63 distinct labels**).
+The mutation protocol also has a 256-byte external-key limit; it does not bypass
+the resulting tag limit. Domain limits return `400 invalid_mutation`, not HTTP
+413. Growing an already oversized Workspace returns `500 workspace_size_limit`
+with `operator-repair`. Limits on writes do not constrain readable legacy
+responses to the same sizes.
+
 ## Endpoints
 
 ### Health Check
@@ -291,6 +322,9 @@ Authentication: not required.
 
 Returns whether the required server-side secrets are configured. Secret values
 are never returned.
+
+HTTP status is always `200`, including `ok: false`. `ok: true` does not validate
+GitHub permissions, Workspace discovery, or the coordinator binding.
 
 Example:
 
@@ -440,6 +474,12 @@ of creating duplicates. This is resource-identity idempotency, not request
 replay idempotency: each successful update may change `updatedAt` and advance the
 Workspace revision. The API does not support `Idempotency-Key`.
 
+The PUT payload replaces all writable fields; omitted `enabled`, `source`, and
+`tags` take their create defaults rather than keeping the existing values. The
+key marker is added by the coordinator. Omitting other ordinary tags removes
+them. Deleting the node removes its key marker; a later by-key PUT can create a
+new node ID, while the original deleted ID remains tombstoned.
+
 It still follows normal node validation: duplicate names are made unique, and a
 raw URI that already belongs to a different node is rejected with
 `409 duplicate_node_raw`.
@@ -456,7 +496,9 @@ Choose a stable `externalKey`, for example:
 - `hostname-vless-reality`
 - `server-id-protocol-port`
 
-URL-encode the path segment and keep the decoded value within 256 UTF-8 bytes.
+URL-encode the key exactly once as a path segment. The framework decodes it once;
+literal `%` and strings such as `%2F` remain part of the key. Matching is
+case-sensitive after trimming. Keep a new or changed key within 119 UTF-8 bytes.
 The `external:` tag label namespace is reserved for this identity mapping; do not
 use it for unrelated caller tags.
 
@@ -533,13 +575,19 @@ instead of throwing a generic error as this compact example does.
 | Method | Known non-commit failure | Unknown outcome or lost response |
 | --- | --- | --- |
 | `GET` | Retry `retryable-upstream` with bounded backoff. | Retry safely. |
-| `PUT .../by-key` | Retry `retryable-upstream`; honor `Retry-After`. | GET first. Blind replay can advance revision again. |
+| `PUT .../by-key` | Retry only confirmed pre-write retryable failures; honor `Retry-After`. | GET the list and locate the exact `external:<key>` tag first. Blind replay can advance revision again. |
 | `PATCH` | Re-read on state conflict; retry only after reapplying intent. | GET first and compare the node plus revision. |
 | `POST` | Correct validation/domain errors before a new request. | Do not blindly retry; a node may already exist. |
 | `DELETE` | Resolve tombstone/not-found responses as current state. | GET first; repeated delete is not request-idempotent. |
 
 The API does not accept `Idempotency-Key`. `If-Match` protects optimistic
 concurrency but does not make an unknown-outcome request safe to replay.
+
+A write error, including a GitHub timeout or 5xx after PATCH, may occur after
+GitHub accepted the change. `retryable-upstream` describes failure handling,
+not proof that no write occurred. For uncertain writes, re-read the node(s) and
+revision before deciding to resubmit; verification/index failures need operator
+review. Preserve safe retry timing while checking. There is no GET-by-key route.
 
 ## Status Codes
 
@@ -549,6 +597,8 @@ concurrency but does not make an unknown-outcome request safe to replay.
 | `201` | - | Node created by `POST /api/nodes`. |
 | `400` | `bad_request` | Invalid JSON body or unsupported field value. |
 | `400` | `invalid_json` | The request body is missing, malformed, or invalid UTF-8 JSON. |
+| `400` | `invalid_mutation` | A node mutation or resulting edited value violates a schema/domain limit. |
+| `400` | `invalid_workspace_document` / `invalid_bootstrap_marker` | Stored Workspace data requires operator repair. |
 | `401` | `unauthorized` | Missing or invalid `SUBMAN_API_TOKEN`. |
 | `401` / `403` | `gist_read_failed` / `gist_write_failed` | GitHub authentication or permission failed; reconnect or repair the Worker secret. |
 | `404` | `not_found` | Requested node id does not exist. |
@@ -564,7 +614,8 @@ concurrency but does not make an unknown-outcome request safe to replay.
 | `415` | `unsupported_media_type` | The request is not JSON. |
 | `429` | `gist_read_failed` / `gist_write_failed` | GitHub rate limited the operation; honor safe retry metadata. |
 | `500` | `server_error` | A required Worker secret or coordinator binding is missing, or an unexpected failure occurred. |
-| `502` | `gist_read_failed` / `gist_write_failed` / `write_verification_failed` | Network, invalid response, or upstream GitHub I/O failed without a verified commit. |
+| `500` | `workspace_size_limit` / `commit_index_failed` / `invalid_journal_record` | Workspace size or coordinator state requires operator repair; a commit may already exist. |
+| `502` | `gist_read_failed` / `gist_write_failed` / `write_verification_failed` | Discovery, network, or upstream verification failed; a write may already have committed. |
 | `504` | `gist_read_failed` / `gist_write_failed` | A bounded GitHub request timed out. |
 
 ## Operational Notes
@@ -575,10 +626,12 @@ concurrency but does not make an unknown-outcome request safe to replay.
   compromised.
 - The Durable Object serializes concurrent mutations and rejects stale
   revisions, but GitHub Gist remains a low-frequency storage backend.
-- Retry only `retryable-upstream` responses with bounded backoff and safe
+- Use bounded backoff and safe
   `Retry-After`/rate-limit metadata. A `revision_conflict` or
   `precondition_failed` is `state-conflict`: reload current state and
   deliberately reapply the intent.
+- Before retrying a write, establish whether it committed; an upstream error
+  disposition alone is not non-commit evidence.
 - `GET` is safe to retry. After an unknown write outcome, re-read before acting:
   `PUT .../by-key` can advance revision again, `PATCH` can reapply a change,
   `POST` can create another node, and repeated `DELETE` can return a tombstone or

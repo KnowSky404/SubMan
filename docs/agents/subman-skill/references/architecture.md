@@ -72,13 +72,19 @@ vless, vmess, trojan, ss, ssr, hysteria2, tuic, anytls, other
 - `docs/sing-box-export.md`: current export protocol matrix and browser fetch
   contract.
 
+API integration details, including the effective 119-byte external-key limit,
+63 caller-tag limit, full-field PUT defaults, and uncertain-write recovery, are in
+[the Server API guide](../../../api/server-api.md). API discovery uses Worker credentials independently of
+browser binding; check the returned Gist identity before writing. Node updates do
+not republish output files, and GET/health success does not prove a remote commit.
+
 ## Development Notes
 
 - Follow existing route and store patterns before introducing abstractions.
 - Keep shared business rules in `src/lib` rather than duplicating them in route
   components.
 - Server API and browser writes use the same coordinator and revision contract.
-- Public Node API success is synchronous: `2xx` proves a verified remote commit.
+- Public Node API success is synchronous: write `2xx` proves a verified remote commit.
   Browser queue completion states do not apply to public API callers.
 - `/api/workspaces/:workspaceId/mutations` is an internal browser transport, not
   a public integration endpoint.

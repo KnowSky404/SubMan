@@ -28,7 +28,7 @@ servers:
     description: Replace with the deployed SubMan origin
 tags:
   - name: Health
-    description: Server-side configuration readiness
+    description: Server-side secret presence (not upstream readiness)
   - name: Nodes
     description: Node inventory stored in the authoritative Workspace
 security:
@@ -63,7 +63,12 @@ paths:
       tags: [Nodes]
       operationId: listNodes
       summary: List nodes
-      description: Reads the authoritative remote Workspace node collection.
+      description: |
+        Reads the observed remote Workspace node collection without publishing.
+        Discovery uses Worker GitHub credentials, not browser binding. If no
+        Workspace exists, this read can create a private bootstrap Gist at
+        revision 0. Multiple/invalid candidates return 502 gist_read_failed.
+        Check workspace.gistId before writing or reusing a revision ETag.
       responses:
         "200":
           $ref: "#/components/responses/NodeListSuccess"
@@ -79,6 +84,8 @@ paths:
           $ref: "#/components/responses/InternalError"
         "502":
           $ref: "#/components/responses/BadGateway"
+        default:
+          $ref: "#/components/responses/ErrorResponse"
     post:
       tags: [Nodes]
       operationId: createNode
@@ -123,6 +130,8 @@ paths:
           $ref: "#/components/responses/BadGateway"
         "504":
           $ref: "#/components/responses/GatewayTimeout"
+        default:
+          $ref: "#/components/responses/ErrorResponse"
   /api/nodes/{id}:
     parameters:
       - $ref: "#/components/parameters/NodeId"
@@ -130,7 +139,10 @@ paths:
       tags: [Nodes]
       operationId: getNode
       summary: Get a node
-      description: Reads one node and the revision of its authoritative Workspace.
+      description: |
+        Reads one node and the observed Workspace revision. Shared discovery can
+        create a bootstrap Gist if none exists; it does not use browser binding.
+        A successful read is not evidence of a commit or output publication.
       responses:
         "200":
           $ref: "#/components/responses/NodeSuccess"
@@ -148,6 +160,8 @@ paths:
           $ref: "#/components/responses/InternalError"
         "502":
           $ref: "#/components/responses/BadGateway"
+        default:
+          $ref: "#/components/responses/ErrorResponse"
     patch:
       tags: [Nodes]
       operationId: updateNode
@@ -189,6 +203,8 @@ paths:
           $ref: "#/components/responses/BadGateway"
         "504":
           $ref: "#/components/responses/GatewayTimeout"
+        default:
+          $ref: "#/components/responses/ErrorResponse"
     delete:
       tags: [Nodes]
       operationId: deleteNode
@@ -222,6 +238,8 @@ paths:
           $ref: "#/components/responses/BadGateway"
         "504":
           $ref: "#/components/responses/GatewayTimeout"
+        default:
+          $ref: "#/components/responses/ErrorResponse"
   /api/nodes/by-key/{externalKey}:
     put:
       tags: [Nodes]
@@ -231,11 +249,17 @@ paths:
         Creates or updates the single node identified by externalKey. This is
         resource idempotency, not request-replay idempotency: every accepted
         request receives a new server-owned mutation ID and may update the node
-        timestamp and advance the Workspace revision. No Idempotency-Key header
+        timestamp and advance the Workspace revision. Writable fields are
+        replaced; omitted tags, enabled, and source use create defaults.
+        Node writes do not regenerate published output files.
+        No Idempotency-Key header
         or client-owned mutation ID is supported.
 
         The external key is stored in the reserved `external:<externalKey>` tag
         namespace. Callers must not submit their own tags in that namespace.
+        Leave one tag slot for this marker (at most 63 distinct caller tags).
+        New or changed keys fit 119 UTF-8 bytes after the external: prefix.
+        After node deletion the same key may create a new node ID.
       x-success-semantics: remote-committed
       x-idempotency-scope: resource
       parameters:
@@ -272,6 +296,8 @@ paths:
           $ref: "#/components/responses/BadGateway"
         "504":
           $ref: "#/components/responses/GatewayTimeout"
+        default:
+          $ref: "#/components/responses/ErrorResponse"
 components:
   securitySchemes:
     BearerAuth:
@@ -297,11 +323,14 @@ components:
       required: true
       description: |
         Stable caller-owned resource key. Encode it as one URL path segment.
-        The decoded, trimmed value must be non-empty and at most 256 UTF-8 bytes.
+        Encode exactly once; the framework decodes once, preserving literal percent
+        sequences. Matching is case-sensitive after trimming. New/changed keys fit
+        119 UTF-8 bytes so external:<key> fits the 128-byte tag label limit.
+        The underlying mutation key limit is 256 bytes.
       schema:
         type: string
         minLength: 1
-        x-maxUtf8Bytes: 256
+        x-maxUtf8Bytes: 119
       example: vps-1-vless-reality
     IfMatch:
       name: If-Match
@@ -428,7 +457,7 @@ components:
           schema:
             $ref: "#/components/schemas/NodeDeleteResponse"
     BadRequest:
-      description: Malformed JSON or invalid request fields.
+      description: Malformed JSON, invalid request fields, or edited values above domain limits.
       $ref: "#/components/responses/ErrorResponse"
     Unauthorized:
       description: Missing or invalid SUBMAN_API_TOKEN.
@@ -466,10 +495,14 @@ components:
           schema:
             $ref: "#/components/schemas/ErrorEnvelope"
     InternalError:
-      description: Required Worker configuration or an internal coordinator operation failed.
+      description: |
+        Required Worker configuration, workspace_size_limit, or coordinator state
+        failed. Verification/index failures may follow a commit; inspect state.
       $ref: "#/components/responses/ErrorResponse"
     BadGateway:
-      description: A GitHub I/O or verification operation failed.
+      description: |
+        A discovery, GitHub I/O, or verification operation failed. For writes,
+        a commit may already exist; read state before resubmitting.
       $ref: "#/components/responses/ErrorResponse"
     GatewayTimeout:
       description: The bounded GitHub operation timed out.
@@ -517,7 +550,6 @@ components:
         label:
           type: string
           minLength: 1
-          x-maxUtf8Bytes: 128
     NodeTagInput:
       oneOf:
         - type: string
@@ -535,6 +567,7 @@ components:
               x-maxUtf8Bytes: 128
     Node:
       type: object
+      description: Readable legacy values may exceed current write limits.
       additionalProperties: false
       required: [id, name, type, raw, tags, enabled, updatedAt, source]
       properties:
@@ -544,16 +577,13 @@ components:
         name:
           type: string
           minLength: 1
-          x-maxUtf8Bytes: 256
         type:
           $ref: "#/components/schemas/ProxyType"
         raw:
           type: string
           minLength: 1
-          x-maxUtf8Bytes: 16384
         tags:
           type: array
-          maxItems: 64
           items:
             $ref: "#/components/schemas/NodeTag"
         enabled:
@@ -610,7 +640,9 @@ components:
         tags:
           type: array
           maxItems: 64
-          description: Replaces all tags. The reserved `external:` namespace is rejected.
+          description: |
+            Replaces all tags, including an existing external-key marker. Use
+            by-key PUT to maintain managed identity; do not submit external: tags.
           items:
             $ref: "#/components/schemas/NodeTagInput"
         enabled:
@@ -638,7 +670,6 @@ components:
       properties:
         data:
           type: array
-          maxItems: 5000
           items:
             $ref: "#/components/schemas/Node"
         workspace:
@@ -713,6 +744,7 @@ components:
         - invalid_workspace_document
         - unsupported_schema
         - server_error
+        - method_not_allowed
     GitHubGatewayMetadata:
       type: object
       additionalProperties: false

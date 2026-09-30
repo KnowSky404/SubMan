@@ -41,12 +41,20 @@ external:<externalKey>
 ```
 
 Choose stable keys such as `vps-1-vless`, `hostname-vless-reality`, or
-`server-id-protocol-port`. URL-encode the path segment, keep it within 256 UTF-8
-bytes, and do not use the reserved `external:` tag namespace for unrelated tags.
+`server-id-protocol-port`. New/changed keys must fit the generated tag's
+128-byte label limit: **119 UTF-8 bytes** after the 9-byte `external:` prefix.
+Leave one tag slot for that marker (at most 63 distinct caller tags). Encode the
+key exactly once; literal percent sequences remain key data. Matching is
+case-sensitive after trimming. Do not submit any reserved `external:` tags.
 
 The endpoint is resource-identity idempotent, not request-replay idempotent.
 Every successful call may update `updatedAt` and advance the Workspace revision.
 `Idempotency-Key` is not supported.
+
+PUT replaces all writable fields. Omitted tags, enabled, and source use create
+defaults rather than retaining old values. PATCH with `tags` replaces the full
+list and removes the key marker; use PUT by-key to maintain that identity.
+After deletion a new by-key PUT can create a different node ID.
 
 Example:
 
@@ -107,7 +115,7 @@ aggregates, publication, and exports do not yet have public REST endpoints.
 
 ## Completion And Revision Contract
 
-- A Node API `2xx` response means the coordinator committed and read-back
+- A Node API write `2xx` response means the coordinator committed and read-back
   verified the remote Workspace. Browser-only completion states such as
   `peer-owned` and `retry-scheduled` do not apply to this API.
 - Successful node responses include the committed revision in the JSON body,
@@ -118,6 +126,14 @@ aggregates, publication, and exports do not yet have public REST endpoints.
   revision. Re-read before deciding whether to reapply the intent.
 - Concurrent writes without `If-Match` may still receive
   `409 revision_conflict` from the coordinator.
+- GET returns an observed snapshot, not a commit. It can create a bootstrap Gist
+  if discovery finds none; V1/bootstrap reads have revision 0. Discovery uses
+  Worker credentials, not the browser binding, and has no Workspace selector.
+  Multiple/invalid candidates return sanitized `502 gist_read_failed`. Check
+  `workspace.gistId` before using an ETag; revision alone does not identify a Gist.
+- Health always returns HTTP 200; inspect `ok`. It checks secret presence only.
+- Node writes leave existing published outputs unchanged. Publish in the browser
+  after reviewing affected aggregates/exports.
 
 Errors use `{ "error": { "code", "message", "disposition" } }`. Branch on
 `code` and `disposition`, never on `message`. Retryable GitHub failures may add a
@@ -127,14 +143,20 @@ returned.
 ## Retry Rules
 
 - `GET`: retry transport and `retryable-upstream` failures with bounded backoff.
-- `PUT .../by-key`: after a definite non-commit response, retry with bounded
-  backoff. After a lost/unknown response, GET first; a blind replay can advance
-  revision again.
+- `PUT .../by-key`: retry only a confirmed non-commit retryable failure with bounded
+  backoff. After an uncertain response, GET the list and find the exact external
+  tag first; a blind replay can advance revision again. There is no GET-by-key.
 - `PATCH`: re-read the node and revision before retrying an unknown outcome.
 - `POST`: never blindly retry an unknown outcome because it may create another
   node.
 - `DELETE`: re-read after an unknown outcome; a repeated delete may return
   `entity_deleted` or `entity_not_found`.
+
+`retryable-upstream` does not prove a write failed before commit: a PATCH timeout,
+verification failure, or commit-index failure may follow a successful write.
+Re-read uncertain outcomes and honor safe retry timing before resubmitting.
+Domain limits use `400 invalid_mutation`; request bodies above 9 MiB use
+`413 payload_too_large`. `500 workspace_size_limit` is `operator-repair`.
 
 ## Operational Constraints
 

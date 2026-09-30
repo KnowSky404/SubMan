@@ -10,6 +10,19 @@ import {
 import type { WorkspaceMutation } from "../../src/lib/workspace-mutation";
 
 describe("WorkspaceCoordinator Durable Object", () => {
+	it("routes percent-containing external keys through the API authentication boundary", async () => {
+		for (const key of ["vps-100%", "vps%2Fregion"]) {
+			const response = await SELF.fetch(
+				`https://subman.example/api/nodes/by-key/${encodeURIComponent(key)}`,
+				{ method: "PUT" },
+			);
+			expect(response.status).toBe(401);
+			expect(await response.json()).toMatchObject({
+				error: { code: "unauthorized", disposition: "auth-required" },
+			});
+		}
+	});
+
 	it("migrates through the Worker and SQLite DO without replacing publication links or outputs", async () => {
 		const gistId = "migration-worker-do";
 		const workspaceId = `gist:${gistId}`;

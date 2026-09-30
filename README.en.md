@@ -214,9 +214,21 @@ When nodes are created or updated through either the UI or API, duplicate names
 receive a timestamp suffix so aggregate filtering remains distinguishable.
 Duplicate raw URIs are treated as duplicate content and rejected.
 
+By-key PUT replaces writable fields; omitted tags, enabled, and source use create
+defaults. URL-encode keys once. New/changed keys fit 119 UTF-8 bytes, with at most
+63 ordinary tags to leave room for the generated `external:` marker. PATCH tags
+replace the full list, including that marker; use by-key PUT for managed-node
+tags. Node updates do not republish aggregate or sing-box output files.
+
+The API discovers Workspaces using Worker credentials, independently of browser
+bindings. Check `workspace.gistId` before writing. Node GET can create a bootstrap
+Gist when no Workspace exists; multiple/invalid candidates return sanitized
+`502 gist_read_failed`. Health only checks secret presence: HTTP 200 or `ok: true`
+does not prove GitHub access or write readiness.
+
 `GITHUB_TOKEN` stays in Cloudflare Secrets. External scripts do not need and
 should not hold the GitHub token.
-Node API `2xx` responses mean the coordinator committed and read-back verified
+Node API write `2xx` responses mean the coordinator committed and read-back verified
 the remote Workspace. Responses include an `ETag` and `X-SubMan-Revision`;
 clients may send that ETag in `If-Match` on a write and receive
 `412 precondition_failed` when it is stale.

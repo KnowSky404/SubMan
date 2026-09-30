@@ -193,11 +193,21 @@ curl --fail-with-body -sS -X PUT "https://subman.example.com/api/nodes/by-key/vp
 通过 UI 或 API 新增/更新节点时，同名会自动追加时间后缀以便聚合筛选区分；
 相同原始 URI 会被视为重复内容并拒绝保存。
 
-节点 API 的 `2xx` 表示协调器已经提交并回读验证远端 Workspace。成功响应包含
+节点 API 写请求的 `2xx` 表示协调器已经提交并回读验证远端 Workspace。成功响应包含
 `ETag: "subman-revision-<revision>"` 和 `X-SubMan-Revision`；写请求可携带上一轮
 响应的 `ETag` 作为 `If-Match`，过期时返回 `412 precondition_failed`，避免基于旧版本更新。
 网络中断后不要盲目重放 `POST` 或 `DELETE`；先读取节点和 revision，再按完整文档中的
 方法级重试规则处理。
+
+按键 PUT 会替换节点的可写字段；省略的标签、启用状态和来源使用创建默认值。
+外部键只做一次 URL 编码，新建或改动的键最多 119 个 UTF-8 字节，普通标签最多 63 个，
+其余空间留给自动生成的 `external:` 标签。PATCH 的 `tags` 会替换全部标签并移除键标记，
+维护机器节点标签应使用按键 PUT。节点更新不会重新发布聚合或 sing-box 输出。
+
+API 根据 Worker 的 GitHub Token 独立发现 Workspace，不读取浏览器绑定；调用前核对
+响应的 `workspace.gistId`。节点 GET 在找不到 Workspace 时也可能创建 bootstrap Gist；
+多个或无效候选会返回 `502 gist_read_failed`。健康检查只核对 Secrets 是否存在，
+HTTP 200 或 `ok: true` 都不证明 GitHub 权限或远端可写。
 
 `GITHUB_TOKEN` 只保存在 Cloudflare Secrets 中，外部脚本不需要也不应该持有 GitHub Token。
 `SUBMAN_API_TOKEN` 是单一全权限共享 Bearer，不提供 scope、单客户端撤销或内置调用方限流；

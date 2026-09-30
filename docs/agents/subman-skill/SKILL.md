@@ -30,7 +30,7 @@ API endpoints from the same Cloudflare Worker.
 - For machine-managed nodes, prefer `PUT /api/nodes/by-key/:externalKey`.
 - Treat that endpoint as resource-identity idempotent, not request-replay
   idempotent. The API does not support `Idempotency-Key`.
-- A public Node API `2xx` response proves a verified remote commit. Use response
+- A public Node API write `2xx` response proves a verified remote commit. Use response
   `ETag` values with optional `If-Match` for optimistic concurrency.
 - Treat `/api/workspaces/:workspaceId/mutations` as an internal browser protocol,
   never as an integration surface.
@@ -43,6 +43,12 @@ API endpoints from the same Cloudflare Worker.
 - Run `bun run check` after TypeScript or Svelte changes. Run `bun run build`
   before deployment-related completion claims.
 - Make atomic commits after independent changes.
+
+API integration details, including the effective 119-byte external-key limit,
+63 caller-tag limit, full-field PUT defaults, and uncertain-write recovery, are in
+[the Server API guide](../../api/server-api.md). API discovery uses Worker credentials independently of
+browser binding; check the returned Gist identity before writing. Node updates do
+not republish output files, and GET/health success does not prove a remote commit.
 
 ## Common Tasks
 
