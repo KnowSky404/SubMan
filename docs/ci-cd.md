@@ -45,9 +45,19 @@ not spend time installing Chromium.
 The formal `CI` run on 2026-08-24 (`run #5`, commit
 `e82147c5d370734c27a03fa681fccf07028721d8`) passed all unit tests, then failed
 the type and Svelte check stage because `check:worker-types` detected a stale
-generated declaration. Wrangler had stopped generating the obsolete
-`Cloudflare.GlobalProps.durableNamespaces` declaration, while the checked-in
-`src/worker-configuration.d.ts` still contained it.
+generated declaration. The same gate failed on 2026-09-30 for commit
+`81f6a590ac45cdd2725211acd3dcede9982d47b4`.
+
+Wrangler includes `Cloudflare.GlobalProps` only when the configured framework
+entrypoint exists. Local builds left `.svelte-kit/cloudflare/_worker.js` present,
+while CI checked types before building. Merely regenerating the declaration
+therefore produced different results in a clean checkout and a built checkout.
+
+The generator now omits the entire build-dependent `GlobalProps` block. The
+`Env.WORKSPACE_COORDINATOR` binding still imports the coordinator class from its
+stable source path and retains its typed Durable Object namespace. A regression
+test runs the actual generator with and without a framework entrypoint and
+checks that both results match the committed declaration.
 
 The correction is committed in the current line:
 
