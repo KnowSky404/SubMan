@@ -7,6 +7,26 @@ const STORAGE_KEY = "subman:locale:v1";
 const DEFAULT_LOCALE: Locale = "en";
 
 const zhCN: Record<string, string> = {
+	"Manual Workspace migration": "手动迁移工作区",
+	"Missing the upgrade prompt? Check all Workspaces or enter the old Gist ID. Checking only reads data; migration requires a separate confirmation.":
+		"没有出现升级提示？可以检查所有工作区，或填写旧 Gist ID。检查只读取数据，迁移需另行确认。",
+	"Old Workspace Gist ID (optional)": "旧工作区 Gist ID（可选）",
+	"Check for legacy Workspace": "检查旧版工作区",
+	"Leave blank to search without preferring the current binding. If signed out, enter your token in GitHub Workspace above first.":
+		"留空时会查找所有工作区，不优先使用当前绑定。未登录时，请先在上方 GitHub 工作区填写 Token。",
+	"Enter a Gist ID, not a URL.": "请填写 Gist ID，而不是完整网址。",
+	"No Workspace found. Enter the old Gist ID to check it directly.":
+		"未找到工作区，请填写旧 Gist ID 直接检查。",
+	"Choose the old Workspace marked Legacy V1 above to preview migration.":
+		"请在上方选择标为旧版 V1 的工作区，查看迁移预览。",
+	"No legacy V1 Workspace found. Review the candidates above or enter the old Gist ID.":
+		"未找到旧版 V1 工作区，请检查上方候选项，或填写旧 Gist ID。",
+	"This Gist is not a valid Workspace. Check its description is SubMan-Data and it contains a valid subman.json.":
+		"此 Gist 不是有效工作区。请检查描述是否为 SubMan-Data，并确认包含有效的 subman.json。",
+	"Workspace {gistId} does not contain legacy V1 data. No migration is needed.":
+		"工作区 {gistId} 没有旧版 V1 数据，无需迁移。",
+	"Workspace check failed. Verify the Gist ID and token, then retry.":
+		"工作区检查失败，请核对 Gist ID 和 Token 后重试。",
 	"Legacy Workspace detected. Review and migrate to continue.":
 		"检测到旧版工作区，请检查并迁移后继续。",
 	"Upgrade this Workspace": "升级此工作区",

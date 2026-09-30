@@ -632,12 +632,15 @@ test.beforeEach(async ({ context }) => {
 	await installNetworkGuard(context);
 });
 
-for (const { mobile, remembered } of [
-	{ mobile: false, remembered: false },
-	{ mobile: true, remembered: false },
-	{ mobile: false, remembered: true },
+for (const { mobile, remembered, manual } of [
+	{ mobile: false, remembered: false, manual: null },
+	{ mobile: true, remembered: false, manual: null },
+	{ mobile: false, remembered: true, manual: null },
+	{ mobile: false, remembered: true, manual: "scan" },
+	{ mobile: true, remembered: true, manual: "id" },
+	{ mobile: false, remembered: false, manual: "id" },
 ]) {
-	test(`legacy Workspace migration requires a click and preserves published links (${remembered ? "existing connection" : mobile ? "mobile" : "desktop"})`, async ({
+	test(`legacy Workspace migration requires a click and preserves published links (${manual ? `manual ${manual} ${remembered ? "connected" : "signed out"} ${mobile ? "mobile" : "desktop"}` : remembered ? "existing connection" : mobile ? "mobile" : "desktop"})`, async ({
 		page,
 		context,
 	}) => {
@@ -691,8 +694,27 @@ for (const { mobile, remembered } of [
 					},
 				},
 			};
+			const currentGist = {
+				...gist,
+				id: "current-v2",
+				files: {
+					"subman.json": {
+						filename: "subman.json",
+						content: JSON.stringify(
+							workspaceDocument({ workspaceId: "gist:current-v2" }),
+						),
+						truncated: false,
+					},
+				},
+			};
 			await route.fulfill({
-				json: route.request().url().includes("?") ? [gist] : gist,
+				json: route.request().url().includes("?")
+					? manual
+						? [currentGist, gist]
+						: [gist]
+					: route.request().url().includes("current-v2")
+						? currentGist
+						: gist,
 			});
 		});
 		let release = () => {};
@@ -717,15 +739,21 @@ for (const { mobile, remembered } of [
 			await route.fulfill({ json: result });
 		});
 		const initialRecord = persistenceRecord({
-			snapshot: remembered ? snapshot({ data }) : snapshot({ gistId: null }),
+			snapshot: remembered
+				? manual
+					? snapshot({ gistId: "current-v2" })
+					: snapshot({ data })
+				: snapshot({ gistId: null }),
 			binding: remembered
-				? binding({
-						baseline: workspaceDocument({
-							revision: 0,
-							lastMutationId: null,
-							data,
-						}),
-					})
+				? manual
+					? binding({ gistId: "current-v2" })
+					: binding({
+							baseline: workspaceDocument({
+								revision: 0,
+								lastMutationId: null,
+								data,
+							}),
+						})
 				: null,
 		});
 		await seedIndexedDb(page, initialRecord);
@@ -736,7 +764,33 @@ for (const { mobile, remembered } of [
 			await page
 				.getByLabel("Personal access token")
 				.fill("fixture-migration-token");
-			await page.getByRole("button", { name: "Connect", exact: true }).click();
+			if (!manual)
+				await page
+					.getByRole("button", { name: "Connect", exact: true })
+					.click();
+		}
+		if (manual) {
+			await expect(page.getByTestId("legacy-migration")).toHaveCount(0);
+			if (manual === "id")
+				await page.getByLabel("Old Workspace Gist ID (optional)").fill(GIST_ID);
+			await page.getByTestId("legacy-workspace-check").scrollIntoViewIfNeeded();
+			await page.screenshot({
+				path: `/tmp/subman-manual-entry-${mobile ? "mobile" : "desktop"}.png`,
+				fullPage: false,
+			});
+			await page
+				.getByRole("button", {
+					name: "Check for legacy Workspace",
+					exact: true,
+				})
+				.click();
+			if (manual === "scan") {
+				await page
+					.getByTestId("workspace-chooser")
+					.getByRole("button", { name: "Select", exact: true })
+					.nth(1)
+					.click();
+			}
 		}
 		const panel = page.getByTestId("legacy-migration");
 		await expect(panel).toBeVisible();
@@ -759,8 +813,9 @@ for (const { mobile, remembered } of [
 				() => document.documentElement.scrollWidth <= window.innerWidth,
 			),
 		).toBe(true);
+		await panel.scrollIntoViewIfNeeded();
 		await page.screenshot({
-			path: `/tmp/subman-migration-${remembered ? "existing" : mobile ? "mobile" : "desktop"}.png`,
+			path: `/tmp/subman-migration-${manual ? `manual-${manual}-${remembered ? "connected" : "signed-out"}` : remembered ? "existing" : mobile ? "mobile" : "desktop"}.png`,
 			fullPage: false,
 		});
 		if (remembered)
@@ -771,8 +826,9 @@ for (const { mobile, remembered } of [
 			.getByRole("button", { name: "Migrate and load Workspace" })
 			.click();
 		await expect.poll(() => submissions.length).toBe(1);
+		await expect(panel).toBeVisible();
 		await expect(
-			panel.getByRole("button", { name: "Migrating..." }),
+			panel.getByRole("button", { name: "Cancel", exact: true }),
 		).toBeDisabled();
 		await expect(
 			page.getByText(
@@ -781,6 +837,17 @@ for (const { mobile, remembered } of [
 			),
 		).toHaveCount(0);
 		release();
+		await expect
+			.poll(
+				async () =>
+					((await readIndexedDb(page)).binding as JsonRecord)?.revision,
+			)
+			.toBe(1);
+		if (await panel.isVisible()) {
+			await panel
+				.getByRole("button", { name: "Migrate and load Workspace" })
+				.click();
+		}
 		await expect(panel).toHaveCount(0);
 		await expect(
 			page.getByText(
@@ -818,6 +885,115 @@ for (const { mobile, remembered } of [
 		await expect(page.getByText(stableUrl, { exact: true })).toBeVisible();
 		expect(submissions).toHaveLength(1);
 		expect(errors).toEqual([]);
+	});
+}
+
+for (const scenario of [
+	"empty",
+	"multiple-v2",
+	"v2",
+	"invalid",
+	"mismatch",
+	"request-failed",
+	"url",
+]) {
+	test(`manual migration check preserves data without writes (${scenario})`, async ({
+		page,
+		context,
+	}) => {
+		const requests: string[] = [];
+		await context.route("https://api.github.com/**", async (route) => {
+			expect(route.request().method()).toBe("GET");
+			requests.push(route.request().url());
+			const oldGist = route.request().url().includes("old-gist");
+			if (oldGist && scenario === "request-failed") {
+				await route.fulfill({ status: 404, json: { message: "Not Found" } });
+				return;
+			}
+			const gist = {
+				id: oldGist ? "old-gist" : GIST_ID,
+				owner: { login: "e2e" },
+				description: "SubMan-Data",
+				updated_at: NOW,
+				html_url: `https://gist.github.com/e2e/${GIST_ID}`,
+				files: {
+					"subman.json": {
+						filename: "subman.json",
+						content:
+							oldGist && scenario === "invalid"
+								? "{}"
+								: JSON.stringify(workspaceDocument()),
+						truncated: false,
+					},
+				},
+			};
+			const secondGist = {
+				...gist,
+				id: "second-v2",
+				files: {
+					"subman.json": {
+						filename: "subman.json",
+						content: JSON.stringify(
+							workspaceDocument({ workspaceId: "gist:second-v2" }),
+						),
+						truncated: false,
+					},
+				},
+			};
+			await route.fulfill({
+				json: route.request().url().includes("?")
+					? scenario === "multiple-v2"
+						? [gist, secondGist]
+						: []
+					: route.request().url().includes("second-v2")
+						? secondGist
+						: gist,
+			});
+		});
+		const submissions: JsonRecord[] = [];
+		await context.route("**/api/workspaces/**/mutations", async (route) => {
+			submissions.push(route.request().postDataJSON());
+			await route.abort();
+		});
+		const initialRecord = persistenceRecord();
+		await seedIndexedDb(page, initialRecord);
+		await seedAuth(page, { session: "fixture-manual-check-token" });
+		await page.goto("/auth");
+		const section = page.getByTestId("legacy-workspace-check");
+		await expect(section).toBeVisible();
+		if (!["empty", "multiple-v2"].includes(scenario))
+			await section
+				.getByLabel("Old Workspace Gist ID (optional)")
+				.fill(
+					scenario === "url"
+						? "https://gist.github.com/e2e/old-gist"
+						: scenario === "v2"
+							? GIST_ID
+							: "old-gist",
+				);
+		await section
+			.getByRole("button", { name: "Check for legacy Workspace" })
+			.click();
+		await expect(
+			section.getByRole(
+				["invalid", "mismatch", "request-failed", "url"].includes(scenario)
+					? "alert"
+					: "status",
+			),
+		).toBeVisible();
+		await expect(page.getByTestId("legacy-migration")).toHaveCount(0);
+		if (scenario === "multiple-v2") {
+			await expect(section.getByRole("status")).toHaveText(
+				"No legacy V1 Workspace found. Review the candidates above or enter the old Gist ID.",
+			);
+			await expect(page.getByTestId("workspace-chooser")).toBeVisible();
+		}
+		const record = await readIndexedDb(page);
+		expect(record.snapshot).toEqual(initialRecord.snapshot);
+		expect(record.binding).toEqual(initialRecord.binding);
+		expect(submissions).toEqual([]);
+		if (scenario === "empty")
+			expect(requests.some((url) => url.includes("?"))).toBe(true);
 	});
 }
 

@@ -28,6 +28,7 @@ import { requestConfirm } from "$lib/stores/confirm";
 import { showToast } from "$lib/stores/toast";
 import { cn } from "$lib/utils/cn";
 import {
+	classifyWorkspaceCandidate,
 	discoverWorkspaceGist,
 	ensureWorkspaceBootstrapGist,
 	type WorkspaceCandidate,
@@ -59,6 +60,9 @@ let tokenInput = "";
 let rememberToken = false;
 let payload = "";
 let workspaceBusy = false;
+let legacyGistIdInput = "";
+let legacyCheckResult: { type: "info" | "error"; message: string } | null =
+	null;
 let connectionRevision = 0;
 let persistenceRecord: WorkspacePersistenceRecord | null = null;
 let queueInspection: WorkspaceQueueInspection | null = null;
@@ -411,6 +415,106 @@ async function connectCandidate(candidate: WorkspaceCandidate) {
 		);
 	} catch (error) {
 		setStatus(connectionErrorMessage(error), "error");
+	} finally {
+		workspaceBusy = false;
+	}
+}
+
+async function handleLegacyWorkspaceCheck() {
+	const token = ($authState.token ?? tokenInput).trim();
+	if (!token || workspaceBusy || pendingMigration) return;
+	const gistId = legacyGistIdInput.trim();
+	legacyCheckResult = null;
+	if (gistId && !/^[a-zA-Z0-9_-]{1,64}$/.test(gistId)) {
+		legacyCheckResult = {
+			type: "error",
+			message: $t("Enter a Gist ID, not a URL."),
+		};
+		return;
+	}
+	const attemptRevision = ++connectionRevision;
+	workspaceBusy = true;
+	workspaceCandidates = [];
+	pendingConnection = null;
+	try {
+		let candidate: WorkspaceCandidate;
+		if (gistId) {
+			const gist = await getGist(token, gistId);
+			candidate = await classifyWorkspaceCandidate(token, gist, {
+				activeGistId: $appState.activeGistId,
+			});
+		} else {
+			const discovery = await discoverWorkspaceGist(token);
+			if (attemptRevision !== connectionRevision) return;
+			if (discovery.status === "not-found") {
+				legacyCheckResult = {
+					type: "info",
+					message: $t(
+						"No Workspace found. Enter the old Gist ID to check it directly.",
+					),
+				};
+				return;
+			}
+			if (discovery.status === "chooser") {
+				workspaceCandidates = discovery.candidates.map((item) => ({
+					...item,
+					currentBinding: item.gist.id === $appState.activeGistId,
+				}));
+				pendingConnection = {
+					token,
+					rememberToken: $authState.token
+						? $authState.persistence === "persistent"
+						: rememberToken,
+					previousBinding: workspaceController.binding(),
+				};
+				legacyCheckResult = {
+					type: "info",
+					message: $t(
+						workspaceCandidates.some((item) => item.kind === "legacy-v1")
+							? "Choose the old Workspace marked Legacy V1 above to preview migration."
+							: "No legacy V1 Workspace found. Review the candidates above or enter the old Gist ID.",
+					),
+				};
+				return;
+			}
+			candidate = discovery.candidate;
+		}
+		if (attemptRevision !== connectionRevision) return;
+		if (candidate.kind === "invalid") {
+			legacyCheckResult = {
+				type: "error",
+				message: $t(
+					"This Gist is not a valid Workspace. Check its description is SubMan-Data and it contains a valid subman.json.",
+				),
+			};
+			return;
+		}
+		if (candidate.kind !== "legacy-v1") {
+			legacyCheckResult = {
+				type: "info",
+				message: $t(
+					"Workspace {gistId} does not contain legacy V1 data. No migration is needed.",
+					{ gistId: candidate.gist.id },
+				),
+			};
+			return;
+		}
+		await completeWorkspaceConnection(
+			token,
+			candidate.gist,
+			false,
+			workspaceController.binding(),
+			$authState.token
+				? $authState.persistence === "persistent"
+				: rememberToken,
+		);
+	} catch {
+		legacyCheckResult = {
+			type: "error",
+			message: $t(
+				"Workspace check failed. Verify the Gist ID and token, then retry.",
+			),
+		};
 	} finally {
 		workspaceBusy = false;
 	}
@@ -1137,7 +1241,7 @@ async function handleImport() {
 	{/if}
 
 	{#if workspaceCandidates.length > 0}
-		<section class="gh-section" transition:slide>
+		<section class="gh-section" data-testid="workspace-chooser" transition:slide>
 			<div class="gh-section-header">
 				<div>
 					<h2 class="gh-section-title"><Octicon icon={database} className="h-5 w-5" />{$t("Choose Workspace")}</h2>
@@ -1288,6 +1392,26 @@ async function handleImport() {
 				</div>
 			{/if}
 		</div>
+	</section>
+
+	<section class="gh-section" aria-labelledby="legacy-check-heading" data-testid="legacy-workspace-check">
+		<div class="gh-section-header">
+			<div>
+				<h2 id="legacy-check-heading" class="gh-section-title"><Octicon icon={database} className="h-5 w-5" />{$t("Manual Workspace migration")}</h2>
+				<p class="gh-section-description">{$t("Missing the upgrade prompt? Check all Workspaces or enter the old Gist ID. Checking only reads data; migration requires a separate confirmation.")}</p>
+			</div>
+		</div>
+		<form class="gh-section-body space-y-3" on:submit|preventDefault={handleLegacyWorkspaceCheck}>
+			<label class="gh-form-label" for="legacy-workspace-gist">{$t("Old Workspace Gist ID (optional)")}</label>
+			<div class="flex flex-col gap-2 sm:flex-row">
+				<input id="legacy-workspace-gist" class="gh-input min-w-0 flex-1 font-mono" bind:value={legacyGistIdInput} disabled={workspaceBusy || pendingMigration !== null} aria-describedby="legacy-workspace-help" />
+				<button type="submit" class="gh-btn" disabled={workspaceBusy || pendingMigration !== null || !($authState.token ?? tokenInput).trim()}>{$t("Check for legacy Workspace")}</button>
+			</div>
+			<p id="legacy-workspace-help" class="gh-form-caption">{$t("Leave blank to search without preferring the current binding. If signed out, enter your token in GitHub Workspace above first.")}</p>
+			{#if legacyCheckResult}
+				<p class={cn("text-sm", legacyCheckResult.type === "error" ? "text-danger-fg" : "text-fg-muted")} role={legacyCheckResult.type === "error" ? "alert" : "status"}>{legacyCheckResult.message}</p>
+			{/if}
+		</form>
 	</section>
 
 	<section class="gh-section" aria-labelledby="queue-inspector-heading" data-testid="queue-inspector">
