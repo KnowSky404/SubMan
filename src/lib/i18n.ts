@@ -7,6 +7,25 @@ const STORAGE_KEY = "subman:locale:v1";
 const DEFAULT_LOCALE: Locale = "en";
 
 const zhCN: Record<string, string> = {
+	"Legacy Workspace detected. Review and migrate to continue.":
+		"检测到旧版工作区，请检查并迁移后继续。",
+	"Upgrade this Workspace": "升级此工作区",
+	"An older Workspace format was detected. Migration keeps the same Gist, output filenames, published content, and existing subscription links.":
+		"检测到旧版工作区格式。迁移会保留原 Gist、输出文件名、已发布内容和现有订阅链接。",
+	"Rules: {rules}, publish targets: {targets}, client exports: {exports}":
+		"{rules} 条规则、{targets} 个发布目标、{exports} 个客户端导出",
+	"The old configuration will be backed up automatically. Existing output files are retained, including files without a saved publish target.":
+		"旧配置会自动备份。已有输出文件都会保留，包括未保存发布目标的文件。",
+	"Migration loads this Workspace's data on this device. Download a local backup first if you need to keep local-only changes. Pending changes must be resolved before migration.":
+		"迁移后此设备将加载该工作区的数据。如需保留本地独有的改动，请先下载本地备份。迁移前需处理待发送的改动。",
+	"If the Workspace changes or migration is interrupted, recheck its status before continuing. A queued request is not a completed migration.":
+		"如果工作区发生变化或迁移中断，请重新检查状态后继续。请求已进入队列不代表迁移完成。",
+	"Migrate and load Workspace": "迁移并加载工作区",
+	"Migrating...": "正在迁移…",
+	"Download local backup": "下载本地备份",
+	"Recheck Workspace": "重新检查工作区",
+	"Workspace migrated. Existing publication links are unchanged.":
+		"工作区迁移完成，原有发布链接保持不变。",
 	SubMan: "SubMan",
 	Overview: "概览",
 	Gists: "Gists",

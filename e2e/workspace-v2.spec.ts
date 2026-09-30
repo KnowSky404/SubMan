@@ -500,6 +500,8 @@ function committedResult(
 	let receipt: JsonRecord | null = null;
 	if (mutation.kind === "workspace.reconcile") {
 		data = payload.data as JsonRecord;
+	} else if (mutation.kind === "workspace.migrate") {
+		receipt = { kind: mutation.kind };
 	} else if (mutation.kind === "node.upsert") {
 		const node = payload.node as JsonRecord;
 		const nodes = (data.nodes as JsonRecord[]).filter(
@@ -629,6 +631,195 @@ async function expireLease(page: Page, leaseName: string): Promise<void> {
 test.beforeEach(async ({ context }) => {
 	await installNetworkGuard(context);
 });
+
+for (const { mobile, remembered } of [
+	{ mobile: false, remembered: false },
+	{ mobile: true, remembered: false },
+	{ mobile: false, remembered: true },
+]) {
+	test(`legacy Workspace migration requires a click and preserves published links (${remembered ? "existing connection" : mobile ? "mobile" : "desktop"})`, async ({
+		page,
+		context,
+	}) => {
+		if (mobile) await page.setViewportSize({ width: 390, height: 844 });
+		const errors: string[] = [];
+		page.on("pageerror", (error) => errors.push(error.message));
+		page.on("console", (message) => {
+			if (["error", "warning"].includes(message.type()))
+				errors.push(message.text());
+		});
+		const data = aggregateData();
+		const stableUrl = `https://gist.githubusercontent.com/e2e/${GIST_ID}/raw/aggregate-e2e.txt`;
+		const target = (data.publishTargets as JsonRecord[])[0];
+		target.lastPublishedAt = NOW;
+		target.lastPublishedUrl = stableUrl;
+		const oldData = structuredClone(data);
+		delete oldData.clientExports;
+		delete (oldData.aggregates as JsonRecord[])[0].allowedTypes;
+		for (const key of [
+			"lastPublishTransitionAt",
+			"lastPublishTransitionFromFileName",
+			"lastPublishTransitionToFileName",
+			"lastPublishTransitionOutcome",
+		])
+			delete (oldData.publishTargets as JsonRecord[])[0][key];
+		const original = JSON.stringify({ version: 1, data: oldData });
+		let content = original;
+		const submissions: JsonRecord[] = [];
+		await context.route("https://api.github.com/**", async (route) => {
+			expect(route.request().method()).toBe("GET");
+			const gist = {
+				id: GIST_ID,
+				owner: { login: "e2e" },
+				description: "SubMan-Data",
+				updated_at: NOW,
+				html_url: `https://gist.github.com/e2e/${GIST_ID}`,
+				files: {
+					"subman.json": {
+						filename: "subman.json",
+						language: "JSON",
+						size: content.length,
+						content,
+						truncated: false,
+					},
+					"aggregate-e2e.txt": {
+						filename: "aggregate-e2e.txt",
+						language: "Text",
+						size: 10,
+						content: "old-output",
+						raw_url: stableUrl,
+					},
+				},
+			};
+			await route.fulfill({
+				json: route.request().url().includes("?") ? [gist] : gist,
+			});
+		});
+		let release = () => {};
+		const held = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		await context.route("**/api/workspaces/**/mutations", async (route) => {
+			const mutation = route.request().postDataJSON() as JsonRecord;
+			submissions.push(mutation);
+			expect(mutation.kind).toBe("workspace.migrate");
+			expect(mutation.workspaceId).toBe(WORKSPACE_ID);
+			expect(mutation.expectedRevision).toBe(0);
+			expect(Object.keys(mutation.payload as JsonRecord)).toEqual([
+				"sourceSha256",
+			]);
+			expect((mutation.payload as JsonRecord).sourceSha256).toMatch(
+				/^[0-9a-f]{64}$/,
+			);
+			await held;
+			const result = committedResult(mutation, data);
+			content = JSON.stringify(result.document);
+			await route.fulfill({ json: result });
+		});
+		const initialRecord = persistenceRecord({
+			snapshot: remembered ? snapshot({ data }) : snapshot({ gistId: null }),
+			binding: remembered
+				? binding({
+						baseline: workspaceDocument({
+							revision: 0,
+							lastMutationId: null,
+							data,
+						}),
+					})
+				: null,
+		});
+		await seedIndexedDb(page, initialRecord);
+		if (remembered)
+			await seedAuth(page, { persistent: "fixture-migration-token" });
+		await page.goto("/auth");
+		if (!remembered) {
+			await page
+				.getByLabel("Personal access token")
+				.fill("fixture-migration-token");
+			await page.getByRole("button", { name: "Connect", exact: true }).click();
+		}
+		const panel = page.getByTestId("legacy-migration");
+		await expect(panel).toBeVisible();
+		await expect(page).toHaveURL(/\/auth$/);
+		await expect(page).toHaveTitle("SubMan");
+		await expect(
+			page.getByRole("heading", { name: "Settings", exact: true }),
+		).toBeVisible();
+		await expect(panel.getByText(stableUrl, { exact: true })).toBeVisible();
+		await expect(
+			panel.getByText("Rules: 1, publish targets: 1, client exports: 0"),
+		).toBeVisible();
+		expect(submissions).toEqual([]);
+		expect(content).toBe(original);
+		const beforeClick = await readIndexedDb(page);
+		expect(beforeClick.binding).toEqual(initialRecord.binding);
+		expect(beforeClick.snapshot).toEqual(initialRecord.snapshot);
+		expect(
+			await page.evaluate(
+				() => document.documentElement.scrollWidth <= window.innerWidth,
+			),
+		).toBe(true);
+		await page.screenshot({
+			path: `/tmp/subman-migration-${remembered ? "existing" : mobile ? "mobile" : "desktop"}.png`,
+			fullPage: false,
+		});
+		if (remembered)
+			await page
+				.getByLabel("Remember token on this device", { exact: true })
+				.uncheck();
+		await panel
+			.getByRole("button", { name: "Migrate and load Workspace" })
+			.click();
+		await expect.poll(() => submissions.length).toBe(1);
+		await expect(
+			panel.getByRole("button", { name: "Migrating..." }),
+		).toBeDisabled();
+		await expect(
+			page.getByText(
+				"Workspace migrated. Existing publication links are unchanged.",
+				{ exact: true },
+			),
+		).toHaveCount(0);
+		release();
+		await expect(panel).toHaveCount(0);
+		await expect(
+			page.getByText(
+				"Workspace migrated. Existing publication links are unchanged.",
+				{ exact: true },
+			),
+		).toBeVisible();
+		const record = await readIndexedDb(page);
+		expect(
+			await page.evaluate(
+				(key) => localStorage.getItem(key),
+				PERSISTENT_AUTH_KEY,
+			),
+		).toBeNull();
+		const saved = record.snapshot as JsonRecord;
+		expect((saved.publishTargets as JsonRecord[])[0]).toMatchObject({
+			fileName: "aggregate-e2e.txt",
+			lastPublishedAt: NOW,
+			lastPublishedUrl: stableUrl,
+		});
+		expect((record.binding as JsonRecord).gistId).toBe(GIST_ID);
+		expect((record.binding as JsonRecord).revision).toBe(1);
+		await page.reload();
+		await expect(page.getByTestId("legacy-migration")).toHaveCount(0);
+		await page.goto("/aggregate");
+		await page.getByRole("button", { name: "New Rule", exact: true }).click();
+		await page
+			.getByRole("button", { name: "E2E Aggregate", exact: true })
+			.click();
+		await expect(page.getByLabel("Rule Name")).toHaveValue("E2E Aggregate");
+		await page.locator("#aggregate-target-select").click();
+		await page.getByRole("button", { name: "E2E Target", exact: true }).click();
+		await expect(page.getByLabel("Target name")).toHaveValue("E2E Target");
+		await expect(page.getByText("Live Link", { exact: true })).toBeVisible();
+		await expect(page.getByText(stableUrl, { exact: true })).toBeVisible();
+		expect(submissions).toHaveLength(1);
+		expect(errors).toEqual([]);
+	});
+}
 
 test("rolls back the visible node when the IndexedDB transaction fails", async ({
 	page,

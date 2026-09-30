@@ -17,6 +17,16 @@ import { resolveLegacyExcludeTags } from "$lib/tags";
 import type { SyncBaselineEnvelope } from "$lib/workspace-data";
 
 export const WORKSPACE_SCHEMA_VERSION = 2 as const;
+export async function hashWorkspaceSource(raw: string): Promise<string> {
+	const digest = await crypto.subtle.digest(
+		"SHA-256",
+		new TextEncoder().encode(raw),
+	);
+	return Array.from(new Uint8Array(digest), (byte) =>
+		byte.toString(16).padStart(2, "0"),
+	).join("");
+}
+
 export const WORKSPACE_FILE_NAME = "subman.json";
 export const WORKSPACE_V1_BACKUP_FILE_NAME = "subman.v1.backup.json";
 export const WORKSPACE_BOOTSTRAP_FILE_NAME = "subman.bootstrap.json";

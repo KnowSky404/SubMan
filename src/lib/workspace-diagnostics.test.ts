@@ -46,6 +46,7 @@ describe("Workspace diagnostics", () => {
 			aggregateOutput: "aggregate-output-secret",
 			clientOutput: "client-export-output-secret",
 			reconcile: "reconcile-full-document-secret",
+			migrationSource: "a".repeat(64),
 		};
 		const sources = [
 			mutation("node.upsert", { operation: "replace", raw: canaries.proxy }, 1),
@@ -73,6 +74,11 @@ describe("Workspace diagnostics", () => {
 				"workspace.reconcile",
 				{ data: { nodes: [{ raw: canaries.reconcile }] } },
 				5,
+			),
+			mutation(
+				"workspace.migrate",
+				{ sourceSha256: canaries.migrationSource },
+				6,
 			),
 		];
 		const mutations = await Promise.all(

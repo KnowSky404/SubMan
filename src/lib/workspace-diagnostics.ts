@@ -27,6 +27,7 @@ const MUTATION_KINDS = new Set<WorkspaceMutation["kind"]>([
 	"client-export.publish",
 	"output.delete",
 	"workspace.bootstrap.cleanup",
+	"workspace.migrate",
 	"workspace.reconcile",
 ]);
 

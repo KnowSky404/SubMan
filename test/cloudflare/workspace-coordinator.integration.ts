@@ -3,10 +3,110 @@ import { env } from "cloudflare:workers";
 import { describe, expect, it, vi } from "vitest";
 import { WorkspaceCoordinator } from "../../src/lib/server/workspace-coordinator";
 import { SqlWorkspaceCoordinatorJournal } from "../../src/lib/server/workspace-coordinator-journal";
-import { serializeWorkspaceDocumentV2 } from "../../src/lib/workspace-document";
+import {
+	hashWorkspaceSource,
+	serializeWorkspaceDocumentV2,
+} from "../../src/lib/workspace-document";
 import type { WorkspaceMutation } from "../../src/lib/workspace-mutation";
 
 describe("WorkspaceCoordinator Durable Object", () => {
+	it("migrates through the Worker and SQLite DO without replacing publication links or outputs", async () => {
+		const gistId = "migration-worker-do";
+		const workspaceId = `gist:${gistId}`;
+		const now = "2026-07-22T10:00:00.000Z";
+		const stableUrl = `https://gist.githubusercontent.com/owner/${gistId}/raw/old.txt`;
+		const v1 = `${JSON.stringify({ version: 1, data: { nodes: [], subscriptions: [], aggregates: [{ id: "rule", name: "Old rule", nodeIds: [], subscriptionIds: [], excludeTagIds: [], renameMap: {}, updatedAt: now }], publishTargets: [{ id: "target", name: "Old target", ruleId: "rule", fileName: "old.txt", description: "", isPublic: false, lastPublishedAt: now, lastPublishedUrl: stableUrl, updatedAt: now }] } }, null, 2)}\r\n`;
+		const files: Record<string, string> = {
+			"subman.json": v1,
+			"old.txt": "existing-output\r\n",
+		};
+		const patches: string[][] = [];
+		vi.spyOn(globalThis, "fetch").mockImplementation(
+			async (input: RequestInfo | URL, init?: RequestInit) => {
+				if (String(input) !== `https://api.github.com/gists/${gistId}`)
+					throw new Error("Unexpected outbound request");
+				if (init?.method === "PATCH") {
+					const patch = JSON.parse(String(init.body)) as {
+						files: Record<string, { content: string } | null>;
+					};
+					patches.push(Object.keys(patch.files).sort());
+					for (const [name, file] of Object.entries(patch.files)) {
+						if (file) files[name] = file.content;
+						else delete files[name];
+					}
+					return Response.json({ ok: true });
+				}
+				return Response.json({
+					id: gistId,
+					owner: { login: "owner" },
+					files: Object.fromEntries(
+						Object.entries(files).map(([name, content]) => [
+							name,
+							{
+								filename: name,
+								language: "Text",
+								size: content.length,
+								content,
+								truncated: false,
+								raw_url: `https://gist.githubusercontent.com/owner/${gistId}/raw/${name}`,
+							},
+						]),
+					),
+				});
+			},
+		);
+		const mutation = {
+			mutationId: "80000000-0000-4000-8000-000000000005",
+			workspaceId,
+			expectedRevision: 0,
+			source: "browser",
+			createdAt: now,
+			kind: "workspace.migrate",
+			payload: { sourceSha256: await hashWorkspaceSource(v1) },
+		} satisfies WorkspaceMutation;
+		const send = () =>
+			SELF.fetch(
+				`https://subman.example/api/workspaces/${encodeURIComponent(workspaceId)}/mutations`,
+				{
+					method: "POST",
+					headers: {
+						Authorization: "Bearer fixture-migration-token",
+						"Content-Type": "application/json",
+					},
+					body: JSON.stringify(mutation),
+				},
+			);
+		try {
+			const first = await send();
+			expect(first.status).toBe(200);
+			const body = await first.json<{
+				document: {
+					schemaVersion: number;
+					data: {
+						publishTargets: Array<{
+							lastPublishedUrl: string;
+							lastPublishedAt: string;
+							fileName: string;
+						}>;
+					};
+				};
+			}>();
+			expect(body.document.schemaVersion).toBe(2);
+			expect(body.document.data.publishTargets[0]).toMatchObject({
+				lastPublishedUrl: stableUrl,
+				lastPublishedAt: now,
+				fileName: "old.txt",
+			});
+			expect(files["old.txt"]).toBe("existing-output\r\n");
+			expect(files["subman.v1.backup.json"]).toBe(v1);
+			expect(patches).toEqual([["subman.json", "subman.v1.backup.json"]]);
+			expect((await send()).status).toBe(200);
+			expect(patches).toHaveLength(1);
+		} finally {
+			vi.restoreAllMocks();
+		}
+	});
+
 	it("initializes the SQLite journal without credential columns", async () => {
 		const stub = env.WORKSPACE_COORDINATOR.getByName("gist:integration-test");
 

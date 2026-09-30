@@ -57,7 +57,8 @@ Default workspace identity:
 - After token setup, SubMan finds the fixed Gist; a new Gist starts with a bootstrap marker and the first coordinator commit creates `subman.json`
 - All data lives in a single workspace gist, and the config file is protected from deletion in UI
 - Browser and Server API mutations are serialized by one Durable Object per Workspace
-- The first V2 commit for a legacy Workspace preserves the byte-exact V1 file as `subman.v1.backup.json`
+- Connecting a recognized legacy Workspace opens a migration preview. Click Migrate and load Workspace to upgrade in the same Gist and preserve the byte-exact V1 file as `subman.v1.backup.json`
+- Migration preserves output filenames, content, publication timestamps, and URLs, so clients keep their existing stable subscription links
 - Conflict resolution options: local overwrite, remote overwrite, merge, or bind only
 - Health check and repair are available from workspace settings
 

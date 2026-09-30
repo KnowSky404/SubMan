@@ -119,6 +119,7 @@ export type WorkspaceMutation =
 	  >
 	| MutationBase<"output.delete", { fileName: string }>
 	| MutationBase<"workspace.bootstrap.cleanup", Record<string, never>>
+	| MutationBase<"workspace.migrate", { sourceSha256: string }>
 	| MutationBase<
 			"workspace.reconcile",
 			{ baselineRevision: number; data: WorkspaceData }
@@ -513,6 +514,7 @@ const MUTATION_KINDS = new Set<WorkspaceMutation["kind"]>([
 	"client-export.publish",
 	"output.delete",
 	"workspace.bootstrap.cleanup",
+	"workspace.migrate",
 	"workspace.reconcile",
 ]);
 
@@ -681,6 +683,17 @@ function parseWorkspaceMutationShape(inputValue: unknown): WorkspaceMutation {
 					),
 				},
 			};
+		}
+		case "workspace.migrate": {
+			const payload = record(input.payload, "payload");
+			exactKeys(payload, "payload", ["sourceSha256"]);
+			const sourceSha256 = nonempty(
+				payload.sourceSha256,
+				"payload.sourceSha256",
+			);
+			if (!/^[0-9a-f]{64}$/.test(sourceSha256))
+				invalid("payload.sourceSha256 must be a SHA-256 hash");
+			return { ...base, kind, payload: { sourceSha256 } };
 		}
 		case "workspace.bootstrap.cleanup": {
 			const payload = record(input.payload, "payload");
@@ -1636,6 +1649,10 @@ export function applyWorkspaceMutation(
 			};
 			files = { [fileName]: null };
 			receipt = { kind: mutation.kind, deleted: true };
+			break;
+		}
+		case "workspace.migrate": {
+			// Schema conversion is performed by the coordinator; outputs stay untouched.
 			break;
 		}
 		case "workspace.bootstrap.cleanup": {

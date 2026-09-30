@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 import type { AppState, GistMeta, NodeItem } from "$lib/models";
 import {
 	commitQueuedBrowserWorkspaceMutation,
+	migrateBrowserWorkspace,
 	persistBrowserWorkspaceSnapshot,
 	readBrowserWorkspaceSnapshot,
 	reconcileBrowserWorkspace,
@@ -268,6 +269,280 @@ async function seed(
 }
 
 describe("browser Workspace V2 session", () => {
+	it("retains a migration request durably and reuses its ID on retry", async () => {
+		class PeerAfterRepairPersistence extends InMemoryWorkspacePersistence {
+			override async repairWorkspaceQueue(
+				input: Parameters<
+					InMemoryWorkspacePersistence["repairWorkspaceQueue"]
+				>[0],
+			) {
+				await super.repairWorkspaceQueue(input);
+				await this.acquireLease({
+					name: workspaceDispatcherLeaseName("gist:gist-1"),
+					ownerId: "peer",
+					now: Date.now(),
+					ttlMs: 60000,
+				});
+			}
+		}
+		const persistence = new PeerAfterRepairPersistence();
+		let state = createDefaultWorkspaceState(NOW);
+		const source = serializeWorkspaceState(state, { exportedAt: NOW });
+		const snapshot = await readBrowserWorkspaceSnapshot(
+			"token",
+			gist("subman.json"),
+			state,
+			{ readContent: async () => source, now: () => NOW },
+		);
+		const submissions: WorkspaceMutation[] = [];
+		const dependencies = {
+			persistence,
+			getState: () => state,
+			setState: (next: AppState) => {
+				state = next;
+			},
+			mutationId: () => MUTATION_ID,
+			now: () => NOW,
+			fetchImpl: async (_input: RequestInfo | URL, init?: RequestInit) => {
+				const request = JSON.parse(String(init?.body)) as WorkspaceMutation;
+				submissions.push(request);
+				return Response.json({
+					document: {
+						...snapshot.document,
+						revision: 1,
+						lastMutationId: request.mutationId,
+						updatedAt: NOW,
+					},
+					mutationId: request.mutationId,
+					workspaceId: request.workspaceId,
+					committedRevision: 1,
+					committedAt: NOW,
+					receipt: { kind: request.kind },
+					status: "committed",
+				});
+			},
+			broadcast: () => {},
+			dispatchSyncEvent: () => true,
+		};
+		const first = await migrateBrowserWorkspace(
+			{ token: "token", gistId: "gist-1", snapshot },
+			dependencies,
+		);
+		expect(first.status).toBe("peer-owned");
+		expect(submissions).toEqual([]);
+		const stored = await persistence.read();
+		expect(stored.workspaces["gist:gist-1"]?.mutations[0]?.kind).toBe(
+			"workspace.migrate",
+		);
+		const lease = stored.leases[workspaceDispatcherLeaseName("gist:gist-1")];
+		await persistence.releaseLease({
+			name: lease.name,
+			ownerId: lease.ownerId,
+			fencingToken: lease.fencingToken,
+		});
+		const retried = await migrateBrowserWorkspace(
+			{ token: "token", gistId: "gist-1", snapshot },
+			{ ...dependencies, mutationId: () => MUTATION_ID_2 },
+		);
+		expect(retried.status).toBe("remote-committed");
+		expect(submissions).toHaveLength(1);
+		expect(submissions[0]?.mutationId).toBe(MUTATION_ID);
+		const recovered = await migrateBrowserWorkspace(
+			{
+				token: "token",
+				gistId: "gist-1",
+				snapshot,
+				retryMutationId: MUTATION_ID,
+			},
+			{ ...dependencies, mutationId: () => MUTATION_ID_3 },
+		);
+		expect(recovered.status).toBe("remote-committed");
+		expect(submissions).toHaveLength(1);
+	});
+
+	it("does not flush or discard other queued work when migrating", async () => {
+		const persistence = new InMemoryWorkspacePersistence();
+		const baseline = document(0, null);
+		let current = stateFor(baseline);
+		await seed(
+			persistence,
+			current,
+			createWorkspaceV2LocalState("gist-1", { baseline }),
+			[mutation(MUTATION_ID, 0, "local")],
+		);
+		const before = await persistence.read();
+		const result = await migrateBrowserWorkspace(
+			{
+				token: "token",
+				gistId: "gist-1",
+				snapshot: {
+					origin: "v1",
+					legacySourceSha256: "a".repeat(64),
+					document: baseline,
+					state: current,
+				},
+			},
+			{
+				persistence,
+				getState: () => current,
+				setState: (next) => {
+					current = next;
+				},
+				fetchImpl: async () => {
+					throw new Error("Unexpected delivery");
+				},
+			},
+		);
+		expect(result.status).toBe("rejected-before-durable-commit");
+		expect(await persistence.read()).toEqual(before);
+	});
+
+	it("resumes the same migration after replacing rejected credentials", async () => {
+		const persistence = new InMemoryWorkspacePersistence();
+		let state = createDefaultWorkspaceState(NOW);
+		const preview = await readBrowserWorkspaceSnapshot(
+			"token",
+			gist("subman.json"),
+			state,
+			{
+				readContent: async () =>
+					serializeWorkspaceState(state, { exportedAt: NOW }),
+				now: () => NOW,
+			},
+		);
+		const submissions: WorkspaceMutation[] = [];
+		const dependencies = {
+			persistence,
+			getState: () => state,
+			setState: (next: AppState) => {
+				state = next;
+			},
+			mutationId: () => MUTATION_ID,
+			now: () => NOW,
+			fetchImpl: async (_input: RequestInfo | URL, init?: RequestInit) => {
+				const request = JSON.parse(String(init?.body)) as WorkspaceMutation;
+				submissions.push(request);
+				if (submissions.length === 1)
+					return failureResponse(401, "github_auth_failed", "auth-required");
+				expect(new Headers(init?.headers).get("Authorization")).toBe(
+					"Bearer replacement-token",
+				);
+				return Response.json({
+					document: {
+						...preview.document,
+						revision: 1,
+						lastMutationId: request.mutationId,
+						updatedAt: NOW,
+					},
+					mutationId: request.mutationId,
+					workspaceId: request.workspaceId,
+					committedRevision: 1,
+					committedAt: NOW,
+					receipt: { kind: request.kind },
+					status: "committed",
+				});
+			},
+			broadcast: () => {},
+			dispatchSyncEvent: () => true,
+		};
+		const first = await migrateBrowserWorkspace(
+			{ token: "rejected-token", gistId: "gist-1", snapshot: preview },
+			dependencies,
+		);
+		expect(first.status).toBe("conflict-or-blocked");
+		expect(
+			(await persistence.read()).workspaces["gist:gist-1"]?.delivery.blocked
+				?.disposition,
+		).toBe("auth-required");
+		const second = await migrateBrowserWorkspace(
+			{ token: "replacement-token", gistId: "gist-1", snapshot: preview },
+			{ ...dependencies, mutationId: () => MUTATION_ID_2 },
+		);
+		expect(second.status).toBe("remote-committed");
+		expect(submissions.map((request) => request.mutationId)).toEqual([
+			MUTATION_ID,
+			MUTATION_ID,
+		]);
+	});
+
+	it("replaces only a conflicted migration after previewing the changed V1 source", async () => {
+		const persistence = new InMemoryWorkspacePersistence();
+		let state = createDefaultWorkspaceState(NOW);
+		const source = serializeWorkspaceState(state, { exportedAt: NOW });
+		const preview = await readBrowserWorkspaceSnapshot(
+			"token",
+			gist("subman.json"),
+			state,
+			{ readContent: async () => source, now: () => NOW },
+		);
+		const changed = await readBrowserWorkspaceSnapshot(
+			"token",
+			gist("subman.json"),
+			state,
+			{ readContent: async () => `${source}\n`, now: () => NOW },
+		);
+		const submissions: WorkspaceMutation[] = [];
+		const dependencies = {
+			persistence,
+			getState: () => state,
+			setState: (next: AppState) => {
+				state = next;
+			},
+			mutationId: () => MUTATION_ID,
+			now: () => NOW,
+			fetchImpl: async (_input: RequestInfo | URL, init?: RequestInit) => {
+				const request = JSON.parse(String(init?.body)) as WorkspaceMutation;
+				submissions.push(request);
+				if (submissions.length === 1)
+					return failureResponse(
+						409,
+						"revision_conflict",
+						"state-conflict",
+						changed.document,
+					);
+				return Response.json({
+					document: {
+						...changed.document,
+						revision: 1,
+						lastMutationId: request.mutationId,
+						updatedAt: NOW,
+					},
+					mutationId: request.mutationId,
+					workspaceId: request.workspaceId,
+					committedRevision: 1,
+					committedAt: NOW,
+					receipt: { kind: request.kind },
+					status: "committed",
+				});
+			},
+			broadcast: () => {},
+			dispatchSyncEvent: () => true,
+		};
+		const first = await migrateBrowserWorkspace(
+			{ token: "token", gistId: "gist-1", snapshot: preview },
+			dependencies,
+		);
+		expect(first.status).toBe("conflict-or-blocked");
+		const blocked = await persistence.read();
+		expect(
+			blocked.workspaces["gist:gist-1"]?.delivery.blocked?.disposition,
+		).toBe("state-conflict");
+		expect(blocked.workspaces["gist:gist-1"]?.mutations).toHaveLength(1);
+		const second = await migrateBrowserWorkspace(
+			{ token: "token", gistId: "gist-1", snapshot: changed },
+			{ ...dependencies, mutationId: () => MUTATION_ID_2 },
+		);
+		expect(second.status).toBe("remote-committed");
+		expect(submissions).toHaveLength(2);
+		expect(submissions[1]?.mutationId).toBe(MUTATION_ID_2);
+		expect(submissions[1]?.payload).toEqual({
+			sourceSha256: changed.legacySourceSha256,
+		});
+		expect(
+			(await persistence.read()).workspaces["gist:gist-1"]?.mutations ?? [],
+		).toEqual([]);
+	});
+
 	it("normalizes legacy and bootstrap workspaces into revision-zero baselines", async () => {
 		const current = {
 			...createDefaultWorkspaceState(),

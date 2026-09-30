@@ -130,6 +130,24 @@ coordinator mutation, the Durable Object performs one verified Gist PATCH that:
 3. Applies the requested mutation.
 4. Writes the new `subman.json` and any publication output together.
 
+Browser connection now detects a recognized V1 document and presents an explicit
+migration preview before binding or changing the local snapshot. The user can
+download local-only data, cancel, recheck, or choose **Migrate and load Workspace**.
+The internal browser `workspace.migrate` mutation carries only `sourceSha256`,
+the SHA-256 hash of the exact previewed V1 bytes. It changes no business entities
+or publication metadata and sends no output-file changes. The Gist ID, output
+filenames, output contents, publication timestamps, and recorded URLs remain
+unchanged. Output files without saved publish targets are retained too.
+
+The coordinator checks the source hash again before journaling or writing.
+A changed preview or a different current schema returns `revision_conflict`;
+the user must recheck rather than overwrite the remote document. The browser
+persists the migration envelope before delivery, reuses its mutation ID on retry,
+and refuses to flush unrelated pending mutations or discard dead-letter evidence.
+Only `remote-committed` closes the migration preview and reports completion.
+This operation and `/api/workspaces/:workspaceId/mutations` remain internal browser
+protocols, not supported third-party integration surfaces.
+
 This applies to V1 documents accepted by the current strict parser, not every
 historical file. Missing legacy optional collections, `allowedTypes`, and
 publication transition fields are normalized; unknown fields, invalid timestamps,

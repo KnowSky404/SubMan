@@ -2,6 +2,7 @@ import type { AppState } from "$lib/models";
 import { getSyncStateSignature } from "$lib/serialization";
 import {
 	type BrowserWorkspaceSnapshot,
+	migrateBrowserWorkspace,
 	persistBrowserWorkspaceSnapshot,
 	reconcileBrowserWorkspace,
 } from "$lib/workspace-browser-session-v2";
@@ -362,7 +363,9 @@ export function createWorkspaceSettingsController(
 				operation: WorkspaceOperationResult | null;
 		  }
 		| { status: "conflict"; conflict: WorkspaceSettingsConflict }
+		| { status: "migration-required" }
 	> {
+		if (input.snapshot.origin === "v1") return { status: "migration-required" };
 		if (input.created || input.snapshot.origin === "bootstrap") {
 			const operation = await reconcile({
 				token: input.token,
@@ -379,23 +382,9 @@ export function createWorkspaceSettingsController(
 
 		const conflict = createConflict(input.snapshot.document, input.gistId);
 		if (conflict.remoteSignature === conflict.localSignature) {
-			if (input.snapshot.origin === "v2") {
-				await persistSnapshot(input.snapshot, input.gistId, "automatic");
-				dispatchPersistedState("WORKSPACE_BOUND");
-				return { status: "synced", operation: null };
-			} else {
-				const operation = await reconcile({
-					token: input.token,
-					gistId: input.gistId,
-					baseline: input.snapshot.document,
-					resolvedState: input.snapshot.state,
-					syncMode: "automatic",
-				});
-				if (operation.status === "remote-committed") {
-					dispatchPersistedState("WORKSPACE_BOUND");
-				}
-				return { status: "synced", operation };
-			}
+			await persistSnapshot(input.snapshot, input.gistId, "automatic");
+			dispatchPersistedState("WORKSPACE_BOUND");
+			return { status: "synced", operation: null };
 		}
 
 		await commitPausedConflict({
@@ -408,6 +397,22 @@ export function createWorkspaceSettingsController(
 					: null,
 		});
 		return { status: "conflict", conflict };
+	}
+
+	async function migrateLegacy(input: {
+		token: string;
+		gistId: string;
+		snapshot: BrowserWorkspaceSnapshot;
+		retryMutationId?: string;
+	}): Promise<WorkspaceOperationResult> {
+		const operation = await migrateBrowserWorkspace(
+			input,
+			sessionDependencies(),
+		);
+		await refresh();
+		if (operation.status === "remote-committed")
+			dispatchPersistedState("WORKSPACE_BOUND");
+		return operation;
 	}
 
 	async function bindOnly(conflict: WorkspaceSettingsConflict): Promise<void> {
@@ -706,6 +711,7 @@ export function createWorkspaceSettingsController(
 		evaluateRepair,
 		persistedConflict,
 		connect,
+		migrateLegacy,
 		bindOnly,
 		resolveConflict,
 		reconcile,

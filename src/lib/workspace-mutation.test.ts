@@ -212,12 +212,40 @@ describe("Workspace mutation parsing", () => {
 			],
 			["output.delete", { fileName: "aggregate.txt" }],
 			["workspace.bootstrap.cleanup", {}],
+			["workspace.migrate", { sourceSha256: "a".repeat(64) }],
 			["workspace.reconcile", { baselineRevision: 0, data: data() }],
 		];
 
 		for (const [kind, payload] of fixtures) {
 			expect(parseWorkspaceMutation(mutation(kind, payload)).kind).toBe(kind);
 		}
+	});
+
+	it("requires a source hash and restricts explicit migration to browser requests", () => {
+		for (const payload of [
+			{},
+			{ sourceSha256: "a".repeat(63) },
+			{ sourceSha256: "A".repeat(64) },
+			{ sourceSha256: "a".repeat(64), data: data() },
+		]) {
+			expectCode(
+				() => parseWorkspaceMutation(mutation("workspace.migrate", payload)),
+				"invalid_mutation",
+			);
+		}
+		expectCode(
+			() =>
+				parseWorkspaceMutation(
+					mutation(
+						"workspace.migrate",
+						{ sourceSha256: "a".repeat(64) },
+						{
+							source: "server-api",
+						},
+					),
+				),
+			"invalid_mutation",
+		);
 	});
 
 	it("rejects credentials, unknown fields, and source-specific node commands", () => {

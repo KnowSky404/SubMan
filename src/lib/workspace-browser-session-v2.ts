@@ -4,6 +4,7 @@ import type { AppState, GistMeta } from "$lib/models";
 import { getWorkspaceBusinessData, WORKSPACE_FILE } from "$lib/workspace-data";
 import {
 	getWorkspaceContentSignature,
+	hashWorkspaceSource,
 	migrateWorkspaceDocumentV1ToV2,
 	parseWorkspaceDocument,
 	validateWorkspaceDocumentV2,
@@ -54,6 +55,7 @@ import {
 
 export type BrowserWorkspaceSnapshot = {
 	origin: "v1" | "v2" | "bootstrap";
+	legacySourceSha256?: string;
 	document: WorkspaceDocumentV2;
 	state: AppState;
 };
@@ -637,16 +639,18 @@ export async function readBrowserWorkspaceSnapshot(
 	);
 	let origin: BrowserWorkspaceSnapshot["origin"];
 	let document: WorkspaceDocumentV2;
+	let legacySourceSha256: string | undefined;
 	if (hasWorkspaceFile) {
-		const parsed = parseWorkspaceDocument(
-			await readContent(token, gist.id, WORKSPACE_FILE),
-			{ expectedWorkspaceId: `gist:${gist.id}` },
-		);
+		const raw = await readContent(token, gist.id, WORKSPACE_FILE);
+		const parsed = parseWorkspaceDocument(raw, {
+			expectedWorkspaceId: `gist:${gist.id}`,
+		});
 		if (parsed.schemaVersion === 2) {
 			origin = "v2";
 			document = parsed.document;
 		} else {
 			origin = "v1";
+			legacySourceSha256 = await hashWorkspaceSource(raw);
 			document = migrateWorkspaceDocumentV1ToV2(parsed.document, {
 				gistId: gist.id,
 				now: (options.now ?? (() => new Date().toISOString()))(),
@@ -665,6 +669,7 @@ export async function readBrowserWorkspaceSnapshot(
 	}
 	return {
 		origin,
+		...(legacySourceSha256 ? { legacySourceSha256 } : {}),
 		document,
 		state: hydrateAppStateFromWorkspaceDocument(current, document, gist.id),
 	};
@@ -710,6 +715,8 @@ async function reconcileBrowserWorkspaceInternal(
 		resolvedState: AppState;
 		syncMode: Exclude<WorkspaceV2LocalState["syncMode"], "paused-conflict">;
 		replacePending?: boolean;
+		migrationSourceSha256?: string;
+		migrationMutationId?: string;
 	},
 	dependencies: BrowserWorkspaceSessionDependencies = {},
 ): Promise<WorkspaceOperationResult> {
@@ -721,8 +728,61 @@ async function reconcileBrowserWorkspaceInternal(
 	});
 	let record = await readPersistence(dependencies, persistence);
 	let pending = record.workspaces[workspaceId]?.mutations ?? [];
+	if (
+		input.migrationMutationId &&
+		!persistedMutation(record, input.migrationMutationId)
+	) {
+		return dispatchUntilMutationSettles(
+			input.migrationMutationId,
+			input.token,
+			dependencies,
+			persistence,
+			"Workspace migration failed",
+		);
+	}
+	if (
+		input.migrationSourceSha256 &&
+		(record.workspaces[workspaceId]?.delivery.deadLetters.length ?? 0) > 0
+	) {
+		throw new Error("Resolve Workspace repair evidence before migration");
+	}
+	if (input.migrationSourceSha256 && pending.length > 0) {
+		if (pending.length === 1 && pending[0]?.kind === "workspace.migrate") {
+			const blocked = record.workspaces[workspaceId]?.delivery.blocked;
+			if (blocked?.disposition === "auth-required") {
+				await persistence.resumeWorkspaceAfterAuth(workspaceId);
+				return dispatchUntilMutationSettles(
+					pending[0].mutationId,
+					input.token,
+					dependencies,
+					persistence,
+					"Workspace migration failed",
+				);
+			}
+			if (
+				!blocked &&
+				pending[0].payload.sourceSha256 === input.migrationSourceSha256
+			) {
+				return dispatchUntilMutationSettles(
+					pending[0].mutationId,
+					input.token,
+					dependencies,
+					persistence,
+					"Workspace migration failed",
+				);
+			}
+			if (blocked?.disposition !== "state-conflict")
+				throw new Error("Resolve pending Workspace changes before migration");
+		} else {
+			throw new Error("Resolve pending Workspace changes before migration");
+		}
+	}
 
-	if (pending.length > 0 && !input.replacePending) {
+	if (
+		pending.length > 0 &&
+		!input.replacePending &&
+		!input.migrationSourceSha256
+	) {
 		if (record.binding?.workspaceId !== workspaceId) {
 			throw new Error("Pending Workspace queue is not active");
 		}
@@ -826,11 +886,13 @@ async function reconcileBrowserWorkspaceInternal(
 	};
 	const draft = mutationDraft(
 		binding,
-		"workspace.reconcile",
-		{
-			baselineRevision: baseline.revision,
-			data: getWorkspaceBusinessData(resolvedState),
-		},
+		input.migrationSourceSha256 ? "workspace.migrate" : "workspace.reconcile",
+		input.migrationSourceSha256
+			? { sourceSha256: input.migrationSourceSha256 }
+			: {
+					baselineRevision: baseline.revision,
+					data: getWorkspaceBusinessData(resolvedState),
+				},
 		dependencies,
 	);
 	const state = { ...resolvedState, lastUpdated: draft.createdAt };
@@ -877,6 +939,35 @@ async function reconcileBrowserWorkspaceInternal(
 		persistence,
 		"Workspace reconciliation failed",
 	);
+}
+
+export async function migrateBrowserWorkspace(
+	input: {
+		token: string;
+		gistId: string;
+		snapshot: BrowserWorkspaceSnapshot;
+		retryMutationId?: string;
+	},
+	dependencies: BrowserWorkspaceSessionDependencies = {},
+): Promise<WorkspaceOperationResult> {
+	try {
+		if (input.snapshot.origin !== "v1" || !input.snapshot.legacySourceSha256)
+			throw new Error("A legacy Workspace preview is required");
+		return await reconcileBrowserWorkspaceInternal(
+			{
+				token: input.token,
+				gistId: input.gistId,
+				baseline: input.snapshot.document,
+				resolvedState: input.snapshot.state,
+				syncMode: "automatic",
+				migrationSourceSha256: input.snapshot.legacySourceSha256,
+				migrationMutationId: input.retryMutationId,
+			},
+			dependencies,
+		);
+	} catch (error) {
+		return rejectedWorkspaceOperation(error);
+	}
 }
 
 export async function reconcileBrowserWorkspace(

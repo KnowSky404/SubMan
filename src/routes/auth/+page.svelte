@@ -4,6 +4,7 @@ import { slide } from "svelte/transition";
 import Octicon from "$lib/components/Octicon.svelte";
 import { getGist } from "$lib/gist";
 import { t } from "$lib/i18n";
+import type { GistMeta } from "$lib/models";
 import {
 	alert,
 	arrowDown,
@@ -31,7 +32,10 @@ import {
 	ensureWorkspaceBootstrapGist,
 	type WorkspaceCandidate,
 } from "$lib/workspace";
-import { readBrowserWorkspaceSnapshot } from "$lib/workspace-browser-session-v2";
+import {
+	type BrowserWorkspaceSnapshot,
+	readBrowserWorkspaceSnapshot,
+} from "$lib/workspace-browser-session-v2";
 import { subscribeWorkspaceEvents } from "$lib/workspace-events";
 import {
 	presentWorkspaceOperation,
@@ -55,6 +59,7 @@ let tokenInput = "";
 let rememberToken = false;
 let payload = "";
 let workspaceBusy = false;
+let connectionRevision = 0;
 let persistenceRecord: WorkspacePersistenceRecord | null = null;
 let queueInspection: WorkspaceQueueInspection | null = null;
 let queueActionWorkspaceId: string | null = null;
@@ -69,6 +74,19 @@ let pendingConnection: {
 	rememberToken: boolean;
 	previousBinding: WorkspaceV2LocalState | null;
 } | null = null;
+let pendingMigration: {
+	token: string;
+	gist: GistMeta;
+	snapshot: BrowserWorkspaceSnapshot;
+	remember: boolean;
+	mutationId?: string;
+} | null = null;
+$: migrationQueued = Boolean(
+	pendingMigration &&
+		persistenceRecord?.workspaces[
+			`gist:${pendingMigration.gist.id}`
+		]?.mutations.some((mutation) => mutation.kind === "workspace.migrate"),
+);
 
 // Conflict State
 let conflict: WorkspaceSettingsConflict | null = null;
@@ -93,8 +111,37 @@ onMount(() => {
 	void workspaceController
 		.initialize()
 		.then(applyPersistenceView)
-		.then((view) => {
+		.then(async (view) => {
 			conflict = workspaceController.persistedConflict(view);
+			if ($authState.token) {
+				const probeRevision = connectionRevision;
+				const probeToken = $authState.token;
+				try {
+					const discovery = await discoverWorkspaceGist(
+						probeToken,
+						$appState.activeGistId,
+					);
+					if (
+						probeRevision !== connectionRevision ||
+						probeToken !== $authState.token
+					)
+						return;
+					if (
+						discovery.status === "found" &&
+						discovery.candidate.kind === "legacy-v1"
+					) {
+						await completeWorkspaceConnection(
+							probeToken,
+							discovery.gist,
+							false,
+							workspaceController.binding(),
+							$authState.persistence === "persistent",
+						);
+					}
+				} catch {
+					// Offline startup keeps existing persistence and queue repair available.
+				}
+			}
 		})
 		.catch((error) => {
 			queueResult = {
@@ -103,7 +150,12 @@ onMount(() => {
 			};
 		});
 	const unsubscribe = subscribeWorkspaceEvents((event) => {
-		if (event.type === "paused-conflict" && event.document && event.gistId) {
+		if (
+			event.type === "paused-conflict" &&
+			event.document &&
+			event.gistId &&
+			!pendingMigration
+		) {
 			conflict = workspaceController.createConflict(
 				event.document,
 				event.gistId,
@@ -209,7 +261,9 @@ async function completeWorkspaceConnection(
 	previousBinding: WorkspaceV2LocalState | null,
 	remember: boolean,
 ) {
+	const attemptRevision = connectionRevision;
 	const snapshot = await readBrowserWorkspaceSnapshot(token, gist, $appState);
+	if (attemptRevision !== connectionRevision) return;
 	const result = await workspaceController.connect({
 		token,
 		gistId: gist.id,
@@ -217,6 +271,20 @@ async function completeWorkspaceConnection(
 		snapshot,
 		previousBinding,
 	});
+	if (result.status === "migration-required") {
+		pendingMigration = { token, gist, snapshot, remember };
+		workspaceCandidates = [];
+		pendingConnection = null;
+		conflict = null;
+		manualPushReview = null;
+		tokenInput = "";
+		setStatus(
+			$t("Legacy Workspace detected. Review and migrate to continue."),
+			"info",
+		);
+		return;
+	}
+	pendingMigration = null;
 	applyPersistenceView(
 		workspaceController.currentView() as WorkspaceSettingsView,
 	);
@@ -247,6 +315,86 @@ async function completeWorkspaceConnection(
 	pendingConnection = null;
 }
 
+function downloadMigrationLocalBackup() {
+	const url = URL.createObjectURL(
+		new Blob([exportState($appState)], { type: "application/json" }),
+	);
+	const anchor = document.createElement("a");
+	anchor.href = url;
+	anchor.download = "subman-local-before-migration.json";
+	anchor.hidden = true;
+	document.body.appendChild(anchor);
+	anchor.click();
+	anchor.remove();
+	setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
+async function handleLegacyMigration() {
+	if (!pendingMigration || workspaceBusy) return;
+	const attempt = pendingMigration;
+	const attemptRevision = connectionRevision;
+	workspaceBusy = true;
+	try {
+		const result = await workspaceController.migrateLegacy({
+			token: attempt.token,
+			gistId: attempt.gist.id,
+			snapshot: attempt.snapshot,
+			retryMutationId: attempt.mutationId,
+		});
+		if (
+			pendingMigration === attempt &&
+			result.status !== "rejected-before-durable-commit" &&
+			result.mutationId
+		) {
+			pendingMigration = { ...attempt, mutationId: result.mutationId };
+		}
+		applyPersistenceView(
+			workspaceController.currentView() as WorkspaceSettingsView,
+		);
+		const presentation = showWorkspaceResult(result, {
+			remoteCommittedMessageKey:
+				"Workspace migrated. Existing publication links are unchanged.",
+		});
+		if (
+			presentation.remoteCommitted &&
+			attemptRevision === connectionRevision
+		) {
+			setToken(attempt.token, {
+				remember:
+					$authState.token === attempt.token
+						? $authState.persistence === "persistent"
+						: attempt.remember,
+			});
+			pendingMigration = null;
+			conflict = null;
+		}
+	} catch (error) {
+		setStatus(connectionErrorMessage(error), "error");
+	} finally {
+		workspaceBusy = false;
+	}
+}
+
+async function handleRecheckMigration() {
+	if (!pendingMigration || workspaceBusy) return;
+	const attempt = pendingMigration;
+	workspaceBusy = true;
+	try {
+		const gist = await getGist(attempt.token, attempt.gist.id);
+		await completeWorkspaceConnection(
+			attempt.token,
+			gist,
+			false,
+			workspaceController.binding(),
+			attempt.remember,
+		);
+	} catch (error) {
+		setStatus(connectionErrorMessage(error), "error");
+	} finally {
+		workspaceBusy = false;
+	}
+}
+
 async function connectCandidate(candidate: WorkspaceCandidate) {
 	if (!pendingConnection || candidate.kind === "invalid") return;
 	workspaceBusy = true;
@@ -271,11 +419,13 @@ async function connectCandidate(candidate: WorkspaceCandidate) {
 async function handleTokenSave() {
 	const token = tokenInput.trim();
 	if (!token) return;
+	connectionRevision += 1;
 	workspaceBusy = true;
 	conflict = null;
 	manualPushReview = null;
 	workspaceCandidates = [];
 	pendingConnection = null;
+	pendingMigration = null;
 	const previousBinding = workspaceController.binding();
 	try {
 		const savedGistId = previousBinding?.gistId ?? $appState.activeGistId;
@@ -649,16 +799,25 @@ async function handleManualForcePush() {
 }
 
 function handleTokenClear() {
+	connectionRevision += 1;
 	clearAuth();
 	workspaceController.disconnect();
 	setStatus($t("Logged out"), "info");
 	conflict = null;
 	manualPushReview = null;
+	pendingMigration = null;
 }
 
 function handleTokenReplacement() {
 	const token = tokenInput.trim();
 	if (!token) return;
+	connectionRevision += 1;
+	if (pendingMigration)
+		pendingMigration = {
+			...pendingMigration,
+			token,
+			remember: $authState.persistence === "persistent",
+		};
 	setToken(token, { remember: $authState.persistence === "persistent" });
 	tokenInput = "";
 	setStatus($t("Token replaced; Workspace sync is resuming"), "info");
@@ -866,6 +1025,37 @@ async function handleImport() {
 	</header>
 
 	<!-- Conflict Resolution UI -->
+	{#if pendingMigration}
+		<section class="gh-section" data-testid="legacy-migration" aria-labelledby="legacy-migration-heading">
+			<div class="gh-section-header">
+				<div>
+					<h2 id="legacy-migration-heading" class="gh-section-title"><Octicon icon={database} className="h-5 w-5" />{$t("Upgrade this Workspace")}</h2>
+					<p class="gh-section-description">{$t("An older Workspace format was detected. Migration keeps the same Gist, output filenames, published content, and existing subscription links.")}</p>
+				</div>
+			</div>
+			<div class="gh-section-body space-y-4">
+				<p class="text-sm">{$t("Workspace")}: <code class="break-all">{pendingMigration.gist.id}</code></p>
+				<p class="text-sm text-fg-muted">{$t("Rules: {rules}, publish targets: {targets}, client exports: {exports}", { rules: pendingMigration.snapshot.document.data.aggregates.length, targets: pendingMigration.snapshot.document.data.publishTargets.length, exports: pendingMigration.snapshot.document.data.clientExports.length })}</p>
+				<div class="space-y-2">
+					{#each [...pendingMigration.snapshot.document.data.publishTargets, ...pendingMigration.snapshot.document.data.clientExports] as output}
+						<div class="rounded-md border border-border-muted p-3 text-sm">
+							<p class="font-semibold break-all">{output.fileName}</p>
+							{#if output.lastPublishedUrl}<code class="block break-all text-xs text-fg-muted">{output.lastPublishedUrl}</code>{/if}
+						</div>
+					{/each}
+				</div>
+				<p class="text-sm text-fg-muted">{$t("The old configuration will be backed up automatically. Existing output files are retained, including files without a saved publish target.")}</p>
+				<p class="text-sm text-attention-fg">{$t("Migration loads this Workspace's data on this device. Download a local backup first if you need to keep local-only changes. Pending changes must be resolved before migration.")}</p>
+				<p class="text-xs text-fg-muted">{$t("If the Workspace changes or migration is interrupted, recheck its status before continuing. A queued request is not a completed migration.")}</p>
+			</div>
+			<div class="gh-section-footer flex flex-wrap gap-2">
+				<button type="button" class="gh-btn gh-btn-primary" on:click={handleLegacyMigration} disabled={workspaceBusy}>{workspaceBusy ? $t("Migrating...") : $t("Migrate and load Workspace")}</button>
+				<button type="button" class="gh-btn" on:click={downloadMigrationLocalBackup} disabled={workspaceBusy}>{$t("Download local backup")}</button>
+				<button type="button" class="gh-btn" on:click={handleRecheckMigration} disabled={workspaceBusy}>{$t("Recheck Workspace")}</button>
+				<button type="button" class="gh-btn" on:click={() => { connectionRevision += 1; pendingMigration = null; }} disabled={workspaceBusy || migrationQueued}>{$t("Cancel")}</button>
+			</div>
+		</section>
+	{/if}
 	{#if tombstoneNotice}
 		<section class="gh-alert gh-alert-attention" data-testid="tombstone-notice" transition:slide>
 			<Octicon icon={alert} className="mt-0.5 h-4 w-4 shrink-0 text-[color:var(--attention-emphasis)]" />
@@ -1059,15 +1249,15 @@ async function handleImport() {
 							</div>
 						</div>
 						<div class="gh-btn-group">
-							<button type="button" class="gh-btn gh-btn-sm" on:click={handleManualPull} disabled={workspaceBusy}>
+							<button type="button" class="gh-btn gh-btn-sm" on:click={handleManualPull} disabled={workspaceBusy || pendingMigration !== null}>
 								<Octicon icon={sync} className={cn("h-3.5 w-3.5", workspaceBusy && "animate-spin")} />
 								{$t("Pull Now")}
 							</button>
-							<button type="button" class="gh-btn gh-btn-sm" on:click={handleManualPush} disabled={workspaceBusy}>
+							<button type="button" class="gh-btn gh-btn-sm" on:click={handleManualPush} disabled={workspaceBusy || pendingMigration !== null}>
 								<Octicon icon={upload} className="h-3.5 w-3.5" />
 								{$t("Push Now")}
 							</button>
-							<button type="button" class="gh-btn gh-btn-sm" data-testid="repair-sync-action" on:click={handleRepairSyncState} disabled={workspaceBusy}>
+							<button type="button" class="gh-btn gh-btn-sm" data-testid="repair-sync-action" on:click={handleRepairSyncState} disabled={workspaceBusy || pendingMigration !== null}>
 								<Octicon icon={shieldCheck} className="h-3.5 w-3.5" />
 								{$t("Repair Sync State")}
 							</button>

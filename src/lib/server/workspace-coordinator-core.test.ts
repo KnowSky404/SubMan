@@ -23,6 +23,7 @@ import {
 import { GitHubGatewayError } from "$lib/server/workspace-gist";
 import {
 	createWorkspaceBootstrapContent,
+	hashWorkspaceSource,
 	serializeWorkspaceDocumentV2,
 	type WorkspaceData,
 	type WorkspaceDocumentV2,
@@ -600,6 +601,73 @@ describe("Workspace coordinator serialization and idempotency", () => {
 });
 
 describe("Workspace coordinator migration and recovery", () => {
+	it("explicit migration preserves exact publication URLs, filenames, timestamps and output bytes", async () => {
+		const original = data();
+		original.publishTargets[0] = {
+			...target(),
+			lastPublishedAt: T0,
+			lastPublishedUrl:
+				"https://gist.githubusercontent.com/owner/gist-1/raw/aggregate.txt",
+		};
+		original.clientExports[0] = {
+			...profile(),
+			lastPublishedAt: T0,
+			lastPublishedUrl:
+				"https://gist.githubusercontent.com/owner/gist-1/raw/client.json",
+		};
+		const v1 = `${JSON.stringify({ version: 1, data: original }, null, 2)}\n`;
+		const gateway = new MemoryGateway({
+			"subman.json": v1,
+			"aggregate.txt": "old-output\r\n",
+			"client.json": "old-client-output\n",
+		});
+		const { core } = coordinator(gateway);
+		const input = {
+			githubToken: TOKEN,
+			gistId: GIST_ID,
+			mutation: mutation(
+				"30000000-0000-4000-8000-000000000020",
+				0,
+				"workspace.migrate",
+				{ sourceSha256: await hashWorkspaceSource(v1) },
+			),
+		};
+		const result = await core.mutate(input);
+		expect(result.document.data).toEqual(original);
+		expect(result.document.workspaceId).toBe(WORKSPACE_ID);
+		expect(result.document.schemaVersion).toBe(2);
+		expect(gateway.files["subman.v1.backup.json"]).toBe(v1);
+		expect(gateway.files["aggregate.txt"]).toBe("old-output\r\n");
+		expect(gateway.files["client.json"]).toBe("old-client-output\n");
+		expect(Object.keys(gateway.patches[0] ?? {}).sort()).toEqual([
+			"subman.json",
+			"subman.v1.backup.json",
+		]);
+		await core.mutate(input);
+		expect(gateway.patches).toHaveLength(1);
+	});
+
+	it("rejects explicit migration if the previewed V1 bytes changed", async () => {
+		const v1 = JSON.stringify({ version: 1, data: data() });
+		const gateway = new MemoryGateway({ "subman.json": `${v1}\n` });
+		const { core, journal } = coordinator(gateway);
+		await expectCode(
+			core.mutate({
+				githubToken: TOKEN,
+				gistId: GIST_ID,
+				mutation: mutation(
+					"30000000-0000-4000-8000-000000000021",
+					0,
+					"workspace.migrate",
+					{ sourceSha256: await hashWorkspaceSource(v1) },
+				),
+			}),
+			"revision_conflict",
+		);
+		expect(gateway.patches).toHaveLength(0);
+		expect(journal.pending.size).toBe(0);
+	});
+
 	it("writes the exact V1 bytes as an immutable backup", async () => {
 		const v1 = `${JSON.stringify({ version: 1, data: data() }, null, 2).replaceAll("\n", "\r\n")}\r\n`;
 		const gateway = new MemoryGateway({ "subman.json": v1 });

@@ -130,6 +130,7 @@ const MUTATION_KINDS = new Set<WorkspaceMutation["kind"]>([
 	"client-export.publish",
 	"output.delete",
 	"workspace.bootstrap.cleanup",
+	"workspace.migrate",
 	"workspace.reconcile",
 ]);
 
@@ -670,6 +671,30 @@ export class WorkspaceCoordinatorCore {
 			);
 		}
 		let application: WorkspaceMutationApplication;
+		if (mutation.kind === "workspace.migrate") {
+			if (
+				!hasGistFile(snapshot, WORKSPACE_FILE_NAME) ||
+				parseWorkspaceDocument(
+					requireGistContent(snapshot, WORKSPACE_FILE_NAME),
+				).schemaVersion !== 1
+			) {
+				throw new WorkspaceCoordinatorError(
+					"revision_conflict",
+					"Workspace is no longer the previewed V1 document",
+					loaded.document,
+				);
+			}
+			if (
+				(await sha256(requireGistContent(snapshot, WORKSPACE_FILE_NAME))) !==
+				mutation.payload.sourceSha256
+			) {
+				throw new WorkspaceCoordinatorError(
+					"revision_conflict",
+					"Legacy Workspace changed after migration preview",
+					loaded.document,
+				);
+			}
+		}
 		try {
 			application = applyWorkspaceMutation(loaded.document, mutation, {
 				committedAt,

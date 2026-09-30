@@ -123,6 +123,31 @@ function controller(
 }
 
 describe("Workspace settings controller", () => {
+	it("requires a migration choice before changing a legacy Workspace or the local snapshot", async () => {
+		const persistence = new InMemoryWorkspacePersistence();
+		const local = state(document(0, [node("local")]));
+		const setup = controller(persistence, local);
+		await setup.controller.initialize();
+		const before = await persistence.read();
+		const remote = document(0, [node("remote")]);
+		const result = await setup.controller.connect({
+			token: "fixture-token",
+			gistId: GIST_ID,
+			created: false,
+			snapshot: {
+				origin: "v1",
+				legacySourceSha256: "a".repeat(64),
+				document: remote,
+				state: state(remote),
+			},
+			previousBinding: null,
+		});
+		expect(result.status).toBe("migration-required");
+		expect(await persistence.read()).toEqual(before);
+		expect(setup.state()).toEqual(local);
+		expect(setup.events).toEqual([]);
+	});
+
 	it("initializes from persistence and reconstructs only persisted state conflicts", async () => {
 		const record = createEmptyWorkspacePersistenceRecord();
 		const remote = document(1, [node("remote")]);
