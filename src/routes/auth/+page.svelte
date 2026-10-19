@@ -1,5 +1,5 @@
 <script lang="ts">
-import { onMount } from "svelte";
+import { onMount, tick } from "svelte";
 import { slide } from "svelte/transition";
 import Octicon from "$lib/components/Octicon.svelte";
 import { getGist } from "$lib/gist";
@@ -73,6 +73,8 @@ let queueResult: {
 } | null = null;
 let tombstoneNotice: string | null = null;
 let workspaceCandidates: WorkspaceCandidate[] = [];
+let workspaceChooserElement: HTMLElement | null = null;
+let workspaceSwitchButton: HTMLButtonElement | null = null;
 let pendingConnection: {
 	token: string;
 	rememberToken: boolean;
@@ -415,6 +417,61 @@ async function connectCandidate(candidate: WorkspaceCandidate) {
 		);
 	} catch (error) {
 		setStatus(connectionErrorMessage(error), "error");
+	} finally {
+		workspaceBusy = false;
+	}
+}
+
+function closeWorkspaceChoices() {
+	workspaceCandidates = [];
+	pendingConnection = null;
+	if (workspaceSwitchButton) workspaceSwitchButton.focus();
+	else document.getElementById("github-token")?.focus();
+}
+
+async function handleWorkspaceBrowse() {
+	const token = $authState.token;
+	if (!token || workspaceBusy || pendingMigration) return;
+	const attemptRevision = ++connectionRevision;
+	workspaceBusy = true;
+	workspaceCandidates = [];
+	pendingConnection = null;
+	legacyCheckResult = null;
+	try {
+		const discovery = await discoverWorkspaceGist(token);
+		if (attemptRevision !== connectionRevision || token !== $authState.token)
+			return;
+		if (discovery.status === "not-found") {
+			setStatus($t("No Workspace found for this token."), "info");
+			return;
+		}
+		workspaceCandidates = (
+			discovery.status === "found"
+				? [discovery.candidate]
+				: discovery.candidates
+		).map((candidate) => ({
+			...candidate,
+			currentBinding: candidate.gist.id === $appState.activeGistId,
+		}));
+		pendingConnection = {
+			token,
+			rememberToken: $authState.persistence === "persistent",
+			previousBinding: workspaceController.binding(),
+		};
+		await tick();
+		if (attemptRevision === connectionRevision && token === $authState.token) {
+			workspaceChooserElement?.focus({ preventScroll: true });
+			workspaceChooserElement?.scrollIntoView({ block: "start" });
+		}
+	} catch {
+		if (attemptRevision === connectionRevision && token === $authState.token) {
+			setStatus(
+				$t(
+					"Unable to list Workspaces. Check your token and connection, then retry.",
+				),
+				"error",
+			);
+		}
 	} finally {
 		workspaceBusy = false;
 	}
@@ -904,6 +961,8 @@ async function handleManualForcePush() {
 
 function handleTokenClear() {
 	connectionRevision += 1;
+	workspaceCandidates = [];
+	pendingConnection = null;
 	clearAuth();
 	workspaceController.disconnect();
 	setStatus($t("Logged out"), "info");
@@ -916,6 +975,8 @@ function handleTokenReplacement() {
 	const token = tokenInput.trim();
 	if (!token) return;
 	connectionRevision += 1;
+	workspaceCandidates = [];
+	pendingConnection = null;
 	if (pendingMigration)
 		pendingMigration = {
 			...pendingMigration,
@@ -1241,12 +1302,13 @@ async function handleImport() {
 	{/if}
 
 	{#if workspaceCandidates.length > 0}
-		<section class="gh-section" data-testid="workspace-chooser" transition:slide>
+		<section class="gh-section" data-testid="workspace-chooser" aria-labelledby="workspace-chooser-heading" tabindex="-1" bind:this={workspaceChooserElement} transition:slide>
 			<div class="gh-section-header">
 				<div>
-					<h2 class="gh-section-title"><Octicon icon={database} className="h-5 w-5" />{$t("Choose Workspace")}</h2>
-					<p class="gh-section-description">{$t("Multiple Workspace candidates were found. Select the one this device should use.")}</p>
+					<h2 id="workspace-chooser-heading" class="gh-section-title"><Octicon icon={database} className="h-5 w-5" />{$t("Choose Workspace")}</h2>
+					<p class="gh-section-description">{$t("Review the available Workspaces, then select the one this device should use.")}</p>
 				</div>
+				<button type="button" class="gh-btn gh-btn-sm self-start" on:click={closeWorkspaceChoices} disabled={workspaceBusy}>{$t("Cancel")}</button>
 			</div>
 			<div class="divide-y divide-border-muted">
 				{#each workspaceCandidates as candidate}
@@ -1257,6 +1319,9 @@ async function handleImport() {
 								<span class={cn("gh-label", candidate.kind === "invalid" ? "gh-label-danger" : "gh-label-muted")}>{candidateKindLabel(candidate.kind)}</span>
 								{#if candidate.currentBinding}<span class="gh-label badge-success">{$t("Current binding")}</span>{/if}
 							</div>
+							{#if candidate.counts}
+								<p class="text-xs text-fg-muted">{$t("Nodes: {nodes}, subscriptions: {subscriptions}, rules: {rules}, publish targets: {targets}, client exports: {exports}", { nodes: candidate.counts.nodes, subscriptions: candidate.counts.subscriptions, rules: candidate.counts.aggregates, targets: candidate.counts.publishTargets, exports: candidate.counts.clientExports })}</p>
+							{/if}
 							<p class="text-xs text-fg-muted">{$t("Updated {time}", { time: candidateUpdatedAt(candidate) })}</p>
 							<p class="break-words text-xs text-fg-subtle">{$t("Files")}: {candidate.gist.files.map((file) => file.filename).join(", ") || $t("None")}</p>
 							{#if candidate.reason === "invalid_bootstrap_marker"}
@@ -1323,6 +1388,12 @@ async function handleImport() {
 				</a>
 			{:else}
 				<div class="flex flex-col gap-3">
+					<div class="flex flex-wrap items-center justify-between gap-2">
+						<p class="gh-form-caption">{$t("Switch between existing Workspace Gists.")}</p>
+						<button type="button" class="gh-btn gh-btn-sm" bind:this={workspaceSwitchButton} on:click={handleWorkspaceBrowse} disabled={workspaceBusy || pendingMigration !== null}>
+							<Octicon icon={database} className="h-3.5 w-3.5" />{$t("Switch Workspace")}
+						</button>
+					</div>
 					{#if $workspaceSyncStatus.phase === "auth-required"}
 						<form class="space-y-3 rounded-md border border-attention-muted bg-attention-subtle p-3" data-testid="auth-recovery" on:submit|preventDefault={handleTokenReplacement}>
 							<div>

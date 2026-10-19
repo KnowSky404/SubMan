@@ -66,6 +66,7 @@ SvelteKit 运行在 Cloudflare Workers 上，并由每个 Workspace 一个的 Du
 - 数据统一写入同一 Workspace Gist；`subman.json`、`subman.v1.backup.json`、`subman.bootstrap.json` 都是保留文件，不可作为发布输出或在文件页删除
 - 浏览器与 Server API 的配置变更统一交给每个 Workspace 一个的 Durable Object 串行提交
 - `subman.json` 只能由协调器写入；配置、发布输出与删除输出均通过带版本的 mutation 提交
+- 已连接时可在设置页点击“切换工作区”，重新查找可用工作区并显示数据数量；查看或取消不会更改当前工作区，选择后沿正常冲突确认流程切换
 - 设置页提供“手动迁移工作区”：可重新查找所有 Workspace 或指定旧 Gist ID，只读检查后确认迁移
 - 连接可识别的旧版 Workspace 时显示迁移预览；点击“迁移并加载工作区”后在原 Gist 内升级并保留字节级 `subman.v1.backup.json`
 - 迁移保留原输出文件名、内容、发布时间和发布 URL，不需要替换客户端中的稳定订阅链接

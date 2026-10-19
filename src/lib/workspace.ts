@@ -37,6 +37,13 @@ export type WorkspaceCandidate = {
 	gist: GistMeta;
 	kind: WorkspaceCandidateKind;
 	currentBinding: boolean;
+	counts?: {
+		nodes: number;
+		subscriptions: number;
+		aggregates: number;
+		publishTargets: number;
+		clientExports: number;
+	};
 	reason?:
 		| "invalid_workspace_document"
 		| "invalid_bootstrap_marker"
@@ -121,6 +128,13 @@ export async function classifyWorkspaceCandidate(
 				gist,
 				kind: parsed.schemaVersion === 2 ? "materialized-v2" : "legacy-v1",
 				currentBinding,
+				counts: {
+					nodes: parsed.document.data.nodes.length,
+					subscriptions: parsed.document.data.subscriptions.length,
+					aggregates: parsed.document.data.aggregates.length,
+					publishTargets: parsed.document.data.publishTargets.length,
+					clientExports: parsed.document.data.clientExports.length,
+				},
 			};
 		} catch {
 			return {

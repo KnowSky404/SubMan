@@ -1,6 +1,7 @@
 import * as bunTest from "bun:test";
 import type { GistMeta } from "$lib/models";
 import {
+	classifyWorkspaceCandidate,
 	createWorkspaceBootstrapContent,
 	discoverWorkspaceGist,
 	ensureWorkspaceBootstrapGist,
@@ -81,6 +82,40 @@ function api(overrides: Partial<WorkspaceGistApi> = {}): WorkspaceGistApi {
 }
 
 describe("workspace discovery", () => {
+	it("includes safe collection counts for legacy and V2 candidates", async () => {
+		const state = createDefaultWorkspaceState();
+		state.nodes = [
+			{
+				id: "node-1",
+				name: "Counted node",
+				type: "vless",
+				raw: "vless://counts.example",
+				tags: [],
+				enabled: true,
+				updatedAt: "2026-07-22T00:00:00.000Z",
+				source: "single",
+			},
+		];
+		const v2 = JSON.parse(validV2Content);
+		v2.data.nodes = state.nodes;
+		for (const content of [
+			serializeWorkspaceState(state),
+			JSON.stringify(v2),
+		]) {
+			const candidate = await classifyWorkspaceCandidate("token", gist("v2"), {
+				api: api({ getGistFileContent: mock(async () => content) }),
+			});
+			expect(candidate.counts).toEqual({
+				nodes: 1,
+				subscriptions: 0,
+				aggregates: 0,
+				publishTargets: 0,
+				clientExports: 0,
+			});
+			expect(JSON.stringify(candidate)).not.toContain("vless://counts.example");
+		}
+	});
+
 	it("validates a saved active gist before listing candidates", async () => {
 		const listGists = mock(async () => [gist("fallback")]);
 		const result = await discoverWorkspaceGist("token", "saved", {
@@ -94,6 +129,13 @@ describe("workspace discovery", () => {
 				gist: gist("saved"),
 				kind: "legacy-v1",
 				currentBinding: true,
+				counts: {
+					nodes: 0,
+					subscriptions: 0,
+					aggregates: 0,
+					publishTargets: 0,
+					clientExports: 0,
+				},
 			},
 		});
 		expect(listGists.mock.calls).toHaveLength(0);

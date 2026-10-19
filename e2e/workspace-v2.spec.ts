@@ -888,6 +888,243 @@ for (const { mobile, remembered, manual } of [
 	});
 }
 
+for (const mobile of [false, true]) {
+	test(`switches from a bound empty Workspace to another V2 Workspace (${mobile ? "mobile" : "desktop"})`, async ({
+		page,
+		context,
+	}) => {
+		if (mobile) await page.setViewportSize({ width: 390, height: 844 });
+		const errors: string[] = [];
+		page.on("pageerror", (error) => errors.push(error.message));
+		page.on("console", (message) => {
+			if (["error", "warning"].includes(message.type()))
+				errors.push(message.text());
+		});
+		const restoredId = "restored-v2";
+		const restoredData = aggregateData();
+		function candidate(id: string, data: JsonRecord) {
+			const content = JSON.stringify(
+				workspaceDocument({ workspaceId: `gist:${id}`, data }),
+			);
+			return {
+				id,
+				owner: { login: "e2e" },
+				description: "SubMan-Data",
+				updated_at: NOW,
+				html_url: `https://gist.github.com/e2e/${id}`,
+				files: {
+					"subman.json": {
+						filename: "subman.json",
+						language: "JSON",
+						size: content.length,
+						content,
+						truncated: false,
+					},
+				},
+			};
+		}
+		const current = candidate(GIST_ID, structuredClone(EMPTY_DATA));
+		const restored = candidate(restoredId, restoredData);
+		const writes: string[] = [];
+		await context.route("https://api.github.com/**", async (route) => {
+			expect(route.request().method()).toBe("GET");
+			const url = new URL(route.request().url());
+			await route.fulfill({
+				json:
+					url.pathname === "/gists"
+						? [current, restored]
+						: url.pathname.endsWith(restoredId)
+							? restored
+							: current,
+			});
+		});
+		await context.route("**/api/workspaces/**/mutations", async (route) => {
+			writes.push(route.request().url());
+			await route.abort();
+		});
+		const initial = persistenceRecord();
+		await seedIndexedDb(page, initial);
+		await seedAuth(page, { session: "fixture-switch-token" });
+		await page.goto("/auth");
+		await expect(page).toHaveTitle("SubMan");
+		await expect(
+			page.getByRole("heading", { name: "Settings", exact: true }),
+		).toBeVisible();
+		const switchButton = page.getByRole("button", {
+			name: "Switch Workspace",
+			exact: true,
+		});
+		await switchButton.click();
+		const chooser = page.getByTestId("workspace-chooser");
+		await expect(chooser).toBeVisible();
+		await expect(chooser).toBeFocused();
+		await expect(chooser.getByText(GIST_ID, { exact: true })).toBeVisible();
+		await expect(chooser.getByText(restoredId, { exact: true })).toBeVisible();
+		await expect(
+			chooser.getByText("Current binding", { exact: true }),
+		).toHaveCount(1);
+		await expect(chooser).toContainText("Nodes: 0, subscriptions: 0, rules: 0");
+		await expect(chooser).toContainText("Nodes: 1, subscriptions: 0, rules: 1");
+		await expect(chooser).toContainText(
+			"publish targets: 1, client exports: 0",
+		);
+		const inspected = await readIndexedDb(page);
+		expect(inspected.snapshot).toEqual(initial.snapshot);
+		expect(inspected.binding).toEqual(initial.binding);
+		expect(inspected.workspaces).toEqual(initial.workspaces);
+		expect(writes).toEqual([]);
+		await chooser.getByRole("button", { name: "Cancel", exact: true }).click();
+		await expect(chooser).toHaveCount(0);
+		await expect(switchButton).toBeFocused();
+		await switchButton.click();
+		await chooser
+			.getByRole("button", { name: "Select", exact: true })
+			.nth(1)
+			.click();
+		await page.getByRole("button", { name: /^Use Remote\b/ }).click();
+		await page
+			.getByRole("dialog")
+			.getByRole("button", { name: "Pull Remote", exact: true })
+			.click();
+		await page
+			.getByRole("dialog")
+			.getByRole("button", { name: "Discard 1 Changes", exact: true })
+			.click();
+		await expect(
+			page.getByText("Remote data loaded", { exact: true }),
+		).toBeVisible();
+		await expect
+			.poll(
+				async () => ((await readIndexedDb(page)).binding as JsonRecord)?.gistId,
+			)
+			.toBe(restoredId);
+		const selected = await readIndexedDb(page);
+		expect((selected.snapshot as JsonRecord).nodes).toEqual(restoredData.nodes);
+		expect(writes).toEqual([]);
+		await page.reload();
+		await expect(switchButton).toBeVisible();
+		expect(((await readIndexedDb(page)).binding as JsonRecord).gistId).toBe(
+			restoredId,
+		);
+		await switchButton.click();
+		await expect(
+			chooser.getByText("Current binding", { exact: true }),
+		).toHaveCount(1);
+		await chooser.scrollIntoViewIfNeeded();
+		await chooser.screenshot({
+			path: `/tmp/subman-workspace-switch-${mobile ? "mobile" : "desktop"}.png`,
+			animations: "disabled",
+		});
+		expect(
+			await page.evaluate(
+				() => document.documentElement.scrollWidth <= window.innerWidth,
+			),
+		).toBe(true);
+		expect(errors).toEqual([]);
+		expect(writes).toEqual([]);
+	});
+}
+
+for (const scenario of ["single", "empty", "request-failed", "logout"]) {
+	test(`Workspace browsing preserves the current data (${scenario})`, async ({
+		page,
+		context,
+	}) => {
+		const content = JSON.stringify(workspaceDocument());
+		const gist = {
+			id: GIST_ID,
+			owner: { login: "e2e" },
+			description: "SubMan-Data",
+			updated_at: NOW,
+			html_url: `https://gist.github.com/e2e/${GIST_ID}`,
+			files: {
+				"subman.json": {
+					filename: "subman.json",
+					language: "JSON",
+					size: content.length,
+					content,
+					truncated: false,
+				},
+			},
+		};
+		let release = () => {};
+		let started = () => {};
+		const held = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		const listing = new Promise<void>((resolve) => {
+			started = resolve;
+		});
+		const writes: string[] = [];
+		await context.route("https://api.github.com/**", async (route) => {
+			expect(route.request().method()).toBe("GET");
+			if (new URL(route.request().url()).pathname !== "/gists") {
+				await route.fulfill({ json: gist });
+				return;
+			}
+			started();
+			if (scenario === "logout") await held;
+			await route.fulfill({
+				status: scenario === "request-failed" ? 500 : 200,
+				json:
+					scenario === "request-failed"
+						? { message: "Fixture unavailable" }
+						: scenario === "empty"
+							? []
+							: [gist],
+			});
+		});
+		await context.route("**/api/workspaces/**/mutations", async (route) => {
+			writes.push(route.request().url());
+			await route.abort();
+		});
+		const initial = persistenceRecord();
+		await seedIndexedDb(page, initial);
+		await seedAuth(page, { session: "fixture-browse-token" });
+		await page.goto("/auth");
+		const button = page.getByRole("button", {
+			name: "Switch Workspace",
+			exact: true,
+		});
+		await button.click();
+		const chooser = page.getByTestId("workspace-chooser");
+		if (scenario === "logout") {
+			await listing;
+			await page
+				.getByRole("button", { name: "Disconnect", exact: true })
+				.click();
+			release();
+			await expect(
+				page.getByRole("button", { name: "Connect", exact: true }),
+			).toBeEnabled();
+			await expect(button).toHaveCount(0);
+			await expect(chooser).toHaveCount(0);
+		} else if (scenario === "single") {
+			await expect(chooser).toBeVisible();
+			await expect(chooser.getByText(GIST_ID, { exact: true })).toBeVisible();
+			await expect(
+				chooser.getByRole("button", { name: "Select", exact: true }),
+			).toHaveCount(1);
+		} else {
+			await expect(
+				page.getByText(
+					scenario === "empty"
+						? "No Workspace found for this token."
+						: "Unable to list Workspaces. Check your token and connection, then retry.",
+					{ exact: true },
+				),
+			).toBeVisible();
+			await expect(chooser).toHaveCount(0);
+			await expect(button).toBeEnabled();
+		}
+		const record = await readIndexedDb(page);
+		expect(record.snapshot).toEqual(initial.snapshot);
+		expect(record.binding).toEqual(initial.binding);
+		expect(record.workspaces).toEqual(initial.workspaces);
+		expect(writes).toEqual([]);
+	});
+}
+
 for (const scenario of [
 	"empty",
 	"multiple-v2",

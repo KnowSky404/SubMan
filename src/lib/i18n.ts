@@ -896,11 +896,18 @@ const zhCN: Record<string, string> = {
 	"Initialization incomplete": "初始化未完成",
 	"Invalid Workspace": "无效工作区",
 	"Current binding": "当前绑定",
+	"Switch Workspace": "切换工作区",
+	"Switch between existing Workspace Gists.": "在已有的 Gist 工作区之间切换。",
+	"No Workspace found for this token.": "未找到此 Token 可访问的工作区。",
+	"Unable to list Workspaces. Check your token and connection, then retry.":
+		"无法列出工作区，请检查 Token 和网络连接后重试。",
+	"Nodes: {nodes}, subscriptions: {subscriptions}, rules: {rules}, publish targets: {targets}, client exports: {exports}":
+		"节点：{nodes}，订阅：{subscriptions}，规则：{rules}，发布目标：{targets}，客户端导出：{exports}",
 	"The Workspace bootstrap marker is invalid.": "工作区 Bootstrap 标记无效。",
 	"The Workspace configuration is invalid.": "工作区配置无效。",
 	"Choose Workspace": "选择工作区",
-	"Multiple Workspace candidates were found. Select the one this device should use.":
-		"发现多个工作区候选项。请选择此设备要使用的工作区。",
+	"Review the available Workspaces, then select the one this device should use.":
+		"查看可用工作区，并选择此设备要使用的工作区。",
 	"Review cleanup": "检查并清理",
 	Resume: "继续初始化",
 	Select: "选择",
