@@ -4,7 +4,10 @@
 
 SubMan is a SvelteKit + TypeScript app deployed to Cloudflare Workers. The UI
 and trusted Server API submit revisioned Workspace mutations to one
-SQLite-backed `WorkspaceCoordinator` Durable Object per Gist.
+SQLite-backed `WorkspaceCoordinator` Durable Object per Gist. The browser keeps
+one fixed binding, loads fresh cloud data before edits, and requires cloud
+confirmation for each change. IndexedDB is a technical cache and delivery
+journal, with historical recovery evidence, rather than a local business mode.
 
 ## Core Data Model
 
@@ -29,8 +32,8 @@ vless, vmess, trojan, ss, ssr, hysteria2, tuic, anytls, other
 
 ## Important Routes
 
-- `src/routes/auth/+page.svelte`: token setup, workspace binding, conflict
-  handling, health checks, import/export, sync status.
+- `src/routes/auth/+page.svelte`: token setup, one cloud binding, cloud reload,
+  whole-queue recovery, legacy upgrade preview, and safe diagnostics.
 - `src/routes/gists/+page.svelte`: workspace file list, raw URL copy, output
   deletion and cleanup.
 - `src/routes/nodes/+page.svelte`: nodes and subscriptions.
@@ -48,10 +51,14 @@ vless, vmess, trojan, ss, ssr, hysteria2, tuic, anytls, other
 ## Important Library Modules
 
 - `src/lib/workspace.ts`: discover the fixed Gist or create its bootstrap
-  marker; classify V1/V2/bootstrap/invalid candidates and require a chooser when
-  identity is ambiguous.
-- `src/lib/workspace-settings-controller.ts`: persistent settings view, conflict
-  choices, queue repair actions, and migration preparation.
+  marker only when no candidate exists; classify V1/V2/bootstrap/invalid results
+  and require an explicit original Gist ID for ambiguous initial discovery.
+- `src/lib/workspace-cloud-session.ts`: load the latest original-Gist document
+  before enabling edits and recover original pending requests.
+- `src/lib/workspace-cloud-status.ts`: shared readiness gate for cloud business
+  pages and store actions.
+- `src/lib/workspace-settings-controller.ts`: persistent settings view, safe
+  remote reload, complete-queue recovery, and migration preparation.
 - `src/lib/workspace-browser-session-v2.ts`: revisioned binding, explicit V1
   migration, and browser delivery orchestration.
 - `src/lib/gist.ts`: GitHub Gist API client.
@@ -75,13 +82,16 @@ vless, vmess, trojan, ss, ssr, hysteria2, tuic, anytls, other
   failure classification.
 - `src/lib/client-export/`: pure sing-box outbound parsers and client config
   generation; this layer has no UI or GitHub dependency.
-- `src/lib/serialization.ts`: import/export and workspace serialization.
-- `src/lib/workspace-merge.ts`: tombstone-aware three-way Workspace merge.
+- `src/lib/serialization.ts`: retained schema/serialization compatibility for
+  technical migration and operator tooling; no settings business JSON restore.
+- `src/lib/workspace-merge.ts`: retained tombstone-aware internal reconciliation
+  compatibility; local merge is not a current browser workflow.
 - `src/lib/workspace-file-inventory.ts`: distinguish reserved, managed, and
   external output files without reconstructing missing publish targets.
 - `src/lib/workspace-diagnostics.ts`: allowlisted diagnostics without raw data.
-- `scripts/audit-workspace.ts`: offline schema/identity audit and V1 import-file
-  conversion; no network or runtime Gist writer.
+- `scripts/audit-workspace.ts`: offline schema/identity audit and V1 operator
+  recovery artifact conversion; no application import path, network, or runtime
+  Gist writer.
 - `src/lib/server/api/*`: server API auth, env, node mutation, workspace access,
   and error envelopes.
 - `docs/api/openapi.yaml`: machine-readable public Server API contract.

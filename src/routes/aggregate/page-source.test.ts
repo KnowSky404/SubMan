@@ -47,7 +47,7 @@ test("aggregate rule selector uses a github-style dropdown menu", () => {
 	);
 });
 
-test("aggregate publish action directs local-only users to workspace setup", () => {
+test("aggregate publish action requires the cloud Workspace connection", () => {
 	expect(aggregatePageSource).toContain("isWorkspaceConnected");
 	expect(aggregatePageSource).toContain("Connect to Publish");
 	expect(aggregatePageSource).toContain('href="/auth"');
@@ -62,20 +62,22 @@ test("aggregate preview generation does not show a success toast", () => {
 	expect(aggregatePageSource).toContain('{$t("Preview generated {time}"');
 });
 
-test("aggregate publishing distinguishes drafts, saved state, and manual push", () => {
+test("aggregate publishing saves drafts to the cloud before publication", () => {
 	expect(aggregatePageSource).toContain("ruleDirty");
 	expect(aggregatePageSource).toContain("targetDirty");
 	expect(aggregatePageSource).toContain("Draft Preview");
 	expect(aggregatePageSource).toContain("Saved Rule Preview");
 	expect(aggregatePageSource).toContain("Save and Publish");
-	expect(aggregatePageSource).toContain("Push and Publish");
-	expect(aggregatePageSource).toContain("pushSelectedManualConfiguration");
-	expect(aggregatePageSource).toContain("reconcileBrowserWorkspace");
-	expect(aggregatePageSource).toContain("manualReconcileState");
-	expect(aggregatePageSource).toContain("manualStateBeforeTargetAction");
-	expect(aggregatePageSource).toContain(
-		'action.previousFileCleanup === "delete-if-unreferenced"',
-	);
+	expect(aggregatePageSource).not.toContain("Push and Publish");
+	expect(aggregatePageSource).not.toContain("pushSelectedManualConfiguration");
+	expect(aggregatePageSource).not.toContain("reconcileBrowserWorkspace");
+	expect(aggregatePageSource).not.toContain("workspaceIsManual");
+	expect(aggregatePageSource).not.toContain("allowManual");
+	expect(aggregatePageSource).not.toContain("localDurableMessageKey");
+	expect(aggregatePageSource).not.toContain("Local-only");
+	expect(aggregatePageSource).toContain("await ruleAction.handle.completion");
+	expect(aggregatePageSource).toContain("await targetAction.handle.completion");
+	expect(aggregatePageSource).toContain("if (!presentation.remoteCommitted)");
 	expect(aggregatePageSource).not.toContain("// Auto-save the rule");
 });
 

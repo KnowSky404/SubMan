@@ -1,6 +1,7 @@
 <script lang="ts">
 import "../app.css";
 import { onMount, tick } from "svelte";
+import { get } from "svelte/store";
 import { fade, fly, slide } from "svelte/transition";
 import { page } from "$app/state";
 import Octicon from "$lib/components/Octicon.svelte";
@@ -29,6 +30,12 @@ import { confirmDialog, resolveConfirm } from "$lib/stores/confirm";
 import { startThemeSync, type ThemeMode, themeMode } from "$lib/stores/theme";
 import { dismissToast, toastStore } from "$lib/stores/toast";
 import { cn } from "$lib/utils/cn";
+import {
+	cancelCloudWorkspaceLoad,
+	refreshCloudWorkspace,
+} from "$lib/workspace-cloud-session";
+import { workspaceCloudStatus } from "$lib/workspace-cloud-status";
+import { subscribeWorkspaceEvents } from "$lib/workspace-events";
 import { startWorkspaceMutationSync } from "$lib/workspace-mutation-sync-browser";
 import { workspaceSyncStatus } from "$lib/workspace-sync-status";
 
@@ -61,26 +68,32 @@ $: activeThemeLabel = $t(activeThemeOption.label);
 $: isWorkspaceConnected = Boolean(
 	$authState.token &&
 		$appState.activeGistId &&
+		$workspaceCloudStatus.phase === "ready" &&
 		$workspaceSyncStatus.mode !== "disconnected",
 );
 $: workspaceMetaText = isWorkspaceConnected
 	? $appState.activeGistId
-	: $t("Browser storage only");
-$: syncStatusLabel = (
-	{
-		"local-saved": "Saved locally",
-		queued: "Queued",
-		syncing: "Syncing",
-		committed: "Saved to Workspace",
-		retrying: "Saved locally; retrying Workspace sync",
-		"manual-local-only": "Saved locally; manual push required",
-		"paused-conflict": "Saved locally; sync paused by conflict",
-		"auth-required": "Sign in to resume Workspace sync",
-		"permanent-error": "Workspace sync needs repair",
-		"invalid-local-state": "Workspace local state needs repair",
-		disconnected: "Local only",
-	} as const
-)[$workspaceSyncStatus.lifecycle];
+	: $t("Connect GitHub to load your cloud data.");
+$: syncStatusLabel =
+	$workspaceCloudStatus.phase === "loading"
+		? "Loading cloud data..."
+		: $workspaceCloudStatus.phase === "error"
+			? "Cloud synchronization needs review"
+			: (
+					{
+						"local-saved": "Cloud confirmation required",
+						queued: "Queued",
+						syncing: "Syncing",
+						committed: "Saved to Workspace",
+						retrying: "Cloud save pending; retrying",
+						"manual-local-only": "Cloud confirmation required",
+						"paused-conflict": "Cloud synchronization needs review",
+						"auth-required": "Sign in to resume Workspace sync",
+						"permanent-error": "Workspace sync needs repair",
+						"invalid-local-state": "Cloud synchronization needs review",
+						disconnected: "Not connected",
+					} as const
+				)[$workspaceSyncStatus.lifecycle];
 let themeMenuOpen = false;
 let confirmDialogElement: HTMLDivElement | null = null;
 let confirmButton: HTMLButtonElement | null = null;
@@ -138,18 +151,41 @@ function handleConfirmKeydown(event: KeyboardEvent) {
 onMount(() => {
 	let cancelled = false;
 	let stopAutoSync = () => {};
+	let stopAuth = () => {};
+	let currentToken: string | null | undefined;
 	const stopThemeSync = startThemeSync();
+	const stopWorkspaceEvents = subscribeWorkspaceEvents((event) => {
+		if (event.type !== "workspace-v2-committed" || !currentToken) return;
+		if (get(workspaceCloudStatus).phase === "error") {
+			void refreshCloudWorkspace(currentToken);
+		}
+	});
 	void initializeAppStatePersistence()
 		.then(() => {
-			if (!cancelled) stopAutoSync = startWorkspaceMutationSync();
+			if (cancelled) return;
+			stopAutoSync = startWorkspaceMutationSync();
+			stopAuth = authState.subscribe(({ token }) => {
+				if (token === currentToken) return;
+				currentToken = token;
+				if (token) void refreshCloudWorkspace(token);
+				else cancelCloudWorkspaceLoad();
+			});
 		})
 		.catch(() => {
-			// Persistence initialization reports the actionable storage state.
+			workspaceCloudStatus.set({
+				phase: "error",
+				message:
+					"Cloud data could not be loaded. Check your connection and retry.",
+			});
 		});
+
 	return () => {
 		cancelled = true;
+		stopAuth();
 		stopAutoSync();
 		stopThemeSync();
+		stopWorkspaceEvents();
+		cancelCloudWorkspaceLoad();
 	};
 });
 </script>
@@ -188,7 +224,7 @@ onMount(() => {
 								{$t("Workspace")}
 							{:else}
 								<Octicon icon={database} className="h-3.5 w-3.5" />
-								{$t("Local")}
+								{$t("Not connected")}
 							{/if}
 						</span>
 						<span class="app-repo-workspace-id">{workspaceMetaText}</span>
@@ -260,7 +296,18 @@ onMount(() => {
 	</div>
 
 	<main class="app-main-container">
-		<slot />
+		{#if page.url.pathname === "/auth" || ($authState.token && $workspaceCloudStatus.phase === "ready")}
+			<slot />
+		{:else}
+			<section class="gh-page" data-testid="cloud-connection-required">
+				<div class="gh-section"><div class="gh-section-body space-y-4">
+					<h1 class="gh-page-title">{$t("Cloud Workspace")}</h1>
+					<p role="status">{$workspaceCloudStatus.phase === "loading" ? $t("Loading cloud data...") : $workspaceCloudStatus.phase === "error" ? $t("Cloud data could not be loaded. Check your connection and retry.") : $t("Connect GitHub to load your cloud data.")}</p>
+					{#if $workspaceCloudStatus.phase === "error"}<p class="text-sm text-fg-muted">{$t($workspaceCloudStatus.message ?? "Cloud synchronization needs review")}</p>{/if}
+					<a href="/auth" class="gh-btn gh-btn-primary">{$t("Setup GitHub")}</a>
+				</div></div>
+			</section>
+		{/if}
 	</main>
 
 	<div class="pointer-events-none fixed left-1/2 top-20 z-[200] flex w-full max-w-sm -translate-x-1/2 flex-col gap-2 px-4">

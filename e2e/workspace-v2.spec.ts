@@ -373,16 +373,26 @@ async function readIndexedDb(page: Page): Promise<JsonRecord> {
 async function failNextPersistencePut(
 	page: Page,
 	name: "AbortError" | "QuotaExceededError",
+	targetName?: string,
 ): Promise<void> {
 	await page.evaluate(
-		({ storeName, errorName }) => {
+		({ storeName, errorName, targetName }) => {
 			const original = IDBObjectStore.prototype.put;
 			let armed = true;
 			Object.defineProperty(IDBObjectStore.prototype, "put", {
 				configurable: true,
 				writable: true,
 				value(this: IDBObjectStore, value: unknown, key?: IDBValidKey) {
-					if (armed && this.name === storeName) {
+					const targetMatches =
+						!targetName ||
+						Boolean(
+							(value as JsonRecord)?.snapshot &&
+								(
+									((value as JsonRecord).snapshot as JsonRecord)
+										.publishTargets as JsonRecord[]
+								)?.some((target) => target.name === targetName),
+						);
+					if (armed && this.name === storeName && targetMatches) {
 						armed = false;
 						throw new DOMException(
 							"Injected E2E persistence failure",
@@ -395,7 +405,7 @@ async function failNextPersistencePut(
 				},
 			});
 		},
-		{ storeName: STORE_NAME, errorName: name },
+		{ storeName: STORE_NAME, errorName: name, targetName },
 	);
 }
 
@@ -476,9 +486,29 @@ async function installNetworkGuard(context: BrowserContext): Promise<void> {
 			body: "<!doctype html><title>SubMan E2E seed</title>",
 		}),
 	);
-	await context.route("https://api.github.com/**", (route) =>
-		route.abort("blockedbyclient"),
-	);
+	await context.route("https://api.github.com/**", async (route) => {
+		const request = route.request();
+		const record = await readIndexedDb(request.frame().page()).catch(
+			() => null,
+		);
+		const currentBinding = record?.binding as JsonRecord | null;
+		if (
+			request.method() !== "GET" ||
+			!currentBinding ||
+			new URL(request.url()).pathname !==
+				`/gists/${String(currentBinding.gistId)}`
+		) {
+			await route.abort("blockedbyclient");
+			return;
+		}
+		const gist = githubWorkspaceGist(String(currentBinding.gistId));
+		(gist.files as JsonRecord)["subman.json"] = {
+			filename: "subman.json",
+			content: JSON.stringify(currentBinding.baseline),
+			truncated: false,
+		};
+		await route.fulfill({ json: gist });
+	});
 }
 
 async function addNode(page: Page, name: string, raw: string): Promise<void> {
@@ -512,6 +542,26 @@ function committedResult(
 			nodes: [{ ...node, updatedAt: mutation.createdAt }, ...nodes],
 		};
 		receipt = { kind: mutation.kind, entityId: node.id };
+	} else if (mutation.kind === "node.delete") {
+		data = {
+			...data,
+			nodes: (data.nodes as JsonRecord[]).filter(
+				(node) => node.id !== payload.id,
+			),
+		};
+		receipt = { kind: mutation.kind, entityId: payload.id };
+	} else if (mutation.kind === "aggregate.upsert") {
+		const aggregate = payload.aggregate as JsonRecord;
+		data = {
+			...data,
+			aggregates: [
+				{ ...aggregate, updatedAt: mutation.createdAt },
+				...(data.aggregates as JsonRecord[]).filter(
+					(item) => item.id !== aggregate.id,
+				),
+			],
+		};
+		receipt = { kind: mutation.kind, entityId: aggregate.id };
 	} else if (mutation.kind === "publish-target.upsert") {
 		const target = payload.target as JsonRecord;
 		const targets = (data.publishTargets as JsonRecord[]).filter(
@@ -636,8 +686,7 @@ for (const { mobile, remembered, manual } of [
 	{ mobile: false, remembered: false, manual: null },
 	{ mobile: true, remembered: false, manual: null },
 	{ mobile: false, remembered: true, manual: null },
-	{ mobile: false, remembered: true, manual: "scan" },
-	{ mobile: true, remembered: true, manual: "id" },
+	{ mobile: true, remembered: false, manual: "id" },
 	{ mobile: false, remembered: false, manual: "id" },
 ]) {
 	test(`legacy Workspace migration requires a click and preserves published links (${manual ? `manual ${manual} ${remembered ? "connected" : "signed out"} ${mobile ? "mobile" : "desktop"}` : remembered ? "existing connection" : mobile ? "mobile" : "desktop"})`, async ({
@@ -694,27 +743,8 @@ for (const { mobile, remembered, manual } of [
 					},
 				},
 			};
-			const currentGist = {
-				...gist,
-				id: "current-v2",
-				files: {
-					"subman.json": {
-						filename: "subman.json",
-						content: JSON.stringify(
-							workspaceDocument({ workspaceId: "gist:current-v2" }),
-						),
-						truncated: false,
-					},
-				},
-			};
 			await route.fulfill({
-				json: route.request().url().includes("?")
-					? manual
-						? [currentGist, gist]
-						: [gist]
-					: route.request().url().includes("current-v2")
-						? currentGist
-						: gist,
+				json: route.request().url().includes("?") ? [gist] : gist,
 			});
 		});
 		let release = () => {};
@@ -739,21 +769,15 @@ for (const { mobile, remembered, manual } of [
 			await route.fulfill({ json: result });
 		});
 		const initialRecord = persistenceRecord({
-			snapshot: remembered
-				? manual
-					? snapshot({ gistId: "current-v2" })
-					: snapshot({ data })
-				: snapshot({ gistId: null }),
+			snapshot: remembered ? snapshot({ data }) : snapshot({ gistId: null }),
 			binding: remembered
-				? manual
-					? binding({ gistId: "current-v2" })
-					: binding({
-							baseline: workspaceDocument({
-								revision: 0,
-								lastMutationId: null,
-								data,
-							}),
-						})
+				? binding({
+						baseline: workspaceDocument({
+							revision: 0,
+							lastMutationId: null,
+							data,
+						}),
+					})
 				: null,
 		});
 		await seedIndexedDb(page, initialRecord);
@@ -771,8 +795,9 @@ for (const { mobile, remembered, manual } of [
 		}
 		if (manual) {
 			await expect(page.getByTestId("legacy-migration")).toHaveCount(0);
-			if (manual === "id")
-				await page.getByLabel("Old Workspace Gist ID (optional)").fill(GIST_ID);
+			await page
+				.getByLabel("Old Workspace Gist ID", { exact: true })
+				.fill(GIST_ID);
 			await page.getByTestId("legacy-workspace-check").scrollIntoViewIfNeeded();
 			await page.screenshot({
 				path: `/tmp/subman-manual-entry-${mobile ? "mobile" : "desktop"}.png`,
@@ -784,13 +809,6 @@ for (const { mobile, remembered, manual } of [
 					exact: true,
 				})
 				.click();
-			if (manual === "scan") {
-				await page
-					.getByTestId("workspace-chooser")
-					.getByRole("button", { name: "Select", exact: true })
-					.nth(1)
-					.click();
-			}
 		}
 		const panel = page.getByTestId("legacy-migration");
 		await expect(panel).toBeVisible();
@@ -843,9 +861,23 @@ for (const { mobile, remembered, manual } of [
 					((await readIndexedDb(page)).binding as JsonRecord)?.revision,
 			)
 			.toBe(1);
+		await expect
+			.poll(async () => {
+				if (!(await panel.isVisible())) return true;
+				return panel
+					.getByRole("button", {
+						name: "Migrate and load Workspace",
+						exact: true,
+					})
+					.isEnabled();
+			})
+			.toBe(true);
 		if (await panel.isVisible()) {
 			await panel
-				.getByRole("button", { name: "Migrate and load Workspace" })
+				.getByRole("button", {
+					name: "Migrate and load Workspace",
+					exact: true,
+				})
 				.click();
 		}
 		await expect(panel).toHaveCount(0);
@@ -888,8 +920,33 @@ for (const { mobile, remembered, manual } of [
 	});
 }
 
+function githubWorkspaceGist(
+	id: string,
+	data: JsonRecord = structuredClone(EMPTY_DATA),
+): JsonRecord {
+	const content = JSON.stringify(
+		workspaceDocument({ workspaceId: `gist:${id}`, data }),
+	);
+	return {
+		id,
+		owner: { login: "e2e" },
+		description: "SubMan-Data",
+		updated_at: NOW,
+		html_url: `https://gist.github.com/e2e/${id}`,
+		files: {
+			"subman.json": {
+				filename: "subman.json",
+				language: "JSON",
+				size: content.length,
+				content,
+				truncated: false,
+			},
+		},
+	};
+}
+
 for (const mobile of [false, true]) {
-	test(`switches from a bound empty Workspace to another V2 Workspace (${mobile ? "mobile" : "desktop"})`, async ({
+	test(`single Workspace settings retain the binding across cloud refresh and reconnect (${mobile ? "mobile" : "desktop"})`, async ({
 		page,
 		context,
 	}) => {
@@ -900,119 +957,107 @@ for (const mobile of [false, true]) {
 			if (["error", "warning"].includes(message.type()))
 				errors.push(message.text());
 		});
-		const restoredId = "restored-v2";
-		const restoredData = aggregateData();
-		function candidate(id: string, data: JsonRecord) {
-			const content = JSON.stringify(
-				workspaceDocument({ workspaceId: `gist:${id}`, data }),
-			);
-			return {
-				id,
-				owner: { login: "e2e" },
-				description: "SubMan-Data",
-				updated_at: NOW,
-				html_url: `https://gist.github.com/e2e/${id}`,
-				files: {
-					"subman.json": {
-						filename: "subman.json",
-						language: "JSON",
-						size: content.length,
-						content,
-						truncated: false,
-					},
-				},
-			};
-		}
-		const current = candidate(GIST_ID, structuredClone(EMPTY_DATA));
-		const restored = candidate(restoredId, restoredData);
+		const current = githubWorkspaceGist(GIST_ID);
+		const other = githubWorkspaceGist("other-v2", aggregateData());
+		const requests: string[] = [];
 		const writes: string[] = [];
 		await context.route("https://api.github.com/**", async (route) => {
 			expect(route.request().method()).toBe("GET");
-			const url = new URL(route.request().url());
+			const path = new URL(route.request().url()).pathname;
+			requests.push(path);
 			await route.fulfill({
-				json:
-					url.pathname === "/gists"
-						? [current, restored]
-						: url.pathname.endsWith(restoredId)
-							? restored
-							: current,
+				json: path === "/gists" ? [current, other] : current,
 			});
 		});
 		await context.route("**/api/workspaces/**/mutations", async (route) => {
 			writes.push(route.request().url());
 			await route.abort();
 		});
-		const initial = persistenceRecord();
+		const orphanWorkspaceId = "gist:old-workspace";
+		const orphan = reconcileMutation({ workspaceId: orphanWorkspaceId });
+		const initial = persistenceRecord({
+			workspaces: { [orphanWorkspaceId]: queue(orphanWorkspaceId, [orphan]) },
+		});
 		await seedIndexedDb(page, initial);
-		await seedAuth(page, { session: "fixture-switch-token" });
+		await seedAuth(page, { session: "fixture-single-workspace-token" });
 		await page.goto("/auth");
 		await expect(page).toHaveTitle("SubMan");
 		await expect(
 			page.getByRole("heading", { name: "Settings", exact: true }),
 		).toBeVisible();
-		const switchButton = page.getByRole("button", {
-			name: "Switch Workspace",
-			exact: true,
-		});
-		await switchButton.click();
-		const chooser = page.getByTestId("workspace-chooser");
-		await expect(chooser).toBeVisible();
-		await expect(chooser).toBeFocused();
-		await expect(chooser.getByText(GIST_ID, { exact: true })).toBeVisible();
-		await expect(chooser.getByText(restoredId, { exact: true })).toBeVisible();
 		await expect(
-			chooser.getByText("Current binding", { exact: true }),
-		).toHaveCount(1);
-		await expect(chooser).toContainText("Nodes: 0, subscriptions: 0, rules: 0");
-		await expect(chooser).toContainText("Nodes: 1, subscriptions: 0, rules: 1");
-		await expect(chooser).toContainText(
-			"publish targets: 1, client exports: 0",
+			page.getByRole("button", { name: "Switch Workspace", exact: true }),
+		).toHaveCount(0);
+		await expect(page.getByTestId("workspace-chooser")).toHaveCount(0);
+		await expect(page.getByTestId("legacy-workspace-check")).toHaveCount(0);
+		await expect(
+			page.getByLabel("Workspace Gist ID (optional)", { exact: true }),
+		).toHaveCount(0);
+		await page
+			.getByTestId("queue-inspector")
+			.locator("summary")
+			.first()
+			.click();
+		await expect(page.getByTestId("orphan-workspace-queue")).toContainText(
+			orphanWorkspaceId,
 		);
-		const inspected = await readIndexedDb(page);
-		expect(inspected.snapshot).toEqual(initial.snapshot);
-		expect(inspected.binding).toEqual(initial.binding);
-		expect(inspected.workspaces).toEqual(initial.workspaces);
-		expect(writes).toEqual([]);
-		await chooser.getByRole("button", { name: "Cancel", exact: true }).click();
-		await expect(chooser).toHaveCount(0);
-		await expect(switchButton).toBeFocused();
-		await switchButton.click();
-		await chooser
-			.getByRole("button", { name: "Select", exact: true })
-			.nth(1)
-			.click();
-		await page.getByRole("button", { name: /^Use Remote\b/ }).click();
-		await page
-			.getByRole("dialog")
-			.getByRole("button", { name: "Pull Remote", exact: true })
-			.click();
-		await page
-			.getByRole("dialog")
-			.getByRole("button", { name: "Discard 1 Changes", exact: true })
-			.click();
 		await expect(
-			page.getByText("Remote data loaded", { exact: true }),
+			page
+				.getByTestId("orphan-workspace-queue")
+				.getByRole("button", { name: /Rebind/ }),
+		).toHaveCount(0);
+		await expect(
+			page.getByRole("button", { name: "Push Now", exact: true }),
+		).toHaveCount(0);
+		await expect(
+			page.getByRole("button", { name: "Pull Now", exact: true }),
+		).toHaveCount(0);
+		await page
+			.getByRole("button", { name: "Sync from Cloud", exact: true })
+			.click();
+		expect(((await readIndexedDb(page)).binding as JsonRecord).gistId).toBe(
+			GIST_ID,
+		);
+		await page.getByRole("button", { name: "Disconnect", exact: true }).click();
+		await expect(
+			page.getByLabel("Personal access token", { exact: true }),
 		).toBeVisible();
-		await expect
-			.poll(
-				async () => ((await readIndexedDb(page)).binding as JsonRecord)?.gistId,
-			)
-			.toBe(restoredId);
-		const selected = await readIndexedDb(page);
-		expect((selected.snapshot as JsonRecord).nodes).toEqual(restoredData.nodes);
+		await expect(
+			page.getByLabel("Workspace Gist ID (optional)", { exact: true }),
+		).toHaveCount(0);
+		await page
+			.getByLabel("Personal access token", { exact: true })
+			.fill("fixture-reconnect-token");
+		await page.getByRole("button", { name: "Connect", exact: true }).click();
+		await expect(
+			page.getByText("Cloud data loaded.", { exact: true }),
+		).toBeVisible();
+		await expect(
+			page.getByRole("button", { name: "Connect", exact: true }),
+		).toHaveCount(0);
+		await expect(
+			page.getByRole("button", { name: "Sync from Cloud", exact: true }),
+		).toBeEnabled();
+		const record = await readIndexedDb(page);
+		expect((record.binding as JsonRecord).gistId).toBe(GIST_ID);
+		expect((record.snapshot as JsonRecord).activeGistId).toBe(GIST_ID);
+		expect((record.snapshot as JsonRecord).nodes).toEqual([]);
+		expect((record.workspaces as JsonRecord)[orphanWorkspaceId]).toEqual(
+			(initial.workspaces as JsonRecord)[orphanWorkspaceId],
+		);
+		expect(
+			((record.workspaces as JsonRecord)[WORKSPACE_ID] as JsonRecord).mutations,
+		).toEqual([]);
+		expect(requests.length).toBeGreaterThan(0);
+		expect(requests.every((path) => path === `/gists/${GIST_ID}`)).toBe(true);
 		expect(writes).toEqual([]);
 		await page.reload();
-		await expect(switchButton).toBeVisible();
-		expect(((await readIndexedDb(page)).binding as JsonRecord).gistId).toBe(
-			restoredId,
-		);
-		await switchButton.click();
 		await expect(
-			chooser.getByText("Current binding", { exact: true }),
-		).toHaveCount(1);
-		await chooser.scrollIntoViewIfNeeded();
-		await chooser.screenshot({
-			path: `/tmp/subman-workspace-switch-${mobile ? "mobile" : "desktop"}.png`,
+			page.getByRole("button", { name: "Sync from Cloud", exact: true }),
+		).toBeVisible();
+		await page.locator("#workspace-repair").scrollIntoViewIfNeeded();
+		await page.screenshot({
+			path: `/tmp/subman-cloud-settings-${mobile ? "mobile" : "desktop"}.png`,
 			animations: "disabled",
 		});
 		expect(
@@ -1021,120 +1066,143 @@ for (const mobile of [false, true]) {
 			),
 		).toBe(true);
 		expect(errors).toEqual([]);
+	});
+}
+
+for (const scenario of ["unavailable", "invalid"]) {
+	test(`reconnect never replaces the existing Workspace when it is ${scenario}`, async ({
+		page,
+		context,
+	}) => {
+		const requests: string[] = [];
+		await context.route("https://api.github.com/**", async (route) => {
+			expect(route.request().method()).toBe("GET");
+			const path = new URL(route.request().url()).pathname;
+			requests.push(path);
+			if (path === "/gists") {
+				await route.fulfill({ json: [githubWorkspaceGist("other-v2")] });
+				return;
+			}
+			await route.fulfill(
+				scenario === "unavailable"
+					? { status: 404, json: { message: "Not Found" } }
+					: {
+							json: {
+								...githubWorkspaceGist(GIST_ID),
+								description: "Unrelated Gist",
+							},
+						},
+			);
+		});
+		const writes: string[] = [];
+		await context.route("**/api/workspaces/**/mutations", async (route) => {
+			writes.push(route.request().url());
+			await route.abort();
+		});
+		const orphanWorkspaceId = "gist:old-workspace";
+		const initial = persistenceRecord({
+			workspaces: {
+				[orphanWorkspaceId]: queue(orphanWorkspaceId, [
+					reconcileMutation({ workspaceId: orphanWorkspaceId }),
+				]),
+			},
+		});
+		await seedIndexedDb(page, initial);
+		await page.goto("/auth");
+		await page
+			.getByLabel("Personal access token", { exact: true })
+			.fill("fixture-reconnect-token");
+		await page.getByRole("button", { name: "Connect", exact: true }).click();
+		await expect(page.getByTestId("workspace-connection-notice")).toBeVisible();
+		await expect(
+			page.getByRole("button", { name: "Connect", exact: true }),
+		).toBeEnabled();
+		const record = await readIndexedDb(page);
+		expect(record.binding).toEqual(initial.binding);
+		expect(record.snapshot).toEqual(initial.snapshot);
+		expect(record.workspaces).toEqual(initial.workspaces);
+		expect(requests.length).toBeGreaterThan(0);
+		expect(requests.every((path) => path === `/gists/${GIST_ID}`)).toBe(true);
 		expect(writes).toEqual([]);
 	});
 }
 
-for (const scenario of ["single", "empty", "request-failed", "logout"]) {
-	test(`Workspace browsing preserves the current data (${scenario})`, async ({
+for (const mobile of [false, true]) {
+	test(`ambiguous setup requires one explicit Gist ID without changing local data (${mobile ? "mobile" : "desktop"})`, async ({
 		page,
 		context,
 	}) => {
-		const content = JSON.stringify(workspaceDocument());
-		const gist = {
-			id: GIST_ID,
-			owner: { login: "e2e" },
-			description: "SubMan-Data",
-			updated_at: NOW,
-			html_url: `https://gist.github.com/e2e/${GIST_ID}`,
-			files: {
-				"subman.json": {
-					filename: "subman.json",
-					language: "JSON",
-					size: content.length,
-					content,
-					truncated: false,
-				},
-			},
-		};
-		let release = () => {};
-		let started = () => {};
-		const held = new Promise<void>((resolve) => {
-			release = resolve;
-		});
-		const listing = new Promise<void>((resolve) => {
-			started = resolve;
-		});
+		if (mobile) await page.setViewportSize({ width: 390, height: 844 });
+		const current = githubWorkspaceGist(GIST_ID);
+		const other = githubWorkspaceGist("other-v2", aggregateData());
+		const requests: string[] = [];
 		const writes: string[] = [];
 		await context.route("https://api.github.com/**", async (route) => {
 			expect(route.request().method()).toBe("GET");
-			if (new URL(route.request().url()).pathname !== "/gists") {
-				await route.fulfill({ json: gist });
-				return;
-			}
-			started();
-			if (scenario === "logout") await held;
+			const path = new URL(route.request().url()).pathname;
+			requests.push(path);
 			await route.fulfill({
-				status: scenario === "request-failed" ? 500 : 200,
 				json:
-					scenario === "request-failed"
-						? { message: "Fixture unavailable" }
-						: scenario === "empty"
-							? []
-							: [gist],
+					path === "/gists"
+						? [current, other]
+						: path.endsWith("other-v2")
+							? other
+							: current,
 			});
 		});
 		await context.route("**/api/workspaces/**/mutations", async (route) => {
 			writes.push(route.request().url());
 			await route.abort();
 		});
-		const initial = persistenceRecord();
-		await seedIndexedDb(page, initial);
-		await seedAuth(page, { session: "fixture-browse-token" });
-		await page.goto("/auth");
-		const button = page.getByRole("button", {
-			name: "Switch Workspace",
-			exact: true,
+		const initial = persistenceRecord({
+			snapshot: snapshot({ gistId: null }),
+			binding: null,
 		});
-		await button.click();
-		const chooser = page.getByTestId("workspace-chooser");
-		if (scenario === "logout") {
-			await listing;
-			await page
-				.getByRole("button", { name: "Disconnect", exact: true })
-				.click();
-			release();
-			await expect(
-				page.getByRole("button", { name: "Connect", exact: true }),
-			).toBeEnabled();
-			await expect(button).toHaveCount(0);
-			await expect(chooser).toHaveCount(0);
-		} else if (scenario === "single") {
-			await expect(chooser).toBeVisible();
-			await expect(chooser.getByText(GIST_ID, { exact: true })).toBeVisible();
-			await expect(
-				chooser.getByRole("button", { name: "Select", exact: true }),
-			).toHaveCount(1);
-		} else {
-			await expect(
-				page.getByText(
-					scenario === "empty"
-						? "No Workspace found for this token."
-						: "Unable to list Workspaces. Check your token and connection, then retry.",
-					{ exact: true },
-				),
-			).toBeVisible();
-			await expect(chooser).toHaveCount(0);
-			await expect(button).toBeEnabled();
-		}
-		const record = await readIndexedDb(page);
-		expect(record.snapshot).toEqual(initial.snapshot);
-		expect(record.binding).toEqual(initial.binding);
-		expect(record.workspaces).toEqual(initial.workspaces);
+		await seedIndexedDb(page, initial);
+		await page.goto("/auth");
+		await page
+			.getByLabel("Personal access token", { exact: true })
+			.fill("fixture-ambiguous-token");
+		await page.getByRole("button", { name: "Connect", exact: true }).click();
+		await expect(page.getByTestId("workspace-connection-notice")).toHaveText(
+			"Multiple Workspace Gists found. Enter the Gist ID to connect.",
+		);
+		await expect(page.getByTestId("workspace-chooser")).toHaveCount(0);
+		await expect(
+			page.getByLabel("Personal access token", { exact: true }),
+		).toHaveValue("fixture-ambiguous-token");
+		const unchanged = await readIndexedDb(page);
+		expect(unchanged.binding).toEqual(initial.binding);
+		expect(unchanged.snapshot).toEqual(initial.snapshot);
+		expect(unchanged.workspaces).toEqual(initial.workspaces);
 		expect(writes).toEqual([]);
+		const beforeExplicit = requests.length;
+		await page
+			.getByLabel("Workspace Gist ID (optional)", { exact: true })
+			.fill(GIST_ID);
+		await page.getByRole("button", { name: "Connect", exact: true }).click();
+		await expect(
+			page.getByText("Cloud data loaded.", { exact: true }),
+		).toBeVisible();
+		const record = await readIndexedDb(page);
+		expect((record.binding as JsonRecord).gistId).toBe(GIST_ID);
+		expect((record.snapshot as JsonRecord).activeGistId).toBe(GIST_ID);
+		expect(
+			requests
+				.slice(beforeExplicit)
+				.every((path) => path === `/gists/${GIST_ID}`),
+		).toBe(true);
+		expect(writes).toEqual([]);
+		expect(
+			await page.evaluate(
+				() => document.documentElement.scrollWidth <= window.innerWidth,
+			),
+		).toBe(true);
 	});
 }
 
-for (const scenario of [
-	"empty",
-	"multiple-v2",
-	"v2",
-	"invalid",
-	"mismatch",
-	"request-failed",
-	"url",
-]) {
-	test(`manual migration check preserves data without writes (${scenario})`, async ({
+for (const scenario of ["v2", "invalid", "mismatch", "request-failed", "url"]) {
+	test(`manual migration check preserves unbound data without writes (${scenario})`, async ({
 		page,
 		context,
 	}) => {
@@ -1147,101 +1215,71 @@ for (const scenario of [
 				await route.fulfill({ status: 404, json: { message: "Not Found" } });
 				return;
 			}
-			const gist = {
-				id: oldGist ? "old-gist" : GIST_ID,
-				owner: { login: "e2e" },
-				description: "SubMan-Data",
-				updated_at: NOW,
-				html_url: `https://gist.github.com/e2e/${GIST_ID}`,
-				files: {
-					"subman.json": {
-						filename: "subman.json",
-						content:
-							oldGist && scenario === "invalid"
-								? "{}"
-								: JSON.stringify(workspaceDocument()),
-						truncated: false,
-					},
-				},
+			const gist = githubWorkspaceGist(oldGist ? "old-gist" : GIST_ID);
+			(gist.files as JsonRecord)["subman.json"] = {
+				filename: "subman.json",
+				content:
+					oldGist && scenario === "invalid"
+						? "{}"
+						: JSON.stringify(workspaceDocument()),
+				truncated: false,
 			};
-			const secondGist = {
-				...gist,
-				id: "second-v2",
-				files: {
-					"subman.json": {
-						filename: "subman.json",
-						content: JSON.stringify(
-							workspaceDocument({ workspaceId: "gist:second-v2" }),
-						),
-						truncated: false,
-					},
-				},
-			};
-			await route.fulfill({
-				json: route.request().url().includes("?")
-					? scenario === "multiple-v2"
-						? [gist, secondGist]
-						: []
-					: route.request().url().includes("second-v2")
-						? secondGist
-						: gist,
-			});
+			await route.fulfill({ json: gist });
 		});
 		const submissions: JsonRecord[] = [];
 		await context.route("**/api/workspaces/**/mutations", async (route) => {
 			submissions.push(route.request().postDataJSON());
 			await route.abort();
 		});
-		const initialRecord = persistenceRecord();
+		const initialRecord = persistenceRecord({
+			snapshot: snapshot({ gistId: null }),
+			binding: null,
+		});
 		await seedIndexedDb(page, initialRecord);
-		await seedAuth(page, { session: "fixture-manual-check-token" });
 		await page.goto("/auth");
+		await page
+			.getByLabel("Personal access token", { exact: true })
+			.fill("fixture-manual-check-token");
 		const section = page.getByTestId("legacy-workspace-check");
 		await expect(section).toBeVisible();
-		if (!["empty", "multiple-v2"].includes(scenario))
-			await section
-				.getByLabel("Old Workspace Gist ID (optional)")
-				.fill(
-					scenario === "url"
-						? "https://gist.github.com/e2e/old-gist"
-						: scenario === "v2"
-							? GIST_ID
-							: "old-gist",
-				);
+		const button = section.getByRole("button", {
+			name: "Check for legacy Workspace",
+		});
+		await expect(button).toBeDisabled();
 		await section
-			.getByRole("button", { name: "Check for legacy Workspace" })
-			.click();
+			.getByLabel("Old Workspace Gist ID", { exact: true })
+			.fill(
+				scenario === "url"
+					? "https://gist.github.com/e2e/old-gist"
+					: scenario === "v2"
+						? GIST_ID
+						: "old-gist",
+			);
+		await button.click();
 		await expect(
-			section.getByRole(
-				["invalid", "mismatch", "request-failed", "url"].includes(scenario)
-					? "alert"
-					: "status",
-			),
+			section.getByRole(scenario === "v2" ? "status" : "alert"),
 		).toBeVisible();
 		await expect(page.getByTestId("legacy-migration")).toHaveCount(0);
-		if (scenario === "multiple-v2") {
-			await expect(section.getByRole("status")).toHaveText(
-				"No legacy V1 Workspace found. Review the candidates above or enter the old Gist ID.",
-			);
-			await expect(page.getByTestId("workspace-chooser")).toBeVisible();
-		}
+		await expect(page.getByTestId("workspace-chooser")).toHaveCount(0);
 		const record = await readIndexedDb(page);
 		expect(record.snapshot).toEqual(initialRecord.snapshot);
 		expect(record.binding).toEqual(initialRecord.binding);
 		expect(submissions).toEqual([]);
-		if (scenario === "empty")
-			expect(requests.some((url) => url.includes("?"))).toBe(true);
+		expect(requests.every((url) => new URL(url).pathname !== "/gists")).toBe(
+			true,
+		);
 	});
 }
 
 test("rolls back the visible node when the IndexedDB transaction fails", async ({
 	page,
 }) => {
-	await seedIndexedDb(
-		page,
-		persistenceRecord({ snapshot: snapshot({ gistId: null }), binding: null }),
-	);
+	await seedIndexedDb(page, persistenceRecord());
+	await seedAuth(page, { session: "fixture-rollback-token" });
 	await page.goto("/nodes");
+	await expect(
+		page.getByRole("button", { name: "New Resource", exact: true }).first(),
+	).toBeVisible();
 	await failNextPersistencePut(page, "QuotaExceededError");
 
 	await addNode(page, "Must Roll Back", "vless://rollback.example");
@@ -1275,11 +1313,15 @@ test("keeps an edit modal and draft open when the transaction aborts", async ({
 	await seedIndexedDb(
 		page,
 		persistenceRecord({
-			snapshot: snapshot({ gistId: null, data }),
-			binding: null,
+			snapshot: snapshot({ data }),
+			binding: binding({ baseline: workspaceDocument({ data }) }),
 		}),
 	);
+	await seedAuth(page, { session: "fixture-rollback-token" });
 	await page.goto("/nodes");
+	await expect(
+		page.getByRole("button", { name: "New Resource", exact: true }).first(),
+	).toBeVisible();
 	await failNextPersistencePut(page, "AbortError");
 	await page.getByRole("button", { name: "Edit node" }).click();
 	const dialog = page.getByRole("dialog");
@@ -1301,17 +1343,22 @@ test("keeps an edit modal and draft open when the transaction aborts", async ({
 
 test("keeps a node visible and loading until a failed delete settles", async ({
 	page,
+	context,
 }) => {
 	const existing = nodeFixture();
 	const data = { ...structuredClone(EMPTY_DATA), nodes: [existing] };
 	await seedIndexedDb(
 		page,
 		persistenceRecord({
-			snapshot: snapshot({ gistId: null, data }),
-			binding: null,
+			snapshot: snapshot({ data }),
+			binding: binding({ baseline: workspaceDocument({ data }) }),
 		}),
 	);
+	await seedAuth(page, { session: "fixture-rollback-token" });
 	await page.goto("/nodes");
+	await expect(
+		page.getByRole("button", { name: "New Resource", exact: true }).first(),
+	).toBeVisible();
 	await expect(
 		page.getByText(existing.name as string, { exact: true }),
 	).toBeVisible();
@@ -1344,6 +1391,11 @@ test("keeps a node visible and loading until a failed delete settles", async ({
 		existing.id,
 	);
 
+	await context.route("**/api/workspaces/**/mutations", async (route) => {
+		const mutation = route.request().postDataJSON() as JsonRecord;
+		expect(mutation.kind).toBe("node.delete");
+		await fulfillCommitted(route, mutation, data);
+	});
 	await deleteButton.click();
 	await page
 		.getByRole("dialog")
@@ -1356,35 +1408,252 @@ test("keeps a node visible and loading until a failed delete settles", async ({
 	expect((stored.snapshot as JsonRecord).nodes).toEqual([]);
 });
 
-test("retains an import payload when IndexedDB rejects the transaction", async ({
+test("cloud-only setup hides cached resources and business import/export controls", async ({
 	page,
+	context,
 }) => {
+	const cachedNode = nodeFixture({ name: "Cached Private Node" });
+	const data = { ...structuredClone(EMPTY_DATA), nodes: [cachedNode] };
+	const initial = persistenceRecord({
+		snapshot: snapshot({ gistId: null, data }),
+		binding: null,
+	});
+	await seedIndexedDb(page, initial);
+	const writes: string[] = [];
+	await context.route("**/api/workspaces/**/mutations", async (route) => {
+		writes.push(route.request().url());
+		await route.abort();
+	});
+	await page.goto("/nodes");
+	await expect(page.getByTestId("cloud-connection-required")).toContainText(
+		"Connect GitHub to load your cloud data.",
+	);
+	await expect(
+		page.getByText("Cached Private Node", { exact: true }),
+	).toHaveCount(0);
+	await expect(
+		page.getByRole("button", { name: "New Resource", exact: true }),
+	).toHaveCount(0);
+	await expect(
+		page.getByRole("button", { name: "Save Resource", exact: true }),
+	).toHaveCount(0);
+	await page.goto("/auth");
+	await expect(page.locator("#settings-payload")).toHaveCount(0);
+	await expect(
+		page.getByRole("button", {
+			name: /^(Import|Export|Restore|Backup|Push Now|Pull Now)$/,
+		}),
+	).toHaveCount(0);
+	await expect(
+		page.getByRole("button", { name: "Connect", exact: true }),
+	).toBeVisible();
+	const stored = await readIndexedDb(page);
+	expect(stored.snapshot).toEqual(initial.snapshot);
+	expect(stored.binding).toBeNull();
+	expect(writes).toEqual([]);
+});
+
+test("cloud startup waits for the remote document before revealing resources", async ({
+	page,
+	context,
+}) => {
+	const cached = {
+		...structuredClone(EMPTY_DATA),
+		nodes: [nodeFixture({ name: "Stale Cached Node" })],
+	};
+	const remote = {
+		...structuredClone(EMPTY_DATA),
+		nodes: [nodeFixture({ name: "Authoritative Cloud Node" })],
+	};
 	await seedIndexedDb(
 		page,
-		persistenceRecord({ snapshot: snapshot({ gistId: null }), binding: null }),
+		persistenceRecord({
+			snapshot: snapshot({ data: cached }),
+			binding: binding({ baseline: workspaceDocument({ data: cached }) }),
+		}),
 	);
-	const imported = {
-		version: 2,
-		kind: "subman-business-configuration",
-		exportedAt: NOW,
-		data: {
-			...structuredClone(EMPTY_DATA),
-			nodes: [nodeFixture({ name: "Imported but rejected" })],
-		},
-	};
-	const payload = JSON.stringify(imported);
-	await page.goto("/auth");
-	await page.locator("#settings-payload").fill(payload);
-	await failNextPersistencePut(page, "QuotaExceededError");
-	await page.getByRole("button", { name: "Import", exact: true }).click();
+	await seedAuth(page, { session: "fixture-startup-token" });
+	let release = () => {};
+	const held = new Promise<void>((resolve) => {
+		release = resolve;
+	});
+	await context.route("https://api.github.com/**", async (route) => {
+		expect(route.request().method()).toBe("GET");
+		expect(new URL(route.request().url()).pathname).toBe(`/gists/${GIST_ID}`);
+		await held;
+		await route.fulfill({ json: githubWorkspaceGist(GIST_ID, remote) });
+	});
+	const writes: string[] = [];
+	await context.route("**/api/workspaces/**/mutations", async (route) => {
+		writes.push(route.request().url());
+		await route.abort();
+	});
+	await page.goto("/nodes");
+	await expect(page.getByTestId("cloud-connection-required")).toContainText(
+		"Loading cloud data...",
+	);
+	await expect(
+		page.getByText("Stale Cached Node", { exact: true }),
+	).toHaveCount(0);
+	await expect(
+		page.getByRole("button", { name: "New Resource", exact: true }),
+	).toHaveCount(0);
+	release();
+	await expect(
+		page.getByText("Authoritative Cloud Node", { exact: true }),
+	).toBeVisible();
+	await expect(page.getByTestId("cloud-connection-required")).toHaveCount(0);
+	await expect(
+		page.getByText("Stale Cached Node", { exact: true }),
+	).toHaveCount(0);
+	expect(((await readIndexedDb(page)).snapshot as JsonRecord).nodes).toEqual(
+		remote.nodes,
+	);
+	expect(writes).toEqual([]);
+});
 
-	await expect(page.locator("#settings-payload")).toHaveValue(payload);
-	await expect(page.getByText("Config imported", { exact: true })).toHaveCount(
+test("cloud load failures keep cached data hidden and prevent offline local edits", async ({
+	page,
+	context,
+}) => {
+	const data = {
+		...structuredClone(EMPTY_DATA),
+		nodes: [nodeFixture({ name: "Hidden Cached Node" })],
+	};
+	const initial = persistenceRecord({
+		snapshot: snapshot({ data }),
+		binding: binding({ baseline: workspaceDocument({ data }) }),
+	});
+	await seedIndexedDb(page, initial);
+	await seedAuth(page, { session: "fixture-failed-load-token" });
+	await context.route("https://api.github.com/**", (route) =>
+		route.fulfill({ status: 503, json: { message: "Fixture unavailable" } }),
+	);
+	await page.goto("/nodes");
+	await expect(page.getByTestId("cloud-connection-required")).toContainText(
+		"Cloud data could not be loaded. Check your connection and retry.",
+	);
+	await expect(
+		page.getByText("Hidden Cached Node", { exact: true }),
+	).toHaveCount(0);
+	await expect(
+		page.getByRole("button", { name: "New Resource", exact: true }),
+	).toHaveCount(0);
+	const stored = await readIndexedDb(page);
+	expect(stored.snapshot).toEqual(initial.snapshot);
+	expect(stored.binding).toEqual(initial.binding);
+});
+
+test("resource save keeps its draft and withholds success until cloud commitment", async ({
+	page,
+	context,
+}) => {
+	await seedIndexedDb(page, persistenceRecord());
+	await seedAuth(page, { session: "fixture-confirmed-save-token" });
+	let release = () => {};
+	const held = new Promise<void>((resolve) => {
+		release = resolve;
+	});
+	const mutations: JsonRecord[] = [];
+	await context.route("**/api/workspaces/**/mutations", async (route) => {
+		const mutation = route.request().postDataJSON() as JsonRecord;
+		mutations.push(mutation);
+		await held;
+		await fulfillCommitted(route, mutation);
+	});
+	await page.goto("/nodes");
+	await addNode(page, "Cloud Confirmed Node", "vless://confirmed.example");
+	await expect.poll(() => mutations.length).toBe(1);
+	await expect(page.getByText("Resource added", { exact: true })).toHaveCount(
 		0,
 	);
-	await expect(page.getByText(/Workspace change was not saved/)).toHaveCount(1);
+	await expect(page.getByLabel("Name", { exact: true })).toHaveValue(
+		"Cloud Confirmed Node",
+	);
+	await expect(page.getByLabel("Raw URI", { exact: true })).toHaveValue(
+		"vless://confirmed.example",
+	);
+	release();
+	await expect(page.getByText("Resource added", { exact: true })).toBeVisible();
+	await expect(
+		page.getByText("Cloud Confirmed Node", { exact: true }),
+	).toBeVisible();
 	const stored = await readIndexedDb(page);
-	expect((stored.snapshot as JsonRecord).nodes).toEqual([]);
+	expect((stored.binding as JsonRecord).revision).toBe(1);
+	expect(
+		((stored.workspaces as JsonRecord)[WORKSPACE_ID] as JsonRecord).mutations,
+	).toEqual([]);
+});
+
+test("retrying a retained rule draft after background cloud commitment reuses its entity ID", async ({
+	page,
+	context,
+}) => {
+	await seedIndexedDb(page, persistenceRecord());
+	await seedAuth(page, { session: "fixture-rule-retry-token" });
+	let offline = true;
+	let remote = workspaceDocument();
+	const mutations: JsonRecord[] = [];
+	await context.route("**/api/workspaces/**/mutations", async (route) => {
+		const mutation = route.request().postDataJSON() as JsonRecord;
+		mutations.push(mutation);
+		expect(mutation.kind).toBe("aggregate.upsert");
+		if (offline) {
+			await route.fulfill({
+				status: 503,
+				json: {
+					error: {
+						code: "upstream_unavailable",
+						message: "Fixture unavailable",
+						disposition: "retryable-upstream",
+					},
+				},
+			});
+			return;
+		}
+		const result = committedResult(mutation, remote.data as JsonRecord);
+		remote = result.document as JsonRecord;
+		await route.fulfill({ json: result });
+	});
+	await page.goto("/aggregate");
+	await page
+		.getByLabel("Rule Name", { exact: true })
+		.fill("Retained Cloud Rule");
+	await page.getByRole("button", { name: "Save Rule", exact: true }).click();
+	await expect(
+		page
+			.getByRole("status")
+			.getByText("Cloud save pending; retrying", { exact: true }),
+	).toBeVisible();
+	await expect(page.getByLabel("Rule Name", { exact: true })).toHaveValue(
+		"Retained Cloud Rule",
+	);
+	await expect(page.getByText("Rule saved", { exact: true })).toHaveCount(0);
+	offline = false;
+	await expect
+		.poll(
+			async () => ((await readIndexedDb(page)).binding as JsonRecord).revision,
+			{ timeout: 10_000 },
+		)
+		.toBe(1);
+	await expect(page.getByLabel("Rule Name", { exact: true })).toHaveValue(
+		"Retained Cloud Rule",
+	);
+	await page.getByRole("button", { name: "Save Rule", exact: true }).click();
+	await expect(page.getByText("Rule saved", { exact: true })).toBeVisible();
+	const stored = await readIndexedDb(page);
+	expect(
+		(stored.snapshot as JsonRecord).aggregates as JsonRecord[],
+	).toHaveLength(1);
+	expect(
+		new Set(
+			mutations.map(
+				(mutation) =>
+					((mutation.payload as JsonRecord).aggregate as JsonRecord).id,
+			),
+		).size,
+	).toBe(1);
+	expect((remote.data as JsonRecord).aggregates).toHaveLength(1);
 });
 
 test("keeps one mutation ID across offline enqueue, reload, and recovery", async ({
@@ -1502,7 +1771,13 @@ test("replaces a rejected token and resumes the same queued mutation", async ({
 	await page.goto("/auth");
 	const recovery = page.getByTestId("auth-recovery");
 	await expect(recovery).toBeVisible();
-	await expect(recovery).toContainText("Pending changes remain queued");
+	expect(
+		(
+			((await readIndexedDb(page)).workspaces as JsonRecord)[
+				WORKSPACE_ID
+			] as JsonRecord
+		).mutations,
+	).toEqual([pending]);
 	await page.getByLabel("Remember token on this device").uncheck();
 	await recovery
 		.getByLabel("Replacement personal access token")
@@ -1608,7 +1883,7 @@ test("allows one tab to take over an expired lease without duplicate submission"
 	expect(requestCount).toBe(1);
 });
 
-test("manual Push and Publish stops when the local target draft is rejected", async ({
+test("Save and Publish stops when the target draft cannot be persisted", async ({
 	context,
 	page,
 }) => {
@@ -1632,8 +1907,17 @@ test("manual Push and Publish stops when the local target draft is rejected", as
 	await page.locator("#aggregate-target-select").click();
 	await page.getByRole("button", { name: "E2E Target", exact: true }).click();
 	await page.getByLabel("Target name").fill("Rejected Manual Target");
-	await failNextPersistencePut(page, "QuotaExceededError");
-	await page.getByRole("button", { name: "Push and Publish" }).click();
+	await failNextPersistencePut(
+		page,
+		"QuotaExceededError",
+		"Rejected Manual Target",
+	);
+	await expect(
+		page.getByRole("button", { name: "Push and Publish", exact: true }),
+	).toHaveCount(0);
+	await page
+		.getByRole("button", { name: "Save and Publish", exact: true })
+		.click();
 
 	await expect(page.getByLabel("Target name")).toHaveValue(
 		"Rejected Manual Target",
@@ -1676,20 +1960,57 @@ test("Save and Publish reports peer ownership until another tab commits once", a
 	);
 	await seedAuth(page, { persistent: "fake-peer-token" });
 	const submissions: JsonRecord[] = [];
+	let remoteData = structuredClone(data);
 	await context.route("**/api/workspaces/**/mutations", async (route) => {
 		const mutation = route.request().postDataJSON() as JsonRecord;
 		submissions.push(mutation);
-		await fulfillCommitted(route, mutation, data);
+		const result = committedResult(mutation, remoteData);
+		remoteData = (result.document as JsonRecord).data as JsonRecord;
+		await route.fulfill({ json: result });
 	});
 
 	await page.goto("/aggregate");
 	await page.locator("#aggregate-target-select").click();
 	await page.getByRole("button", { name: "E2E Target", exact: true }).click();
 	await page.getByLabel("Target name").fill("Peer Updated Target");
+	await page.evaluate(
+		async ({ leaseName, databaseName, storeName, rootKey }) => {
+			const database = await new Promise<IDBDatabase>((resolve, reject) => {
+				const request = indexedDB.open(databaseName, 1);
+				request.onsuccess = () => resolve(request.result);
+				request.onerror = () => reject(request.error);
+			});
+			await new Promise<void>((resolve, reject) => {
+				const transaction = database.transaction(storeName, "readwrite");
+				const store = transaction.objectStore(storeName);
+				const read = store.get(rootKey);
+				read.onsuccess = () => {
+					const record = read.result as JsonRecord;
+					(record.leases as JsonRecord)[leaseName] = {
+						name: leaseName,
+						ownerId: "peer-tab",
+						fencingToken: 1,
+						expiresAt: Date.now() + 60_000,
+						heartbeatAt: Date.now(),
+					};
+					store.put(record, rootKey);
+				};
+				transaction.oncomplete = () => resolve();
+				transaction.onerror = () => reject(transaction.error);
+			});
+			database.close();
+		},
+		{
+			leaseName,
+			databaseName: DATABASE_NAME,
+			storeName: STORE_NAME,
+			rootKey: ROOT_KEY,
+		},
+	);
 	await page.getByRole("button", { name: "Save and Publish" }).click();
 
 	await expect(
-		page.getByText("Saved locally; another tab is synchronizing", {
+		page.getByText("Cloud save pending; another tab is synchronizing", {
 			exact: true,
 		}),
 	).toBeVisible();
@@ -1700,7 +2021,10 @@ test("Save and Publish reports peer ownership until another tab commits once", a
 		(queued.workspaces as JsonRecord)[WORKSPACE_ID] as JsonRecord
 	).mutations as JsonRecord[];
 	expect(mutation).toHaveLength(1);
-	expect(mutation[0]?.kind).toBe("aggregate.publish");
+	expect(mutation[0]?.kind).toBe("publish-target.upsert");
+	expect(((mutation[0]?.payload as JsonRecord).target as JsonRecord).name).toBe(
+		"Peer Updated Target",
+	);
 	const mutationId = mutation[0]?.mutationId;
 
 	await expireLease(page, leaseName);
@@ -1718,9 +2042,23 @@ test("Save and Publish reports peer ownership until another tab commits once", a
 	await expect(
 		page.getByText("Saved to Workspace", { exact: true }).first(),
 	).toBeVisible();
-	await expect(page.getByText("Live Link", { exact: true })).toBeVisible();
+	await expect(page.getByText("Live Link", { exact: true })).toHaveCount(0);
 	expect(submissions).toHaveLength(1);
 	expect(submissions[0]?.mutationId).toBe(mutationId);
+	expect(
+		((await readIndexedDb(page)).snapshot as JsonRecord).publishTargets,
+	).toMatchObject([{ name: "Peer Updated Target" }]);
+	await page
+		.getByRole("button", { name: "Save and Publish", exact: true })
+		.click();
+	await expect(page.getByText("Live Link", { exact: true })).toBeVisible();
+	expect(submissions.map((mutation) => mutation.kind)).toEqual([
+		"publish-target.upsert",
+		"aggregate.publish",
+	]);
+	expect((remoteData.publishTargets as JsonRecord[])[0]?.name).toBe(
+		"Peer Updated Target",
+	);
 });
 
 test("aggregate publish keeps one mutation across retry, reload, and recovery", async ({
@@ -1767,7 +2105,7 @@ test("aggregate publish keeps one mutation across retry, reload, and recovery", 
 	await expect(
 		page
 			.getByRole("status")
-			.getByText("Saved locally; retrying Workspace sync", { exact: true }),
+			.getByText("Cloud save pending; retrying", { exact: true }),
 	).toBeVisible();
 	await expect(page.getByText(/Publish failed/)).toHaveCount(0);
 	await expect(
@@ -1866,7 +2204,12 @@ test("client export publication hides its live link until remote commitment", as
 	await expect(
 		page.getByText(EXISTING_EXPORT_URL, { exact: true }),
 	).toBeVisible();
+	await expect(page.getByTestId("cloud-connection-required")).toHaveCount(0);
+	await page.getByLabel("Listen Port", { exact: true }).fill("2080");
 	await page.getByRole("button", { name: "Generate Preview" }).click();
+	await expect(
+		page.getByRole("button", { name: "Publish", exact: true }).last(),
+	).toBeEnabled();
 	await page
 		.getByRole("button", { name: "Publish", exact: true })
 		.last()
@@ -1874,7 +2217,7 @@ test("client export publication hides its live link until remote commitment", as
 	await expect(
 		page
 			.getByRole("status")
-			.getByText("Saved locally; retrying Workspace sync", { exact: true }),
+			.getByText("Cloud save pending; retrying", { exact: true }),
 	).toBeVisible();
 	await expect(page.getByText("Published sing-box config")).toHaveCount(0);
 	await expect(
@@ -2091,7 +2434,7 @@ test("keeps a token in session storage until persistent storage is explicitly se
 	expect(storage.persistent).toContain("fake-session-opt-in-token");
 });
 
-test("preserves a remote tombstone when a locally edited node is merged", async ({
+test("reloads cloud state without restoring a remote tombstone or publishing local edits", async ({
 	context,
 	page,
 }) => {
@@ -2161,24 +2504,30 @@ test("preserves a remote tombstone when a locally edited node is merged", async 
 	});
 
 	await page.goto("/auth");
-	await expect(page.getByTestId("state-conflict")).toBeVisible();
-	await page.getByRole("button", { name: /Use Local/ }).click();
+	await expect(page.getByTestId("repair-sync-action")).toBeVisible();
+	await expect(
+		page.getByRole("button", { name: /Use Local|Merge & Save|Force Push/ }),
+	).toHaveCount(0);
+	await page.getByTestId("repair-sync-action").click();
 	await page
-		.getByRole("button", { name: "Push Local", exact: true })
-		.last()
+		.getByRole("dialog")
+		.getByRole("button", { name: "Reload from Cloud", exact: true })
 		.click();
 	const discardPending = page.getByRole("button", {
 		name: "Discard 1 Changes",
+		exact: true,
 	});
-	await discardPending.click();
-	await expect.poll(() => submissions.length).toBe(1);
-
-	await expect(page.getByTestId("tombstone-notice")).toContainText(
-		"deleted items were not restored",
-	);
-	await expect(page.getByTestId("state-conflict")).toHaveCount(0);
+	if (await discardPending.isVisible()) await discardPending.click();
+	await expect(
+		page.getByRole("button", { name: "Sync from Cloud", exact: true }),
+	).toBeEnabled();
+	expect(submissions).toEqual([]);
 	const stored = await readIndexedDb(page);
-	expect((stored.binding as JsonRecord).revision).toBe(3);
+	expect((stored.binding as JsonRecord).revision).toBe(2);
+	expect(
+		((stored.workspaces as JsonRecord)[WORKSPACE_ID] as JsonRecord | undefined)
+			?.mutations ?? [],
+	).toEqual([]);
 	expect((stored.snapshot as JsonRecord).nodes).toEqual([]);
 });
 
@@ -2210,6 +2559,7 @@ test("shows a domain conflict without full-state merge and clears Repair after c
 	const repairLink = page.getByRole("link", { name: "Repair", exact: true });
 	await expect(repairLink).toBeVisible();
 	await repairLink.click();
+	await page.getByTestId("queue-inspector").locator("summary").first().click();
 	await expect(page.getByTestId("blocked-queue-metadata")).toContainText(
 		"domain-conflict / duplicate_node_raw",
 	);
@@ -2218,16 +2568,13 @@ test("shows a domain conflict without full-state merge and clears Repair after c
 	await page
 		.getByTestId("active-workspace-queue")
 		.getByRole("button", {
-			name: "Discard Complete Queue",
+			name: "Reload from Cloud",
 		})
 		.click();
 	await page
-		.getByRole("button", { name: "Discard Complete Queue" })
-		.last()
+		.getByRole("dialog")
+		.getByRole("button", { name: "Reload from Cloud", exact: true })
 		.click();
-	await expect(page.getByTestId("queue-action-result")).toContainText(
-		"Complete Workspace queue discarded",
-	);
 	await expect(
 		page.getByRole("link", { name: "Repair", exact: true }),
 	).toHaveCount(0);
@@ -2255,6 +2602,7 @@ test("renders active and orphan Workspace queues as separate groups", async ({
 	);
 
 	await page.goto("/auth");
+	await page.getByTestId("queue-inspector").locator("summary").first().click();
 	await expect(page.getByTestId("active-queue-count")).toHaveText("1");
 	await expect(page.getByTestId("total-queue-count")).toHaveText("2");
 	await expect(page.getByTestId("orphan-queue-count")).toHaveText("1");
@@ -2307,11 +2655,17 @@ test("exports diagnostics through the UI without payload, token, or quarantine c
 		persistent: persistentCanary,
 	});
 	await page.goto("/auth");
+	await page.getByTestId("queue-inspector").locator("summary").first().click();
 
+	const downloaded = page.waitForEvent("download");
 	await page.getByRole("button", { name: "Export Diagnostics" }).click();
-	const payloadField = page.locator("#settings-payload");
-	await expect(payloadField).not.toHaveValue("");
-	const payload = await payloadField.inputValue();
+	const download = await downloaded;
+	expect(download.suggestedFilename()).toBe("subman-diagnostics.json");
+	const stream = await download.createReadStream();
+	if (!stream) throw new Error("Diagnostics download stream was unavailable");
+	const chunks: Buffer[] = [];
+	for await (const chunk of stream) chunks.push(Buffer.from(chunk));
+	const payload = Buffer.concat(chunks).toString("utf8");
 	const diagnostics = JSON.parse(payload) as JsonRecord;
 	expect(payload).not.toContain(payloadCanary);
 	expect(payload).not.toContain(sessionCanary);
@@ -2324,7 +2678,7 @@ test("exports diagnostics through the UI without payload, token, or quarantine c
 	);
 });
 
-test("opens a conflict confirmation as a keyboard-accessible dialog", async ({
+test("opens cloud reload confirmation as a keyboard-accessible dialog", async ({
 	page,
 }) => {
 	const baselineNode = nodeFixture();
@@ -2362,15 +2716,13 @@ test("opens a conflict confirmation as a keyboard-accessible dialog", async ({
 	await seedAuth(page, { session: "fake-keyboard-token" });
 	await page.goto("/auth");
 
-	const mergeAction = page
-		.getByTestId("state-conflict")
-		.getByRole("button", { name: /Merge & Save/ });
+	const mergeAction = page.getByTestId("repair-sync-action");
 	await mergeAction.focus();
 	await page.keyboard.press("Enter");
-	const dialog = page.getByRole("dialog", { name: "Sync Update" });
+	const dialog = page.getByRole("dialog");
 	await expect(dialog).toBeVisible();
 	await expect(
-		dialog.getByRole("button", { name: "Merge & Save" }),
+		dialog.getByRole("button", { name: "Reload from Cloud", exact: true }),
 	).toBeFocused();
 	await page.keyboard.press("Escape");
 	await expect(dialog).toHaveCount(0);

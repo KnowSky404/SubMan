@@ -170,9 +170,10 @@ sing-box outputs. Recheck affected output publication separately.
 Follow `docs/workspace-v2-operations.md`. In particular:
 
 - V1 migration happens on the first coordinator mutation, not at discovery.
-- The browser requires an explicit preview and migration confirmation. Manual
-  discovery in `/auth` reads candidates or one Gist ID without creation; migration
-  preserves existing outputs and links rather than publishing them again.
+- The browser requires an explicit preview and migration confirmation. Unbound
+  legacy checks in `/auth` require the original Gist ID and never create a Gist;
+  bound devices keep their original identity. Migration preserves existing
+  outputs and links without republishing.
 - New Gists use a bootstrap marker until the first coordinator commit.
 - Rollback requires stopping V2 writers, preserving the V2 document, restoring
   the exact V1 backup, and forward-deploying tested compatibility artifact
@@ -180,10 +181,13 @@ Follow `docs/workspace-v2-operations.md`. In particular:
   export while using the verified V1 transaction paths.
 - Keep the Durable Object namespace and SQLite records during rollback.
 
-The browser UI can still run in local mode without a GitHub token. Business
-state remains in the `subman-workspace` IndexedDB database; only explicit token
-persistence uses localStorage. The trusted Server API always depends on Worker
-secrets and the `WORKSPACE_COORDINATOR` binding.
+The browser requires GitHub authentication and a freshly loaded cloud document
+before business editing. Every change waits for cloud confirmation. One Gist
+binding replaces local business mode, Workspace switching, manual sync, and
+business JSON backup/import. IndexedDB retains only technical cache, delivery
+journal, and recovery evidence; explicit token persistence uses localStorage.
+The trusted Server API contract is unchanged and still depends on Worker secrets
+and the `WORKSPACE_COORDINATOR` binding.
 
 For the current URI support matrix, subscription CORS requirements, and export
 publication boundary, see

@@ -20,11 +20,7 @@ import { authState } from "$lib/stores/auth";
 import { requestConfirm } from "$lib/stores/confirm";
 import { showToast } from "$lib/stores/toast";
 import { cn } from "$lib/utils/cn";
-import {
-	readBrowserWorkspaceSnapshot,
-	reconcileBrowserWorkspace,
-	submitBrowserWorkspaceMutation,
-} from "$lib/workspace-browser-session-v2";
+import { submitBrowserWorkspaceMutation } from "$lib/workspace-browser-session-v2";
 import {
 	WORKSPACE_BOOTSTRAP_FILE_NAME,
 	WORKSPACE_RESERVED_FILE_NAMES,
@@ -222,49 +218,6 @@ async function cleanupBootstrapMarker() {
 		deleting = false;
 	}
 }
-
-async function resumeBootstrapInitialization() {
-	const token = $authState.token;
-	const gistId = $appState.activeGistId;
-	if (!token || !gistId || bootstrapStatus !== "incomplete") return;
-	const confirmed = await requestConfirm({
-		title: $t("Resume Workspace Initialization"),
-		message: $t(
-			"Create subman.json from the current local business data and remove the bootstrap marker?",
-		),
-		confirmText: $t("Resume"),
-	});
-	if (!confirmed) return;
-
-	deleting = true;
-	try {
-		await initializeBrowserWorkspacePersistence();
-		requireWorkspaceIdentity($appState, getBrowserWorkspaceBinding());
-		const gist = workspace ?? (await getGist(token, gistId));
-		const snapshot = await readBrowserWorkspaceSnapshot(token, gist, $appState);
-		if (snapshot.origin !== "bootstrap") {
-			throw new Error("Workspace bootstrap state changed");
-		}
-		const result = await reconcileBrowserWorkspace({
-			token,
-			gistId,
-			baseline: snapshot.document,
-			resolvedState: $appState,
-			syncMode: "automatic",
-		});
-		const presentation = showWorkspaceResult(result, {
-			remoteCommittedMessageKey: "Workspace initialization completed",
-		});
-		if (presentation.remoteCommitted) await refreshWorkspace();
-	} catch (error) {
-		setStatus(
-			workspaceFailureMessage(error, "Workspace initialization failed"),
-			"error",
-		);
-	} finally {
-		deleting = false;
-	}
-}
 </script>
 
 <div class="gh-page">
@@ -305,7 +258,7 @@ async function resumeBootstrapInitialization() {
 					{#if bootstrapStatus === "stale"}
 						<button type="button" class="gh-btn gh-btn-sm" on:click={cleanupBootstrapMarker} disabled={deleting}>{$t("Clean Up")}</button>
 					{:else if bootstrapStatus === "incomplete"}
-						<button type="button" class="gh-btn gh-btn-primary gh-btn-sm" on:click={resumeBootstrapInitialization} disabled={deleting}>{$t("Resume")}</button>
+						<a href="/auth" class="gh-btn gh-btn-primary gh-btn-sm">{$t("Settings")}</a>
 					{/if}
 				</div>
 			{/if}

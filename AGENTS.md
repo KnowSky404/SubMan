@@ -2,16 +2,22 @@
 
 ## Product
 
-SubMan manages VLESS, VMess, and related proxy resources. It has two runtime
-modes:
+SubMan manages VLESS, VMess, and related proxy resources. The sole business
+data source is one private GitHub Gist described as `SubMan-Data`. A browser
+device retains one binding; there is no Workspace list, switching, local business
+mode, business JSON backup/restore, manual synchronization, local push, merge,
+force overwrite, or bind-only workflow.
 
-- Local mode stores business data in the browser.
-- Workspace mode stores the authoritative document and generated outputs in one
-  private GitHub Gist described as `SubMan-Data`.
+Startup must load the latest cloud document before enabling business edits.
+Every valid change requires authentication and an initialized automatic binding,
+is journaled transactionally, sends immediately, and reports success only after
+cloud confirmation. Pending or blocked changes prevent additional business edits.
+Browser caches, retry journals, and retained historical queues are technical
+recovery state and must not become an alternative source of business authority.
 
-The application is not purely frontend. SvelteKit runs on Cloudflare Workers,
-and one SQLite-backed `WorkspaceCoordinator` Durable Object serializes every
-Workspace mutation.
+SvelteKit runs on Cloudflare Workers. One SQLite-backed `WorkspaceCoordinator`
+Durable Object serializes every mutation to the bound Gist. The public Server API
+contract remains unchanged and discovers its target independently of the browser.
 
 ## Workspace Invariants
 
@@ -41,13 +47,14 @@ Browser business state uses the `subman-workspace` IndexedDB database, schema
 version 1. Its single transactional root contains the validated snapshot,
 Workspace binding and baseline, per-Workspace mutation queues, retry and blocked
 metadata, dispatcher leases, quarantine metadata, and migration evidence.
-Business actions commit the snapshot, binding, and queue change atomically before
-Svelte memory is updated. Do not add another browser storage path or bypass the
+Business actions commit the cache, binding, and original mutation atomically
+before Svelte memory is updated, then immediately await cloud delivery. Do not add another browser storage path or bypass the
 `WorkspacePersistence` boundary.
 
 `WorkspaceActionHandle.submitted` means only that synchronous validation accepted
 the request and created its asynchronous task. Only `completion` reports the
-authoritative operation outcome. Pages must await it before clearing a form,
+authoritative operation outcome, and only `remote-committed` permits success
+or draft finalization; local durability is technical delivery evidence. Pages must await it before clearing a form,
 closing an editor, ending a destructive-action loading state, or reporting a
 save. The shared operation presenter is the sole interpretation boundary for
 durable, queued, peer-owned, retrying, blocked, rejected, uncertain, and remote
@@ -76,9 +83,14 @@ GitHub authentication remains outside that database:
 
 - Queue order and `expectedRevision` are preserved per Workspace. Active and
   orphan Workspace queues remain visible to repair tooling.
-- Discard, rebind, and repair operate on a complete Workspace queue. Never remove
-  only the head unless the remaining revisions are atomically rebased or replaced
-  by an explicit reconcile.
+- Discard and repair operate on a complete Workspace queue. Never remove only
+  the head unless the remaining revisions are atomically rebased or replaced by
+  an explicit reconcile. Rebind and repair transactions must reject changing an
+  active binding to another Gist. Preserve historical orphan queues without
+  restoring Workspace switching.
+- Cloud refresh uses compare-and-swap checks so a concurrent edit cannot be
+  silently discarded. Abandoning active pending work requires confirmation to
+  discard the complete queue and reload the latest original cloud document.
 - One dispatcher owns a persisted lease with an owner ID, monotonically allocated
   fencing token, expiry, and heartbeat. Web Locks and BroadcastChannel are
   optional coordination aids, not correctness boundaries.
@@ -99,15 +111,17 @@ GitHub authentication remains outside that database:
 - `state-conflict`, `domain-conflict`, `auth-required`, `queue-corruption`,
   `operator-repair`, `retryable-upstream`, `permanent-upstream`, and
   `invalid-request` are distinct dispositions. Unknown failures fail closed.
-- Merge and Use Local are tombstone-aware. Client timestamps never grant
-  overwrite authority, and remote tombstoned IDs are not restored by ordinary
-  upsert or reconcile mutations.
+- Local overwrite and merge are not browser workflows. Retained internal
+  reconcile compatibility must remain tombstone-aware: timestamps never grant
+  overwrite authority and ordinary upsert/reconcile cannot restore deleted IDs.
 
 ## Migration And Recovery
 
 - Browser connection to recognized V1 data requires an explicit migration
-  preview and confirmation. Manual Workspace discovery checks all candidates
-  or one Gist ID without creating a Gist or preferring the current binding.
+  preview and confirmation. Unbound setup may inspect an explicit original Gist
+  ID; ambiguous discovery requires that ID. Bound startup and reconnection must
+  read only the original Gist, never choose or create another one. Legacy checks
+  require an explicit ID and do not create a Gist.
 - `workspace.migrate` is an internal, source-hash-checked browser mutation. It
   preserves the original Gist, output bytes, filenames, and publication metadata;
   it does not regenerate or republish outputs. Pending/repair evidence must be
@@ -123,14 +137,17 @@ GitHub authentication remains outside that database:
   outputs, and credentials are excluded.
 - Tombstone compaction and processed-mutation pruning require a separate protocol
   design and must not be implemented as time-based deletion.
-- Business configuration exports (`kind: subman-business-configuration`) are
-  import files, not remote Workspace documents. Do not replace `subman.json`
-  with an export or use diagnostics as a business-data backup.
+- Historical business exports (`kind: subman-business-configuration`) and the
+  offline V1 conversion tool are operator recovery artifacts. Do not restore a
+  browser business JSON import/backup path, replace `subman.json` with an export,
+  or treat diagnostics as business-data recovery.
 
 ## Key Areas
 
 - Browser persistence and dispatch:
   - `src/lib/stores/app.ts`
+  - `src/lib/workspace-cloud-status.ts`
+  - `src/lib/workspace-cloud-session.ts`
   - `src/lib/workspace-operation-result.ts`
   - `src/lib/workspace-operation-presenter.ts`
   - `src/lib/workspace-queue-metrics.ts`
@@ -220,6 +237,7 @@ green. Vite is for UI iteration; use `dev:cf` for Worker/DO runtime evidence.
 
 ## Design References
 
+- `docs/superpowers/specs/2026-10-23-single-cloud-workspace-design.md`
 - `docs/superpowers/specs/2026-07-22-workspace-v2-coordinator-design.md`
 - `docs/workspace-v2-operations.md`
 - `docs/superpowers/plans/2026-07-23-workspace-v2-hardening.md`

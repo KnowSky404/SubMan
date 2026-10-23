@@ -99,6 +99,11 @@ test("exports publication uses the default transactional browser adapter", () =>
 	expect(exportsPageSource).not.toContain("WorkspaceMutationQueue");
 	expect(exportsPageSource).not.toContain("WorkspaceV2StateStore");
 	expect(exportsPageSource).not.toContain("allowManual: true");
+	expect(exportsPageSource).not.toContain("workspaceIsManual");
+	expect(exportsPageSource).not.toContain("localDurableMessageKey");
+	expect(exportsPageSource).not.toContain(
+		"Push local Workspace changes before publishing",
+	);
 });
 
 test("exports page blocks dirty or conflicting profile publication", () => {

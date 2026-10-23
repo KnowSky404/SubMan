@@ -11,7 +11,6 @@ export type WorkspaceOperationPresentation = {
 
 export type WorkspaceOperationPresentationOptions = {
 	remoteCommittedMessageKey?: string;
-	localDurableMessageKey?: string;
 	rejectedMessageKey?: string;
 	successMessageParams?: Record<string, string | number>;
 };
@@ -30,55 +29,37 @@ export function presentWorkspaceOperation(
 				remoteCommitted: true,
 			};
 		case "local-durable":
-			if (result.mode === "manual") {
-				return {
-					tone: "info",
-					messageKey: "Saved locally; manual push required",
-					finalizeDraft: true,
-					remoteCommitted: false,
-				};
-			}
-			if (result.mode === "paused-conflict") {
-				return {
-					tone: "info",
-					messageKey: "Saved locally; sync paused by conflict",
-					finalizeDraft: true,
-					remoteCommitted: false,
-				};
-			}
 			return {
-				tone: "success",
-				messageKey: options.localDurableMessageKey ?? "Saved locally",
-				messageParams: options.successMessageParams,
-				finalizeDraft: true,
+				tone: "info",
+				messageKey: "Cloud confirmation required; reload from Cloud",
+				finalizeDraft: false,
 				remoteCommitted: false,
 			};
 		case "local-durable-queued":
 			return {
 				tone: "info",
-				messageKey: "Saved locally and queued for Workspace sync",
-				finalizeDraft: true,
+				messageKey: "Cloud save pending",
+				finalizeDraft: false,
 				remoteCommitted: false,
 			};
 		case "peer-owned":
 			return {
 				tone: "info",
-				messageKey: "Saved locally; another tab is synchronizing",
-				finalizeDraft: true,
+				messageKey: "Cloud save pending; another tab is synchronizing",
+				finalizeDraft: false,
 				remoteCommitted: false,
 			};
 		case "retry-scheduled":
 			return {
 				tone: "info",
-				messageKey: "Saved locally; retrying Workspace sync",
-				finalizeDraft: true,
+				messageKey: "Cloud save pending; retrying",
+				finalizeDraft: false,
 				remoteCommitted: false,
 			};
 		case "conflict-or-blocked":
 			return {
 				tone: "info",
-				messageKey:
-					"Saved locally; Workspace synchronization needs repair: {error}",
+				messageKey: "Cloud synchronization needs repair: {error}",
 				messageParams: { error: result.messageKey ?? result.code },
 				finalizeDraft: false,
 				remoteCommitted: false,

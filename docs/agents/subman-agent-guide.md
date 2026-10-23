@@ -15,9 +15,12 @@ The canonical workspace is a GitHub Gist with:
 - Description: `SubMan-Data`
 - Config file: `subman.json`
 
-Browser business state always uses the transactional `subman-workspace`
-IndexedDB database. Without a GitHub token, changes remain local. With a token
-and active Workspace binding, revisioned mutations synchronize to the Gist.
+Cloud `subman.json` is the sole business authority, with one fixed device
+binding. Startup loads the latest cloud data before editing. Every mutation
+requires authentication and awaits cloud confirmation. There is no local
+business mode, switching, manual sync, local overwrite/merge, or business JSON
+backup/import. IndexedDB `subman-workspace` holds technical cache, delivery
+journals, and recovery evidence; it is not another source of business truth.
 
 ## Agent Entry Points
 
@@ -91,7 +94,8 @@ manual production workflow; see `docs/ci-cd.md`. Neither is part of local checks
    `design.md` for UI work and the operations runbook for persistence/protocol work.
 3. Add behavior tests before changing an established protocol. Browser business
    actions must pass through persistence and await `handle.completion`;
-   `submitted` does not establish a local save or remote publication.
+   `submitted` does not establish a save; only `remote-committed` finalizes
+   a draft or reports success.
 4. Update both READMEs and matching agent references with final behavior. Public
    API changes also require OpenAPI, the narrative API guide, and contract tests.
 5. Run relevant checks; runtime/binding changes require the Worker/DO suite,
@@ -101,18 +105,18 @@ manual production workflow; see `docs/ci-cd.md`. Neither is part of local checks
 
 ## Legacy Workspace Recovery
 
-Start with `/auth` **Manual Workspace migration**. A blank Gist ID checks all
-matching Workspaces without preferring the current binding; a specific ID checks
-that Gist. This discovery is read-only and never creates a Gist. Enter the token
-and check without first connecting if normal login picked another Workspace.
-Select the original V1 candidate and review counts, output names, and old URLs.
+Use `/auth` **Manual Workspace migration** only while unbound, with the original
+Gist ID. The check reads that Gist without creating one. Initial setup requires
+an explicit ID when discovery is ambiguous; bound startup and login retain the
+same original Gist instead of scanning or switching.
 
-Preserve local-only data before confirming migration. Pending queues and repair
-evidence need explicit resolution. Migration uses the internal `workspace.migrate`
-mutation, checks the exact V1 source hash, retains a byte-exact backup, and leaves
-output files and publication metadata unchanged. Only `remote-committed` proves
-completion. On changed source, recheck; on `migration_backup_conflict`, preserve
-both sources and investigate rather than deleting or replacing the backup.
+Review the V1 preview counts, output names, and old URLs before confirming.
+Preserve historical cache and pending/repair evidence for operator recovery;
+there is no local business backup/import flow. Migration uses internal
+`workspace.migrate`, verifies the exact V1 source hash, creates a byte-exact
+immutable backup, and leaves output bytes and publication metadata unchanged.
+Only `remote-committed` proves completion. Recheck changed sources; investigate
+`migration_backup_conflict` without replacing the existing backup.
 
 For a downloaded private configuration, audit offline:
 
@@ -120,10 +124,11 @@ For a downloaded private configuration, audit offline:
 bun run scripts/audit-workspace.ts /private/path/subman.json --gist-id YOUR_GIST_ID
 ```
 
-`--export-v1 /private/path/new-import.json` converts valid V1 into a business
-import file, exclusively created with mode `0600`. It is not a Workspace document
-and cannot replace `subman.json`. Diagnostics are metadata, not a recovery backup.
-Follow `docs/legacy-workspace-migration.md` for import and recovery details.
+`--export-v1 /private/path/recovery.json` creates a normalized operator recovery
+artifact exclusively with mode `0600`. The application cannot import this file;
+it is not a revisioned Workspace document and cannot replace `subman.json`.
+Diagnostics contain metadata, not business recovery data. Follow
+`docs/legacy-workspace-migration.md` for separate operator recovery boundaries.
 
 ## Automation API Summary
 
@@ -173,8 +178,8 @@ not republish output files, and GET/health success does not prove a remote commi
 
 ## Development Boundaries
 
-- Keep Workspace configuration and outputs in one Gist; local business state
-  stays within `WorkspacePersistence` in IndexedDB.
+- Keep cloud configuration and outputs in one fixed Gist; technical cache,
+  journals, and recovery evidence stay within `WorkspacePersistence` in IndexedDB.
 - Keep `subman.json` protected from UI deletion.
 - Protect `subman.v1.backup.json` and `subman.bootstrap.json` too; output cleanup
   must preserve all reserved files and retained migration/recovery evidence.
@@ -186,8 +191,9 @@ not republish output files, and GET/health success does not prove a remote commi
 - Branch on stable error `code` and `disposition`, not human-readable `message`.
 - Treat queued, peer-owned, and retry-scheduled browser results as durable pending
   work. Keep original mutation IDs; repair/discard complete Workspace queues.
-- Merge and Use Local preserve remote tombstones; client timestamps do not grant
-  overwrite authority. Unknown storage failures remain read-only.
+- Preserve remote tombstones and revision checks. Cloud reload requires explicit
+  whole-queue discard confirmation; do not add local overwrite or merge controls.
+  Unknown storage failures remain read-only.
 - Handle `409 duplicate_node_raw` explicitly in automation scripts; it means the
   submitted URI is already stored on another node.
 - Do not expose `GITHUB_TOKEN` to external scripts; only Cloudflare Secrets

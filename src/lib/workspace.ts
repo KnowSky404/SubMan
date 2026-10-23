@@ -25,7 +25,7 @@ export type WorkspaceGistApi = {
 export type WorkspaceDiscovery =
 	| { status: "found"; gist: GistMeta; candidate: WorkspaceCandidate }
 	| { status: "not-found"; candidates: WorkspaceCandidate[] }
-	| { status: "chooser"; candidates: WorkspaceCandidate[] };
+	| { status: "ambiguous"; candidates: WorkspaceCandidate[] };
 
 export type WorkspaceCandidateKind =
 	| "materialized-v2"
@@ -187,18 +187,17 @@ export async function discoverWorkspaceGist(
 	const api = options.api ?? defaultApi;
 
 	if (activeGistId) {
-		try {
-			const saved = await api.getGist(token, activeGistId);
-			const candidate = await classifyWorkspaceCandidate(token, saved, {
-				api,
-				activeGistId,
-			});
-			if (candidate.kind !== "invalid") {
-				return { status: "found", gist: saved, candidate };
-			}
-		} catch {
-			// Fall through to a complete discovery when the saved identity is stale.
+		const saved = await api.getGist(token, activeGistId);
+		const candidate = await classifyWorkspaceCandidate(token, saved, {
+			api,
+			activeGistId,
+		});
+		if (candidate.kind === "invalid") {
+			throw new Error(
+				"The bound cloud Workspace is invalid. Repair this Gist before reconnecting.",
+			);
 		}
+		return { status: "found", gist: saved, candidate };
 	}
 
 	const candidates = (await api.listGists(token)).filter(hasWorkspaceIdentity);
@@ -216,7 +215,7 @@ export async function discoverWorkspaceGist(
 		return { status: "found", gist: candidate.gist, candidate };
 	}
 	if (materialized.length > 1) {
-		return { status: "chooser", candidates: classified };
+		return { status: "ambiguous", candidates: classified };
 	}
 	const bootstraps = classified.filter(
 		(candidate) => candidate.kind === "bootstrap-incomplete",
@@ -226,10 +225,10 @@ export async function discoverWorkspaceGist(
 		return { status: "found", gist: candidate.gist, candidate };
 	}
 	if (bootstraps.length > 1) {
-		return { status: "chooser", candidates: classified };
+		return { status: "ambiguous", candidates: classified };
 	}
 	if (classified.length > 0) {
-		return { status: "chooser", candidates: classified };
+		return { status: "ambiguous", candidates: classified };
 	}
 	return { status: "not-found", candidates: classified };
 }
@@ -239,7 +238,7 @@ export async function findWorkspaceGist(
 	activeGistId: string | null = null,
 ): Promise<GistMeta | null> {
 	const result = await discoverWorkspaceGist(token, activeGistId);
-	if (result.status === "chooser") {
+	if (result.status === "ambiguous") {
 		throw new WorkspaceAmbiguousError(
 			result.candidates.map((candidate) => candidate.gist),
 		);
@@ -285,7 +284,7 @@ async function ensureWorkspaceWithFiles(
 		if (discovery.status === "found") {
 			return { gist: discovery.gist, created: false };
 		}
-		if (discovery.status === "chooser") {
+		if (discovery.status === "ambiguous") {
 			throw new WorkspaceAmbiguousError(
 				discovery.candidates.map((candidate) => candidate.gist),
 			);

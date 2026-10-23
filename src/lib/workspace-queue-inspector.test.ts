@@ -196,8 +196,11 @@ describe("Workspace queue inspector service", () => {
 		expect((await store.read()).binding?.workspaceId).toBe(ACTIVE_WORKSPACE_ID);
 	});
 
-	it("rebinds and repairs an explicitly selected Workspace", async () => {
-		const store = persistence();
+	it("restores an unbound historical Workspace and repairs its complete queue", async () => {
+		const record = await persistence().read();
+		record.binding = null;
+		record.snapshot = null;
+		const store = new InMemoryWorkspacePersistence(record);
 		const rebound = await rebindInspectedWorkspace(store, {
 			workspaceId: ORPHAN_WORKSPACE_ID,
 			snapshot: snapshot(ORPHAN_GIST_ID),

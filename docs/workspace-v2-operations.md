@@ -7,13 +7,27 @@ rollback for the Workspace Schema V2 coordinator.
 
 - `subman.json` is the authoritative Workspace V2 document.
 - One `WorkspaceCoordinator` Durable Object is addressed by `gist:<gist-id>`.
-- Every Workspace-mode browser and Server API mutation that can change
-  `subman.json` goes through that coordinator.
-- Browser state is committed through `WorkspacePersistence` into the
-  `subman-workspace` IndexedDB v1 database. Snapshot, binding, per-Workspace
-  queues, delivery metadata, and leases share one transaction boundary.
-- Automatic Workspace-mode mutations are sent in revision order. Local-only,
-  bind-only, manual-local-only, and paused modes do not send automatically.
+- Every browser and Server API mutation that can change `subman.json` goes
+  through that coordinator. The public API contract is unchanged; browser
+  mutations remain an internal protocol.
+- The browser has one cloud binding, with no Workspace list or switching. Both
+  rebind and queue-repair transactions reject replacing an active binding with
+  another Gist, including competing browser tabs and legacy recovery paths.
+- Startup loads the latest cloud document before enabling business pages. Login
+  and token replacement retain the existing Gist identity; a failed lookup must
+  never fall through to another Gist or create a new one. An ambiguous initial
+  discovery requires the original Gist ID.
+- Browser cache, delivery journal, retry metadata, leases, and historical queue
+  evidence share the `subman-workspace` IndexedDB v1 transaction boundary through
+  `WorkspacePersistence`. This is technical recovery state, not a local business
+  mode or a second source of truth. The database schema is unchanged.
+- Every valid business action requires authentication, a freshly loaded automatic
+  binding, and no unresolved active delivery. It journals one mutation, sends it
+  immediately, and awaits cloud confirmation. Pending, manual, paused, and
+  disconnected states reject new business changes.
+- Settings offers cloud reload and recovery, not local push, merge, force
+  overwrite, bind-only, manual synchronization, or business JSON backup/import.
+  A new bootstrap starts from empty cloud data, never an old browser cache.
 - `subman.v1.backup.json` and `subman.bootstrap.json` are reserved recovery
   files. Generated outputs cannot replace or delete them.
 - The coordinator accepts node, subscription, aggregate, publish-target, and
@@ -28,16 +42,22 @@ deployment history; do not rename or remove an applied tag.
 
 ## Browser Operation Results
 
+Historical manual or conflict-paused pending queues are retained without
+automatic delivery. Use the confirmed **Reload from Cloud** recovery flow;
+upgrading must not publish a previous browser snapshot.
+
 Workspace actions expose a submitted handle and an authoritative completion
 result. `submitted` means only that synchronous validation accepted the request
 and scheduled its task. It does not prove an IndexedDB transaction, queue entry,
 or remote write. UI callers must await `completion` before clearing drafts,
-closing editors, finalizing loading state, or reporting success.
+closing editors or reporting success. Only cloud confirmation finalizes a draft;
+a deferred result may end the current loading indicator while retaining the
+draft and the original pending mutation.
 
 | Completion status | Durable evidence | UI meaning |
 | --- | --- | --- |
-| `local-durable` | Snapshot and binding committed locally | Saved locally. Manual mode still requires Push; paused mode still requires conflict repair. |
-| `local-durable-queued` | Snapshot and original mutation committed in IndexedDB | Saved locally and queued; remote commit is not proven. |
+| `local-durable` | Historical compatibility result for a locally committed snapshot | Not a cloud save; cloud-only business actions do not produce this result. Retain the draft. |
+| `local-durable-queued` | Snapshot and original mutation committed in IndexedDB | Pending cloud confirmation; retain the draft and journal. |
 | `peer-owned` | Mutation remains in the persistent queue while another valid lease owns delivery | Saved locally; another tab is synchronizing. This is nonterminal. |
 | `retry-scheduled` | Mutation and retry attempt, time, and stable error code are persisted | Saved locally; delivery is deferred or will retry. This is nonterminal. |
 | `remote-committed` | Coordinator result and local binding, baseline, snapshot, and queue settlement agree | Saved to Workspace or published. This is the only publication-success result. |
@@ -47,11 +67,13 @@ closing editors, finalizing loading state, or reporting success.
 
 The shared presenter exhaustively maps these results. Stores do not emit
 operation toasts, and pages must not infer business state from thrown message
-text. A durable queued, peer-owned, or retry-scheduled publication is not a
-`Publish failed` outcome.
+text. Only `remote-committed` reports success and finalizes the draft. A durable
+queued, peer-owned, or retry-scheduled publication remains pending; preserve its
+identity and block additional business edits until settlement or explicit repair.
 
-Before every browser business action, read the current IndexedDB record and
-apply the intent to its latest snapshot. A transactional binding advance from a
+Before every browser business action, require a ready authenticated cloud
+session, read the current IndexedDB record, reject pending/blocked delivery, and
+apply the intent to the latest validated cache of the cloud snapshot. A transactional binding advance from a
 peer raises a controlled concurrent-update result and permits one bounded replay
 with the same mutation ID and timestamp. It is not storage corruption and does
 not trigger quarantine. BroadcastChannel and Web Locks remain optional hints;
@@ -135,15 +157,16 @@ coordinator mutation, the Durable Object performs one verified Gist PATCH that:
 3. Applies the requested mutation.
 4. Writes the new `subman.json` and any publication output together.
 
-Browser connection now detects a recognized V1 document and presents an explicit
-migration preview before binding or changing the local snapshot. The user can
-download local-only data, cancel, recheck, or choose **Migrate and load Workspace**.
-If normal connection selected another Workspace, use **Manual Workspace
-migration** in `/auth`: leave the Gist ID blank to inspect all candidates without
-preferring the current binding, or enter the original ID to check it directly.
-This check only reads; it does not create a Gist. Multiple candidates require
-selection, and description, filename, document validity, and identity checks
-still apply. A token can be entered for checking before normal connection.
+Browser connection detects a recognized V1 document and presents an explicit
+migration preview before binding or changing the cached snapshot. The user can
+cancel, recheck, or choose **Migrate and load Workspace**. Initial setup may check
+an explicit original Gist ID. The separate legacy check requires that ID and is
+available only while unbound; it reads without creating a Gist. Connected devices
+always retain the same Gist and do not scan or switch to other candidates.
+Description, filename, document validity, and identity checks still apply. There
+is no local backup download or business JSON import in this flow. Preserve any
+historical local-only evidence for separate operator recovery instead of
+silently sending it or replacing the selected cloud data.
 The internal browser `workspace.migrate` mutation carries only `sourceSha256`,
 the SHA-256 hash of the exact previewed V1 bytes. It changes no business entities
 or publication metadata and sends no output-file changes. The Gist ID, output
@@ -202,8 +225,9 @@ validated before confirmation. Invalid legacy records are quarantined rather
 than silently discarded.
 
 Before confirmation, untouched legacy keys are rollback sources. After
-confirmation, the legacy keys are removed and IndexedDB plus its migration
-evidence are authoritative. If IndexedDB is unsupported, upgrade fails, quota is
+confirmation, the legacy keys are removed and IndexedDB retains the validated
+cache and technical migration evidence. Cloud `subman.json` remains the
+authoritative business document. If IndexedDB is unsupported, upgrade fails, quota is
 exhausted, a transaction aborts, or stored data is corrupt, keep the application
 in `invalid-local-storage` read-only repair mode. Do not clear storage, create a
 new localStorage fallback, or resume delivery until the cause and retained
@@ -211,9 +235,11 @@ metadata have been inspected.
 
 ## Queue Inspection And Repair
 
-Queue inspection groups work by Workspace and reports active, total, orphan,
-blocked, and dead-letter counts. A Workspace can become orphaned after a switch
-or disconnect; its mutations remain preserved until an explicit action is taken.
+Queue inspection groups technical evidence by original Workspace identity and
+reports active, total, orphan, blocked, and dead-letter counts. Retained orphan
+queues may come from earlier versions. Removing Workspace switching must not
+delete, rebind, or automatically deliver that evidence. It remains inspectable
+until an explicit whole-queue discard or a separate operator recovery.
 
 All runtime surfaces derive the same metrics from the persistence record:
 
@@ -224,21 +250,28 @@ All runtime surfaces derive the same metrics from the persistence record:
 - `blockedMutationCount` counts Workspace queues with blocked mutation metadata.
 - `deadLetterCount` is the total retained dead-letter count.
 
-- **Retry** clears only eligible persisted retry state and wakes delivery.
-- **Discard** removes the complete selected Workspace queue transactionally.
-- **Rebind** requires an identity-checked snapshot and binding before making the
-  selected Workspace active. Dead-letter evidence remains repair-required and is
-  not described as repaired merely because the binding changed.
-- **Repair** replaces the complete queue with a validated, contiguous sequence or
-  an explicit reconcile. Never delete only the head and leave a revision gap.
+- **Sync from Cloud** first resumes eligible pending delivery with the original
+  IDs, then loads the latest cloud document. Retry timing and blocked dispositions
+  remain authoritative; an unresolved queue prevents a successful refresh.
+- **Reload from Cloud** requires confirmation before abandoning all active
+  pending changes. It validates the original Gist and atomically replaces the
+  complete queue and cached snapshot with the latest cloud state.
+- **Retained previous queues** show only safe recovery metadata. Their explicit
+  discard removes the complete selected queue; they cannot switch the current
+  binding or become an alternative business mode.
+- **Repair** uses complete validated sequences and compare-and-swap checks for
+  the current snapshot, binding, and queue. A cloud refresh racing a new edit
+  must reject and re-read instead of silently dropping the new mutation.
 - **Quarantine** freezes corrupt queue data and retains only safe metadata in
   normal inspection and diagnostics.
 
-Domain conflicts keep the head blocked for edit, discard, or realign. State
-conflicts keep the trusted latest document for tombstone-aware Pull, Merge, or
-Use Local. Merge is a three-way comparison against the trusted baseline;
-`updatedAt` is not overwrite authority, and a remote tombstone cannot be removed
-by an ordinary upsert or reconcile.
+State conflicts retain the trusted latest document and pending work. The user
+may explicitly discard the complete queue and reload cloud data, then reapply an
+edit against the new revision. There are no local overwrite or merge controls.
+Domain conflicts and repair evidence remain blocked until resolved or explicitly
+discarded; timestamps never authorize overwrite and remote tombstones stay
+protected. Logout clears authentication and stops delivery without deleting the
+binding, cache, pending mutation identities, or recovery evidence.
 
 ## Leases, Retry, And Upstream Failures
 
@@ -261,7 +294,7 @@ generic 5xx retries.
 
 | Disposition | Typical cause | Operator action |
 | --- | --- | --- |
-| `state-conflict` | Revision/identity conflict with a trusted latest document | Pull, tombstone-aware Merge, or Use Local. |
+| `state-conflict` | Revision/identity conflict with a trusted latest document | Review pending evidence; confirm complete-queue discard and reload cloud data. |
 | `domain-conflict` | Duplicate resource, output ownership, or existing entity | Edit, discard, or realign the blocked mutation. |
 | `auth-required` | GitHub 401/403 or missing/revoked browser token | Reconnect; do not 5xx-retry. |
 | `queue-corruption` | Reused mutation ID, invalid response, or revision gap | Freeze and explicitly repair/quarantine the queue. |
@@ -331,8 +364,8 @@ controlled production Workspace, verify:
 Rollback is an operator-controlled data restoration, not a Wrangler migration
 reversal:
 
-For browser persistence, an interruption before `confirmed` may restart from the
-untouched legacy keys. After confirmation and cleanup, do not recreate split-key
+For browser persistence, an interruption before `confirmed` may restart technical
+migration from the untouched legacy keys. After confirmation and cleanup, do not recreate split-key
 writes: retain/export safe migration metadata and recover the last validated
 snapshot from IndexedDB. Tokens follow their independent session/persistent
 choice and are not part of persistence rollback.

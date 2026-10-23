@@ -145,9 +145,11 @@ describe("browser Workspace mutation scheduler", () => {
 		);
 		appStore.appState.set(workspaceData.createDefaultWorkspaceState(NOW));
 		const localAction = appStore.upsertNode(node());
-		expect(localAction.submitted).toBe(true);
-		expect((await localAction.completion).status).toBe("local-durable");
-		expect(latestLifecycle).toBe("local-saved");
+		expect(localAction.submitted).toBe(false);
+		expect((await localAction.completion).status).toBe(
+			"rejected-before-durable-commit",
+		);
+		expect(latestLifecycle).toBe("disconnected");
 		unsubscribeLatest();
 
 		async function expectIdleLifecycle(options: {

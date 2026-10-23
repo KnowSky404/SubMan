@@ -16,6 +16,7 @@ import {
 import { appState } from "$lib/stores/app";
 import { authState } from "$lib/stores/auth";
 import { cn } from "$lib/utils/cn";
+import { getBrowserWorkspaceBinding } from "$lib/workspace-persistence-browser";
 
 $: stats = [
 	{
@@ -45,6 +46,9 @@ $: stats = [
 ];
 
 $: isConnected = Boolean($authState.token && $appState.activeGistId);
+$: cloudUpdatedAt = $appState.activeGistId
+	? getBrowserWorkspaceBinding()?.baseline?.updatedAt
+	: null;
 $: publishTargetCount = $appState.publishTargets.filter(
 	(target) => target.lastPublishedUrl,
 ).length;
@@ -63,7 +67,7 @@ $: enabledSubscriptionCount = $appState.subscriptions.filter(
 			</p>
 			<div class="gh-page-meta">
 				<span class={cn("gh-page-meta-item", isConnected && "badge-success")}>
-					{isConnected ? $t("Workspace connected") : $t("Local-only")}
+					{isConnected ? $t("Workspace connected") : $t("Not connected")}
 				</span>
 				<span class="gh-page-meta-item">{$t("{count} live links", { count: publishTargetCount })}</span>
 			</div>
@@ -186,9 +190,9 @@ $: enabledSubscriptionCount = $appState.subscriptions.filter(
 							<Octicon icon={globe} className="h-4 w-4" />
 						</div>
 						<div class="space-y-1">
-							<p class="text-sm font-semibold">{$t("Last local update")}</p>
+							<p class="text-sm font-semibold">{$t("Last cloud update")}</p>
 							<p class="text-[13px] text-fg-muted">
-								{new Date($appState.lastUpdated || Date.now()).toLocaleString()}
+								{cloudUpdatedAt ? new Date(cloudUpdatedAt).toLocaleString() : $t("None")}
 							</p>
 						</div>
 					</div>
@@ -203,7 +207,7 @@ $: enabledSubscriptionCount = $appState.subscriptions.filter(
 					<div class="repo-sidebar-row">
 						<span class="repo-sidebar-row-label">{$t("Workspace mode")}</span>
 						<span class={cn("badge", isConnected && "badge-success")}>
-							{isConnected ? $t("Connected") : $t("Local-only")}
+							{isConnected ? $t("Connected") : $t("Not connected")}
 						</span>
 					</div>
 					<div class="repo-sidebar-row">
@@ -242,12 +246,12 @@ $: enabledSubscriptionCount = $appState.subscriptions.filter(
 								{#if isConnected}
 									{$t("Workspace connected")}
 								{:else}
-									{$t("Running in local-only mode")}
+									{$t("Connect GitHub to load your cloud data.")}
 								{/if}
 							</p>
 							<p class="text-[13px] text-fg-muted">
 								{#if isConnected}
-									{$t("Local changes can sync to the active gist.")}
+									{$t("Every change is saved to the cloud.")}
 								{:else}
 									{$t("Connect GitHub to sync config and publish shared raw links.")}
 								{/if}

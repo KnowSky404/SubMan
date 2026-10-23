@@ -26,6 +26,7 @@ import {
 } from "$lib/workspace-operation-result";
 import {
 	type BrowserWorkspacePersistence,
+	WorkspaceBindingLockedError,
 	WorkspaceConcurrentUpdateError,
 	type WorkspaceMutationDraft,
 	type WorkspacePersistenceRecord,
@@ -684,6 +685,9 @@ export async function persistBrowserWorkspaceSnapshot(
 	dependencies = await withStateAccess(dependencies);
 	const persistence = await persistenceFor(dependencies);
 	const record = await readPersistence(dependencies, persistence);
+	if (record.binding && record.binding.gistId !== gistId) {
+		throw new WorkspaceBindingLockedError();
+	}
 	const binding = createWorkspaceV2LocalState(gistId, {
 		baseline: snapshot.document,
 		syncMode,
@@ -727,6 +731,9 @@ async function reconcileBrowserWorkspaceInternal(
 		expectedWorkspaceId: workspaceId,
 	});
 	let record = await readPersistence(dependencies, persistence);
+	if (record.binding && record.binding.workspaceId !== workspaceId) {
+		throw new WorkspaceBindingLockedError();
+	}
 	let pending = record.workspaces[workspaceId]?.mutations ?? [];
 	if (
 		input.migrationMutationId &&

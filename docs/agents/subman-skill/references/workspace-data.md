@@ -1,70 +1,73 @@
 # SubMan Workspace Data Reference
 
-## Workspace Identity
+## Cloud Authority And Identity
 
-SubMan stores configuration and generated outputs in one GitHub Gist:
+SubMan stores authoritative configuration and generated outputs in one private
+GitHub Gist:
 
 - Description: `SubMan-Data`
 - Workspace ID: `gist:<gist-id>`
 - Config file: `subman.json`
 
-New Gists initially contain only `subman.bootstrap.json`. The first coordinator
-mutation replaces that marker with a V2 config document.
+The browser retains one binding. There is no Workspace list or switcher, local
+business mode, manual sync, local overwrite/merge, bind-only, or business JSON
+backup/import workflow. Initial setup may take an explicit Gist ID; ambiguous
+or invalid discovery must not choose or create another Gist. Reconnection and
+token replacement keep the original identity, even if it is unavailable.
 
-## Schema V2
+Startup loads the latest cloud state before enabling business pages. New Gists
+initially contain only `subman.bootstrap.json`; the first coordinator mutation
+creates an empty V2 cloud document instead of uploading old browser data.
+
+## Schema V2 And Single Writer
 
 The remote `WorkspaceDocumentV2` contains:
 
 - `version: 2` and `schemaVersion: 2`
-- deterministic `workspaceId`
-- monotonic `revision`
+- deterministic `workspaceId` and monotonic `revision`
 - `updatedAt` and `lastMutationId`
 - business collections: nodes, subscriptions, aggregates, publish targets,
   and client exports
 - tombstones for every business collection
 
-Browser-only Gist lists, active-file state, sync mode, conflict baselines, and
-the pending mutation queue are not written to the Gist.
-
-## Single-Writer Rule
-
 Every `subman.json` mutation goes through the `WorkspaceCoordinator` Durable
-Object. Browser store actions and Server API routes create validated,
-revisioned mutations; neither path writes a complete Gist state directly.
+Object. Browser store actions and Server API routes create validated revisioned
+mutations; neither writes a complete Gist state directly. Public REST routes
+and their authentication/response contracts are unchanged. The Worker selects
+its API target independently of browser binding; check `workspace.gistId`.
+`/api/workspaces/:workspaceId/mutations` remains an internal browser protocol.
 
-The browser queue is persisted before delivery. Successful delivery persists
-the committed V2 document before removing the queue item. Network failures keep
-the same mutation ID for retry. Revision conflicts retain the mutation and
-pause automatic delivery.
+## Browser Delivery
 
-## Modes
+Every business change requires authentication, a cloud session that has loaded
+successfully, and an initialized automatic binding. Unresolved active delivery
+or repair evidence blocks additional edits. A single local transaction commits
+the cache and original mutation, then delivery begins immediately. The action's
+`completion` waits for the cloud result; only `remote-committed` reports success
+and finalizes the draft. Queueing, peer ownership, retry, and acknowledgement
+uncertainty retain the draft and original mutation identity.
 
-- Local: no GitHub token or V2 binding; business data remains in the
-  `subman-workspace` IndexedDB transactional root.
-- Automatic: browser business actions enqueue and deliver mutations.
-- Manual: only explicit pull, push, reconcile, or publication actions send.
-- Paused conflict: local optimistic state and queued mutations are retained,
-  but automatic delivery stops.
-- Server API: the Worker supplies `GITHUB_TOKEN` separately to the same
-  coordinator used by the browser.
+IndexedDB `subman-workspace` v1 contains caches, ordered delivery journals,
+retry/blocked metadata, leases, migration evidence, and retained historical
+queues. It is technical recovery storage, not a second business data source.
+Success persists the committed cloud document before removing the queue item.
+Network failures keep the original ID and persisted retry timing. Logout clears
+authentication and stops delivery while preserving binding and pending evidence.
 
-Logout clears the active browser identity and token but preserves the V2
-binding and unsent queue. No mutation can be delivered until authentication is
-restored.
+## Conflict And Recovery
 
-## Conflict Handling
+A revision conflict pauses delivery and retains the trusted latest cloud
+document. The settings recovery flow may retry the original request, or, after
+confirmation, discard the complete active queue and reload the latest cloud
+state. Reapply an intended edit against that new revision. No local push, merge,
+or force overwrite is offered. Remote tombstones remain protected.
 
-The `/auth` flow supports:
-
-- Local overwrites remote.
-- Remote overwrites local.
-- Merge then save.
-- Bind only in manual mode.
-
-The latest safe remote document and the last common baseline are stored
-separately while a conflict is paused. Merge choices must include remote changes
-and preserve remote deletions. Local overwrite may intentionally omit remote
-live entities, producing tombstones through `workspace.reconcile`.
+Cloud reload compares the expected snapshot, binding, and complete queue in the
+same transaction. A concurrent edit must cause a controlled retry instead of
+being silently discarded. Rebind and repair transactions cannot replace an
+active binding with another Workspace. Historical orphan queues remain visible
+as safe evidence; they are not automatically rebound or sent. Explicit discard
+always removes a complete queue.
 
 ## Reserved Files
 
@@ -75,56 +78,44 @@ These names are protected case-insensitively:
 - `subman.bootstrap.json`
 
 Aggregate and client export files must use other names. The Gists page may
-delete generated outputs but cannot delete recovery or configuration files.
+delete outputs but cannot delete recovery or configuration files.
 
 ## V1 Migration
 
-V1 remains readable only for migration and import compatibility. Discovery does
-not rewrite it. The first successful coordinator mutation copies the exact V1
-bytes to `subman.v1.backup.json`, migrates all business collections, applies the
-mutation, and writes V2 in one verified Gist PATCH.
+V1 remains readable for in-place migration. Discovery does not rewrite it.
+Connecting recognized V1 opens a preview; unbound legacy checking requires the
+original Gist ID and never creates a Gist. The description must be `SubMan-Data`,
+the filename `subman.json`, and the document valid. Bound sessions cannot use
+legacy checks to select a different Gist.
 
-Browser connection to recognized V1 data presents a preview before binding or
-replacing local data. Manual Workspace migration in `/auth` can check all
-candidates (ignoring the saved binding) or one Gist ID without creating a Gist.
-The description must still be `SubMan-Data`, the filename `subman.json`, and the
-document valid. Multiple candidates require choosing the original Workspace.
+Explicit migration uses internal `workspace.migrate` with the SHA-256 of the
+previewed bytes. The coordinator copies exact V1 bytes to the immutable
+`subman.v1.backup.json` and writes V2 in one verified Gist PATCH, preserving
+business entities, output bytes/names, URLs, and timestamps without republishing.
+Changed source requires rechecking; a mismatching existing backup stops with
+`migration_backup_conflict`. Resolve pending queues/repair evidence first.
+Only `remote-committed` completes the preview.
 
-Explicit migration uses internal browser `workspace.migrate` with the SHA-256
-of the previewed source bytes. It preserves output files, names, URLs, timestamps,
-and business entities without republishing. Changed source requires rechecking;
-an existing mismatching backup stops with `migration_backup_conflict`. Resolve
-pending queues/repair evidence first. Queued or retrying is not completion;
-wait for `remote-committed`.
-
-## Import, Audit, And Recovery
-
-`subman.json` is a revisioned Workspace document. Settings exports use
-`{ version: 2, kind: "subman-business-configuration", data: ... }` and omit
-binding, revision, tombstones, queues, and authentication. They are import files,
-not replacements for remote `subman.json`.
+## Operator Audit And Recovery
 
 `scripts/audit-workspace.ts` reads a downloaded file offline, reports schema/count
-metadata, and optionally verifies V2 Gist identity with `--gist-id`. Its
-`--export-v1` option converts valid V1 into an exclusively created `0600` import
-file. It does not contact GitHub, verify output freshness, or recreate targets
-from output files. Diagnostics likewise cannot restore business data.
+metadata, and optionally verifies V2 Gist identity with `--gist-id`. Its retained
+`--export-v1` option creates an exclusive `0600` normalized business artifact
+for operator inspection. This does not provide an application import or restore
+path. Historical `subman-business-configuration` files omit revision/tombstones
+and cannot replace remote `subman.json`. Diagnostics cannot restore business data.
 
-For a move to a new Gist, imported old URLs do not copy output files or establish
-trusted publication metadata. New targets lose claimed publication metadata until
-actually published. Prefer migration in the original Gist when old links matter.
-Do not bulk-clean external files before recovery: old outputs without target
-records are classified as external and may still be used by clients.
-
-See `docs/legacy-workspace-migration.md` for the full procedure.
-
-See `docs/workspace-v2-operations.md` for deployment evidence and rollback.
+The audit does not contact GitHub, verify output freshness, or recreate targets
+from output files. Preserve original cloud files and history before a separately
+authorized operator repair. Do not clear browser evidence or bulk-clean external
+files first: historical outputs without targets may still serve clients.
+See `docs/legacy-workspace-migration.md` and `docs/workspace-v2-operations.md`.
 
 ## Stability Rules
 
-- Never add another runtime path that can write `subman.json`.
-- Never clear tombstones during normal reconciliation.
-- Preserve mutation IDs across retries.
-- Keep publish target filenames stable when stable raw URLs matter.
-- Keep GitHub tokens out of mutations, local coordination storage, Durable
-  Object SQLite state, responses, and logs.
+- Never add another runtime writer of `subman.json`.
+- Never reset revision or clear tombstones during normal recovery.
+- Preserve original mutation IDs across retries and token replacement.
+- Keep output filenames stable when stable raw URLs matter.
+- Keep GitHub tokens out of mutations, IndexedDB, Durable Object SQLite,
+  responses, diagnostics, and logs.

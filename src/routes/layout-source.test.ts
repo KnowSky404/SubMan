@@ -152,7 +152,7 @@ test("browser persistence initializes before sync with synchronous cleanup", () 
 	expect(startIndex).toBeGreaterThan(initializeIndex);
 	expect(cleanupIndex).toBeGreaterThan(startIndex);
 	expect(layoutSource).toContain("void initializeAppStatePersistence()");
-	expect(layoutSource).toContain("if (!cancelled)");
+	expect(layoutSource).toContain("if (cancelled) return;");
 	expect(layoutSource).not.toContain("onMount(async");
 });
 

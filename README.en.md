@@ -13,12 +13,11 @@ Default workspace identity:
 
 ## Key Features
 
-- Workspace Gist: discovers the fixed identity on connect; multiple candidates need selection, V1 needs migration confirmation, and no match creates a private bootstrap Gist
-- Local and cloud modes: transactional IndexedDB business state in the browser;
-  automatic Gist synchronization when a token and Workspace binding are active
-- Conflict handling and repair: local overwrite, remote overwrite, merge, or bind only; health check and config repair
-- Auto sync: browser changes enter a persistent queue and a Cloudflare Durable Object commits them in revision order
-- Queue recovery: inspect active and orphan Workspace queues and retry, discard, rebind, or repair whole queues
+- One cloud data source: one bound private GitHub Gist with authoritative business data in `subman.json`
+- Fresh reads: load the latest cloud data on startup before allowing edits
+- Immediate synchronization: journal every change transactionally, then send it to the Cloudflare Durable Object and wait for cloud confirmation
+- Recovery: retry the original request after a network failure; resolve a revision conflict by confirming complete-queue discard and loading the latest cloud state
+- One binding: no Workspace list or switching; retained historical queues remain available for recovery inspection
 - Nodes and subscriptions: add, edit, enable/disable, tag, search, and filter
 - Batch import: multi-line import with dedupe and preview; supports base64 subscription content
 - Aggregation rules: select nodes/subscriptions, exclude tags, filter by proxy types, regex renaming, region flags
@@ -33,12 +32,12 @@ Default workspace identity:
 
 ## Typical Flow
 
-Without a token, manage nodes, subscriptions, and rules locally and preview or
-download outputs. Business state belongs to this browser and site origin in
-IndexedDB; it does not automatically follow you to another device. To sync and
-publish:
+Connect GitHub and load cloud data before managing nodes, subscriptions, or
+rules. There is no local business mode, JSON business backup or restore, manual
+push, or local overwrite/merge flow. Browser caches and delivery journals serve
+synchronization reliability.
 
-1. Save a GitHub token in `/auth` (requires `gist` scope; session-only unless Remember token is selected), verify the Gist identity, and bind the Workspace
+1. Save a GitHub token in `/auth` (requires `gist` scope; session-only unless Remember token is selected), verify the one Gist identity, and wait for the cloud load. Enter the original Gist ID if discovery finds multiple documents; setup does not choose one arbitrarily or create another
 2. Add nodes and subscriptions in `/nodes` (batch import supported)
 3. Build rules in `/aggregate`, configure sorting and renaming, then preview output
 4. Select an aggregate rule in `/exports`, then preview, copy, or download a sing-box config
@@ -46,7 +45,7 @@ publish:
 
 ## Pages
 
-- `/auth`: workspace settings, conflict handling, health check, import/export, sync status
+- `/auth`: cloud connection, sync status, cloud reload, legacy upgrade, and safe diagnostics
 - `/gists`: workspace file list, raw link copy, file cleanup
 - `/nodes`: nodes and subscriptions management (search, filters, batch import)
 - `/aggregate`: rule editor, visual drag-and-drop sorting, publish target management, output publishing
@@ -65,21 +64,23 @@ publish:
 
 ## Workspace Model
 
-- After token setup, SubMan finds the fixed Gist; a new Gist starts with a bootstrap marker and the first coordinator commit creates `subman.json`
-- Workspace data lives in one Gist; `subman.json`, `subman.v1.backup.json`, and `subman.bootstrap.json` are reserved and cannot be used as outputs or deleted from the file manager
-- Browser and Server API mutations are serialized by one Durable Object per Workspace
-- In `/auth`, Manual Workspace migration can check all Workspaces or a specific old Gist ID without creating a new Gist or preferring the current binding.
-- Connecting a recognized legacy Workspace opens a migration preview. Click Migrate and load Workspace to upgrade in the same Gist and preserve the byte-exact V1 file as `subman.v1.backup.json`
-- Migration preserves output filenames, content, publication timestamps, and URLs, so clients keep their existing stable subscription links
-- Conflict resolution options: local overwrite, remote overwrite, merge, or bind only
-- Health check and repair are available from workspace settings
+- Initial setup discovers the fixed identity or checks an explicit original Gist ID. Only an absent candidate permits creating an empty private bootstrap Gist; ambiguous or invalid results never select, create, or overwrite a different document
+- A device keeps one Gist binding across login and token replacement. Workspace lists, switching, and rebinding controls are removed
+- Startup loads the latest cloud snapshot before editing. Legacy manual bindings return to automatic delivery only after a safe refresh; a browser cache is not a business data source
+- Browser and Server API changes use `WorkspaceCoordinator`, the sole `subman.json` writer. Configuration and output changes use one revisioned Gist commit
+- Each business action sends immediately and waits for cloud confirmation. Queued, peer-owned, and retry-scheduled results retain the original mutation ID and do not report a successful save
+- Pending or blocked delivery prevents further business changes. Retry the original request after reconnecting; abandoning work requires confirmation to discard the complete queue and reload cloud data
+- There is no local overwrite, merge, bind-only, manual-sync, or business JSON backup/import flow
+- `subman.json`, `subman.v1.backup.json`, and `subman.bootstrap.json` are reserved and cannot be used as outputs or deleted from the file manager
+- Recognized V1 data requires a migration preview and confirmation in the original Gist, preserving exact backup bytes, output filenames/content, publication timestamps, and URLs
+- Bootstrap starts from empty cloud data instead of uploading a previous browser cache. Historical queues for other Gists remain recovery evidence and are never automatically rebound or delivered
 
 See [Workspace V2 Operations](docs/workspace-v2-operations.md) for deployment,
 migration verification, and rollback.
 If historical rules or publication records disappear after an upgrade, follow
 the [legacy data migration guide (Chinese)](docs/legacy-workspace-migration.md)
 to check Gist identity, document validity, and output files. It includes an
-offline audit and V1 configuration conversion workflow.
+operator-only offline audit and V1 recovery workflow.
 See the [Roadmap](docs/ROADMAP.md) for current work and deferred protocol items.
 See [sing-box Export](docs/sing-box-export.md) for the protocol matrix,
 subscription CORS/size limits, and the export publication boundary.
@@ -93,47 +94,36 @@ Rules and last-publication metadata come from `subman.json` collections
 those records. Early versions did not persist publish targets; fixed Gist identity,
 strict validation, and browser cache migration can also prevent old data from loading.
 Back up the sources and follow the [migration guide (Chinese)](docs/legacy-workspace-migration.md)
-before overwriting a Gist. Valid V1 documents migrate automatically; arbitrary historical
+before overwriting a Gist. Recognized V1 documents require upgrade confirmation; arbitrary historical
 files are not guaranteed to load.
 
-### Will auto sync overwrite remote data with my local copy?
+### Which data wins when the cloud and browser cache differ?
 
-Not blindly. After a Workspace is connected, each browser business action is
-persisted in a local queue and sent to the Workspace coordinator with an
-`expectedRevision`.
+Cloud `subman.json` is authoritative. Startup and Sync from Cloud load its latest
+state. Connecting does not upload old cached data. Each change supplies
+`expectedRevision`; the coordinator accepts only the next change for that
+revision, and remote tombstones prevent old cached entities from returning.
 
-- The coordinator accepts only the next mutation for the current revision and
-  commits config plus publication files in one Gist PATCH.
-- Network failures retain and retry the same mutation ID, so one operation is
-  not committed twice.
-- A remote revision change retains the queue, pauses automatic delivery, and
-  opens conflict handling.
-- Later queued edits are replayed over the newest committed baseline, so an old
-  response cannot replace newer local work.
+### What happens to an operation when the network fails?
 
-### Which actions still overwrite the remote workspace?
+A request that reached the local transaction remains in the technical delivery
+journal and retries with the same mutation ID. Queued, peer-owned, and retrying
+states are not successful saves; only `remote-committed` proves cloud persistence.
+Further business changes wait for settlement. No JSON backup or restore is needed.
 
-When you click Manual Push Local, SubMan first reads the remote `subman.json`
-and compares it with the saved local sync baseline:
+### What happens when another device changes the cloud data?
 
-- If the remote file has not changed, SubMan pushes the current local state
-  after confirmation.
-- If the remote file changed, SubMan does not overwrite it immediately. It asks
-  you to choose Pull Remote, Merge & Save, or Force Push.
-- Only Force Push, or the setup conflict option to overwrite remote with local,
-  overwrites remote data after divergence is detected.
+A revision conflict pauses delivery and retains pending work. Review recovery
+metadata, then confirm whether to discard the complete pending queue and reload
+the latest cloud state. Reapply any intended edit against that state. Local
+overwrite, merge, bind-only, and manual synchronization controls are removed.
 
-Overwrite still enforces revisions and remote tombstones; it cannot restore deleted IDs and may delete remote live entities. Preserve a recovery source before deliberately choosing the local state.
+### What if the account contains several SubMan Gists?
 
-### What should I choose when local and remote differ during workspace setup?
-
-The `/auth` page shows conflict-resolution options:
-
-- Pull Remote: replace the local view with remote data.
-- Push Local: write current local data to the Gist.
-- Merge & Save: perform a three-way, tombstone-aware merge against the trusted
-  baseline. Client `updatedAt` values do not grant overwrite authority.
-- Bind only: bind the workspace without syncing immediately.
+Enter the original Gist ID during initial setup. The device keeps that one
+binding; login, token replacement, and a temporarily inaccessible Gist never
+silently select or create another one. Historical queues for other Gists remain
+visible as recovery evidence and are not sent automatically.
 
 ## Development
 
@@ -305,8 +295,9 @@ subscription, aggregate, publication, and export endpoints.
 - Diagnostics export counts, safe metadata, payload byte lengths/hashes, retry
   classifications, and quarantine metadata. They do not include recovery data,
   raw payloads, quarantine contents, credentials, or error stacks.
-- Settings business exports are backup/import files without Workspace revisions,
-  tombstones, queues, or authentication; do not replace `subman.json` with one.
+- Settings no longer exports or imports business JSON. Historical
+  `subman-business-configuration` files are not Workspace documents and cannot
+  replace `subman.json`; diagnostics cannot restore business data either.
 - Only `remote-committed` proves browser publication. Locally saved, queued,
   peer-owned, or retry-scheduled work still needs delivery; keep the original
   mutation ID and repair complete Workspace queues.
@@ -323,8 +314,8 @@ bun run scripts/audit-workspace.ts /private/path/subman.json --gist-id YOUR_GIST
 
 This checks schema and identity without network requests. It does not verify
 output contents, URL availability, or publication freshness. The
-[legacy migration guide](docs/legacy-workspace-migration.md) explains V1 import
-conversion and preserving old subscription links.
+[legacy migration guide](docs/legacy-workspace-migration.md) explains operator
+recovery, V1 migration, and preserving old subscription links.
 
 ## AI / Agent Adaptation
 
@@ -353,4 +344,4 @@ GNU Affero General Public License v3.0 only. See [LICENSE](LICENSE).
 
 - Keep code ASCII-only
 - Commit after each independent feature or fix
-- Keep Workspace business data and outputs in one Gist; local mode uses browser IndexedDB
+- Keep business data and outputs in the one bound cloud Gist; IndexedDB holds caches, delivery journals, and recovery evidence

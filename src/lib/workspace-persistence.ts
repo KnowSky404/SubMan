@@ -72,6 +72,17 @@ export class WorkspaceConcurrentUpdateError extends Error {
 	}
 }
 
+export class WorkspaceBindingLockedError extends Error {
+	readonly code = "workspace_binding_locked" as const;
+
+	constructor() {
+		super(
+			"This device is already connected to a Workspace. Reconnect the same Gist.",
+		);
+		this.name = "WorkspaceBindingLockedError";
+	}
+}
+
 export type WorkspacePersistenceFaultPoint =
 	| "before-transaction"
 	| "after-snapshot"
@@ -264,6 +275,11 @@ export interface BrowserWorkspacePersistence {
 		workspaceId: string;
 		snapshot?: AppState;
 		binding?: WorkspaceV2LocalState;
+		expected?: {
+			snapshot: AppState | null;
+			binding: WorkspaceV2LocalState | null;
+			queue: PersistedWorkspaceQueue | null;
+		};
 	}): Promise<number>;
 	rebindWorkspace(input: {
 		snapshot: AppState;
@@ -1933,9 +1949,25 @@ export class TransactionalWorkspacePersistence
 		workspaceId: string;
 		snapshot?: AppState;
 		binding?: WorkspaceV2LocalState;
+		expected?: {
+			snapshot: AppState | null;
+			binding: WorkspaceV2LocalState | null;
+			queue: PersistedWorkspaceQueue | null;
+		};
 	}): Promise<number> {
 		const workspaceId = canonicalWorkspaceId(input.workspaceId, "workspaceId");
 		return this.backend.transact((draft, checkpoint) => {
+			if (
+				input.expected &&
+				(!workspaceBindingsEqual(draft.binding, input.expected.binding) ||
+					!persistenceValuesEqual(draft.snapshot, input.expected.snapshot) ||
+					!persistenceValuesEqual(
+						draft.workspaces[workspaceId] ?? null,
+						input.expected.queue,
+					))
+			) {
+				throw new WorkspaceConcurrentUpdateError();
+			}
 			const count = draft.workspaces[workspaceId]?.mutations.length ?? 0;
 			const active = draft.binding?.workspaceId === workspaceId;
 			if (active) {
@@ -1968,6 +2000,9 @@ export class TransactionalWorkspacePersistence
 		ensureIdentity(snapshot, binding);
 		await this.backend.transact((draft, checkpoint) => {
 			const previousWorkspaceId = draft.binding?.workspaceId;
+			if (previousWorkspaceId && previousWorkspaceId !== binding.workspaceId) {
+				throw new WorkspaceBindingLockedError();
+			}
 			const queue = draft.workspaces[binding.workspaceId];
 			if (queue?.mutations.length && binding.revision === null) {
 				throw corrupt("Cannot rebind a nonempty queue without a revision");
@@ -2031,6 +2066,9 @@ export class TransactionalWorkspacePersistence
 		}
 		ensureSnapshotMatchesQueue(snapshot, binding, mutations);
 		await this.backend.transact((draft, checkpoint) => {
+			if (draft.binding && draft.binding.workspaceId !== binding.workspaceId) {
+				throw new WorkspaceBindingLockedError();
+			}
 			const currentQueue = draft.workspaces[binding.workspaceId] ?? null;
 			if (
 				!workspaceBindingsEqual(draft.binding, input.expected.binding) ||
@@ -2523,8 +2561,13 @@ export class IndexedDbWorkspacePersistenceBackend
 						WORKSPACE_PERSISTENCE_ROOT_KEY,
 					);
 				} catch (error) {
+					completed = true;
+					reject(
+						error instanceof WorkspaceBindingLockedError
+							? error
+							: normalizeError(error, "transaction-aborted"),
+					);
 					transaction.abort();
-					reject(normalizeError(error, "transaction-aborted"));
 				}
 			};
 			request.onerror = () =>

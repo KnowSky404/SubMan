@@ -235,6 +235,9 @@ export async function commitBrowserWorkspaceAction(input: {
 	}
 	await initializePromise;
 	const binding = currentRecord?.binding ?? null;
+	if (input.mutation && binding?.syncMode !== "automatic") {
+		throw new WorkspaceConcurrentUpdateError();
+	}
 	let mutation: WorkspaceMutation | null = null;
 	let committedCore = false;
 	try {

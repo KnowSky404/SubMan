@@ -24,8 +24,9 @@ Paths outside `references/` below are relative to the repository root.
 ## Working Rules
 
 - Use Bun 1.3.14 and `bun install --frozen-lockfile`; follow current package scripts.
-- Workspace mode stores business configuration and outputs in one Gist. Local
-  mode stores business data in the transactional IndexedDB persistence root.
+- Cloud `subman.json` is the sole business authority in one bound Gist. Require
+  a fresh cloud load before edits; IndexedDB holds only technical cache, delivery
+  journals, and recovery evidence. Do not restore local business mode or switching.
 - Keep the workspace identity stable: description `SubMan-Data`, file
   `subman.json`.
 - Do not give external automation the GitHub token. Store `GITHUB_TOKEN` in
@@ -41,11 +42,13 @@ Paths outside `references/` below are relative to the repository root.
   writes automatically add a timestamp suffix on name collision.
 - Treat duplicate node raw URIs as content duplicates. UI and API writes reject
   raw collisions instead of creating another node with a different name.
-- Preserve existing conflict handling: local overwrite, remote overwrite, merge
-  and save, bind only.
+- Conflict recovery reloads the original cloud document only after confirming
+  complete-queue discard. Do not restore local push/merge, bind-only, manual
+  sync, or business JSON backup/import.
 - Await `WorkspaceActionHandle.completion`; `submitted` only accepts the task.
   Use the shared presenter for operation outcomes and keep durable queued,
-  peer-owned, or retry-scheduled work distinct from publication success.
+  peer-owned, or retry-scheduled work pending. Only `remote-committed` reports
+  success or finalizes a draft.
 - Preserve revisions, tombstones, mutation IDs, fencing tokens, and the complete
   Workspace queue during repair. Diagnostics must never read raw quarantine data.
 - Run `bun run check` after TypeScript or Svelte changes. Run `bun run build`
@@ -81,19 +84,24 @@ Read `references/workspace-data.md` and inspect `src/lib/workspace.ts`,
 `src/lib/workspace-operation-result.ts`, and
 `src/lib/server/workspace-coordinator-core.ts`. Preserve the protected
 `subman.json` file, revisioned mutation queue, and same-gist publishing model.
-Read `src/lib/workspace-merge.ts` for tombstone-aware conflict resolution and
-`src/lib/workspace-settings-controller.ts` for persisted settings/repair behavior.
+Read `src/lib/workspace-cloud-session.ts` for startup cloud revalidation and
+`src/lib/workspace-settings-controller.ts` for persisted cloud reload/recovery.
+Keep the single binding and cloud authority; no local overwrite/merge or manual
+business mode. Retained internal merge/reconcile code must preserve tombstones.
 Add protocol behavior tests first, then run unit, type, lint, Cloudflare, and
 relevant browser gates.
 
 ### Discover or migrate an old Workspace
 
 Read `docs/legacy-workspace-migration.md` and `references/workspace-data.md`.
-Use `/auth` Manual Workspace migration for read-only discovery; normal connection
-can create a bootstrap Gist and prefers a saved binding. Confirm the original
-Gist and preview before migration. Retain local-only data and repair evidence;
-do not clear queues, regenerate output files, or change old subscription links.
-Offline audit uses `scripts/audit-workspace.ts` with no network or credentials.
+Use `/auth` Manual Workspace migration only while unbound, with the original
+Gist ID, for a read-only check. Bound startup/reconnection reads the original
+Gist and cannot select another one. Initial absent discovery can create an empty
+bootstrap; ambiguity requires an explicit ID. Confirm the original Gist and
+preview before migration. Retain historical cache and repair evidence for
+operator recovery; do not upload it, clear queues, regenerate outputs, or change
+old links. Offline audit uses `scripts/audit-workspace.ts` without network or
+credentials; its conversion artifact has no current browser import path.
 
 ### Change UI flows
 
@@ -101,7 +109,9 @@ Inspect the matching route under `src/routes`. Keep the current product shape:
 `/auth` for workspace/token/sync, `/gists` for workspace files, `/nodes` for
 node and subscription management, `/aggregate` for output rules and
 publishing, and `/exports` for sing-box profiles and publication. Follow
-`design.md`, retain drafts until completion, and verify changed browser flows.
+`design.md`, require fresh cloud data before editing, retain drafts until
+`remote-committed`, and verify changed browser flows. Pending/peer/retry results
+are technical delivery states and never local business success.
 
 ### Deploy or debug Cloudflare runtime
 

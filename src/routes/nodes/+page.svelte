@@ -361,7 +361,6 @@ async function handleAdd() {
 			const result = await handle.completion;
 			if (
 				!showWorkspaceResult(result, {
-					localDurableMessageKey: "Resource added",
 					remoteCommittedMessageKey: "Resource added",
 				})
 			)
@@ -397,7 +396,6 @@ async function handleAdd() {
 			const result = await handle.completion;
 			if (
 				!showWorkspaceResult(result, {
-					localDurableMessageKey: "Resource added",
 					remoteCommittedMessageKey: "Resource added",
 				})
 			)
@@ -587,7 +585,6 @@ async function saveEditNode(id: string) {
 	}).completion;
 	if (
 		!showWorkspaceResult(result, {
-			localDurableMessageKey: "Node updated",
 			remoteCommittedMessageKey: "Node updated",
 		})
 	)
@@ -633,7 +630,6 @@ async function saveEditSub(id: string) {
 	}).completion;
 	if (
 		!showWorkspaceResult(result, {
-			localDurableMessageKey: "Subscription updated",
 			remoteCommittedMessageKey: "Subscription updated",
 		})
 	)
@@ -719,7 +715,6 @@ async function remove(id: string, type: "node" | "sub", name: string) {
 			: removeSubscription(id).completion);
 		if (
 			!showWorkspaceResult(result, {
-				localDurableMessageKey: "Deleted {name}",
 				remoteCommittedMessageKey: "Deleted {name}",
 				successMessageParams: { name },
 			})

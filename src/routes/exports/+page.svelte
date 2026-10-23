@@ -42,9 +42,10 @@ import {
 import type { WorkspaceOperationResult } from "$lib/workspace-operation-result";
 import { findWorkspaceOutputConflicts } from "$lib/workspace-output";
 import { getBrowserWorkspaceBinding } from "$lib/workspace-persistence-browser";
-import { workspaceSyncStatus } from "$lib/workspace-sync-status";
 
 let selectedProfileId = "";
+let pendingCreatedProfile: ClientExportProfile | null = null;
+let creatingProfile = false;
 let previewContent = "";
 let previewSignature = "";
 let previewWarnings: string[] = [];
@@ -60,7 +61,7 @@ let draftName = "";
 let draftFileName = "";
 let draftRuleId = "";
 let draftListenAddress = "";
-let draftListenPort = "2080";
+let draftListenPort: number | undefined = 2080;
 let draftSelectorTag = "";
 let draftUrlTestTag = "";
 let draftIncludeExperimental = true;
@@ -118,7 +119,7 @@ $: profileDirty = selectedProfile
 			fileName: selectedProfile.fileName,
 			ruleId: selectedProfile.ruleId,
 			listenAddress: selectedProfile.options.listenAddress,
-			listenPort: String(selectedProfile.options.listenPort),
+			listenPort: selectedProfile.options.listenPort,
 			selectorTag: selectedProfile.options.selectorTag,
 			urlTestTag: selectedProfile.options.urlTestTag,
 			includeExperimental: selectedProfile.options.includeExperimental,
@@ -128,7 +129,6 @@ $: outputConflicts = findWorkspaceOutputConflicts($appState);
 $: selectedOutputConflict = outputConflicts.find(
 	(conflict) => conflict.fileName === selectedProfile?.fileName,
 );
-$: workspaceIsManual = $workspaceSyncStatus.mode === "manual";
 $: publishDisabled =
 	!$authState.token ||
 	!$appState.activeGistId ||
@@ -139,7 +139,6 @@ $: publishDisabled =
 	previewErrors.length > 0 ||
 	profileDirty ||
 	Boolean(selectedOutputConflict) ||
-	workspaceIsManual ||
 	publishing;
 $: publishedUrl = selectedProfileId
 	? getCommittedClientExportUrl(selectedProfileId, $appState)
@@ -165,7 +164,7 @@ function syncDraftFromProfile(profile: ClientExportProfile): void {
 	draftFileName = profile.fileName;
 	draftRuleId = profile.ruleId;
 	draftListenAddress = profile.options.listenAddress;
-	draftListenPort = String(profile.options.listenPort);
+	draftListenPort = profile.options.listenPort;
 	draftSelectorTag = profile.options.selectorTag;
 	draftUrlTestTag = profile.options.urlTestTag;
 	draftIncludeExperimental = profile.options.includeExperimental;
@@ -224,32 +223,41 @@ function editProfile(profile: ClientExportProfile): void {
 }
 
 async function createProfile(): Promise<void> {
-	if (!firstRule) return;
-
-	const profile = createDefaultSingBoxClientProfile(firstRule.id, nowIso());
-	const ownedFileNames = new Set([
-		...$appState.publishTargets.map((target) => target.fileName),
-		...$appState.clientExports.map((item) => item.fileName),
-	]);
-	let suffix = 1;
-	while (ownedFileNames.has(profile.fileName)) {
-		suffix += 1;
-		profile.fileName = `sing-box-client-${suffix}.json`;
+	if (!firstRule || creatingProfile) return;
+	creatingProfile = true;
+	try {
+		const profile =
+			pendingCreatedProfile ??
+			createDefaultSingBoxClientProfile(firstRule.id, nowIso());
+		const ownedFileNames = new Set([
+			...$appState.publishTargets.map((target) => target.fileName),
+			...$appState.clientExports
+				.filter((item) => item.id !== profile.id)
+				.map((item) => item.fileName),
+		]);
+		let suffix = 1;
+		while (ownedFileNames.has(profile.fileName)) {
+			suffix += 1;
+			profile.fileName = `sing-box-client-${suffix}.json`;
+		}
+		const result = await upsertClientExport(profile).completion;
+		if (result.durable !== false) pendingCreatedProfile = profile;
+		if (
+			!showWorkspaceResult(result, {
+				remoteCommittedMessageKey: "Export profile created",
+			}).remoteCommitted
+		)
+			return;
+		pendingCreatedProfile = null;
+		selectedProfileId = profile.id;
+		const committed = $appState.clientExports.find(
+			(item) => item.id === profile.id,
+		);
+		if (committed) syncDraftFromProfile(committed);
+		clearPreview();
+	} finally {
+		creatingProfile = false;
 	}
-	const result = await upsertClientExport(profile).completion;
-	if (
-		!showWorkspaceResult(result, {
-			localDurableMessageKey: "Export profile created",
-			remoteCommittedMessageKey: "Export profile created",
-		}).finalizeDraft
-	)
-		return;
-	selectedProfileId = profile.id;
-	const committed = $appState.clientExports.find(
-		(item) => item.id === profile.id,
-	);
-	if (committed) syncDraftFromProfile(committed);
-	clearPreview();
 }
 
 async function saveProfile(): Promise<void> {
@@ -293,9 +301,8 @@ async function saveProfile(): Promise<void> {
 	const result = await upsertClientExport(nextProfile).completion;
 	if (
 		!showWorkspaceResult(result, {
-			localDurableMessageKey: "Export profile saved",
 			remoteCommittedMessageKey: "Export profile saved",
-		}).finalizeDraft
+		}).remoteCommitted
 	)
 		return;
 	selectedProfileId = nextProfile.id;
@@ -322,11 +329,11 @@ async function deleteProfile(profile: ClientExportProfile): Promise<void> {
 		const result = await handle.completion;
 		if (
 			!showWorkspaceResult(result, {
-				localDurableMessageKey: "Deleted export profile",
 				remoteCommittedMessageKey: "Deleted export profile",
-			}).finalizeDraft
+			}).remoteCommitted
 		)
 			return;
+		if (pendingCreatedProfile?.id === profile.id) pendingCreatedProfile = null;
 		if (selectedProfileId === profile.id) {
 			selectedProfileId = "";
 		}
@@ -528,7 +535,7 @@ async function publishPreview(): Promise<void> {
 							<span>{$t("Create an Aggregate rule before exporting.")}</span>
 						</div>
 					{:else if canCreateProfile}
-						<button class="gh-btn gh-btn-primary self-start" type="button" on:click={createProfile}>
+						<button class="gh-btn gh-btn-primary self-start" type="button" on:click={createProfile} disabled={creatingProfile}>
 							{$t("New profile")}
 						</button>
 					{/if}
@@ -736,11 +743,7 @@ async function publishPreview(): Promise<void> {
 					<p class="text-xs leading-relaxed text-fg-muted">
 						{$t("Publish the generated JSON to the workspace gist, then copy the raw URL as a remote profile URL for compatible sing-box clients.")}
 					</p>
-					{#if workspaceIsManual}
-						<div class="gh-alert gh-alert-warning text-xs">
-							{$t("Push local Workspace changes before publishing")}
-						</div>
-					{/if}
+
 					{#if $authState.token}
 						<button
 							type="button"

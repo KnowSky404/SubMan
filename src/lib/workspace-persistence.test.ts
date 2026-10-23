@@ -430,6 +430,75 @@ function seedLegacy(storage: Storage): void {
 }
 
 describe("transactional Workspace persistence", () => {
+	it("keeps the first Workspace binding when another target is requested", async () => {
+		for (const queued of [false, true]) {
+			const persistence = automaticPersistence();
+			if (queued) {
+				await persistence.commitAutomaticAction({
+					snapshot: committedSnapshot(),
+					binding: binding(),
+					mutation: reconcileMutation(),
+				});
+				await acquireFence(persistence);
+			}
+			const before = await persistence.read();
+			const error = await captureError(
+				persistence.rebindWorkspace({
+					snapshot: committedSnapshot(OTHER_GIST_ID),
+					binding: binding(0, OTHER_GIST_ID),
+				}),
+			);
+			expect(error.code).toBe("workspace_binding_locked");
+			expect(await persistence.read()).toEqual(before);
+		}
+	});
+
+	it("allows first binding and reconnecting the same Workspace", async () => {
+		const persistence = new InMemoryWorkspacePersistence();
+		await persistence.rebindWorkspace({
+			snapshot: committedSnapshot(),
+			binding: binding(),
+		});
+		await persistence.rebindWorkspace({
+			snapshot: committedSnapshot(),
+			binding: binding(1),
+		});
+		expect((await persistence.read()).binding).toEqual(binding(1));
+	});
+
+	it("does not use queue repair to replace the active Workspace", async () => {
+		const persistence = automaticPersistence();
+		const before = await persistence.read();
+		const error = await captureError(
+			repairQueue(persistence, {
+				snapshot: committedSnapshot(OTHER_GIST_ID),
+				binding: binding(0, OTHER_GIST_ID),
+				mutations: [reconcileMutation(MUTATION_ID_2, 0, OTHER_WORKSPACE_ID)],
+			}),
+		);
+		expect(error.code).toBe("workspace_binding_locked");
+		expect(await persistence.read()).toEqual(before);
+	});
+
+	it("serializes competing first bindings so only one target becomes active", async () => {
+		const persistence = new InMemoryWorkspacePersistence();
+		const results = await Promise.allSettled([
+			persistence.rebindWorkspace({
+				snapshot: committedSnapshot(),
+				binding: binding(),
+			}),
+			persistence.rebindWorkspace({
+				snapshot: committedSnapshot(OTHER_GIST_ID),
+				binding: binding(0, OTHER_GIST_ID),
+			}),
+		]);
+		expect(results.map((result) => result.status)).toEqual([
+			"fulfilled",
+			"rejected",
+		]);
+		expect((await persistence.read()).binding?.workspaceId).toBe(WORKSPACE_ID);
+	});
+
 	it("rolls back snapshot, binding, and queue at every pre-commit fault", async () => {
 		const points: WorkspacePersistenceFaultPoint[] = [
 			"before-transaction",
@@ -820,7 +889,7 @@ describe("transactional Workspace persistence", () => {
 		).toEqual([]);
 	});
 
-	it("rejects delivery after another Workspace becomes active", async () => {
+	it("rejects delivery from a retained historical orphan Workspace", async () => {
 		const nowMs = 100;
 		const persistence = automaticPersistence(() => nowMs);
 		await persistence.commitAutomaticAction({
@@ -834,9 +903,10 @@ describe("transactional Workspace persistence", () => {
 			"tab-a",
 			nowMs,
 		);
-		await persistence.rebindWorkspace({
-			snapshot: committedSnapshot(OTHER_GIST_ID),
-			binding: binding(0, OTHER_GIST_ID),
+		await persistence.memoryBackend.transact((draft) => {
+			draft.snapshot = committedSnapshot(OTHER_GIST_ID);
+			draft.binding = binding(0, OTHER_GIST_ID);
+			delete draft.leases[workspaceDispatcherLeaseName(WORKSPACE_ID)];
 		});
 		expect(
 			await persistence.renewLease({
@@ -1358,8 +1428,78 @@ describe("queue inspection and repair", () => {
 		).toBeNull();
 	});
 
+	it("preserves work appended after a queue discard was inspected", async () => {
+		const persistence = automaticPersistence();
+		await persistence.commitAutomaticAction({
+			snapshot: committedSnapshot(),
+			binding: binding(),
+			mutation: mutationDraft(reconcileMutation()),
+		});
+		const inspected = await persistence.read();
+		await persistence.commitAutomaticAction({
+			snapshot: committedSnapshot(),
+			binding: binding(),
+			mutation: mutationDraft(reconcileMutation(MUTATION_ID_2, 1)),
+		});
+		const before = await persistence.read();
+
+		const error = await captureError(
+			persistence.discardWorkspaceQueue({
+				workspaceId: WORKSPACE_ID,
+				snapshot: committedSnapshot(),
+				binding: binding(),
+				expected: {
+					snapshot: inspected.snapshot,
+					binding: inspected.binding,
+					queue: inspected.workspaces[WORKSPACE_ID] ?? null,
+				},
+			}),
+		);
+
+		expect(error instanceof WorkspaceConcurrentUpdateError).toBe(true);
+		expect(await persistence.read()).toEqual(before);
+		expect(before.workspaces[WORKSPACE_ID]?.mutations).toHaveLength(2);
+	});
+
+	it("preserves a delivery confirmed after a queue discard was inspected", async () => {
+		const persistence = automaticPersistence();
+		await persistence.commitAutomaticAction({
+			snapshot: committedSnapshot(),
+			binding: binding(),
+			mutation: mutationDraft(reconcileMutation()),
+		});
+		const inspected = await persistence.read();
+		const fence = await acquireFence(persistence);
+		await persistence.commitDeliverySuccess({
+			snapshot: committedSnapshot(),
+			binding: binding(1),
+			mutationId: MUTATION_ID,
+			fence,
+		});
+		const before = await persistence.read();
+
+		const error = await captureError(
+			persistence.discardWorkspaceQueue({
+				workspaceId: WORKSPACE_ID,
+				snapshot: committedSnapshot(),
+				binding: binding(),
+				expected: {
+					snapshot: inspected.snapshot,
+					binding: inspected.binding,
+					queue: inspected.workspaces[WORKSPACE_ID] ?? null,
+				},
+			}),
+		);
+
+		expect(error instanceof WorkspaceConcurrentUpdateError).toBe(true);
+		expect(await persistence.read()).toEqual(before);
+		expect(before.binding?.revision).toBe(1);
+	});
+
 	it("refuses an unsafe rebind and accepts an explicit contiguous repair", async () => {
 		const record = seededRecord();
+		record.binding = null;
+		record.snapshot = { ...snapshot("unbound"), activeGistId: null };
 		record.workspaces[OTHER_WORKSPACE_ID]?.mutations.splice(
 			0,
 			1,
@@ -1427,7 +1567,7 @@ describe("queue inspection and repair", () => {
 		expect(await rollback.read()).toEqual(before);
 	});
 
-	it("invalidates the previous Workspace lease when repair switches identity", async () => {
+	it("retains the active Workspace lease when another target requests repair", async () => {
 		const nowMs = 100;
 		const persistence = automaticPersistence(() => nowMs);
 		await persistence.commitAutomaticAction({
@@ -1441,13 +1581,16 @@ describe("queue inspection and repair", () => {
 			"tab-a",
 			nowMs,
 		);
-		await repairQueue(persistence, {
-			snapshot: committedSnapshot(OTHER_GIST_ID),
-			binding: binding(0, OTHER_GIST_ID),
-			mutations: [],
-		});
 		const before = await persistence.read();
-
+		const error = await captureError(
+			repairQueue(persistence, {
+				snapshot: committedSnapshot(OTHER_GIST_ID),
+				binding: binding(0, OTHER_GIST_ID),
+				mutations: [],
+			}),
+		);
+		expect(error.code).toBe("workspace_binding_locked");
+		expect(await persistence.read()).toEqual(before);
 		expect(
 			await persistence.renewLease({
 				name: workspaceDispatcherLeaseName(WORKSPACE_ID),
@@ -1456,20 +1599,7 @@ describe("queue inspection and repair", () => {
 				now: nowMs,
 				ttlMs: 100,
 			}),
-		).toBeNull();
-		const error = await captureError(
-			persistence.commitDeliverySuccess({
-				snapshot: committedSnapshot(),
-				binding: binding(1),
-				mutationId: MUTATION_ID,
-				fence: staleFence,
-			}),
-		);
-		expect(error.code).toBe("corrupt-data");
-		const after = await persistence.read();
-		expect(after.snapshot).toEqual(before.snapshot);
-		expect(after.binding).toEqual(before.binding);
-		expect(after.workspaces).toEqual(before.workspaces);
+		).not.toBe(null);
 	});
 
 	it("isolates one structurally corrupt queue and keeps repair reachable", async () => {
@@ -2085,6 +2215,34 @@ describe("legacy persistence migration", () => {
 });
 
 describe("storage failure classification", () => {
+	it("keeps the first binding across competing IndexedDB clients", async () => {
+		const factory = new DeterministicIdbFactory() as unknown as IDBFactory;
+		const first = new TransactionalWorkspacePersistence(
+			new IndexedDbWorkspacePersistenceBackend(factory, "single-workspace"),
+		);
+		const second = new TransactionalWorkspacePersistence(
+			new IndexedDbWorkspacePersistenceBackend(factory, "single-workspace"),
+		);
+		const results = await Promise.allSettled([
+			first.rebindWorkspace({
+				snapshot: committedSnapshot(),
+				binding: binding(),
+			}),
+			second.rebindWorkspace({
+				snapshot: committedSnapshot(OTHER_GIST_ID),
+				binding: binding(0, OTHER_GIST_ID),
+			}),
+		]);
+		expect(results.map((result) => result.status)).toEqual([
+			"fulfilled",
+			"rejected",
+		]);
+		expect(results[1].status === "rejected" && results[1].reason.code).toBe(
+			"workspace_binding_locked",
+		);
+		expect((await second.read()).binding?.workspaceId).toBe(WORKSPACE_ID);
+	});
+
 	it("durably quarantines a corrupt IndexedDB queue before rejecting once", async () => {
 		const databaseName = "indexed-db-read-recovery";
 		const factory = new DeterministicIdbFactory();
@@ -2152,8 +2310,8 @@ describe("storage failure classification", () => {
 		});
 		const initialWriteCount = database.readwriteTransactionCount;
 		const writerCommit = writer.rebindWorkspace({
-			snapshot: committedSnapshot(OTHER_GIST_ID),
-			binding: binding(0, OTHER_GIST_ID),
+			snapshot: committedSnapshot(),
+			binding: binding(1),
 		});
 		await waitUntil(
 			() => database.readwriteTransactionCount === initialWriteCount + 1,
@@ -2169,8 +2327,9 @@ describe("storage failure classification", () => {
 		expect(recoveryError.code).toBe("corrupt-data");
 
 		const fresh = await reader.read();
-		expect(fresh.binding?.workspaceId).toBe(OTHER_WORKSPACE_ID);
-		expect(fresh.snapshot?.activeGistId).toBe(OTHER_GIST_ID);
+		expect(fresh.binding?.workspaceId).toBe(WORKSPACE_ID);
+		expect(fresh.binding?.revision).toBe(1);
+		expect(fresh.snapshot?.activeGistId).toBe(GIST_ID);
 		expect(fresh.workspaces[WORKSPACE_ID]).toBe(undefined);
 		expect(fresh.quarantines).toHaveLength(1);
 	});

@@ -141,6 +141,61 @@ describe("workspace discovery", () => {
 		expect(listGists.mock.calls).toHaveLength(0);
 	});
 
+	it("never discovers another Gist when a bound Gist is unavailable", async () => {
+		const workspaceApi = api({
+			getGist: mock(async () => {
+				throw new Error("not found");
+			}),
+			listGists: mock(async () => [gist("other")]),
+		});
+		let failed = false;
+		try {
+			await discoverWorkspaceGist("token", "saved", { api: workspaceApi });
+		} catch {
+			failed = true;
+		}
+		expect(failed).toBe(true);
+		expect(
+			(workspaceApi.listGists as MockedFunction<typeof workspaceApi.listGists>)
+				.mock.calls,
+		).toHaveLength(0);
+		expect(
+			(
+				workspaceApi.createGist as MockedFunction<
+					typeof workspaceApi.createGist
+				>
+			).mock.calls,
+		).toHaveLength(0);
+	});
+
+	it("never creates or selects another Gist when the bound config is invalid", async () => {
+		const workspaceApi = api({
+			getGistFileContent: mock(async () => "invalid"),
+			listGists: mock(async () => [gist("other")]),
+		});
+		let failed = false;
+		try {
+			await ensureWorkspaceBootstrapGist("token", {
+				activeGistId: "saved",
+				api: workspaceApi,
+			});
+		} catch {
+			failed = true;
+		}
+		expect(failed).toBe(true);
+		expect(
+			(workspaceApi.listGists as MockedFunction<typeof workspaceApi.listGists>)
+				.mock.calls,
+		).toHaveLength(0);
+		expect(
+			(
+				workspaceApi.createGist as MockedFunction<
+					typeof workspaceApi.createGist
+				>
+			).mock.calls,
+		).toHaveLength(0);
+	});
+
 	it("requires both workspace markers and parseable config", async () => {
 		const candidates = [
 			gist("description-only", "SubMan-Data", null),
@@ -187,20 +242,20 @@ describe("workspace discovery", () => {
 		);
 	});
 
-	it("returns chooser candidates for multiple materialized workspaces", async () => {
+	it("returns ambiguous candidates for multiple materialized workspaces", async () => {
 		const result = await discoverWorkspaceGist("token", null, {
 			api: api({ listGists: mock(async () => [gist("one"), gist("two")]) }),
 		});
 
-		expect(result.status).toBe("chooser");
+		expect(result.status).toBe("ambiguous");
 		expect(
-			result.status === "chooser"
+			result.status === "ambiguous"
 				? result.candidates.map((candidate) => candidate.kind)
 				: [],
 		).toEqual(["legacy-v1", "legacy-v1"]);
 	});
 
-	it("returns chooser data for multiple bootstrap-only workspaces", async () => {
+	it("returns ambiguous data for multiple bootstrap-only workspaces", async () => {
 		const first = gist("bootstrap-1", "SubMan-Data", "subman.bootstrap.json");
 		const second = gist("bootstrap-2", "SubMan-Data", "subman.bootstrap.json");
 		const result = await discoverWorkspaceGist("token", null, {
@@ -210,9 +265,9 @@ describe("workspace discovery", () => {
 			}),
 		});
 
-		expect(result.status).toBe("chooser");
+		expect(result.status).toBe("ambiguous");
 		expect(
-			result.status === "chooser"
+			result.status === "ambiguous"
 				? result.candidates.map((candidate) => candidate.kind)
 				: [],
 		).toEqual(["bootstrap-incomplete", "bootstrap-incomplete"]);
@@ -228,7 +283,7 @@ describe("workspace discovery", () => {
 		});
 
 		expect(result).toEqual({
-			status: "chooser",
+			status: "ambiguous",
 			candidates: [
 				{
 					gist: invalid,
@@ -256,9 +311,9 @@ describe("workspace discovery", () => {
 			}),
 		});
 
-		expect(result.status).toBe("chooser");
+		expect(result.status).toBe("ambiguous");
 		expect(
-			result.status === "chooser" ? result.candidates[0]?.reason : null,
+			result.status === "ambiguous" ? result.candidates[0]?.reason : null,
 		).toBe("bootstrap_has_extra_files");
 	});
 
@@ -286,9 +341,9 @@ describe("workspace discovery", () => {
 			}),
 		});
 
-		expect(result.status).toBe("chooser");
+		expect(result.status).toBe("ambiguous");
 		expect(
-			result.status === "chooser" ? result.candidates[0]?.reason : null,
+			result.status === "ambiguous" ? result.candidates[0]?.reason : null,
 		).toBe("invalid_bootstrap_marker");
 	});
 });

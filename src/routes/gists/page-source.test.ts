@@ -74,12 +74,13 @@ test("gists page protects every reserved Workspace file", () => {
 	expect(gistsPageSource).toContain("External File");
 });
 
-test("gists page resumes incomplete setup and coordinates stale marker cleanup", () => {
+test("gists page sends incomplete setup to Settings and coordinates stale marker cleanup", () => {
 	expect(gistsPageSource).toContain('bootstrapStatus === "stale"');
 	expect(gistsPageSource).toContain('$t("Initialization incomplete")');
-	expect(gistsPageSource).toContain("resumeBootstrapInitialization");
-	expect(gistsPageSource).toContain("reconcileBrowserWorkspace");
-	expect(gistsPageSource).toContain('syncMode: "automatic"');
+	expect(gistsPageSource).not.toContain("resumeBootstrapInitialization");
+	expect(gistsPageSource).not.toContain("reconcileBrowserWorkspace");
+	expect(gistsPageSource).not.toContain("current local business data");
+	expect(gistsPageSource).toContain('href="/auth"');
 	expect(gistsPageSource).toContain("requireWorkspaceIdentity");
 	expect(gistsPageSource).toContain('kind: "workspace.bootstrap.cleanup"');
 	expect(gistsPageSource).toContain("requestConfirm({");

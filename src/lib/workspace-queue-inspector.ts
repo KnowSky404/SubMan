@@ -34,6 +34,9 @@ export async function discardInspectedWorkspaceQueue(
 	persistence: BrowserWorkspacePersistence,
 	input: {
 		workspaceId: string;
+		expected?: Parameters<
+			BrowserWorkspacePersistence["discardWorkspaceQueue"]
+		>[0]["expected"];
 		realignment?: {
 			snapshot: AppState;
 			binding: WorkspaceV2LocalState;
@@ -45,6 +48,7 @@ export async function discardInspectedWorkspaceQueue(
 	}
 	const discardedCount = await persistence.discardWorkspaceQueue({
 		workspaceId: input.workspaceId,
+		...(input.expected ? { expected: input.expected } : {}),
 		...(input.realignment ?? {}),
 	});
 	return { discardedCount, inspection: await refresh(persistence) };

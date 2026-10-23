@@ -8,10 +8,11 @@ import type {
 	NodeItem,
 	SubscriptionItem,
 } from "$lib/models";
+import { authState } from "$lib/stores/auth";
 import { nowIso } from "$lib/utils/time";
+import { workspaceCloudStatus } from "$lib/workspace-cloud-status";
 import {
 	createDefaultWorkspaceState,
-	getWorkspaceBusinessData,
 	reconcileWorkspaceState,
 } from "$lib/workspace-data";
 import { validateWorkspaceOutputFileName } from "$lib/workspace-document";
@@ -108,14 +109,18 @@ function resultForCommit(
 		};
 	}
 	if (result.mutation) {
-		dispatchWorkspaceSyncEvent({
-			type: "MUTATION_ENQUEUED",
-			queue: result.queue,
-			mutation: {
-				mutationId: result.mutation.mutationId,
-				kind: result.mutation.kind,
-			},
-		});
+		try {
+			dispatchWorkspaceSyncEvent({
+				type: "MUTATION_ENQUEUED",
+				queue: result.queue,
+				mutation: {
+					mutationId: result.mutation.mutationId,
+					kind: result.mutation.kind,
+				},
+			});
+		} catch {
+			// The durable queue remains authoritative if status presentation fails.
+		}
 		return {
 			status: "local-durable-queued",
 			durable: true,
@@ -123,49 +128,42 @@ function resultForCommit(
 			state,
 		};
 	}
-	if (result.binding?.syncMode === "manual") {
-		dispatchWorkspaceSyncEvent({
-			type: "LOCAL_COMMITTED",
-			mode: "manual",
-			queue: result.queue,
-		});
-		return {
-			status: "local-durable",
-			durable: true,
-			mutationId: null,
-			state,
-			mode: "manual",
-		};
+	return rejectedWorkspaceOperation(
+		new Error("Cloud changes require a durable synchronization request"),
+	);
+}
+
+function cloudActionError(code: string, message: string): Error {
+	return Object.assign(new Error(message), { code });
+}
+
+function requireCloudAction(binding: WorkspaceV2LocalState | null): string {
+	const token = get(authState).token;
+	if (!browser || !token) {
+		throw cloudActionError(
+			"workspace_auth_required",
+			"Connect GitHub before changing cloud data.",
+		);
 	}
-	if (result.binding?.syncMode === "paused-conflict") {
-		dispatchWorkspaceSyncEvent({
-			type: "SYNC_CONTEXT_LOADED",
-			mode: "paused-conflict",
-			authenticated: false,
-			revision: result.binding.revision,
-			queue: result.queue,
-			blockedMutation: null,
-		});
-		return {
-			status: "local-durable",
-			durable: true,
-			mutationId: null,
-			state,
-			mode: "paused-conflict",
-		};
+	if (get(workspaceCloudStatus).phase !== "ready") {
+		throw cloudActionError(
+			"workspace_cloud_not_ready",
+			"Load the latest cloud data before editing.",
+		);
 	}
-	dispatchWorkspaceSyncEvent({
-		type: "LOCAL_COMMITTED",
-		mode: "local",
-		queue: result.queue,
-	});
-	return {
-		status: "local-durable",
-		durable: true,
-		mutationId: null,
-		state,
-		mode: "local",
-	};
+	if (!binding || binding.revision === null || !binding.baseline) {
+		throw cloudActionError(
+			"workspace_connection_required",
+			"Connect a cloud Workspace before editing.",
+		);
+	}
+	if (binding.syncMode !== "automatic") {
+		throw cloudActionError(
+			"workspace_sync_required",
+			"Refresh cloud synchronization before editing.",
+		);
+	}
+	return token;
 }
 
 type PreparedAction = { next: AppState; payload: unknown };
@@ -178,38 +176,9 @@ function runPreparedWorkspaceAction(
 		createdAt: string,
 	) => PreparedAction,
 ): WorkspaceActionHandle {
-	if (!browser) {
-		try {
-			const prepared = prepare(get(appState), null, nowIso());
-			appState.set(prepared.next);
-			dispatchWorkspaceSyncEvent({
-				type: "LOCAL_COMMITTED",
-				mode: "local",
-				queue: {
-					activeQueueCount: 0,
-					totalQueueCount: 0,
-					orphanedWorkspaceCount: 0,
-					blockedMutationCount: 0,
-					deadLetterCount: 0,
-				},
-			});
-			return {
-				submitted: true,
-				completion: Promise.resolve({
-					status: "local-durable",
-					durable: true,
-					mutationId: null,
-					state: prepared.next,
-					mode: "local",
-				}),
-			};
-		} catch (error) {
-			return rejectedActionHandle(error);
-		}
-	}
-
 	try {
 		const binding = getBrowserWorkspaceBinding();
+		requireCloudAction(binding);
 		const preliminary = prepare(get(appState), binding, VALIDATION_TIMESTAMP);
 		createMutationDraft(kind, preliminary.payload, binding);
 	} catch (error) {
@@ -227,6 +196,19 @@ function runPreparedWorkspaceAction(
 					const current = record.snapshot ?? get(appState);
 					if (record.snapshot) appState.set(record.snapshot);
 					const binding = record.binding;
+					const token = requireCloudAction(binding);
+					const queue = binding ? record.workspaces[binding.workspaceId] : null;
+					if (
+						queue &&
+						(queue.mutations.length > 0 ||
+							queue.delivery.blocked ||
+							queue.delivery.deadLetters.length > 0)
+					) {
+						throw cloudActionError(
+							"workspace_sync_pending",
+							"Wait for the pending cloud change to synchronize before editing again.",
+						);
+					}
 					if (checkWorkspaceIdentity(current, binding).status === "mismatch") {
 						throw new Error("Workspace identity requires repair");
 					}
@@ -241,12 +223,36 @@ function runPreparedWorkspaceAction(
 					try {
 						const committed = await commitBrowserWorkspaceAction({
 							snapshot: next,
-							mutation:
-								binding?.syncMode === "automatic" ? validatedDraft : null,
+							mutation: validatedDraft,
 						});
 						const result = resultForCommit(committed, next);
-						appState.set(committed.record?.snapshot ?? next);
-						return result;
+						try {
+							appState.set(committed.record?.snapshot ?? next);
+						} catch {
+							return {
+								status: "commit-acknowledgement-uncertain",
+								durable: "uncertain",
+								mutationId,
+								state: committed.record?.snapshot ?? next,
+								code: "workspace_state_hydration_failed",
+							};
+						}
+						if (result.status !== "local-durable-queued") return result;
+						try {
+							const { commitQueuedBrowserWorkspaceMutation } = await import(
+								"$lib/workspace-browser-session-v2"
+							);
+							if (get(authState).token !== token) return result;
+							const delivery = await commitQueuedBrowserWorkspaceMutation({
+								token,
+								mutationId: result.mutationId,
+							});
+							return delivery.status === "rejected-before-durable-commit"
+								? result
+								: delivery;
+						} catch {
+							return result;
+						}
 					} catch (error) {
 						if (
 							!(error instanceof WorkspaceConcurrentUpdateError) ||
@@ -606,27 +612,5 @@ export function removeClientExport(profileId: string): WorkspaceActionHandle {
 			),
 			lastUpdated: createdAt,
 		}),
-	);
-}
-
-export function replaceState(next: AppState): WorkspaceActionHandle {
-	return runPreparedWorkspaceAction(
-		"workspace.reconcile",
-		(current, binding, createdAt) => {
-			const state = {
-				...defaultState,
-				...next,
-				activeGistId: current.activeGistId,
-				activeGistFile: current.activeGistFile,
-				lastUpdated: createdAt,
-			};
-			return {
-				next: state,
-				payload: {
-					baselineRevision: binding?.revision ?? 0,
-					data: getWorkspaceBusinessData(state),
-				},
-			};
-		},
 	);
 }

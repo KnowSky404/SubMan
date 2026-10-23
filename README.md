@@ -13,11 +13,11 @@ SvelteKit 运行在 Cloudflare Workers 上，并由每个 Workspace 一个的 Du
 
 ## 主要能力
 
-- Workspace Gist：连接时发现固定标识的 Gist；多个候选需选择，旧版需确认迁移，找不到时创建私有 bootstrap Gist
-- 本地与远端双模式：业务数据保存在浏览器 IndexedDB；有 Token 时可自动与 Gist 同步
-- 冲突处理与修复：本地覆盖远端、远端覆盖本地、合并保存、仅绑定；提供健康检查与配置修复
-- 自动同步：浏览器改动先进入持久化队列，再由 Cloudflare Durable Object 按版本顺序写入 Workspace
-- 队列恢复：可区分活动与孤立 Workspace 队列，并按完整队列执行重试、丢弃、重新绑定或修复
+- 单一云端数据源：连接并固定到一个私有 GitHub Gist，`subman.json` 是业务数据的唯一权威来源
+- 云端加载：每次启动先读取最新云端数据，完成连接和加载后才能编辑
+- 即时同步：每次变更先进入持久化发送日志，再立即交给 Cloudflare Durable Object 按版本提交；云端确认后才报告保存成功
+- 同步恢复：网络失败保留原请求重试；版本冲突需确认丢弃整组待同步变更并重新加载云端
+- 单一绑定：取消工作区列表与切换；历史队列和修复证据保留在恢复面板中
 - 节点与订阅管理：新增、编辑、启用/停用、标签、搜索与过滤
 - 批量导入：支持多行导入节点或订阅，自动去重与预览；支持解析 base64 订阅内容
 - 聚合规则：按节点/订阅选择、排除标签、协议类型过滤、正则表达式重命名、自动区域旗标
@@ -32,10 +32,10 @@ SvelteKit 运行在 Cloudflare Workers 上，并由每个 Workspace 一个的 Du
 
 ## 使用流程
 
-无需 Token 即可在本地模式管理节点、订阅、规则并预览或下载输出；业务数据保存在
-当前浏览器、当前站点的 IndexedDB 中，不会自动跨设备共享。若要同步与发布：
+先连接 GitHub 并加载云端数据，再管理节点、订阅和规则。应用不提供本地业务模式、
+业务 JSON 备份或恢复、手动推送或合并覆盖。浏览器缓存和发送日志仅用于同步可靠性。
 
-1. 在 `/auth` 保存 GitHub Token（需要 `gist` 权限；默认仅当前会话，勾选 Remember token 才持久化）并核对、绑定 Workspace
+1. 在 `/auth` 保存 GitHub Token（需要 `gist` 权限；默认仅当前会话，勾选 Remember token 才持久化），核对唯一 Gist 并等待云端加载完成。首次连接可指定 Gist ID；发现多份数据时必须填写原 ID，不自动选择或另建一份
 2. 在 `/nodes` 添加节点与订阅（支持批量导入）
 3. 在 `/aggregate` 创建规则，配置排序与重命名并预览输出
 4. 在 `/exports` 选择聚合规则，预览、复制或下载 sing-box 配置
@@ -43,7 +43,7 @@ SvelteKit 运行在 Cloudflare Workers 上，并由每个 Workspace 一个的 Du
 
 ## 页面说明
 
-- `/auth`：Workspace 设置、冲突处理、健康检查、导入导出、同步状态
+- `/auth`：云端连接、同步状态、重新加载云端、旧版升级与安全诊断
 - `/gists`：Workspace 文件列表、raw 链接复制、文件清理
 - `/nodes`：节点与订阅管理（搜索、筛选、批量导入）
 - `/aggregate`：规则编辑、可视化拖拽排序、发布目标管理、聚合输出发布
@@ -62,21 +62,20 @@ SvelteKit 运行在 Cloudflare Workers 上，并由每个 Workspace 一个的 Du
 
 ## Workspace 机制
 
-- 保存 Token 后自动查找固定标识的 Gist；新 Gist 先创建 bootstrap 标记，首次协调器提交再写入 `subman.json`
-- 数据统一写入同一 Workspace Gist；`subman.json`、`subman.v1.backup.json`、`subman.bootstrap.json` 都是保留文件，不可作为发布输出或在文件页删除
-- 浏览器与 Server API 的配置变更统一交给每个 Workspace 一个的 Durable Object 串行提交
-- `subman.json` 只能由协调器写入；配置、发布输出与删除输出均通过带版本的 mutation 提交
-- 已连接时可在设置页点击“切换工作区”，重新查找可用工作区并显示数据数量；查看或取消不会更改当前工作区，选择后沿正常冲突确认流程切换
-- 设置页提供“手动迁移工作区”：可重新查找所有 Workspace 或指定旧 Gist ID，只读检查后确认迁移
-- 连接可识别的旧版 Workspace 时显示迁移预览；点击“迁移并加载工作区”后在原 Gist 内升级并保留字节级 `subman.v1.backup.json`
-- 迁移保留原输出文件名、内容、发布时间和发布 URL，不需要替换客户端中的稳定订阅链接
-- 冲突处理支持本地覆盖、远端覆盖、合并保存或仅绑定
-- 提供健康检查与配置修复入口
+- 首次连接按固定标识发现 Gist，也可明确填写原 Gist ID；没有候选才创建空的私有 bootstrap Gist，多份候选或无效目标不会自动创建或覆盖
+- 设备绑定一个 Gist，重新登录仍使用原 ID；取消工作区列表、切换和重新绑定入口
+- 每次启动先加载最新云端快照；旧版手动同步状态在安全加载后恢复为自动同步，缓存不能作为新的业务数据源
+- 浏览器与 Server API 的变更统一交给 `WorkspaceCoordinator`；只有协调器能写 `subman.json`，配置和输出在同一个带版本的提交中更新
+- 每次业务操作立即发送并等待云端确认；待发送、其他标签页接管和预约重试均不算保存成功，未完成请求仍保留原 mutation ID
+- 同步失败或冲突期间阻止追加业务变更。恢复连接后重试原请求；需要放弃待发送内容时，确认丢弃完整队列并重新加载最新云端，不提供本地覆盖或合并
+- `subman.json`、`subman.v1.backup.json`、`subman.bootstrap.json` 是保留文件，不可用作输出或从文件页删除
+- 识别到旧版 V1 时先预览，再确认在原 Gist 升级；保留字节级 V1 备份和原输出的文件名、内容、发布时间与 URL
+- 新连接的 bootstrap 从空云端数据开始，不上传旧浏览器缓存。历史其他 Gist 的队列只作为保留的恢复证据，不会切换到该 Gist 或自动发送
 
 部署、迁移验证与回滚流程见 [Workspace V2 Operations](docs/workspace-v2-operations.md)。
 升级后看不到历史规则或发布记录时，先按
 [旧版数据排查与迁移指南](docs/legacy-workspace-migration.md)
-核对 Gist 身份、配置格式和输出文件；其中包含离线检查与 V1 配置转换步骤。
+核对 Gist 身份、配置格式和输出文件；其中包含仅供维护者使用的离线检查与 V1 恢复步骤。
 当前阶段与延后项见 [Roadmap](docs/ROADMAP.md)。
 sing-box 协议矩阵、订阅 CORS/大小限制与导出发布边界见
 [sing-box Export](docs/sing-box-export.md)。
@@ -89,35 +88,23 @@ sing-box 协议矩阵、订阅 CORS/大小限制与导出发布边界见
 （sing-box 导出使用 `clientExports`），不会从输出文件自动重建。
 早期版本没有持久化发布目标；旧配置也可能因固定 Gist 标识、严格校验或浏览器缓存迁移
 而未加载。先备份并查看[迁移指南](docs/legacy-workspace-migration.md)，
-不要用空白本地数据覆盖旧 Gist。正常 V1 有自动迁移，但不保证任意历史文件均可读取。
+不要用空白本地数据覆盖旧 Gist。可识别 V1 需要确认升级，不保证任意历史文件均可读取。
 
-### 自动同步会不会直接用本地内容覆盖远端？
+### 云端和浏览器缓存不一致时，以哪份为准？
 
-不会直接覆盖。启用 Workspace 后，浏览器先把每个本地业务操作写入持久化队列，再按 `expectedRevision` 发送给 Workspace 协调器。
+以云端 `subman.json` 为准。启动或点击“从云端同步”时读取最新数据，普通连接不会上传旧缓存。每次变更带上 `expectedRevision`，协调器只接受当前版本上的下一次变更，远端已删除的 ID 也不会因旧缓存被恢复。
 
-- 协调器只接受当前版本上的下一次变更，并在同一个 Gist PATCH 中提交配置和发布文件。
-- 网络失败会保留同一个 mutation ID 并重试，不会把一次操作重复提交两次。
-- 如果远端版本已变化，队列会保留，自动同步暂停，并显示冲突处理界面。
-- 如果同步过程中继续编辑，后续队列项会在最新已提交基线上重放，较新的本地编辑不会被旧响应覆盖。
+### 网络断开后，刚才的操作会丢失或被重复发送吗？
 
-### 哪些操作仍然会覆盖远端？
+通过本地事务的请求保留在技术发送日志中，恢复连接后继续使用同一个 mutation ID。界面不会把排队、重试或其他标签页接管显示成保存成功；只有 `remote-committed` 证明云端提交。待同步请求处理完之前不能继续新增业务变更，不需要导出或恢复 JSON。
 
-手动点击 Push Local / 推送本地时，SubMan 会先读取远端 `subman.json` 并和本地同步基线比较：
+### 其他设备修改了相同的云端数据怎么办？
 
-- 如果远端没有变化，会在确认后推送当前本地状态。
-- 如果远端已经变化，不会直接覆盖，而是提示你选择 Pull Remote、Merge & Save 或 Force Push。
-- 只有选择 Force Push / 强制推送，或登录冲突处理中明确选择“本地覆盖远端”，才会覆盖远端数据。
+版本冲突会暂停发送并保留待同步内容。先核对恢复面板，再确认是否丢弃完整待同步队列并重新加载云端，之后基于最新数据重做所需修改。应用不再提供本地覆盖、合并保存、仅绑定或手动同步模式。
 
-这些覆盖操作仍受 revision 与墓碑约束，不能复活远端已删除 ID；可能移除远端现存实体。仅在确认本地数据是预期来源并保存恢复来源后使用。
+### 账号里有多个 SubMan Gist 怎么办？
 
-### 登录或重新绑定 Workspace 时发现本地和远端不同怎么办？
-
-`/auth` 页面会显示冲突处理选项：
-
-- Pull Remote / 远端覆盖本地：用远端数据替换本地视图。
-- Push Local / 本地覆盖远端：把当前本地数据写入 Gist。
-- Merge & Save / 合并保存：基于可信同步基线进行三方合并；删除墓碑优先，`updatedAt` 不授予覆盖权限。
-- Bind only / 仅绑定：只绑定 Workspace，不立即同步数据。
+首次连接填写要保留的原 Gist ID，不会显示多个工作区供日常切换。已有绑定始终固定到原 ID，换 Token 或原 Gist 暂时不可访问都不会悄悄改绑或新建 Gist。历史其他 Gist 的未发送队列仍保留在恢复面板，不会自动发送。
 
 ## 开发与构建
 
@@ -267,8 +254,8 @@ HTTP 200 或 `ok: true` 都不证明 GitHub 权限或远端可写。
 - 持久化 Token 可被同源 JavaScript 读取，活动型 XSS 能窃取它；浏览器端加密不能消除该风险。
 - 页面业务操作以 `completion` 判定结果；`submitted` 不证明保存。排队、其他标签页接管或
   预约重试均不等于发布成功；只有 `remote-committed` 证明已保存到 Workspace。
-- 设置页业务配置导出用于备份与导入，不包含 Workspace revision、墓碑、队列或认证信息，
-  不能直接替换远端 `subman.json`。诊断导出只有安全元数据，不能恢复业务数据。
+- 设置页不提供业务 JSON 备份与导入。历史 `subman-business-configuration` 文件不是远端 Workspace 文档，
+  不能替换 `subman.json`；诊断导出也不能恢复业务数据。
 - 诊断导出仅包含计数、安全元数据、payload 长度与 SHA-256、重试/错误分类及隔离区元数据，
   不读取或导出隔离原文、代理 URI、订阅 Token、输出内容、错误堆栈或凭据。
 - Worker 响应使用 CSP、`frame-ancestors`、Referrer-Policy、X-Content-Type-Options 和
@@ -303,4 +290,4 @@ GNU Affero General Public License v3.0 only. See [LICENSE](LICENSE).
 
 - 代码保持 ASCII 字符
 - 每完成一个独立功能点或修复后立即提交
-- Workspace 模式的业务配置与输出统一写入同一个 Gist；本地模式保存在浏览器 IndexedDB
+- 业务配置与输出统一写入绑定的同一个云端 Gist；IndexedDB 只保留缓存、发送日志与恢复证据

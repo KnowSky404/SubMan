@@ -36,7 +36,7 @@ describe("Workspace operation presenter", () => {
 					durable: true,
 					mutationId: "mutation-1",
 				}),
-				"Saved locally and queued for Workspace sync",
+				"Cloud save pending",
 			],
 			[
 				result({
@@ -44,7 +44,7 @@ describe("Workspace operation presenter", () => {
 					durable: true,
 					mutationId: "mutation-1",
 				}),
-				"Saved locally; another tab is synchronizing",
+				"Cloud save pending; another tab is synchronizing",
 			],
 			[
 				result({
@@ -55,14 +55,14 @@ describe("Workspace operation presenter", () => {
 					nextAttemptAt: 1_000,
 					lastErrorCode: "rate_limited",
 				}),
-				"Saved locally; retrying Workspace sync",
+				"Cloud save pending; retrying",
 			],
 		];
 		for (const [operation, messageKey] of cases) {
 			const presentation = presentWorkspaceOperation(operation);
 			expect(presentation.messageKey).toBe(messageKey);
 			expect(presentation.tone).toBe("info");
-			expect(presentation.finalizeDraft).toBe(true);
+			expect(presentation.finalizeDraft).toBe(false);
 			expect(presentation.remoteCommitted).toBe(false);
 		}
 	});
@@ -76,8 +76,10 @@ describe("Workspace operation presenter", () => {
 				mode: "manual",
 			}),
 		);
-		expect(manual.messageKey).toBe("Saved locally; manual push required");
-		expect(manual.finalizeDraft).toBe(true);
+		expect(manual.messageKey).toBe(
+			"Cloud confirmation required; reload from Cloud",
+		);
+		expect(manual.finalizeDraft).toBe(false);
 
 		const blocked = presentWorkspaceOperation(
 			result({

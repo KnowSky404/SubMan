@@ -572,6 +572,67 @@ describe("browser Workspace V2 session", () => {
 		expect(bootstrap.document.data.nodes).toEqual([]);
 	});
 
+	it("rejects loading or reconciling another Workspace without changing local data", async () => {
+		const persistence = new InMemoryWorkspacePersistence();
+		const baseline = document();
+		let state = stateFor(baseline);
+		await seed(
+			persistence,
+			state,
+			createWorkspaceV2LocalState("gist-1", { baseline }),
+		);
+		const before = await persistence.read();
+		const otherDocument = { ...document(), workspaceId: "gist:gist-2" };
+		const otherState = hydrateAppStateFromWorkspaceDocument(
+			state,
+			otherDocument,
+			"gist-2",
+		);
+		let requests = 0;
+		const dependencies = {
+			persistence,
+			getState: () => state,
+			setState: (next: AppState) => {
+				state = next;
+			},
+			fetchImpl: async () => {
+				requests += 1;
+				return committedResponse(otherDocument);
+			},
+		};
+		let snapshotFailure: unknown;
+		try {
+			await persistBrowserWorkspaceSnapshot(
+				{ origin: "v2", document: otherDocument, state: otherState },
+				"gist-2",
+				"automatic",
+				dependencies,
+			);
+		} catch (error) {
+			snapshotFailure = error;
+		}
+		expect((snapshotFailure as { code?: string })?.code).toBe(
+			"workspace_binding_locked",
+		);
+		const result = await reconcileBrowserWorkspace(
+			{
+				token: "token",
+				gistId: "gist-2",
+				baseline: otherDocument,
+				resolvedState: otherState,
+				syncMode: "automatic",
+			},
+			dependencies,
+		);
+		expect(result.status).toBe("rejected-before-durable-commit");
+		expect("code" in result ? result.code : null).toBe(
+			"workspace_binding_locked",
+		);
+		expect(requests).toBe(0);
+		expect(state).toEqual(stateFor(baseline));
+		expect(await persistence.read()).toEqual(before);
+	});
+
 	it("accepts a remote snapshot by atomically discarding the complete active queue", async () => {
 		const persistence = new InMemoryWorkspacePersistence();
 		const baseline = document();
@@ -1110,7 +1171,7 @@ describe("browser Workspace V2 session", () => {
 		).toBe(MUTATION_ID_2);
 	});
 
-	it("returns peer-owned for a mutation left in an orphan queue after rebind", async () => {
+	it("returns peer-owned for a retained historical orphan queue", async () => {
 		const persistence = new InMemoryWorkspacePersistence();
 		const baseline = document();
 		const queuedState = {
@@ -1132,11 +1193,11 @@ describe("browser Workspace V2 session", () => {
 			peerBaseline,
 			"gist-2",
 		);
-		await persistence.rebindWorkspace({
-			snapshot: peerState,
-			binding: createWorkspaceV2LocalState("gist-2", {
+		await persistence.memoryBackend.transact((draft) => {
+			draft.snapshot = peerState;
+			draft.binding = createWorkspaceV2LocalState("gist-2", {
 				baseline: peerBaseline,
-			}),
+			});
 		});
 		let requests = 0;
 

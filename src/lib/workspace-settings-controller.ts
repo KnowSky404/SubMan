@@ -20,10 +20,12 @@ import {
 } from "$lib/workspace-merge";
 import { parseWorkspaceMutation } from "$lib/workspace-mutation";
 import type { WorkspaceOperationResult } from "$lib/workspace-operation-result";
-import type {
-	BrowserWorkspacePersistence,
-	WorkspacePersistenceRecord,
-	WorkspaceQueueInspection,
+import {
+	type BrowserWorkspacePersistence,
+	WorkspaceBindingLockedError,
+	WorkspaceConcurrentUpdateError,
+	type WorkspacePersistenceRecord,
+	type WorkspaceQueueInspection,
 } from "$lib/workspace-persistence";
 import {
 	getBrowserWorkspacePersistence,
@@ -75,6 +77,7 @@ type ControllerDependencies = {
 	getState: () => AppState;
 	setState: (state: AppState) => void;
 	persistence?: BrowserWorkspacePersistence;
+	fetchImpl?: typeof fetch;
 	dispatchSyncEvent?: typeof dispatchWorkspaceSyncEvent;
 };
 
@@ -103,6 +106,7 @@ export function createWorkspaceSettingsController(
 				: {}),
 			getState: dependencies.getState,
 			setState: dependencies.setState,
+			...(dependencies.fetchImpl ? { fetchImpl: dependencies.fetchImpl } : {}),
 		};
 	}
 
@@ -117,6 +121,19 @@ export function createWorkspaceSettingsController(
 		const inspection = await refreshWorkspaceQueueInspection(persistence());
 		view = { record, inspection };
 		return view;
+	}
+
+	async function requireBoundWorkspace(
+		gistId: string,
+	): Promise<WorkspaceSettingsView> {
+		const current = await refresh();
+		if (
+			current.record.binding &&
+			current.record.binding.workspaceId !== `gist:${gistId}`
+		) {
+			throw new WorkspaceBindingLockedError();
+		}
+		return current;
 	}
 
 	async function initialize(): Promise<WorkspaceSettingsView> {
@@ -243,7 +260,7 @@ export function createWorkspaceSettingsController(
 			conflictBaseline: input.conflictBaseline,
 			syncMode: "paused-conflict",
 		});
-		const current = await refresh();
+		const current = await requireBoundWorkspace(input.gistId);
 		const persistedQueue = current.record.workspaces[paused.workspaceId];
 		if (
 			(persistedQueue?.delivery.blocked &&
@@ -325,6 +342,7 @@ export function createWorkspaceSettingsController(
 		gistId: string,
 		mode: "automatic" | "manual",
 	): Promise<AppState> {
+		await requireBoundWorkspace(gistId);
 		const state = await persistBrowserWorkspaceSnapshot(
 			snapshot,
 			gistId,
@@ -332,6 +350,62 @@ export function createWorkspaceSettingsController(
 			sessionDependencies(),
 		);
 		await refresh();
+		return state;
+	}
+
+	function requireIdleCloudQueue(
+		record: WorkspacePersistenceRecord,
+		gistId: string,
+	): void {
+		const queue = record.workspaces[`gist:${gistId}`];
+		if (queue?.delivery.blocked || queue?.delivery.deadLetters.length) {
+			throw new Error("Workspace queue requires repair before connection");
+		}
+		if (queue?.mutations.length) {
+			throw new Error(
+				"Pending cloud changes must finish syncing before refreshing cloud data.",
+			);
+		}
+	}
+
+	async function refreshCloud(
+		snapshot: BrowserWorkspaceSnapshot,
+		gistId: string,
+	): Promise<AppState> {
+		const current = await requireBoundWorkspace(gistId);
+		if (snapshot.origin !== "v2") {
+			throw new Error("Upgrade this Workspace to continue.");
+		}
+		if (
+			current.record.binding?.revision !== null &&
+			current.record.binding?.revision !== undefined &&
+			snapshot.document.revision < current.record.binding.revision
+		) {
+			throw new WorkspaceConcurrentUpdateError();
+		}
+		requireIdleCloudQueue(current.record, gistId);
+		const nextBinding = createWorkspaceV2LocalState(gistId, {
+			baseline: snapshot.document,
+			syncMode: "automatic",
+		});
+		const state = hydrateAppStateFromWorkspaceDocument(
+			dependencies.getState(),
+			snapshot.document,
+			gistId,
+		);
+		await persistence().repairWorkspaceQueue({
+			snapshot: state,
+			binding: nextBinding,
+			mutations: [],
+			expected: {
+				snapshot: current.record.snapshot,
+				binding: current.record.binding,
+				queue: current.record.workspaces[nextBinding.workspaceId] ?? null,
+			},
+		});
+		dependencies.setState(state);
+		await refresh();
+		dispatchPersistedState("WORKSPACE_BOUND");
 		return state;
 	}
 
@@ -343,6 +417,7 @@ export function createWorkspaceSettingsController(
 		syncMode: "automatic" | "manual";
 		replacePending?: boolean;
 	}): Promise<WorkspaceOperationResult> {
+		await requireBoundWorkspace(input.gistId);
 		const result = await reconcileBrowserWorkspace(
 			input,
 			sessionDependencies(),
@@ -365,13 +440,19 @@ export function createWorkspaceSettingsController(
 		| { status: "conflict"; conflict: WorkspaceSettingsConflict }
 		| { status: "migration-required" }
 	> {
+		const current = await requireBoundWorkspace(input.gistId);
 		if (input.snapshot.origin === "v1") return { status: "migration-required" };
+		requireIdleCloudQueue(current.record, input.gistId);
 		if (input.created || input.snapshot.origin === "bootstrap") {
 			const operation = await reconcile({
 				token: input.token,
 				gistId: input.gistId,
 				baseline: input.snapshot.document,
-				resolvedState: dependencies.getState(),
+				resolvedState: hydrateAppStateFromWorkspaceDocument(
+					dependencies.getState(),
+					input.snapshot.document,
+					input.gistId,
+				),
 				syncMode: "automatic",
 			});
 			if (operation.status === "remote-committed") {
@@ -380,23 +461,8 @@ export function createWorkspaceSettingsController(
 			return { status: "created", operation };
 		}
 
-		const conflict = createConflict(input.snapshot.document, input.gistId);
-		if (conflict.remoteSignature === conflict.localSignature) {
-			await persistSnapshot(input.snapshot, input.gistId, "automatic");
-			dispatchPersistedState("WORKSPACE_BOUND");
-			return { status: "synced", operation: null };
-		}
-
-		await commitPausedConflict({
-			document: input.snapshot.document,
-			gistId: input.gistId,
-			conflictBaseline:
-				input.previousBinding?.workspaceId === `gist:${input.gistId}`
-					? (input.previousBinding.conflictBaseline ??
-						input.previousBinding.baseline)
-					: null,
-		});
-		return { status: "conflict", conflict };
+		await refreshCloud(input.snapshot, input.gistId);
+		return { status: "synced", operation: null };
 	}
 
 	async function migrateLegacy(input: {
@@ -405,6 +471,7 @@ export function createWorkspaceSettingsController(
 		snapshot: BrowserWorkspaceSnapshot;
 		retryMutationId?: string;
 	}): Promise<WorkspaceOperationResult> {
+		await requireBoundWorkspace(input.gistId);
 		const operation = await migrateBrowserWorkspace(
 			input,
 			sessionDependencies(),
@@ -416,6 +483,7 @@ export function createWorkspaceSettingsController(
 	}
 
 	async function bindOnly(conflict: WorkspaceSettingsConflict): Promise<void> {
+		const current = await requireBoundWorkspace(conflict.gistId);
 		const nextBinding = createWorkspaceV2LocalState(conflict.gistId, {
 			baseline: conflict.remoteDocument,
 			syncMode: "manual",
@@ -425,7 +493,6 @@ export function createWorkspaceSettingsController(
 			conflict.gistId,
 			WORKSPACE_FILE,
 		);
-		const current = await refresh();
 		const persistedQueue = current.record.workspaces[nextBinding.workspaceId];
 		if (
 			(persistedQueue?.delivery.blocked &&
@@ -488,6 +555,7 @@ export function createWorkspaceSettingsController(
 		baselineMode?: "conflict" | "current";
 		syncMode?: "automatic" | "manual";
 	}): Promise<ConflictResolution> {
+		await requireBoundWorkspace(input.conflict.gistId);
 		if (input.action === "remote") {
 			await persistSnapshot(
 				{
@@ -599,6 +667,11 @@ export function createWorkspaceSettingsController(
 		);
 		if (!workspace) throw new Error("Workspace queue is unavailable");
 		const itemCount = workspace.mutations.length + workspace.deadLetters.length;
+		const expected = {
+			snapshot: current.record.snapshot,
+			binding: current.record.binding,
+			queue: current.record.workspaces[workspaceId] ?? null,
+		};
 		let result: Awaited<ReturnType<typeof discardInspectedWorkspaceQueue>>;
 		if (workspace.active) {
 			const currentBinding = current.record.binding;
@@ -623,6 +696,7 @@ export function createWorkspaceSettingsController(
 			);
 			result = await discardInspectedWorkspaceQueue(persistence(), {
 				workspaceId,
+				expected,
 				realignment: {
 					snapshot: realignedSnapshot,
 					binding: realignedBinding,
@@ -632,6 +706,7 @@ export function createWorkspaceSettingsController(
 		} else {
 			result = await discardInspectedWorkspaceQueue(persistence(), {
 				workspaceId,
+				expected,
 			});
 		}
 		const next = await refresh();
@@ -648,14 +723,14 @@ export function createWorkspaceSettingsController(
 		workspaceId: string;
 		snapshot: BrowserWorkspaceSnapshot;
 	}): Promise<WorkspaceSettingsView> {
-		const current = await refresh();
+		const gistId = input.workspaceId.slice("gist:".length);
+		const current = await requireBoundWorkspace(gistId);
 		const workspace = current.inspection.workspaces.find(
 			(item) => item.workspaceId === input.workspaceId,
 		);
 		if (!workspace || workspace.active || workspace.mutations.length > 0) {
 			throw new Error("Workspace queue cannot be rebound safely");
 		}
-		const gistId = input.workspaceId.slice("gist:".length);
 		const nextBinding = createWorkspaceV2LocalState(gistId, {
 			baseline: input.snapshot.document,
 			syncMode: "automatic",
@@ -716,6 +791,7 @@ export function createWorkspaceSettingsController(
 		resolveConflict,
 		reconcile,
 		persistSnapshot,
+		refreshCloud,
 		requireIdentity,
 		pendingCount,
 		exportDiagnostics,

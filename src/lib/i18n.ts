@@ -7,6 +7,68 @@ const STORAGE_KEY = "subman:locale:v1";
 const DEFAULT_LOCALE: Locale = "en";
 
 const zhCN: Record<string, string> = {
+	"Retained changes require Reload from Cloud before editing.":
+		"请先通过“重新加载云端数据”处理历史改动，再继续编辑。",
+	"Manage one cloud Workspace. Every change is saved to GitHub.":
+		"管理一个云端工作区，每次修改都会保存到 GitHub。",
+	"The cloud is the source of truth. Connect a private Gist to create or manage your data.":
+		"数据以云端为准，连接私有 Gist 后创建或管理数据。",
+	"Every change is synchronized automatically. A save is complete only after cloud confirmation.":
+		"每次修改都会自动同步，云端确认后才算保存成功。",
+	"Workspace Gist ID (optional)": "工作区 Gist ID（可选）",
+	"Leave blank to find your cloud data or create an empty private Gist.":
+		"留空时查找云端数据；没有数据时创建一个空的私有 Gist。",
+	"Multiple Workspace Gists found. Enter the Gist ID to connect.":
+		"发现多份工作区数据，请填写要连接的 Gist ID。",
+	"Not connected": "未连接",
+	"Cloud Workspace": "云端工作区",
+	"Sync from Cloud": "从云端同步",
+	"Reload from Cloud": "重新加载云端数据",
+	"Cloud data loaded.": "云端数据已加载。",
+	"Loading cloud data...": "正在加载云端数据…",
+	"Connect GitHub to load your cloud data.": "请连接 GitHub 以加载云端数据。",
+	"Cloud data could not be loaded. Check your connection and retry.":
+		"无法加载云端数据，请检查连接后重试。",
+	"Unable to load cloud data. Check your token and connection, then retry.":
+		"无法加载云端数据，请检查 Token 和连接后重试。",
+	"Cloud synchronization is pending. Retry after the connection is restored.":
+		"云端同步尚未完成，请在连接恢复后重试。",
+	"Upgrade this Workspace to continue.": "请先升级此工作区后再继续。",
+	"Discard unconfirmed changes and reload the latest cloud data?":
+		"丢弃尚未确认的修改，并重新加载最新云端数据？",
+	"Enter the original cloud Gist ID to preview an upgrade. Checking does not change cloud data.":
+		"填写原云端 Gist ID 以预览升级，检查不会修改云端数据。",
+	"Old Workspace Gist ID": "旧工作区 Gist ID",
+	"Sync recovery": "同步恢复",
+	"Retained previous queues": "保留的历史队列",
+	"Cloud confirmation required": "等待云端确认",
+	"Cloud confirmation required; reload from Cloud":
+		"尚未获得云端确认，请重新加载云端数据",
+	"Cloud synchronization needs review": "云端同步需要处理",
+	"Cloud save pending": "等待云端保存",
+	"Cloud save pending; another tab is synchronizing":
+		"等待云端保存，其他标签页正在同步",
+	"Cloud save pending; retrying": "等待云端保存，正在重试",
+	"Cloud synchronization needs repair: {error}": "云端同步需要修复：{error}",
+	"This device is already connected to a Workspace. Reconnect the same Gist.":
+		"此设备已绑定工作区，请重新连接同一个 Gist。",
+	"The bound cloud Workspace is invalid. Repair this Gist before reconnecting.":
+		"已绑定的云端工作区无效，请先修复此 Gist 后再连接。",
+	"Connect GitHub before changing cloud data.":
+		"请先连接 GitHub 再修改云端数据。",
+	"Load the latest cloud data before editing.": "请先加载最新云端数据再编辑。",
+	"Connect a cloud Workspace before editing.": "请先连接云端工作区再编辑。",
+	"Refresh cloud synchronization before editing.":
+		"请先刷新云端同步状态再编辑。",
+	"Wait for the pending cloud change to synchronize before editing again.":
+		"请等待当前修改完成云端同步后再继续编辑。",
+	"Last cloud update": "最近云端更新",
+	"Every change is saved to the cloud.": "每次修改都会保存到云端。",
+	"Pending cloud changes must finish syncing before refreshing cloud data.":
+		"请等待待发送的修改同步完成后再刷新云端数据。",
+	"Workspace queue requires repair before connection":
+		"请先处理同步队列再重新连接",
+
 	"Manual Workspace migration": "手动迁移工作区",
 	"Missing the upgrade prompt? Check all Workspaces or enter the old Gist ID. Checking only reads data; migration requires a separate confirmation.":
 		"没有出现升级提示？可以检查所有工作区，或填写旧 Gist ID。检查只读取数据，迁移需另行确认。",
