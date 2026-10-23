@@ -8,14 +8,14 @@ The goal is not a pixel-for-pixel GitHub clone. The goal is to make common workf
 ## Scope
 
 ### In Scope
-- Global component classes in [`src/app.css`](/root/Clouds/SubMan/src/app.css)
-- Global repository shell in [`src/routes/+layout.svelte`](/root/Clouds/SubMan/src/routes/+layout.svelte)
+- Global component classes in [`src/app.css`](../../../src/app.css)
+- Global repository shell in [`src/routes/+layout.svelte`](../../../src/routes/+layout.svelte)
 - Main workspace pages:
-  - [`src/routes/+page.svelte`](/root/Clouds/SubMan/src/routes/+page.svelte)
-  - [`src/routes/nodes/+page.svelte`](/root/Clouds/SubMan/src/routes/nodes/+page.svelte)
-  - [`src/routes/aggregate/+page.svelte`](/root/Clouds/SubMan/src/routes/aggregate/+page.svelte)
-  - [`src/routes/gists/+page.svelte`](/root/Clouds/SubMan/src/routes/gists/+page.svelte)
-  - [`src/routes/auth/+page.svelte`](/root/Clouds/SubMan/src/routes/auth/+page.svelte)
+  - [`src/routes/+page.svelte`](../../../src/routes/+page.svelte)
+  - [`src/routes/nodes/+page.svelte`](../../../src/routes/nodes/+page.svelte)
+  - [`src/routes/aggregate/+page.svelte`](../../../src/routes/aggregate/+page.svelte)
+  - [`src/routes/gists/+page.svelte`](../../../src/routes/gists/+page.svelte)
+  - [`src/routes/auth/+page.svelte`](../../../src/routes/auth/+page.svelte)
 - Source-level tests that assert key structural conventions for the refreshed UI
 
 ### Out of Scope

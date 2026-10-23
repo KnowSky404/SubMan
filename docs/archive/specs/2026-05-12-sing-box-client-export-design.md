@@ -27,7 +27,7 @@ Add a new top-level navigation item named `Exports` between `Aggregate` and `Gis
 
 Add a new route:
 
-- [`src/routes/exports/+page.svelte`](/root/Clouds/SubMan/src/routes/exports/+page.svelte)
+- [`src/routes/exports/+page.svelte`](../../../src/routes/exports/+page.svelte)
 
 The first version of this page will contain one export type: `sing-box Client`.
 

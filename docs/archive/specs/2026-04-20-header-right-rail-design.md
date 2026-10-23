@@ -6,7 +6,7 @@ This design rebalances the global repository header so the `nodes / rules / live
 ## Architecture
 
 ### Header Structure
-The global repository header in [`src/routes/+layout.svelte`](/root/Clouds/SubMan/src/routes/+layout.svelte) will keep the existing two-tier layout:
+The global repository header in [`src/routes/+layout.svelte`](../../../src/routes/+layout.svelte) will keep the existing two-tier layout:
 
 1. The dark top bar remains unchanged except for preserving existing controls.
 2. The white repository bar is split into two clear columns on desktop:
@@ -23,7 +23,7 @@ The responsive rule is:
 - Mobile: stacked layout with stats below the title block and above the action button if needed
 
 ### Width Adjustment
-The shared container width in [`src/app.css`](/root/Clouds/SubMan/src/app.css) will be widened one step so the main content column gains more horizontal room across the application. This is intentionally small in scope: widen the existing shared layout shell rather than introducing page-specific width rules.
+The shared container width in [`src/app.css`](../../../src/app.css) will be widened one step so the main content column gains more horizontal room across the application. This is intentionally small in scope: widen the existing shared layout shell rather than introducing page-specific width rules.
 
 ## Component Changes
 
@@ -40,7 +40,7 @@ The shared container width in [`src/app.css`](/root/Clouds/SubMan/src/app.css) w
 - Keep the visual language aligned with the current GitHub-inspired shell
 
 ## Testing Strategy
-- Add a source-layout test in [`src/routes/layout-source.test.ts`](/root/Clouds/SubMan/src/routes/layout-source.test.ts) that verifies the stat group is rendered in a dedicated right-rail container rather than inside the left metadata column
+- Add a source-layout test in [`src/routes/layout-source.test.ts`](../../../src/routes/layout-source.test.ts) that verifies the stat group is rendered in a dedicated right-rail container rather than inside the left metadata column
 - Run the focused Bun source test
 - Run Svelte type checking to catch layout or class-name regressions
 

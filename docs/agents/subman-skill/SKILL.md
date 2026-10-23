@@ -117,7 +117,7 @@ Inspect the matching route under `src/routes`. Keep the current product shape:
 `/auth` for workspace/token/sync, `/gists` for workspace files, `/nodes` for
 node and subscription management, `/aggregate` for output rules and
 publishing, and `/exports` for sing-box profiles and publication. Follow
-`design.md`, require fresh cloud data before editing, retain drafts until
+`DESIGN.md`, require fresh cloud data before editing, retain drafts until
 `remote-committed`, and verify changed browser flows. Pending/peer/retry results
 are technical delivery states and never local business success.
 

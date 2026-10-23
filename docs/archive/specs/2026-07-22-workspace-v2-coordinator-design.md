@@ -14,7 +14,7 @@ Durable Object per workspace. The Durable Object is the only runtime component
 allowed to commit the configuration file.
 
 The reliability hardening contract in
-`docs/superpowers/plans/2026-07-23-workspace-v2-hardening.md` supersedes this
+`docs/archive/plans/2026-07-23-workspace-v2-hardening.md` supersedes this
 document's original localStorage queue, timestamp merge, generic retry, and
 coarse error behavior. This document incorporates those mandatory corrections;
 the deferred protocols in ADR 0001 remain design-only.

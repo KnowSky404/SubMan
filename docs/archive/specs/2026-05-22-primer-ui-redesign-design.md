@@ -2,7 +2,7 @@
 
 ## Scope
 
-Refactor the full SubMan user interface to follow the current GitHub Primer-style design system in `design.md`.
+Refactor the full SubMan user interface to follow the current GitHub Primer-style design system in `DESIGN.md`.
 
 This work covers the app shell and all visible routes:
 
@@ -23,9 +23,9 @@ The existing top repository masthead and underline navigation remain the app she
 
 ## Global Design System
 
-Update the global UI foundation to match `design.md`.
+Update the global UI foundation to match `DESIGN.md`.
 
-- Use the system sans font stack from `design.md`; remove Roboto and Roboto Mono external imports.
+- Use the system sans font stack from `DESIGN.md`; remove Roboto and Roboto Mono external imports.
 - Keep the app at a stable 14px base size across breakpoints.
 - Use the documented light and dark tokens for canvas, foreground, muted text, borders, accent, success, attention, and danger.
 - Prefer 1px borders and subtle shadows over large elevation.

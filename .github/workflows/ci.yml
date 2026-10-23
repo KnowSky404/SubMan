@@ -35,6 +35,9 @@ jobs:
       - name: Run unit tests
         run: bun test
 
+      - name: Check bilingual documentation
+        run: bun run docs:check
+
       - name: Validate sing-box 1.14 export
         run: bun run test:sing-box
 

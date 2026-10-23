@@ -13,7 +13,7 @@ project's `compatibility_date = "2026-07-28"` locally.
 The verification order is intentionally fail-fast:
 
 1. install the frozen lockfile;
-2. run unit tests;
+2. run unit tests and check bilingual documentation links and language pairs;
 3. generate a synthetic local URI/subscription export and validate it with the
    pinned sing-box `1.14.0` container;
 4. run Svelte and TypeScript checks, including generated Worker type drift;

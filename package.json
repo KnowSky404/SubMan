@@ -7,6 +7,8 @@
 	"packageManager": "bun@1.3.14",
 	"scripts": {
 		"dev": "vite dev",
+		"docs:check": "bun run scripts/wiki.ts check",
+		"wiki:build": "bun run scripts/wiki.ts build",
 		"test": "bun test",
 		"test:sing-box": "bun run scripts/verify-sing-box-export.ts",
 		"test:cf": "bun run build && vitest run --config vitest.config.ts",

@@ -17,10 +17,13 @@ Avoid: detached circles, floating nodes, internal white circles, extra endpoints
 
 ## Asset derivation
 
-1. Remove the flat #ff00ff background from the generated master.
+The generated source is [subman-logo-source.png](subman-logo-source.png). Only
+the derived application assets belong in `static/`.
+
+1. Remove the flat #ff00ff background from the generated source.
 2. Crop to the visible mark and restore square transparent padding.
-3. Export the transparent master as `subman-logo.png`.
-4. Derive `favicon-32.png`, `favicon-192.png`, and `apple-touch-icon.png` from the same master with high-quality downsampling.
+3. Export the transparent master as [static/brand/subman-logo.png](../../../static/brand/subman-logo.png).
+4. Derive [favicon-32.png](../../../static/favicon-32.png), [favicon-192.png](../../../static/favicon-192.png), and [apple-touch-icon.png](../../../static/apple-touch-icon.png) from the same master with high-quality downsampling.
 
 ## Design rationale
 

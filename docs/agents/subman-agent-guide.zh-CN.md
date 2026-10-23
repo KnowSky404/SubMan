@@ -85,7 +85,7 @@ secret 写入会修改远端 Worker。部署使用 `bun run deploy` 或手动生
 ## 工作流程
 
 1. 先检查 git 状态、diff、脚本和相关实现，保留无关变更。
-2. 根据架构参考定位源文件。UI 阅读 `design.md`，持久化和协议阅读运维手册。
+2. 根据架构参考定位源文件。UI 阅读 `DESIGN.md`，持久化和协议阅读运维手册。
 3. 既有协议变化前先加行为测试。业务操作必须经过持久化并等待 `completion`；
    `submitted` 不表示保存，只有 `remote-committed` 才能结束草稿和报告成功。
 4. 同步英文 README、中文版本及相关双语 Agent 参考；公开 API 变化还要更新 OpenAPI、

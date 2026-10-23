@@ -91,7 +91,7 @@ Gist 是低频写入目标；按稳定错误 `code`/`disposition` 分支，保�
 
 ### 修改 UI 流程
 
-按 `design.md` 和对应路由实现：`/auth` 负责云端连接、Token 和恢复，`/gists`
+按 `DESIGN.md` 和对应路由实现：`/auth` 负责云端连接、Token 和恢复，`/gists`
 管理文件，`/nodes` 管理节点及订阅，`/aggregate` 管理规则和发布，`/exports`
 管理 sing-box 配置。编辑前加载最新云端，草稿保留至 `remote-committed`，验证变化的
 浏览器流程。pending、peer 和 retry 只表示技术发送状态。

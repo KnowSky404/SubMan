@@ -193,6 +193,7 @@ scripts. `test:sing-box` requires Docker; E2E requires installed Chromium.
 
 ```bash
 bun install --frozen-lockfile
+bun run docs:check
 bun test
 bun run test:sing-box
 bun run check
@@ -210,11 +211,16 @@ green. Vite is for UI iteration; use `dev:cf` for Worker/DO runtime evidence.
 
 ## Delivery Rules
 
-- Follow `design.md` for UI behavior and styling.
+- Follow `DESIGN.md` for UI behavior and styling.
 - Keep code identifiers and comments ASCII.
 - Add behavior tests before changing established protocol behavior.
 - Commit each independent feature, UI change, refactor, or bug fix immediately
   with an atomic Conventional Commit.
+- Keep README concise. Maintain detailed guides in the bilingual Wiki sources
+  indexed by `docs/wiki/Home.md`; record changes in both `docs/wiki/Changelog.md`
+  and `docs/wiki/Changelog.zh-CN.md`. Run `bun run docs:check` before committing.
+  `bun run wiki:build` only renders pages; Wiki publication needs authorization.
+  Keep dated design evidence in `docs/archive/` and source artwork in `docs/assets/`.
 - Do not add another `subman.json` writer or weaken revision, tombstone,
   Workspace identity, backup, request-hash, or idempotency checks.
 - Do not log credentials, raw mutation payloads, full outputs, or full Workspace
@@ -237,7 +243,7 @@ green. Vite is for UI iteration; use `dev:cf` for Worker/DO runtime evidence.
 
 ## Design References
 
-- `docs/superpowers/specs/2026-10-23-single-cloud-workspace-design.md`
-- `docs/superpowers/specs/2026-07-22-workspace-v2-coordinator-design.md`
+- `docs/archive/specs/2026-10-23-single-cloud-workspace-design.md`
+- `docs/archive/specs/2026-07-22-workspace-v2-coordinator-design.md`
 - `docs/workspace-v2-operations.md`
-- `docs/superpowers/plans/2026-07-23-workspace-v2-hardening.md`
+- `docs/archive/plans/2026-07-23-workspace-v2-hardening.md`

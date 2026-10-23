@@ -99,7 +99,7 @@ manual production workflow; see `docs/ci-cd.md`. Neither is part of local checks
 1. Inspect `git status --short`, the current diff, package scripts, and the
    relevant implementation before editing. Preserve unrelated changes.
 2. Select the matching source paths in the architecture reference. Read
-   `design.md` for UI work and the operations runbook for persistence/protocol work.
+   `DESIGN.md` for UI work and the operations runbook for persistence/protocol work.
 3. Add behavior tests before changing an established protocol. Browser business
    actions must pass through persistence and await `handle.completion`;
    `submitted` does not establish a save; only `remote-committed` finalizes
