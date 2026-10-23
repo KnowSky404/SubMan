@@ -45,7 +45,6 @@
 	"dependencies": {
 		"@primer/octicons": "^19.23.1",
 		"clsx": "^2.1.1",
-		"lucide-svelte": "^0.575.0",
 		"svelte-dnd-action": "^0.9.69",
 		"tailwind-merge": "^3.5.0"
 	},

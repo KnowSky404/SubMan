@@ -54,7 +54,7 @@ vless, vmess, trojan, ss, ssr, hysteria2, tuic, anytls, other
 - `src/lib/workspace-settings-controller.ts`：持久化设置、云端重载、完整队列恢复与迁移准备。
 - `src/lib/workspace-browser-session-v2.ts`：版本绑定、显式 V1 迁移、浏览器发送编排。
 - `src/lib/gist.ts`：GitHub Gist 客户端。
-- `src/lib/workspace-browser-mutation.ts`：将 store action 转换为 mutation。
+- `src/lib/stores/app.ts`：验证业务操作，经事务性持久化边界提交带修订号的 mutation。
 - `src/lib/workspace-persistence.ts`：快照、绑定、队列、重试、修复和租约的事务边界。
 - `src/lib/workspace-operation-result.ts`：浏览器操作的权威完成状态。
 - `src/lib/workspace-operation-presenter.ts`：UI 对完成状态的共享解释边界。

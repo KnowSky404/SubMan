@@ -64,8 +64,8 @@ vless, vmess, trojan, ss, ssr, hysteria2, tuic, anytls, other
 - `src/lib/workspace-browser-session-v2.ts`: revisioned binding, explicit V1
   migration, and browser delivery orchestration.
 - `src/lib/gist.ts`: GitHub Gist API client.
-- `src/lib/workspace-browser-mutation.ts`: translate browser store actions to
-  mutations.
+- `src/lib/stores/app.ts`: validate business actions and submit revisioned
+  mutations through the transactional persistence boundary.
 - `src/lib/workspace-persistence.ts`: transactional browser snapshot, binding,
   queue, retry, repair, and lease boundary.
 - `src/lib/workspace-operation-result.ts`: authoritative browser operation

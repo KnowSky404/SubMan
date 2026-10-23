@@ -53,7 +53,4 @@ export default defineConfig({
 		port: pickRandomDevPort(),
 		strictPort: true,
 	},
-	ssr: {
-		noExternal: ["lucide-svelte"],
-	},
 });
