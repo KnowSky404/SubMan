@@ -48,5 +48,22 @@
 		"lucide-svelte": "^0.575.0",
 		"svelte-dnd-action": "^0.9.69",
 		"tailwind-merge": "^3.5.0"
-	}
+	},
+	"description": "Proxy subscription management with a single GitHub Gist, sing-box exports, and a trusted automation API on Cloudflare Workers.",
+	"keywords": [
+		"subscription-manager",
+		"proxy",
+		"sing-box",
+		"v2ray",
+		"xray",
+		"vless",
+		"vmess",
+		"tuic",
+		"anytls",
+		"github-gist",
+		"cloudflare-workers",
+		"durable-objects",
+		"sveltekit",
+		"typescript"
+	]
 }
