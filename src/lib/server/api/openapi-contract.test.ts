@@ -241,9 +241,13 @@ describe("public Server API OpenAPI contract", () => {
 		expect(child(document, "externalDocs").url).toBe("./server-api.md");
 		const links = {
 			narrative: "docs/api/server-api.md",
+			narrativeChinese: "docs/api/server-api.zh-CN.md",
 			readme: "README.md",
 			readmeEnglish: "README.en.md",
+			readmeChinese: "README.zh-CN.md",
 			agentSkill: "docs/agents/subman-skill/references/server-api.md",
+			integration: "docs/integrations/sing-box-vps.md",
+			integrationChinese: "docs/integrations/sing-box-vps.zh-CN.md",
 		};
 		expect(child(child(document, "info"), "x-documentation")).toEqual(links);
 		for (const path of Object.values(links)) {

@@ -1,5 +1,7 @@
 # SubMan Workspace Data Reference
 
+English | [简体中文](workspace-data.zh-CN.md)
+
 ## Cloud Authority And Identity
 
 SubMan stores authoritative configuration and generated outputs in one private
@@ -53,6 +55,10 @@ queues. It is technical recovery storage, not a second business data source.
 Success persists the committed cloud document before removing the queue item.
 Network failures keep the original ID and persisted retry timing. Logout clears
 authentication and stops delivery while preserving binding and pending evidence.
+
+GitHub authentication stays outside IndexedDB: session-only `sessionStorage`
+is the default; `localStorage` is used only after explicit Remember token opt-in.
+Persistent browser storage does not protect tokens from active XSS.
 
 ## Conflict And Recovery
 

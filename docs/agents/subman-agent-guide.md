@@ -1,7 +1,11 @@
 # SubMan Agent Guide
 
+English | [简体中文](subman-agent-guide.zh-CN.md)
+
 This guide is the entry point for AI agents, automation runners, and retrieval
-systems that need to understand or operate this repository.
+systems that need to understand or operate this repository. Documentation defaults
+to English; use the language links for Chinese. This is independent of the
+application UI language.
 
 ## Project Shape
 
@@ -17,7 +21,9 @@ The canonical workspace is a GitHub Gist with:
 
 Cloud `subman.json` is the sole business authority, with one fixed device
 binding. Startup loads the latest cloud data before editing. Every mutation
-requires authentication and awaits cloud confirmation. There is no local
+requires authentication and awaits cloud confirmation. Browser GitHub tokens use
+`sessionStorage` by default; only explicit Remember token opt-in uses
+`localStorage`, outside the business IndexedDB database. There is no local
 business mode, switching, manual sync, local overwrite/merge, or business JSON
 backup/import. IndexedDB `subman-workspace` holds technical cache, delivery
 journals, and recovery evidence; it is not another source of business truth.
@@ -25,8 +31,9 @@ journals, and recovery evidence; it is not another source of business truth.
 ## Agent Entry Points
 
 - Project rules: `AGENTS.md`
-- Human README: `README.md`
-- Server API: `docs/api/server-api.md`
+- Human README: [English](../../README.md) / [简体中文](../../README.zh-CN.md)
+- Server API: [English](../api/server-api.md) / [简体中文](../api/server-api.zh-CN.md)
+- sing-box-vps integration: [English](../integrations/sing-box-vps.md) / [简体中文](../integrations/sing-box-vps.zh-CN.md)
 - Machine-readable API contract: `docs/api/openapi.yaml`
 - Agent skill: `docs/agents/subman-skill/SKILL.md`
 - Architecture reference: `docs/agents/subman-skill/references/architecture.md`
@@ -72,8 +79,9 @@ bun run dev:cf -- --ip :: --port 8787
 
 On this VPS open `http://oc-de-fra-1.knowsky.uk:5173` or
 `http://oc-de-fra-1.knowsky.uk:8787`; verify IPv4/IPv6 listeners with `ss -lntp`.
-Without local secrets, health returns HTTP 200 with `ok: false`. Do not add real
-GitHub credentials to local write tests.
+Without local secrets, health returns HTTP 200 with `ok: false`. Even `ok: true`
+checks secret presence only; it does not probe GitHub access or the coordinator
+binding. Do not add real GitHub credentials to local write tests.
 
 Production commands require explicit authorization. For an authorized Server API
 setup, store Worker secrets interactively:
@@ -96,7 +104,8 @@ manual production workflow; see `docs/ci-cd.md`. Neither is part of local checks
    actions must pass through persistence and await `handle.completion`;
    `submitted` does not establish a save; only `remote-committed` finalizes
    a draft or reports success.
-4. Update both READMEs and matching agent references with final behavior. Public
+4. Update the English README, its Chinese counterpart, and matching bilingual
+   agent references with final behavior. Public
    API changes also require OpenAPI, the narrative API guide, and contract tests.
 5. Run relevant checks; runtime/binding changes require the Worker/DO suite,
    browser-flow changes require E2E, and exporter changes require sing-box checks.
@@ -148,7 +157,8 @@ external:<externalKey>
 ```
 
 Use this endpoint for VPS installers and other repeatable node updates. Avoid
-`POST /api/nodes` for automation unless duplicates are intended.
+`POST /api/nodes` for automation unless intentionally creating a distinct
+resource; duplicate raw URIs are still rejected.
 
 This is resource-identity idempotency, not request-replay idempotency. Every
 successful update can advance the Workspace revision. A write `2xx` response proves

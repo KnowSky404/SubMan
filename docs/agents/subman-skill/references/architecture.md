@@ -1,5 +1,7 @@
 # SubMan Architecture Reference
 
+English | [简体中文](architecture.zh-CN.md)
+
 ## Runtime
 
 SubMan is a SvelteKit + TypeScript app deployed to Cloudflare Workers. The UI

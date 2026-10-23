@@ -5,6 +5,8 @@ description: Use when working on the SubMan repository, including Gist workspace
 
 # SubMan Project
 
+English | [简体中文](SKILL.zh-CN.md)
+
 Use this skill when modifying or operating SubMan. SubMan is a SvelteKit app that
 stores its workspace in a fixed GitHub Gist and can expose trusted automation
 API endpoints from the same Cloudflare Worker.
@@ -14,7 +16,8 @@ API endpoints from the same Cloudflare Worker.
 Paths outside `references/` below are relative to the repository root.
 
 1. Inspect the current worktree and read `AGENTS.md` for repository rules.
-2. Read `docs/agents/subman-agent-guide.md` for the agent-facing overview.
+2. Read `docs/agents/subman-agent-guide.md` for the agent-facing overview. English
+   is the default; each guide has a `*.zh-CN.md` Chinese counterpart.
 3. Pick only the reference needed for the task:
    - Architecture and file map: `references/architecture.md`
    - Cloudflare deployment and verification: `references/deployment.md`
@@ -31,6 +34,8 @@ Paths outside `references/` below are relative to the repository root.
   `subman.json`.
 - Do not give external automation the GitHub token. Store `GITHUB_TOKEN` in
   Cloudflare Secrets and give scripts only `SUBMAN_API_TOKEN`.
+- Browser GitHub tokens use session-only `sessionStorage` by default. Persistent
+  `localStorage` needs explicit Remember token opt-in and stays outside IndexedDB.
 - For machine-managed nodes, prefer `PUT /api/nodes/by-key/:externalKey`.
 - Treat that endpoint as resource-identity idempotent, not request-replay
   idempotent. The API does not support `Idempotency-Key`.
@@ -67,13 +72,16 @@ not republish output files, and GET/health success does not prove a remote commi
 
 ### Add or update an automation script
 
-Read `references/server-api.md` and `docs/api/openapi.yaml`. Use stable external
+Read `references/server-api.md` and `docs/api/openapi.yaml`. For sing-box-vps,
+use [the integration guide](../../integrations/sing-box-vps.md)
+([简体中文](../../integrations/sing-box-vps.zh-CN.md)). Use stable external
 keys and `curl --fail-with-body -sS` or equivalent status-plus-body handling.
 Treat SubMan as a low-frequency Gist-backed write target, not a high-concurrency
 database. Branch on stable error codes and dispositions, preserve retry timing,
 and handle `409 duplicate_node_raw` as "this node URI already exists elsewhere".
 When changing the public API, update `docs/api/openapi.yaml`,
-`docs/api/server-api.md`, both READMEs, and `references/server-api.md` together.
+`docs/api/server-api.md`, the English README and Chinese counterpart, and
+`references/server-api.md` together. Keep translated guides synchronized.
 Run `bun test src/lib/server/api` plus runtime gates for route changes.
 
 ### Change workspace behavior

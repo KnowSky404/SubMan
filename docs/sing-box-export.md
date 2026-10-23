@@ -1,5 +1,7 @@
 # sing-box Client Export
 
+English | [简体中文](sing-box-export.zh-CN.md)
+
 SubMan generates a complete sing-box client configuration from an existing
 Aggregate rule. The generator is pure application code: it does not call
 GitHub, write a Gist, or read browser storage. The `/exports` page owns profile
@@ -107,14 +109,23 @@ Warnings contain a subscription name and stable error code, but not the source
 URL, query string, credentials, or raw response body. A failed subscription is
 skipped while other Aggregate inputs remain eligible for export.
 
-## Local and Workspace behavior
+## Cloud Workspace and output behavior
 
-Copy and download work in Local mode. Publishing requires a connected
-Workspace and submits the generated output and the updated Workspace document
-through one coordinator mutation. The coordinator remains the only component
+The application loads its one bound cloud Workspace before enabling business
+editing. Copy and download generate files from its aggregate rules and export
+profiles; they do not publish an output or confirm a cloud save. There is no
+local business mode or business JSON backup/import path. Publishing requires an
+authenticated, ready Workspace and submits the generated output and the updated
+Workspace document through one coordinator mutation. The coordinator remains the only component
 that can create, replace, or mutate `subman.json`; the generated file is
-included in the same Gist PATCH. Export filenames cannot replace the protected
-`subman.json` file.
+included in the same Gist PATCH. Only `remote-committed` reports publication
+success. Pending or blocked changes must settle before another business edit.
+Export filenames cannot replace reserved `subman.json`, `subman.v1.backup.json`,
+or `subman.bootstrap.json` files.
+
+The public node API used by automation such as sing-box-vps updates node records;
+it does not regenerate aggregate or sing-box output files. See the
+[integration guide](integrations/sing-box-vps.md) for that separate workflow.
 
 ## Version target and executable validation
 

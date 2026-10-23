@@ -1,5 +1,7 @@
 # SubMan Server API
 
+[English](server-api.md) | [简体中文](server-api.zh-CN.md)
+
 SubMan Server API is an owner-operated REST API for trusted backend scripts.
 The first version is designed for automation such as `sing-box-vps` installing
 or updating nodes in the SubMan workspace.
@@ -25,6 +27,10 @@ compatibility guarantee.
 
 The staged design for expanding this surface is documented in
 [`roadmap.md`](roadmap.md). It does not change the current supported contract.
+
+For installer integration, including the checked `sing-box-vps` caller contract
+and its remaining validation gaps, see the
+[sing-box-vps integration guide](../integrations/sing-box-vps.md).
 
 ## Base URL
 
@@ -53,7 +59,9 @@ periodically. CORS is not an authentication boundary.
 
 ## Server Configuration
 
-Before using the API in Cloudflare Workers, configure two secrets:
+Before using the API in Cloudflare Workers, configure two secrets. Secret
+uploads and deployment change the remote Worker; run these commands only with
+explicit authorization for that destination:
 
 ```bash
 bun wrangler secret put GITHUB_TOKEN
@@ -67,10 +75,9 @@ for each request. It is never included in a mutation payload.
 `SUBMAN_API_TOKEN` is an arbitrary long secret value that callers must send in
 the `Authorization` header.
 
-Then deploy:
+Then deploy with the same authorization:
 
 ```bash
-bun run build
 bun run deploy
 ```
 
@@ -108,7 +115,8 @@ Review and publish affected outputs separately in the browser.
 
 The first write to a V1 Workspace preserves the exact original bytes as
 `subman.v1.backup.json` before committing V2. See
-`docs/workspace-v2-operations.md` for migration and rollback procedures.
+the [Workspace V2 operations guide](../workspace-v2-operations.md) for migration
+and rollback procedures.
 
 ## Common Headers
 
@@ -525,20 +533,27 @@ NODE_KEY="${NODE_HOSTNAME}-vless-reality"
 NODE_NAME="${NODE_HOSTNAME} vless reality"
 NODE_RAW="vless://..."
 
+NODE_KEY_BYTES="$(printf '%s' "${NODE_KEY}" | wc -c | tr -d '[:space:]')"
+(( NODE_KEY_BYTES > 0 && NODE_KEY_BYTES <= 119 )) || exit 1
+ENCODED_NODE_KEY="$(jq -rn --arg key "${NODE_KEY}" '$key | @uri')"
+
 PAYLOAD="$(jq -cn \
   --arg name "${NODE_NAME}" \
   --arg raw "${NODE_RAW}" \
   '{name: $name, type: "vless", raw: $raw, enabled: true, tags: ["sing-box-vps", "auto"]}')"
 
-curl --fail-with-body -sS -X PUT "${SUBMAN_BASE_URL}/api/nodes/by-key/${NODE_KEY}" \
+curl --fail-with-body -sS -X PUT "${SUBMAN_BASE_URL}/api/nodes/by-key/${ENCODED_NODE_KEY}" \
   -H "Authorization: Bearer ${SUBMAN_API_TOKEN}" \
   -H "Content-Type: application/json" \
   --data-binary "${PAYLOAD}"
 ```
 
-Use a URL encoder when `NODE_KEY` is not already limited to unreserved URL
-characters. A JSON serializer such as `jq` is required when values are dynamic;
-do not build JSON by string interpolation.
+The example measures the unencoded key in UTF-8 bytes and URL-encodes it exactly
+once. Before sending this write, verify the intended `workspace.gistId` with
+`GET /api/nodes`; the health endpoint alone cannot verify it. A JSON serializer
+such as `jq` is required when values are dynamic; do not build JSON by string
+interpolation. See the [integration guide](../integrations/sing-box-vps.md) for
+response validation and uncertain-outcome handling.
 
 ## TypeScript Integration Example
 

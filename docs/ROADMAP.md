@@ -1,10 +1,20 @@
 # SubMan Roadmap
 
-Status: 2026-09-03. This roadmap is deliberately split between shipped
+English | [简体中文](ROADMAP.zh-CN.md)
+
+Status: 2026-10-23. This roadmap is deliberately split between shipped
 capabilities, contract work, and protocol work that still needs design. It is
 not a promise to deploy or mutate a production Workspace.
 
 ## Shipped in the current line
+
+- One bound private cloud Gist, startup refresh before editing, and immediate
+  revisioned synchronization. Only remote confirmation reports save success;
+  pending or blocked delivery prevents further business edits. Workspace
+  switching, local business mode, manual push/merge, and business JSON
+  backup/import are removed; historical recovery evidence is retained.
+- English is the default documentation language, with Simplified Chinese
+  available through paired documentation links.
 
 - Workspace Schema V2 with one Durable Object coordinator per Workspace,
   revisioned mutations, idempotency, tombstones, byte-exact V1 backup, and

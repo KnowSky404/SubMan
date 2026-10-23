@@ -1,5 +1,7 @@
 # SubMan Deployment Reference
 
+English | [简体中文](deployment.zh-CN.md)
+
 ## Commands
 
 Use Bun 1.3.14, matching `package.json` and CI. Install and validate:
@@ -161,7 +163,8 @@ Workspace revision advances exactly once. For a V1 Workspace, also verify the
 byte-exact `subman.v1.backup.json` before widening use.
 
 Health always returns HTTP 200, including `ok: false`; the successful shape
-above proves only secret presence. Real Gist reads/writes require separate
+above proves only secret presence; it does not check GitHub permissions,
+Workspace discovery, or the coordinator binding. Real Gist reads/writes require separate
 authorization and evidence. Node API writes do not regenerate subscription or
 sing-box outputs. Recheck affected output publication separately.
 
@@ -185,7 +188,8 @@ The browser requires GitHub authentication and a freshly loaded cloud document
 before business editing. Every change waits for cloud confirmation. One Gist
 binding replaces local business mode, Workspace switching, manual sync, and
 business JSON backup/import. IndexedDB retains only technical cache, delivery
-journal, and recovery evidence; explicit token persistence uses localStorage.
+journal, and recovery evidence. Tokens use sessionStorage by default; explicit
+Remember token opt-in enables localStorage persistence.
 The trusted Server API contract is unchanged and still depends on Worker secrets
 and the `WORKSPACE_COORDINATOR` binding.
 

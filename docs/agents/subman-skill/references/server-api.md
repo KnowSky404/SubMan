@@ -1,10 +1,14 @@
 # SubMan Server API Reference
 
+English | [简体中文](server-api.zh-CN.md)
+
 For full endpoint documentation, see `docs/api/server-api.md`. For schemas and
 code generation, use `docs/api/openapi.yaml`. The staged design for future
 subscription, aggregate, publication, and export routes is in
 `docs/api/roadmap.md`. This file is the short agent-facing version for
-automation work.
+automation work. For the complete sing-box-vps caller workflow, use
+[the integration guide](../../../integrations/sing-box-vps.md)
+([简体中文](../../../integrations/sing-box-vps.zh-CN.md)).
 
 ## Purpose
 
@@ -131,7 +135,8 @@ aggregates, publication, and exports do not yet have public REST endpoints.
   Worker credentials, not the browser binding, and has no Workspace selector.
   Multiple/invalid candidates return sanitized `502 gist_read_failed`. Check
   `workspace.gistId` before using an ETag; revision alone does not identify a Gist.
-- Health always returns HTTP 200; inspect `ok`. It checks secret presence only.
+- Health always returns HTTP 200; inspect `ok`. It checks secret presence only,
+  without testing GitHub permissions, discovery, or the coordinator binding.
 - Node writes leave existing published outputs unchanged. Publish in the browser
   after reviewing affected aggregates/exports.
 

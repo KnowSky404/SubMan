@@ -1,5 +1,7 @@
 # Workspace V2 Operations
 
+English | [简体中文](workspace-v2-operations.zh-CN.md)
+
 This runbook covers deployment, first-write migration, verification, and
 rollback for the Workspace Schema V2 coordinator.
 
@@ -190,7 +192,7 @@ requires the exact description `SubMan-Data` and the recognized config filename.
 The legacy browser snapshot path uses current snapshot validation and can
 quarantine shapes that the V1 Gist parser accepts. Output files alone do not
 reconstruct publish targets. See the
-[user migration guide (Chinese)](legacy-workspace-migration.md) for backup,
+[user migration guide](legacy-workspace-migration.md) for backup,
 offline audit, V1 conversion, and manual recovery steps.
 
 If a backup already exists but does not exactly match the current V1 file, the
@@ -361,8 +363,10 @@ controlled production Workspace, verify:
 
 ## Rollback
 
-Rollback is an operator-controlled data restoration, not a Wrangler migration
-reversal:
+Rollback is an operator-controlled disaster-recovery procedure requiring
+separate approval and an explicit restoration plan. It is not routine browser
+repair, a way to bypass revisions/tombstones, or a Wrangler migration reversal.
+The historical compatibility artifact below must be revalidated before use:
 
 For browser persistence, an interruption before `confirmed` may restart technical
 migration from the untouched legacy keys. After confirmation and cleanup, do not recreate split-key

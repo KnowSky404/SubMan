@@ -1,5 +1,7 @@
 # Public API Expansion Roadmap
 
+[English](roadmap.md) | [简体中文](roadmap.zh-CN.md)
+
 SubMan's current public API is intentionally small: health plus node CRUD and
 `externalKey` updates. The browser mutation route
 `/api/workspaces/:workspaceId/mutations` is an internal transport and is not a

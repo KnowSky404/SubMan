@@ -17,9 +17,13 @@ info:
     Callers receive SUBMAN_API_TOKEN, never the GitHub token used by the Worker.
   x-documentation:
     narrative: docs/api/server-api.md
+    narrativeChinese: docs/api/server-api.zh-CN.md
     readme: README.md
     readmeEnglish: README.en.md
+    readmeChinese: README.zh-CN.md
     agentSkill: docs/agents/subman-skill/references/server-api.md
+    integration: docs/integrations/sing-box-vps.md
+    integrationChinese: docs/integrations/sing-box-vps.zh-CN.md
 externalDocs:
   description: Narrative Server API guide
   url: ./server-api.md

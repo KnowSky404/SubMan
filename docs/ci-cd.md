@@ -1,5 +1,7 @@
 # SubMan CI/CD
 
+English | [简体中文](ci-cd.zh-CN.md)
+
 ## Continuous integration
 
 The `CI` workflow runs for pushes to `main`, pull requests, and manual
@@ -98,12 +100,17 @@ that environment with required reviewers and these environment secrets:
 - `CLOUDFLARE_API_TOKEN`
 
 Scope the API token to the target Cloudflare account and the minimum Workers
-deployment permissions. The workflow validates both secrets, reruns the complete
-quality and browser gates, creates a deployment dry-run bundle, and then runs:
+deployment permissions. The deployment workflow validates both secrets, reruns
+unit, type, lint, build, Cloudflare integration, and browser checks, creates a
+deployment dry-run bundle, and then runs:
 
 ```bash
 wrangler deploy --strict
 ```
+
+The deployment workflow currently does not repeat `test:sing-box`; the separate
+`CI / verify` workflow provides that gate for the same commit. Require its
+success before deployment.
 
 Strict mode fails closed when a non-interactive deployment could overwrite
 conflicting remote settings.
