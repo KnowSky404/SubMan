@@ -8,6 +8,15 @@ production deployment and real-provider acceptance require separate evidence.
 
 ## Unreleased
 
+### 2026-10-26 - Worktree and PR development workflow
+
+- Adopted FlareMail's task isolation, current-head Codex review, rebase merge,
+  main verification/sync, and merged worktree/branch cleanup conventions.
+- Added a PR template and bilingual workflow instructions, including conditional
+  remote branch deletion and rebase-aware integration checks.
+- Kept SubMan's CI, Bun version, and publication/deployment authorization rules;
+  repository instructions do not configure GitHub review integrations or rulesets.
+
 ### 2026-10-26 - API and sing-box-vps compatibility review
 
 - Clarified tiered Gist discovery and nonempty PATCH inputs in OpenAPI and the

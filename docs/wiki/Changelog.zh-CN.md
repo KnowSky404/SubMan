@@ -7,6 +7,14 @@
 
 ## 未发布
 
+### 2026-10-26 - Worktree 与 PR 开发工作流
+
+- 参考 FlareMail，统一任务隔离、当前 head 的 Codex review、rebase 合并、
+  主分支核对/同步及已合并 worktree/分支清理约定。
+- 增加 PR 模板和双语操作指南，明确远端分支条件删除与 rebase 后的整合核对。
+- 保留 SubMan 的 CI、Bun 版本和发布/部署授权规则；
+  仓库约定不等于已配置 GitHub review 集成或 ruleset。
+
 ### 2026-10-26 - API 与 sing-box-vps 兼容性核对
 
 - 在 OpenAPI 和中英文 API、Agent 参考中明确分层 Gist 发现策略与非空 PATCH 要求，

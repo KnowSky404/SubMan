@@ -31,6 +31,9 @@ Token 默认仅在当前会话保存，持久保存需主动选择。
 
 ## 本地开发
 
+每项改动使用独立 worktree 和任务分支。PR 完成当前 head 的 review 后按授权 rebase 合并，
+核对主分支后清理已合并任务的分支和 worktree，详见[开发流程](docs/wiki/Development.zh-CN.md#worktree-与-pr-工作流)。
+
 使用 Bun **1.3.14**：
 
 ```bash
