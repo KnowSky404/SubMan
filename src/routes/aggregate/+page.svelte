@@ -943,16 +943,6 @@ function handleExcludeTagsInput() {
 	<header class="gh-page-header">
 		<div class="gh-page-heading">
 			<h1 class="gh-page-title">{$t("Aggregate")}</h1>
-			<p class="gh-page-subtitle">
-				{$t("Build source selection, filtering, rename, sorting, preview, and publish rules.")}
-			</p>
-			<div class="gh-page-meta">
-				<span class="gh-page-meta-item">{$t("{count} rules", { count: $appState.aggregates.length })}</span>
-				<span class="gh-page-meta-item">{$t("{count} targets", { count: $appState.publishTargets.length })}</span>
-				<span class={cn("gh-page-meta-item", isWorkspaceConnected && "badge-success")}>
-					{isWorkspaceConnected ? $t("Workspace connected") : $t("Not connected")}
-				</span>
-			</div>
 		</div>
 		<div class="gh-page-actions">
 			<button type="button" class="gh-btn" on:click={buildPreview} disabled={previewLoading}>

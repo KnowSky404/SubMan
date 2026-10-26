@@ -50,9 +50,7 @@ let previewContent = "";
 let previewSignature = "";
 let previewWarnings: string[] = [];
 let previewErrors: string[] = [];
-let totalLines = 0;
 let outboundCount = 0;
-let skippedCount = 0;
 let publishing = false;
 let deletingProfileId = "";
 let publishedUrl: string | null = null;
@@ -175,9 +173,7 @@ function clearPreview(): void {
 	previewSignature = "";
 	previewWarnings = [];
 	previewErrors = [];
-	totalLines = 0;
 	outboundCount = 0;
-	skippedCount = 0;
 }
 
 function showWorkspaceResult(
@@ -361,9 +357,7 @@ async function refreshPreview(): Promise<string> {
 	previewContent = result.content;
 	previewWarnings = result.warnings;
 	previewErrors = result.errors;
-	totalLines = result.totalLines;
 	outboundCount = result.outbounds;
-	skippedCount = result.skipped;
 	previewSignature = generatedSignature;
 
 	return result.content;
@@ -448,9 +442,7 @@ async function publishPreview(): Promise<void> {
 			previewContent = publicationBuild.content;
 			previewWarnings = publicationBuild.warnings;
 			previewErrors = publicationBuild.errors;
-			totalLines = publicationBuild.totalLines;
 			outboundCount = publicationBuild.outbounds;
-			skippedCount = publicationBuild.skipped;
 		}
 		const presentation = showWorkspaceResult(result, {
 			remoteCommittedMessageKey: "Published sing-box config",
@@ -482,14 +474,6 @@ async function publishPreview(): Promise<void> {
 	<header class="gh-page-header">
 		<div class="gh-page-heading">
 			<h1 class="gh-page-title">{$t("Exports")}</h1>
-			<p class="gh-page-subtitle">
-				{$t("Generate, inspect, download, copy, and publish sing-box client configuration profiles.")}
-			</p>
-			<div class="gh-page-meta">
-				<span class="gh-page-meta-item">{$t("{count} profiles", { count: profileCount })}</span>
-				<span class="gh-page-meta-item">{$t("{count} outbounds", { count: outboundCount })}</span>
-				<span class="gh-page-meta-item">{$t("{count} warnings", { count: previewWarnings.length })}</span>
-			</div>
 		</div>
 		<div class="gh-page-actions">
 			<button class="gh-btn" type="button" on:click={copyPreview} disabled={!selectedProfile}>
@@ -699,30 +683,6 @@ async function publishPreview(): Promise<void> {
 		</div>
 
 		<aside class="gh-layout-aside">
-			<section class="gh-box overflow-hidden">
-				<div class="gh-box-header">
-					<h2 class="gh-section-title">{$t("Summary")}</h2>
-				</div>
-				<div class="grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-1">
-					<div>
-						<div class="text-xs text-fg-muted">{$t("Total Lines")}</div>
-						<div class="text-lg font-semibold text-fg-default">{totalLines}</div>
-					</div>
-					<div>
-						<div class="text-xs text-fg-muted">{$t("Outbounds")}</div>
-						<div class="text-lg font-semibold text-fg-default">{outboundCount}</div>
-					</div>
-					<div>
-						<div class="text-xs text-fg-muted">{$t("Skipped")}</div>
-						<div class="text-lg font-semibold text-fg-default">{skippedCount}</div>
-					</div>
-					<div>
-						<div class="text-xs text-fg-muted">{$t("Warning Count")}</div>
-						<div class="text-lg font-semibold text-fg-default">{previewWarnings.length}</div>
-					</div>
-				</div>
-			</section>
-
 			<section class="gh-box overflow-hidden">
 				<div class="gh-box-header">
 					<h2 class="gh-section-title">

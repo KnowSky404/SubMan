@@ -428,7 +428,7 @@ input[type="checkbox"]:indeterminate {
 }
 
 .gh-page-header {
-	@apply flex flex-col gap-3 border-b border-border-default pb-4 lg:flex-row lg:items-end lg:justify-between;
+	@apply flex flex-wrap items-center justify-between gap-3 border-b border-border-default pb-4;
 }
 
 .gh-page-heading {
@@ -439,24 +439,8 @@ input[type="checkbox"]:indeterminate {
 	@apply text-2xl font-semibold leading-tight text-fg-default;
 }
 
-.gh-page-subtitle {
-	@apply max-w-3xl text-sm text-fg-muted;
-}
-
 .gh-page-actions {
 	@apply flex flex-wrap items-center gap-2;
-}
-
-.gh-page-meta {
-	@apply flex flex-wrap items-center gap-2 text-xs text-fg-muted;
-}
-
-.gh-page-meta-item {
-	@apply inline-flex min-h-7 max-w-full items-center gap-1.5 truncate rounded-md border border-border-default bg-canvas-default px-2.5 py-1;
-}
-
-.gh-page-meta-item-code {
-	@apply max-w-full truncate font-mono text-[11px];
 }
 
 .gh-list-header {
@@ -624,38 +608,38 @@ input[type="checkbox"]:indeterminate {
 	@apply z-[130];
 }
 
-.theme-menu-button {
-	@apply inline-flex h-8 w-8 items-center justify-center rounded-md border transition-colors;
-	border-color: var(--border-default);
-	background-color: var(--canvas-default);
+.theme-menu-button,
+.app-header-link {
+	@apply inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md transition-colors;
 	color: var(--fg-muted);
 }
 
-.theme-menu-button:hover {
-	background-color: var(--canvas-subtle);
+.theme-menu-button:hover,
+.app-header-link:hover {
+	background-color: var(--canvas-inset);
 	color: var(--fg-default);
 }
 
-.theme-menu-button:focus,
-.theme-menu-button:focus-visible {
-	outline: none;
-	border-color: var(--accent-emphasis);
-	box-shadow: 0 0 0 3px var(--accent-muted);
+.theme-menu-button:focus-visible,
+.app-header-link:focus-visible {
+	outline: 2px solid var(--accent-fg);
+	outline-offset: 2px;
 }
 
 .theme-menu-dropdown {
 	@apply z-[150];
 }
 
-.app-header-link {
-	@apply inline-flex h-8 w-8 items-center justify-center rounded-md border transition-colors;
-	border-color: var(--border-default);
-	color: var(--fg-muted);
+.app-header-link-connected {
+	color: var(--success-emphasis);
 }
 
-.app-header-link:hover {
-	background: var(--canvas-subtle);
-	color: var(--fg-default);
+.app-header-link-pending {
+	color: var(--attention-emphasis);
+}
+
+.app-header-link-danger {
+	color: var(--danger-emphasis);
 }
 
 .app-repo-shell {
@@ -667,7 +651,7 @@ input[type="checkbox"]:indeterminate {
 }
 
 .app-repo-meta {
-	@apply mx-auto flex w-full flex-col gap-3 px-4 py-3 sm:px-6 lg:flex-row lg:items-center lg:justify-between lg:px-8;
+	@apply mx-auto flex w-full items-center justify-between gap-3 px-4 py-3 sm:px-6 lg:px-8;
 }
 
 .app-repo-main {
@@ -687,7 +671,7 @@ input[type="checkbox"]:indeterminate {
 }
 
 .app-repo-title {
-	@apply flex min-w-0 flex-wrap items-center gap-1.5 text-xl leading-7;
+	@apply flex min-w-0 items-center gap-2 text-lg font-semibold leading-7;
 	color: var(--fg-default);
 }
 
@@ -695,69 +679,8 @@ input[type="checkbox"]:indeterminate {
 	@apply flex min-w-0 items-center;
 }
 
-.app-repo-status-line {
-	@apply flex min-w-0 items-center gap-2;
-	color: var(--fg-muted);
-}
-
-.app-repo-title-owner {
-	color: var(--accent-fg);
-	font-weight: 400;
-}
-
-.app-repo-title-owner:hover {
-	text-decoration: underline;
-}
-
-.app-repo-title-separator {
-	color: var(--fg-muted);
-}
-
-.app-repo-visibility {
-	@apply ml-1 inline-flex items-center rounded-full border px-1.5 py-0 text-xs font-medium leading-5;
-	border-color: var(--border-default);
-	color: var(--fg-muted);
-}
-
 .app-repo-actions {
-	@apply flex min-w-0 flex-wrap items-center gap-2 lg:justify-end;
-}
-
-.app-repo-status {
-	@apply inline-flex h-8 items-center gap-1.5 rounded-md border px-2.5 text-xs font-medium;
-	border-color: var(--border-default);
-	background: var(--canvas-default);
-	color: var(--fg-muted);
-}
-
-.app-repo-status-connected {
-	color: var(--success-emphasis);
-}
-
-.app-repo-workspace-id {
-	@apply hidden max-w-[16rem] truncate font-mono text-xs sm:inline;
-	color: var(--fg-muted);
-}
-
-.app-repo-action-button {
-	@apply inline-flex h-8 items-center justify-center rounded-md border px-3 text-xs font-medium transition-colors;
-	border-color: var(--border-default);
-	background: var(--canvas-default);
-	color: var(--fg-default);
-}
-
-.app-repo-action-button:hover {
-	background: var(--canvas-subtle);
-}
-
-.app-repo-action-button-primary {
-	border-color: color-mix(in srgb, var(--success-emphasis) 70%, black);
-	background: var(--success-emphasis);
-	color: #ffffff;
-}
-
-.app-repo-action-button-primary:hover {
-	background: color-mix(in srgb, var(--success-emphasis) 88%, black);
+	@apply flex shrink-0 items-center gap-1;
 }
 
 .app-main-container {
@@ -786,11 +709,31 @@ input[type="checkbox"]:indeterminate {
 }
 
 .repo-metric-grid {
-	@apply grid grid-cols-1 divide-y divide-border-default md:grid-cols-4 md:divide-x md:divide-y-0;
+	@apply grid grid-cols-2 md:grid-cols-4;
 }
 
 .repo-metric {
-	@apply flex min-w-0 flex-col gap-2 p-4;
+	@apply flex min-w-0 flex-col gap-3 p-4 transition-colors hover:bg-canvas-subtle;
+	outline-offset: -2px;
+	border-right: 1px solid var(--border-default);
+}
+
+.repo-metric:nth-child(2n) {
+	border-right: 0;
+}
+
+.repo-metric:nth-child(n + 3) {
+	border-top: 1px solid var(--border-default);
+}
+
+@media (min-width: 768px) {
+	.repo-metric:nth-child(2) {
+		border-right: 1px solid var(--border-default);
+	}
+
+	.repo-metric:nth-child(n + 3) {
+		border-top: 0;
+	}
 }
 
 .repo-metric-label {
@@ -799,10 +742,6 @@ input[type="checkbox"]:indeterminate {
 
 .repo-metric-value {
 	@apply text-2xl font-semibold leading-none text-fg-default;
-}
-
-.repo-metric-caption {
-	@apply text-xs text-fg-muted;
 }
 
 .repo-workflow-row {
@@ -815,22 +754,6 @@ input[type="checkbox"]:indeterminate {
 
 .repo-workflow-index {
 	@apply mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-border-default bg-canvas-subtle text-[11px] font-medium text-fg-muted;
-}
-
-.repo-sidebar-section {
-	@apply border-b border-border-default px-4 py-4 last:border-b-0;
-}
-
-.repo-sidebar-title {
-	@apply mb-2 text-sm font-semibold;
-}
-
-.repo-sidebar-row {
-	@apply flex items-center justify-between gap-3 py-1 text-sm;
-}
-
-.repo-sidebar-row-label {
-	@apply min-w-0 text-fg-muted;
 }
 
 .blankslate {

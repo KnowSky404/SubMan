@@ -15,8 +15,8 @@ import {
 	fileCode,
 	gear,
 	home,
+	markGithub,
 	moon,
-	packageIcon,
 	server,
 	shieldCheck,
 	sun,
@@ -40,7 +40,6 @@ import { startWorkspaceMutationSync } from "$lib/workspace-mutation-sync-browser
 import { workspaceSyncStatus } from "$lib/workspace-sync-status";
 
 const PROJECT_GITHUB_URL = "https://github.com/KnowSky404/SubMan";
-const PROJECT_OWNER = "KnowSky404";
 const PROJECT_NAME = "SubMan";
 
 const navItems = [
@@ -71,9 +70,15 @@ $: isWorkspaceConnected = Boolean(
 		$workspaceCloudStatus.phase === "ready" &&
 		$workspaceSyncStatus.mode !== "disconnected",
 );
-$: workspaceMetaText = isWorkspaceConnected
-	? $appState.activeGistId
-	: $t("Connect GitHub to load your cloud data.");
+$: workspaceNeedsAttention =
+	$workspaceCloudStatus.phase === "error" ||
+	$workspaceSyncStatus.repairRequired;
+$: workspaceBusy =
+	$workspaceCloudStatus.phase === "loading" ||
+	$workspaceSyncStatus.lifecycle === "syncing";
+$: workspacePending =
+	$workspaceSyncStatus.queueCount > 0 ||
+	$workspaceSyncStatus.lifecycle === "retrying";
 $: syncStatusLabel =
 	$workspaceCloudStatus.phase === "loading"
 		? "Loading cloud data..."
@@ -94,6 +99,7 @@ $: syncStatusLabel =
 						disconnected: "Not connected",
 					} as const
 				)[$workspaceSyncStatus.lifecycle];
+$: workspaceControlLabel = `${$t(workspaceNeedsAttention ? "Repair" : isWorkspaceConnected ? "Manage Workspace" : "Setup GitHub")}: ${$t(syncStatusLabel)}${$workspaceSyncStatus.queueCount > 0 ? `, ${$t("{count} queued", { count: $workspaceSyncStatus.queueCount })}` : ""}`;
 let themeMenuOpen = false;
 let confirmDialogElement: HTMLDivElement | null = null;
 let confirmButton: HTMLButtonElement | null = null;
@@ -206,43 +212,24 @@ onMount(() => {
 					<div class="app-repo-title-line">
 						<div class="app-repo-title">
 							<img src="/brand/subman-logo.png" alt="" class="app-brand-mark" width="24" height="24" />
-							<a href={PROJECT_GITHUB_URL} target="_blank" rel="noreferrer" class="app-repo-title-owner">
-								{PROJECT_OWNER}
-							</a>
-							<span class="app-repo-title-separator">/</span>
 							<span>{PROJECT_NAME}</span>
-							<span class="gh-label gh-label-muted ml-1">Public</span>
 						</div>
 					</div>
 				</div>
 
 				<div class="app-repo-actions">
-					<div class="app-repo-status-line">
-						<span class={cn("app-repo-status", isWorkspaceConnected ? "app-repo-status-connected" : "")}>
-							{#if isWorkspaceConnected}
-								<Octicon icon={shieldCheck} className="h-3.5 w-3.5" />
-								{$t("Workspace")}
-							{:else}
-								<Octicon icon={database} className="h-3.5 w-3.5" />
-								{$t("Not connected")}
-							{/if}
-						</span>
-						<span class="app-repo-workspace-id">{workspaceMetaText}</span>
-						<span class="gh-label gh-label-muted">{$t(syncStatusLabel)}</span>
-						{#if $workspaceSyncStatus.queueCount > 0}
-							<span class="gh-label">{$t("{count} queued", { count: $workspaceSyncStatus.queueCount })}</span>
-						{/if}
-						{#if $workspaceSyncStatus.repairRequired}
-							<a href="/auth#workspace-repair" class="text-xs font-semibold text-accent-fg">{$t("Repair")}</a>
-						{/if}
-					</div>
-
-					<a href="/auth" class={cn("gh-btn gh-btn-sm", !isWorkspaceConnected && "gh-btn-primary")}>
-						{isWorkspaceConnected ? $t("Manage Workspace") : $t("Setup GitHub")}
+					<a
+						href={workspaceNeedsAttention ? "/auth#workspace-repair" : "/auth"}
+						class={cn("app-header-link", workspaceNeedsAttention ? "app-header-link-danger" : workspacePending ? "app-header-link-pending" : isWorkspaceConnected && "app-header-link-connected")}
+						aria-label={workspaceControlLabel}
+						title={workspaceControlLabel}
+					>
+						<Octicon icon={workspaceNeedsAttention ? alert : workspaceBusy || workspacePending ? sync : isWorkspaceConnected ? shieldCheck : database} className={cn("h-4 w-4", workspaceBusy && "animate-spin motion-reduce:animate-none")} />
 					</a>
+					<span class="sr-only" role="status">{workspaceControlLabel}</span>
 
 					<div class="theme-menu relative shrink-0">
-						<button type="button" class="theme-menu-button" on:click={() => (themeMenuOpen = !themeMenuOpen)} aria-haspopup="menu" aria-expanded={themeMenuOpen} aria-label={`${$t("Theme")}: ${activeThemeLabel}`}>
+						<button type="button" class="theme-menu-button" on:click={() => (themeMenuOpen = !themeMenuOpen)} aria-haspopup="menu" aria-expanded={themeMenuOpen} aria-label={`${$t("Theme")}: ${activeThemeLabel}`} title={`${$t("Theme")}: ${activeThemeLabel}`}>
 							<Octicon icon={activeThemeOption.icon} className="h-4 w-4" />
 							<span class="sr-only">{$t("Theme")}: {activeThemeLabel}</span>
 						</button>
@@ -251,11 +238,11 @@ onMount(() => {
 							<div class="gh-dropdown-menu theme-menu-dropdown right-0 top-full w-40" transition:slide={{ duration: 150 }}>
 								<div class="gh-dropdown-body flex flex-col gap-0.5">
 									{#each themeOptions as option (option.value)}
-										<button type="button" class={cn("gh-dropdown-item", $themeMode === option.value ? "font-semibold text-fg-default" : "text-fg-default")} on:click={() => handleThemeChange(option.value)}>
+										<button type="button" class={cn("gh-dropdown-item", $themeMode === option.value ? "font-semibold text-fg-default" : "text-fg-default")} on:click={() => handleThemeChange(option.value)} aria-pressed={$themeMode === option.value}>
 											<Octicon icon={option.icon} className="h-4 w-4 shrink-0 text-fg-muted" />
 											<span class="min-w-0 flex-1 truncate">{$t(option.label)}</span>
 											{#if $themeMode === option.value}
-												<span class="gh-label">{$t("Active")}</span>
+												<Octicon icon={check} className="h-4 w-4 text-accent-fg" />
 											{/if}
 										</button>
 									{/each}
@@ -270,8 +257,9 @@ onMount(() => {
 						rel="noreferrer"
 						class="app-header-link"
 						aria-label={$t("Open project on GitHub")}
+						title={$t("Open project on GitHub")}
 					>
-						<Octicon icon={packageIcon} className="h-4 w-4" />
+						<Octicon icon={markGithub} className="h-4 w-4" />
 					</a>
 				</div>
 			</div>

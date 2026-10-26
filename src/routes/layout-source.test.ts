@@ -20,7 +20,7 @@ test("compact repository header owns global controls", () => {
 	expect(layoutSource).toContain(
 		'<img src="/brand/subman-logo.png" alt="" class="app-brand-mark"',
 	);
-	expect(layoutSource).toContain('<div class="app-repo-status-line">');
+	expect(layoutSource).not.toContain('<div class="app-repo-status-line">');
 	expect(layoutSource).toContain('<div class="app-repo-actions">');
 	expect(layoutSource).toContain('<div class="theme-menu relative shrink-0">');
 	expect(layoutSource).toContain(
@@ -56,7 +56,7 @@ test("layout declares the SubMan favicon family", () => {
 	);
 });
 
-test("repo header renders identity and stats in one compact row", () => {
+test("repo header renders identity and controls in one compact row", () => {
 	expect(layoutSource).toContain('<div class="app-repo-main">');
 	expect(layoutSource).toContain('<div class="app-repo-actions">');
 	expect(layoutSource).not.toContain('<div class="app-repo-side-meta">');
@@ -105,7 +105,7 @@ test("primary navigation reads pathname directly from SvelteKit app state", () =
 
 test("layout uses github action primitives in repository header", () => {
 	expect(layoutSource).toContain("app-repo-actions");
-	expect(layoutSource).toContain("gh-btn gh-btn-sm");
+	expect(layoutSource).toContain("title={workspaceControlLabel}");
 	expect(layoutSource).not.toContain("app-repo-action-button");
 	expect(layoutSource).toContain("app-header-link");
 });

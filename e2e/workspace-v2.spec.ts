@@ -1300,7 +1300,9 @@ test("rolls back the visible node when the IndexedDB transaction fails", async (
 	await expect(page.getByText("Must Roll Back", { exact: true })).toHaveCount(
 		0,
 	);
-	await expect(page.getByText("0 nodes", { exact: true })).toBeVisible();
+	await expect(
+		page.getByRole("button", { name: "Nodes 0", exact: true }),
+	).toBeVisible();
 	const stored = await readIndexedDb(page);
 	expect((stored.snapshot as JsonRecord).nodes).toEqual([]);
 });
@@ -2040,7 +2042,10 @@ test("Save and Publish reports peer ownership until another tab commits once", a
 		})
 		.toBe(0);
 	await expect(
-		page.getByText("Saved to Workspace", { exact: true }).first(),
+		page.getByRole("link", {
+			name: "Manage Workspace: Saved to Workspace",
+			exact: true,
+		}),
 	).toBeVisible();
 	await expect(page.getByText("Live Link", { exact: true })).toHaveCount(0);
 	expect(submissions).toHaveLength(1);
@@ -2556,7 +2561,7 @@ test("shows a domain conflict without full-state merge and clears Repair after c
 		"Domain Conflict Node",
 		"vless://domain-conflict.example",
 	);
-	const repairLink = page.getByRole("link", { name: "Repair", exact: true });
+	const repairLink = page.getByRole("link", { name: /^Repair:/ });
 	await expect(repairLink).toBeVisible();
 	await repairLink.click();
 	await page.getByTestId("queue-inspector").locator("summary").first().click();
@@ -2575,9 +2580,7 @@ test("shows a domain conflict without full-state merge and clears Repair after c
 		.getByRole("dialog")
 		.getByRole("button", { name: "Reload from Cloud", exact: true })
 		.click();
-	await expect(
-		page.getByRole("link", { name: "Repair", exact: true }),
-	).toHaveCount(0);
+	await expect(page.getByRole("link", { name: /^Repair:/ })).toHaveCount(0);
 	await expect(page.getByTestId("active-queue-count")).toHaveText("0");
 });
 
