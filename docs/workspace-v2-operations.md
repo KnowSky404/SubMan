@@ -93,6 +93,7 @@ must not generate or submit a replacement mutation.
 Run the complete local gate:
 
 ```bash
+bun run docs:check
 bun test
 bun run test:sing-box
 bun run check

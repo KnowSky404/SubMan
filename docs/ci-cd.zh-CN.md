@@ -74,7 +74,7 @@ Token 应限制到目标账户和最小 Workers 部署权限。工作流检查�
 wrangler deploy --strict
 ```
 
-部署工作流目前不重复 `test:sing-box`；该门禁由独立的 `CI / verify` 提供。
+部署工作流目前不重复 `docs:check` 或 `test:sing-box`；这两项门禁由独立的 `CI / verify` 提供。
 部署前要求同一提交的该检查成功。Strict 模式在非交互部署可能覆盖冲突远端配置时失败。
 
 部署凭据与 Worker 运行时的 `GITHUB_TOKEN`、`SUBMAN_API_TOKEN` 分开管理。

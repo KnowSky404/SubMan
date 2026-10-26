@@ -75,12 +75,17 @@ curl --fail-with-body -sS -X PUT "https://subman.example.com/api/nodes/by-key/vp
 `HK 2026-05-26 06:32`；首尾去空白后相同的 raw URI 返回
 `409 duplicate_node_raw`。`enabled` 默认 `true`，`source` 默认 `single`，
 `tags` 默认空数组。标签可以是字符串或 `{ "id": "...", "label": "..." }`。
+建议使用字符串标签，或提供显式非空对象 ID；仅有 label 的对象在 ASCII 规范化结果
+为空 ID 时返回 `400 invalid_mutation`。
 
 允许的 `type`：
 
 ```text
 vless, vmess, trojan, ss, ssr, hysteria2, tuic, anytls, other
 ```
+
+PATCH 至少要求一个已知的可写字段；空对象或仅含未知字段的请求体返回
+`400 invalid_mutation`。
 
 ## 当前公开端点
 
@@ -108,8 +113,10 @@ vless, vmess, trojan, ss, ssr, hysteria2, tuic, anytls, other
   `state-conflict` 和当前 revision；重新读取后决定是否重施意图。
 - 不带 `If-Match` 的并发写入仍可能返回 `409 revision_conflict`。
 - GET 只是观察快照。无工作区时可创建 bootstrap Gist；V1/bootstrap revision 为 0。
-  API 由 Worker 凭证独立发现目标，没有工作区选择器。多个或无效候选返回脱敏的
-  `502 gist_read_failed`。使用 ETag 前核对 `workspace.gistId`，版本号不标识 Gist。
+  API 由 Worker 凭证独立发现目标，没有工作区选择器。优先选择唯一有效的 V1/V2 文档；
+  没有有效文档时才选唯一有效 bootstrap，无效候选不会阻止这两种唯一选择。
+  所选层级有多个有效候选或只有无效候选时返回脱敏的 `502 gist_read_failed`。
+  使用 ETag 前核对 `workspace.gistId`，版本号不标识 Gist。
 - Health 始终 HTTP 200，必须检查 `ok`。它只检查 secret 存在，不验证 GitHub
   权限、发现结果或协调器 binding。
 - 节点写入不修改已有发布输出。审查相关规则后在浏览器重新发布。

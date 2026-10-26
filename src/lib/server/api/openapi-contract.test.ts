@@ -209,6 +209,21 @@ describe("public Server API OpenAPI contract", () => {
 		]);
 	});
 
+	test("requires at least one recognized field in node patches", () => {
+		const schemas = child(child(document, "components"), "schemas");
+		const patch = child(schemas, "NodePatchInput");
+		expect(patch.minProperties).toBe(1);
+		expect(patch.anyOf).toEqual([
+			{ required: ["name"] },
+			{ required: ["type"] },
+			{ required: ["raw"] },
+			{ required: ["tags"] },
+			{ required: ["enabled"] },
+			{ required: ["source"] },
+		]);
+		expect(patch.additionalProperties).not.toBe(false);
+	});
+
 	test("documents effective external-key limits and permits readable legacy responses", () => {
 		const components = child(document, "components");
 		const externalKey = child(child(components, "parameters"), "ExternalKey");

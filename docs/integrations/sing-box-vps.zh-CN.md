@@ -22,8 +22,11 @@ scope 或单独撤销能力。请存入受保护的服务器配置，不要放�
 `GET /api/health` 无需 Bearer，始终返回 HTTP 200，仅报告 Secret 是否存在。
 先检查 `ok`，再通过带鉴权的 `GET /api/nodes` 检查实际 Workspace。
 API 使用 Worker 凭证独立发现目标，不读取浏览器绑定。写入前确认
-`workspace.gistId` 是预期 Gist；没有 Workspace 时，节点 GET 也可能创建
-bootstrap Gist。多份或无效候选会停止操作；公开接口没有 Workspace 选择参数。
+`workspace.gistId` 是预期 Gist；没有匹配候选时，节点 GET 也可能创建 bootstrap Gist。
+发现时优先选择唯一有效的 V1/V2 文档；没有有效文档时，才选择唯一有效的 bootstrap。
+其他无效或 bootstrap 候选不会阻止选择唯一有效文档；无效候选也不会阻止选择唯一有效
+bootstrap。所选层级有多份候选或只有无效候选时返回 `502 gist_read_failed`；
+公开接口没有 Workspace 选择参数。
 
 ## 支持的操作
 
@@ -94,14 +97,14 @@ API 不支持 `Idempotency-Key`。重复 by-key PUT 保持资源身份，但仍�
 
 ## 当前 sing-box-vps 兼容性检查
 
-检查日期为 **2026-10-23**，依据 SubMan `9c5ab76` 和
+检查日期为 **2026-10-26**，依据 SubMan `ed6fa5a` 和
 [sing-box-vps `9bac47e`](https://github.com/KnowSky404/sing-box-vps/commit/9bac47e)。
-下述调用方结论仅对应这份源码快照，后续 sing-box-vps 版本需重新核对。
+核对时该调用方提交仍是默认分支最新版本。下述结论仅对应这份源码快照，后续版本需重新核对。
 
 本地检查的调用方已经做到 key 仅编码一次、核验提交版本/ETag/key 标记、读取稳定错误、
 报告传输结果不确定，以及先列举再带版本删除旧 key。这些操作与当前 SubMan API 兼容。
 
-sing-box-vps 有三项调用方校验需要适配：
+sing-box-vps 有四项调用方修改需要完成：
 
 1. `validate_subman_node_request` 和部分 key 构造函数仍允许 256 字节 key，
    但服务端生成的标签使实际可用长度为 **119 字节**。发起写入前应检查完整 key，
@@ -110,12 +113,38 @@ sing-box-vps 有三项调用方校验需要适配：
 2. 通用 payload 校验允许 64 个调用方标签。by-key 请求必须保留标记位置，最多
    **63 个不同的普通 label**。
 3. `validate_subman_workspace_response` 会核对文件、版本、ETag 和 key 标记，
-   但**没有**将 `workspace.gistId` 与预期 Gist 比较。调用方加入预期 Gist 防护前，
-   上文目标身份核对仍需运营者手动完成；现有成功校验不能证明 API 选中了浏览器绑定
-   或其他预期 Gist。
+   但**没有**将 `workspace.gistId` 与预期 Gist 比较。应增加显式预期 Gist 配置，
+   写入前 GET 核对，并检查每个节点响应。现有同步命令直接 PUT，没有 health 或
+   预期 Gist 预检；适配前仍需运营者完成这些检查。API 没有将发现目标原子固定为
+   该 Gist 的请求参数，仅靠 ETag 无法提供这一保证。
+4. `subman_api_request` 用 awk `IGNORECASE=1` 解析响应头，但 mawk 不支持它。
+   合法的小写 `etag` 或 `x-subman-revision` 可能被漏读，使已成功写入的请求被误报为
+   `revision_contract_mismatch`。应通过 `tolower($0) ~ /^etag:/` 等可移植方式，
+   忽略 ETag、revision 和重试时间头名称的大小写。已在 mawk 1.3.4 复现，见
+   [现有响应头解析](https://github.com/KnowSky404/sing-box-vps/blob/9bac47efe45e85133b68fb89026ad8d88a3bea90/install.sh#L25408)。
 
 SubMan 已强制执行这些限制。本文没有修改接口或 sing-box-vps 仓库。
 失败时应在调用方修正；放宽通用协议字段限制并不能放宽标签限制。
+
+调用方目前还未检查 `Cache-Control: no-store`。多节点同步结果只有
+synced/skipped/failed 计数和最后一个错误，没有逐节点 key/ID 结果记录。
+完成下列验收时，应补齐响应缓存校验与逐节点结果记录。
+
+## 调用方适配验收
+
+使用合成响应和可丢弃的模拟 API 验证：
+
+| 场景 | 预期行为 |
+| --- | --- |
+| 完整 key 为 119/120 UTF-8 字节，含多字节文本 | 接受 119；120 在写入前拒绝；保留既有 key |
+| 63/64 个不同普通标签 | 接受 63；64 在 by-key PUT 前拒绝；标记由服务端添加 |
+| Gist 与预期不同，或 revision/ETag/key 标记不一致 | 错误 Gist 在预检时停止；不将不一致的写入响应报为成功 |
+| mawk 下小写、混合大小写响应头 | 一致读取 ETag、revision、Retry-After 和 no-store |
+| PUT 已提交但响应丢失 | 先 GET 核对精确 key 与目标状态，再决定是否重发 |
+| 多节点中部分成功、部分失败 | 保留每个 key/ID 与结果；其他节点失败不抹去已成功写入 |
+| 不支持的协议或设置 | 明确跳过，不降级为有损的 `other` |
+
+这些是适配要求，不代表 sing-box-vps 已有相应测试。fixture 不使用真实 Token 或节点凭据。
 
 调用方支持的协议也少于 SubMan 节点类型枚举。其 VLESS、Hysteria2、Trojan、VMess
 和加密双网络 Shadowsocks 专用路径有各自的无损表达检查与逐用户跳过逻辑。

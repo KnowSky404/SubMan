@@ -52,6 +52,7 @@ Worker 运行时验证与完整检查见[开发指南](docs/wiki/Development.zh-
 | 使用与恢复 | [User guide](docs/wiki/User-Guide.md) | [使用指南](docs/wiki/User-Guide.zh-CN.md) |
 | 开发与 Wiki 维护 | [Development](docs/wiki/Development.md) | [开发指南](docs/wiki/Development.zh-CN.md) |
 | API 与自动化 | [Server API](docs/api/server-api.md) | [接口文档](docs/api/server-api.zh-CN.md) |
+| sing-box-vps 适配 | [Integration guide](docs/integrations/sing-box-vps.md) | [适配指南](docs/integrations/sing-box-vps.zh-CN.md) |
 | 运维与部署 | [Operations](docs/workspace-v2-operations.md) | [运维指南](docs/workspace-v2-operations.zh-CN.md) |
 | 项目变更 | [Changelog](docs/wiki/Changelog.md) | [变更记录](docs/wiki/Changelog.zh-CN.md) |
 

@@ -27,8 +27,13 @@ should run only when those writes are authorized.
 presence only: inspect `ok`, then use an authenticated `GET /api/nodes` to check
 the reachable Workspace. Discovery uses the Worker's credentials independently
 of the browser binding. Verify `workspace.gistId` against the intended Gist;
-even a node GET can create a bootstrap Gist if none exists. Multiple or invalid
-matching Gists fail closed; there is no public Workspace selector.
+even a node GET can create a bootstrap Gist if no matching candidate exists.
+Discovery prefers exactly one valid V1/V2 document; otherwise, with no valid
+document, it selects exactly one valid bootstrap. Invalid or bootstrap candidates
+do not prevent selecting a unique valid document, and invalid candidates do not
+prevent selecting a unique valid bootstrap. Multiple candidates at the selected
+tier or only invalid candidates return `502 gist_read_failed`; there is no public
+Workspace selector.
 
 ## Supported operations
 
@@ -108,17 +113,17 @@ synchronizing several nodes; separate requests are not atomic together.
 
 ## Current sing-box-vps compatibility review
 
-Reviewed on **2026-10-23**, against SubMan revision `9c5ab76` and
+Reviewed on **2026-10-26**, against SubMan revision `ed6fa5a` and
 [sing-box-vps revision `9bac47e`](https://github.com/KnowSky404/sing-box-vps/commit/9bac47e).
-The caller findings below describe that source snapshot, rather than a promise
-about later sing-box-vps releases.
+That is still the caller's latest default-branch commit at review time. The
+findings below describe that source snapshot; later releases need another review.
 
 The locally checked caller already URL-encodes keys once, validates committed
 revision/ETag and key-marker responses, reads stable errors, reports unknown
 transport outcomes, and uses list plus conditional deletion for old keys. Those
 operations remain compatible with the current SubMan API.
 
-Three client-side checks need adaptation in sing-box-vps:
+Four caller changes are needed in sing-box-vps:
 
 1. `validate_subman_node_request` and some key builders still permit 256-byte
    keys. The server's generated tag makes the usable limit **119 bytes**.
@@ -130,14 +135,44 @@ Three client-side checks need adaptation in sing-box-vps:
    leave the marker slot and use at most **63 distinct ordinary labels**.
 3. `validate_subman_workspace_response` checks the file, revision, ETag, and key
    marker, but does **not** compare `workspace.gistId` with an expected Gist.
-   Until the caller gains an expected-Gist guard, the intended-Gist check above
-   is an operator step; its existing success validation does not establish that
-   the API selected the browser's Gist or another intended Gist.
+   Add explicit expected-Gist configuration, check it with GET before writing,
+   and verify it in every node response. The current sync command sends PUT
+   directly; it has no health or expected-Gist preflight. These remain operator
+   steps until adapted. The API has no request parameter that atomically pins
+   discovery to that Gist; an ETag alone cannot provide that guarantee.
+4. `subman_api_request` parses headers with awk `IGNORECASE=1`, which mawk does
+   not support. A valid lowercase `etag` or `x-subman-revision` can be missed,
+   causing `revision_contract_mismatch` after a successful remote write. Use
+   portable case-insensitive matching such as `tolower($0) ~ /^etag:/` for
+   ETag, revision, and retry timing. This failure was reproduced with mawk 1.3.4;
+   see the [current header parser](https://github.com/KnowSky404/sing-box-vps/blob/9bac47efe45e85133b68fb89026ad8d88a3bea90/install.sh#L25408).
 
 SubMan already enforces these limits. This guide does not change the API or
 modify the sing-box-vps repository. An integration failing these checks must be
 fixed in that caller; widening a generic protocol limit does not widen tag
 limits.
+
+The caller currently ignores `Cache-Control: no-store`. Its multi-node result
+contains synced/skipped/failed counts and the last error, without a per-node
+key/ID outcome record. Add response-cache validation and per-node outcome
+records when implementing the acceptance checks below.
+
+## Caller adaptation acceptance checks
+
+Use synthetic responses and a disposable mock API for these checks:
+
+| Case | Required behavior |
+| --- | --- |
+| Complete key at 119/120 UTF-8 bytes, including multibyte text | Accept 119; reject 120 before sending a write; preserve existing keys |
+| 63/64 distinct ordinary tags | Accept 63; reject 64 before by-key PUT; let the server add the marker |
+| Unexpected Gist or mismatched revision/ETag/key marker | Stop preflight on the wrong Gist; do not report a mismatched write response as success |
+| Lowercase and mixed-case response headers under mawk | Read ETag, revision, Retry-After, and no-store consistently |
+| Lost response after a committed PUT | GET and compare the exact key and desired state before deciding to resend |
+| Several nodes with mixed outcomes | Retain each key/ID and outcome; preserve successful writes when another node fails |
+| Unsupported protocol or settings | Report an explicit skip without a lossy `other` conversion |
+
+These are adaptation requirements, not claims about tests already present in
+sing-box-vps. Keep fixtures free of real tokens and node credentials.
 
 The caller's protocol support is also narrower than SubMan's node-type enum.
 Its dedicated VLESS, Hysteria2, Trojan, VMess, and encrypted dual-network

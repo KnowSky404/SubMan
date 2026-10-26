@@ -53,6 +53,7 @@ See [development](docs/wiki/Development.md) for Worker runtime testing and check
 | Usage and recovery | [User guide](docs/wiki/User-Guide.md) | [使用指南](docs/wiki/User-Guide.zh-CN.md) |
 | Development and Wiki maintenance | [Development](docs/wiki/Development.md) | [开发指南](docs/wiki/Development.zh-CN.md) |
 | API and automation | [Server API](docs/api/server-api.md) | [接口文档](docs/api/server-api.zh-CN.md) |
+| sing-box-vps adaptation | [Integration guide](docs/integrations/sing-box-vps.md) | [适配指南](docs/integrations/sing-box-vps.zh-CN.md) |
 | Operations and deployment | [Operations](docs/workspace-v2-operations.md) | [运维指南](docs/workspace-v2-operations.zh-CN.md) |
 | Project changes | [Changelog](docs/wiki/Changelog.md) | [变更记录](docs/wiki/Changelog.zh-CN.md) |
 

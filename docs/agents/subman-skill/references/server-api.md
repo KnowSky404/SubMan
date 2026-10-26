@@ -92,6 +92,10 @@ Rules:
 - `source` defaults to `single`.
 - `tags` defaults to an empty array.
 - `tags` may be strings or `{ "id": "...", "label": "..." }` objects.
+- Prefer string tags or explicit nonempty object IDs. Label-only objects whose
+  ASCII normalization produces an empty ID return `400 invalid_mutation`.
+- PATCH requires at least one recognized writable field; an empty or
+  unknown-only body returns `400 invalid_mutation`.
 
 Allowed `type` values:
 
@@ -133,8 +137,11 @@ aggregates, publication, and exports do not yet have public REST endpoints.
 - GET returns an observed snapshot, not a commit. It can create a bootstrap Gist
   if discovery finds none; V1/bootstrap reads have revision 0. Discovery uses
   Worker credentials, not the browser binding, and has no Workspace selector.
-  Multiple/invalid candidates return sanitized `502 gist_read_failed`. Check
-  `workspace.gistId` before using an ETag; revision alone does not identify a Gist.
+  Discovery prefers one valid V1/V2 document, then one valid bootstrap if no valid
+  document exists; invalid candidates do not block either unique selection.
+  Multiple valid candidates at the selected tier or only invalid candidates
+  return sanitized `502 gist_read_failed`. Check `workspace.gistId` before using
+  an ETag; revision alone does not identify a Gist.
 - Health always returns HTTP 200; inspect `ok`. It checks secret presence only,
   without testing GitHub permissions, discovery, or the coordinator binding.
 - Node writes leave existing published outputs unchanged. Publish in the browser

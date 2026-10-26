@@ -108,9 +108,9 @@ deployment dry-run bundle, and then runs:
 wrangler deploy --strict
 ```
 
-The deployment workflow currently does not repeat `test:sing-box`; the separate
-`CI / verify` workflow provides that gate for the same commit. Require its
-success before deployment.
+The deployment workflow currently does not repeat `docs:check` or
+`test:sing-box`; the separate `CI / verify` workflow provides those gates for
+the same commit. Require its success before deployment.
 
 Strict mode fails closed when a non-interactive deployment could overwrite
 conflicting remote settings.

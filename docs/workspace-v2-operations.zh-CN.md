@@ -64,6 +64,7 @@ BroadcastChannel/Web Locks 只是提示，持久记录、租约、fencing token�
 
 ```bash
 bun install --frozen-lockfile
+bun run docs:check
 bun test
 bun run test:sing-box
 bun run check

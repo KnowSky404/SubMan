@@ -103,10 +103,14 @@ to public API callers.
 Reads return the observed remote snapshot; they do not commit or publish anything.
 Workspace discovery is shared with the UI, but the API does not use the browser's
 saved binding. It searches the Gists accessible to the Worker's `GITHUB_TOKEN`.
-With no matching Workspace, even a node GET can create a private bootstrap Gist;
-V1 and bootstrap reads report revision `0`. Multiple valid candidates or invalid
-matching candidates require operator selection/repair and currently return the
-sanitized `502 gist_read_failed`; the API has no Workspace selector parameter.
+Discovery first selects exactly one valid V1/V2 document, even alongside bootstrap
+or invalid candidates. If no valid document exists, it selects exactly one valid
+bootstrap, even alongside invalid candidates. Multiple valid candidates at the
+selected tier, or only invalid matching candidates, require operator
+selection/repair and return the sanitized `502 gist_read_failed`.
+With no matching candidate, even a node GET can create a private bootstrap Gist;
+V1 and bootstrap reads report revision `0`. The API has no Workspace selector
+parameter.
 Check `workspace.gistId` against the intended Gist before writing. A revision ETag
 is scoped to that Workspace and does not identify the Gist by itself.
 
@@ -208,6 +212,9 @@ Rules:
 - `source` defaults to `single`.
 - `tags` defaults to an empty array.
 - `tags` may be strings or `{ "id": "...", "label": "..." }` objects.
+- Prefer string tags or provide a nonempty object `id`. Without an explicit ID,
+  an object label such as `{"label":"香港"}` normalizes to an empty ID and
+  returns `400 invalid_mutation`; the equivalent string tag is supported.
 - Strings are trimmed and tags are deduplicated by their normalized label.
   Unknown body fields are ignored. Send the documented types: create/upsert
   currently defaults non-boolean `enabled`, non-array `tags`, and missing,
@@ -215,7 +222,7 @@ Rules:
 
 ### Node Patch Body
 
-`PATCH /api/nodes/:id` accepts any subset of the node create body:
+`PATCH /api/nodes/:id` accepts a nonempty subset of the node create body:
 
 ```json
 {
@@ -224,7 +231,9 @@ Rules:
 }
 ```
 
-Missing fields keep their existing values.
+Missing fields keep their existing values. At least one recognized writable
+field is required. An empty object or a body containing only unknown fields
+returns `400 invalid_mutation`; unknown fields do not count as an update.
 
 Supplying `tags` replaces the entire tag list, including an existing external-key
 marker. To update tags on a machine-managed node while preserving its key, use

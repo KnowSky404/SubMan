@@ -70,8 +70,11 @@ paths:
       description: |
         Reads the observed remote Workspace node collection without publishing.
         Discovery uses Worker GitHub credentials, not browser binding. If no
-        Workspace exists, this read can create a private bootstrap Gist at
-        revision 0. Multiple/invalid candidates return 502 gist_read_failed.
+        matching candidate exists, this read can create a private bootstrap Gist
+        at revision 0. Discovery prefers one valid V1/V2 document, then one valid
+        bootstrap if no valid document exists; invalid candidates do not block
+        either unique selection. Multiple valid candidates at the selected tier
+        or only invalid candidates return 502 gist_read_failed.
         Check workspace.gistId before writing or reusing a revision ETag.
       responses:
         "200":
@@ -555,6 +558,11 @@ components:
           type: string
           minLength: 1
     NodeTagInput:
+      description: |
+        Prefer string tags, or supply a nonempty id in objects. Object labels
+        whose ASCII normalization produces an empty id (for example, a label
+        containing only Chinese characters) require an explicit id; otherwise
+        the coordinator returns 400 invalid_mutation.
       oneOf:
         - type: string
           minLength: 1
@@ -630,6 +638,17 @@ components:
           default: single
     NodePatchInput:
       type: object
+      description: |
+        Requires at least one recognized writable field. Unknown body fields
+        are ignored; an empty or unknown-only patch returns 400 invalid_mutation.
+      minProperties: 1
+      anyOf:
+        - required: [name]
+        - required: [type]
+        - required: [raw]
+        - required: [tags]
+        - required: [enabled]
+        - required: [source]
       properties:
         name:
           type: string

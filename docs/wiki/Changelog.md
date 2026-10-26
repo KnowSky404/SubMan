@@ -8,6 +8,18 @@ production deployment and real-provider acceptance require separate evidence.
 
 ## Unreleased
 
+### 2026-10-26 - API and sing-box-vps compatibility review
+
+- Clarified tiered Gist discovery and nonempty PATCH inputs in OpenAPI and the
+  bilingual API and agent references; added a PATCH schema contract check.
+- Documented the explicit-ID requirement for object tags whose labels normalize
+  to empty IDs; string tags remain the recommended caller format.
+- Rechecked sing-box-vps `9bac47e` against SubMan `ed6fa5a`; documented its
+  nonportable response-header parser alongside key, tag, and expected-Gist gaps,
+  with mock-based adaptation acceptance criteria.
+- Linked the integration guide from both READMEs and aligned operations and
+  deployment checklists with the documentation gate. Runtime API behavior is unchanged.
+
 ### 2026-10-23 - Repository and documentation cleanup
 
 - Shortened the English and Chinese READMEs; moved detailed usage and development

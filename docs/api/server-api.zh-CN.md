@@ -89,9 +89,11 @@ mutation，提交给该 Gist 对应的 `WorkspaceCoordinator` Durable Object。
 
 读取返回观察到的远端快照，不提交业务数据或发布输出。发现逻辑与 UI 共用，但 API
 不使用浏览器保存的绑定，而是查找 Worker 的 `GITHUB_TOKEN` 可访问的 Gist。
-完全没有匹配 Workspace 时，即使节点 GET 也可能创建私有 bootstrap Gist；
-V1 和 bootstrap 读取版本为 `0`。多个有效候选或无效匹配候选需要运营者选择/修复，
-当前返回脱敏的 `502 gist_read_failed`；API 没有 Workspace 选择参数。
+优先选择唯一有效的 V1/V2 文档，即使同时存在 bootstrap 或无效候选；没有有效文档时，
+选择唯一有效的 bootstrap，即使同时存在无效候选。所选层级有多个有效候选，
+或只有无效匹配候选时，需要运营者选择/修复，返回脱敏的 `502 gist_read_failed`。
+完全没有匹配候选时，即使节点 GET 也可能创建私有 bootstrap Gist；
+V1 和 bootstrap 读取版本为 `0`。API 没有 Workspace 选择参数。
 写入前应核对 `workspace.gistId` 是否为预期 Gist，版本 ETag 本身不标识 Gist。
 
 更新节点不会重新生成已有聚合订阅或 sing-box 输出文件，需在浏览器检查并另行发布。
@@ -186,13 +188,15 @@ Cache-Control: no-store
 - `source` 默认 `single`。
 - `tags` 默认空数组。
 - tags 可以是字符串或 `{ "id": "...", "label": "..." }` 对象。
+- 建议使用字符串标签，或为对象提供非空 `id`。例如 `{"label":"香港"}` 在未提供
+  ID 时会规范化为空 ID，返回 `400 invalid_mutation`；等价的字符串标签可以正常使用。
 - 字符串去除首尾空白，标签按规范化后的 label 去重。未知请求字段被忽略。
   应始终发送文档规定的类型：创建/upsert 当前对非布尔 enabled、非数组 tags、
   缺失/空/非字符串 source 使用默认值；PATCH 会检查明确提供的可选字段。
 
 ### 部分更新请求体
 
-`PATCH /api/nodes/:id` 接受创建请求字段的任意子集：
+`PATCH /api/nodes/:id` 接受创建请求字段的非空子集：
 
 ```json
 {
@@ -201,7 +205,8 @@ Cache-Control: no-store
 }
 ```
 
-省略字段保留既有值。
+省略字段保留既有值。至少提供一个已知的可写字段；空对象或仅含未知字段的请求体
+返回 `400 invalid_mutation`，未知字段不算作更新内容。
 
 提供 `tags` 会替换整个标签列表，包括既有的 external-key 标记。
 受管节点调整标签且保留 key 时，应使用包含完整目标节点内容的 by-key PUT。
