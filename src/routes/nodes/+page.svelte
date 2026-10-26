@@ -768,14 +768,6 @@ async function copy(text: string) {
 	<header class="gh-page-header">
 		<div class="gh-page-heading">
 			<h1 class="gh-page-title">{$t("Nodes")}</h1>
-			<p class="gh-page-subtitle">
-				{$t("Manage single proxy URIs and upstream subscriptions used by aggregate rules.")}
-			</p>
-			<div class="gh-page-meta">
-				<span class="gh-page-meta-item">{$t("{count} nodes", { count: $appState.nodes.length })}</span>
-				<span class="gh-page-meta-item">{$t("{count} subscriptions", { count: $appState.subscriptions.length })}</span>
-				<span class="gh-page-meta-item">{$t("{count} enabled", { count: enabledNodeCount + enabledSubscriptionCount })}</span>
-			</div>
 		</div>
 		<div class="gh-page-actions">
 			<button type="button" class="gh-btn gh-btn-primary" on:click={() => (isAddModalOpen = !isAddModalOpen)}>

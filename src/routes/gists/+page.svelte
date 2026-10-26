@@ -45,27 +45,10 @@ import {
 let workspace: GistMeta | null = null;
 let loading = false;
 let deleting = false;
-let lastRefreshedAt: string | null = null;
 $: workspaceFileCount = workspace?.files.length ?? 0;
 $: bootstrapStatus = getWorkspaceBootstrapStatus(
 	workspace?.files.map((file) => file.filename) ?? [],
 );
-$: workspaceUpdatedText = workspace?.updatedAt
-	? new Intl.DateTimeFormat(undefined, {
-			year: "numeric",
-			month: "short",
-			day: "numeric",
-			hour: "2-digit",
-			minute: "2-digit",
-		}).format(new Date(workspace.updatedAt))
-	: null;
-$: lastRefreshedText = lastRefreshedAt
-	? new Intl.DateTimeFormat(undefined, {
-			hour: "2-digit",
-			minute: "2-digit",
-			second: "2-digit",
-		}).format(new Date(lastRefreshedAt))
-	: null;
 
 function setStatus(
 	message: string,
@@ -131,7 +114,6 @@ async function refreshWorkspace() {
 			getBrowserWorkspaceBinding(),
 		);
 		workspace = await getGist(token, identity.gistId);
-		lastRefreshedAt = new Date().toISOString();
 	} catch (error) {
 		setStatus(workspaceFailureMessage(error, "Failed to fetch"), "error");
 	} finally {
@@ -224,20 +206,11 @@ async function cleanupBootstrapMarker() {
 	<header class="gh-page-header">
 		<div class="gh-page-heading">
 			<h1 class="gh-page-title">{$t("Gists")}</h1>
-			<p class="gh-page-subtitle">
-				{$t("Inspect workspace files, copy raw links, and manage published outputs in the active gist.")}
-			</p>
-			<div class="gh-page-meta">
-				<span class="gh-page-meta-item">{$t("{count} files", { count: workspaceFileCount })}</span>
-				{#if workspaceUpdatedText}
-					<span class="gh-page-meta-item">{$t("Updated {time}", { time: workspaceUpdatedText })}</span>
-				{/if}
-				{#if lastRefreshedText}
-					<span class="gh-page-meta-item">{$t("Last refreshed {time}", { time: lastRefreshedText })}</span>
-				{/if}
-			</div>
 		</div>
 		<div class="gh-page-actions">
+			{#if $appState.activeGistId}
+				<a href={`https://gist.github.com/${$appState.activeGistId}`} target="_blank" rel="noreferrer" class="gh-icon-button" aria-label={$t("View on GitHub")} title={$t("View on GitHub")}><Octicon icon={linkExternal} className="h-4 w-4" /></a>
+			{/if}
 			<button type="button" class="gh-btn gh-btn-primary" on:click={refreshWorkspace} disabled={loading}>
 				<Octicon icon={sync} className={cn("h-4 w-4", loading && "animate-spin")} />
 				{loading ? $t("Refreshing...") : $t("Refresh")}
@@ -245,131 +218,100 @@ async function cleanupBootstrapMarker() {
 		</div>
 	</header>
 
-	<div class="gh-layout-sidebar lg:grid-cols-[minmax(0,1fr)_296px]">
-		<!-- File List -->
-		<div class="gh-layout-main">
-			{#if bootstrapStatus}
-				<div class={cn("gh-alert mb-4", bootstrapStatus === "stale" ? "gh-alert-attention" : "gh-alert-danger")}>
-					<Octicon icon={alert} className="mt-0.5 h-4 w-4 shrink-0" />
-					<div class="min-w-0 flex-1">
-						<p class="text-sm font-semibold">{bootstrapStatus === "stale" ? $t("Stale marker") : bootstrapStatus === "incomplete" ? $t("Initialization incomplete") : $t("Invalid bootstrap workspace")}</p>
-						<p class="text-xs text-fg-muted">{bootstrapStatus === "stale" ? $t("The Workspace is valid, but its bootstrap marker was not removed.") : bootstrapStatus === "incomplete" ? $t("Resume setup to create the Workspace configuration atomically.") : $t("Bootstrap initialization requires the marker to be the only file.")}</p>
-					</div>
-					{#if bootstrapStatus === "stale"}
-						<button type="button" class="gh-btn gh-btn-sm" on:click={cleanupBootstrapMarker} disabled={deleting}>{$t("Clean Up")}</button>
-					{:else if bootstrapStatus === "incomplete"}
-						<a href="/auth" class="gh-btn gh-btn-primary gh-btn-sm">{$t("Settings")}</a>
-					{/if}
+	<!-- File List -->
+	<div class="gh-layout-main">
+		{#if bootstrapStatus}
+			<div class={cn("gh-alert mb-4", bootstrapStatus === "stale" ? "gh-alert-attention" : "gh-alert-danger")}>
+				<Octicon icon={alert} className="mt-0.5 h-4 w-4 shrink-0" />
+				<div class="min-w-0 flex-1">
+					<p class="text-sm font-semibold">{bootstrapStatus === "stale" ? $t("Stale marker") : bootstrapStatus === "incomplete" ? $t("Initialization incomplete") : $t("Invalid bootstrap workspace")}</p>
+					<p class="text-xs text-fg-muted">{bootstrapStatus === "stale" ? $t("The Workspace is valid, but its bootstrap marker was not removed.") : bootstrapStatus === "incomplete" ? $t("Resume setup to create the Workspace configuration atomically.") : $t("Bootstrap initialization requires the marker to be the only file.")}</p>
 				</div>
-			{/if}
-			<div class="gh-box shadow-sm">
-				<div class="gh-box-header">
-					<div class="flex items-center gap-2">
-						<Octicon icon={code} className="h-4 w-4" />
-						<span>{$t("Repository Files")}</span>
-					</div>
-					<div class="flex items-center gap-2">
-						<span class="badge">{workspaceFileCount}</span>
-						<button type="button" class="gh-btn gh-btn-sm" on:click={refreshWorkspace} disabled={loading}>
-							<Octicon icon={sync} className={cn("h-3.5 w-3.5", loading && "animate-spin")} />
-							{loading ? $t("Refreshing...") : $t("Refresh")}
-						</button>
-					</div>
-				</div>
-
-				{#if loading && !workspace}
-					<div class="blankslate border-none">
-						<Octicon icon={sync} className="mb-3 h-10 w-10 animate-spin text-accent-fg" />
-						<h3 class="text-lg font-bold">{$t("Loading workspace files...")}</h3>
-						<p class="text-sm text-fg-muted">{$t("Fetching the active gist from GitHub.")}</p>
-					</div>
-				{:else if !workspace}
-					<div class="blankslate border-none">
-						<Octicon icon={sync} className="mb-3 h-10 w-10 text-fg-subtle opacity-20" />
-						<p class="text-fg-muted">{$t("Refresh to load files.")}</p>
-					</div>
-				{:else}
-					<div class="gh-list-header hidden sm:grid sm:grid-cols-[minmax(0,1.6fr)_120px_96px_auto]">
-						<span>{$t("Name")}</span>
-						<span>{$t("Kind")}</span>
-						<span class="text-right">{$t("Size")}</span>
-						<span class="text-right">{$t("Actions")}</span>
-					</div>
-					{#each workspace.files as gistFile}
-						{@const fileKind = classifyWorkspaceFile(gistFile.filename, $appState)}
-						<div class="gh-box-row group">
-							<div class="flex flex-col gap-2 sm:grid sm:grid-cols-[minmax(0,1.6fr)_120px_96px_auto] sm:items-center sm:gap-4">
-								<div class="gh-row-main">
-									{#if WORKSPACE_RESERVED_FILE_NAMES.has(gistFile.filename)}
-										<Octicon icon={shieldCheck} className="mt-0.5 h-4 w-4 shrink-0 text-accent-fg" />
-									{:else}
-										<Octicon icon={fileIcon} className="mt-0.5 h-4 w-4 shrink-0 text-fg-muted" />
-									{/if}
-									<div class="min-w-0 space-y-1">
-										<div class="flex items-center gap-2 min-w-0">
-											<span class="gh-row-title cursor-pointer">{gistFile.filename}</span>
-										</div>
-										<div class="gh-list-meta">
-											{#if gistFile.rawUrl}
-												<span class="gh-list-meta-code">{gistFile.rawUrl.replace(/^https?:\/\//, "")}</span>
-											{:else}
-												<span>{$t("No raw URL")}</span>
-											{/if}
-										</div>
-									</div>
-								</div>
-
-								<div class="sm:justify-self-start">
-									<span class={cn("gh-label gh-label-muted", fileKind === "workspace-config" ? "badge-success" : "")}>
-										{fileKindLabel(fileKind)}
-									</span>
-								</div>
-
-								<div class="text-[11px] text-fg-subtle sm:text-right">
-									{gistFile.size} bytes
-								</div>
-
-								<div class="gh-row-actions gh-btn-group">
-									{#if gistFile.rawUrl}
-										<button class="gh-btn gh-btn-sm" on:click={() => copyLink(gistFile.rawUrl)} title={$t("Copy Raw URL")}><Octicon icon={copy} className="h-3.5 w-3.5" /></button>
-										<a href={gistFile.rawUrl} target="_blank" class="gh-btn gh-btn-sm" title={$t("Open Raw")}><Octicon icon={linkExternal} className="h-3.5 w-3.5" /></a>
-									{/if}
-									{#if canDeleteWorkspaceFile(gistFile.filename)}
-										<button class="gh-btn gh-btn-sm gh-btn-danger" on:click={() => deleteFile(gistFile.filename)} disabled={deleting} title={$t("Delete")}><Octicon icon={trash} className="h-3.5 w-3.5" /></button>
-									{:else if gistFile.filename === WORKSPACE_BOOTSTRAP_FILE_NAME && bootstrapStatus === "stale"}
-										<button class="gh-btn gh-btn-sm" on:click={cleanupBootstrapMarker} disabled={deleting} title={$t("Clean Up")}><Octicon icon={trash} className="h-3.5 w-3.5" /></button>
-									{/if}
-								</div>
-							</div>
-						</div>
-					{/each}
+				{#if bootstrapStatus === "stale"}
+					<button type="button" class="gh-btn gh-btn-sm" on:click={cleanupBootstrapMarker} disabled={deleting}>{$t("Clean Up")}</button>
+				{:else if bootstrapStatus === "incomplete"}
+					<a href="/auth" class="gh-btn gh-btn-primary gh-btn-sm">{$t("Settings")}</a>
 				{/if}
 			</div>
+		{/if}
+		<div class="gh-box shadow-sm">
+			<div class="gh-box-header">
+				<div class="flex items-center gap-2">
+					<Octicon icon={code} className="h-4 w-4" />
+					<span>{$t("Repository Files")}</span>
+				</div>
+				<div class="flex items-center gap-2">
+					<span class="badge">{workspaceFileCount}</span>
+				</div>
+			</div>
+
+			{#if loading && !workspace}
+				<div class="blankslate border-none">
+					<Octicon icon={sync} className="mb-3 h-10 w-10 animate-spin text-accent-fg" />
+					<h3 class="text-lg font-bold">{$t("Loading workspace files...")}</h3>
+					<p class="text-sm text-fg-muted">{$t("Fetching the active gist from GitHub.")}</p>
+				</div>
+			{:else if !workspace}
+				<div class="blankslate border-none">
+					<Octicon icon={sync} className="mb-3 h-10 w-10 text-fg-subtle opacity-20" />
+					<p class="text-fg-muted">{$t("Refresh to load files.")}</p>
+				</div>
+			{:else}
+				<div class="gh-list-header hidden sm:grid sm:grid-cols-[minmax(0,1.6fr)_120px_96px_auto]">
+					<span>{$t("Name")}</span>
+					<span>{$t("Kind")}</span>
+					<span class="text-right">{$t("Size")}</span>
+					<span class="text-right">{$t("Actions")}</span>
+				</div>
+				{#each workspace.files as gistFile}
+					{@const fileKind = classifyWorkspaceFile(gistFile.filename, $appState)}
+					<div class="gh-box-row group">
+						<div class="flex flex-col gap-2 sm:grid sm:grid-cols-[minmax(0,1.6fr)_120px_96px_auto] sm:items-center sm:gap-4">
+							<div class="gh-row-main">
+								{#if WORKSPACE_RESERVED_FILE_NAMES.has(gistFile.filename)}
+									<Octicon icon={shieldCheck} className="mt-0.5 h-4 w-4 shrink-0 text-accent-fg" />
+								{:else}
+									<Octicon icon={fileIcon} className="mt-0.5 h-4 w-4 shrink-0 text-fg-muted" />
+								{/if}
+								<div class="min-w-0 space-y-1">
+									<div class="flex items-center gap-2 min-w-0">
+										<span class="gh-row-title cursor-pointer">{gistFile.filename}</span>
+									</div>
+									<div class="gh-list-meta">
+										{#if gistFile.rawUrl}
+											<span class="gh-list-meta-code">{gistFile.rawUrl.replace(/^https?:\/\//, "")}</span>
+										{:else}
+											<span>{$t("No raw URL")}</span>
+										{/if}
+									</div>
+								</div>
+							</div>
+
+							<div class="sm:justify-self-start">
+								<span class={cn("gh-label gh-label-muted", fileKind === "workspace-config" ? "badge-success" : "")}>
+									{fileKindLabel(fileKind)}
+								</span>
+							</div>
+
+							<div class="text-[11px] text-fg-subtle sm:text-right">
+								{gistFile.size} bytes
+							</div>
+
+							<div class="gh-row-actions gh-btn-group">
+								{#if gistFile.rawUrl}
+									<button class="gh-btn gh-btn-sm" on:click={() => copyLink(gistFile.rawUrl)} title={$t("Copy Raw URL")}><Octicon icon={copy} className="h-3.5 w-3.5" /></button>
+									<a href={gistFile.rawUrl} target="_blank" class="gh-btn gh-btn-sm" title={$t("Open Raw")}><Octicon icon={linkExternal} className="h-3.5 w-3.5" /></a>
+								{/if}
+								{#if canDeleteWorkspaceFile(gistFile.filename)}
+									<button class="gh-btn gh-btn-sm gh-btn-danger" on:click={() => deleteFile(gistFile.filename)} disabled={deleting} title={$t("Delete")}><Octicon icon={trash} className="h-3.5 w-3.5" /></button>
+								{:else if gistFile.filename === WORKSPACE_BOOTSTRAP_FILE_NAME && bootstrapStatus === "stale"}
+									<button class="gh-btn gh-btn-sm" on:click={cleanupBootstrapMarker} disabled={deleting} title={$t("Clean Up")}><Octicon icon={trash} className="h-3.5 w-3.5" /></button>
+								{/if}
+							</div>
+						</div>
+					</div>
+				{/each}
+			{/if}
 		</div>
-
-		<!-- Workspace Info -->
-		<aside class="gh-layout-aside">
-			<div class="gh-box">
-				<div class="gh-box-header text-xs">
-					<span>{$t("Active Gist")}</span>
-					{#if $appState.activeGistId}
-						<span class="badge">1</span>
-					{/if}
-				</div>
-				<div class="gh-section-body">
-					{#if $appState.activeGistId}
-						<code class="gh-code-block break-all">{$appState.activeGistId}</code>
-						<a href={`https://gist.github.com/${$appState.activeGistId}`} target="_blank" class="gh-btn gh-btn-sm w-full"><Octicon icon={linkExternal} className="h-3 w-3" />{$t("View on GitHub")}</a>
-					{:else}
-						<p class="gh-form-caption">{$t("No active gist")}</p>
-					{/if}
-				</div>
-			</div>
-
-			<div class="blankslate p-4 py-6">
-				<Octicon icon={database} className="mb-2 h-8 w-8 text-fg-subtle" />
-				<p class="text-xs text-fg-muted">{$t("Published files are written back into this gist.")}</p>
-			</div>
-		</aside>
 	</div>
 </div>

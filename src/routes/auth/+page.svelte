@@ -425,7 +425,6 @@ async function handleDiagnosticsExport() {
 <div class="gh-page">
 	<header class="gh-page-header"><div class="gh-page-heading">
 		<h1 class="gh-page-title">{$t("Settings")}</h1>
-		<p class="gh-page-subtitle">{$t("Manage one cloud Workspace. Every change is saved to GitHub.")}</p>
 	</div></header>
 	{#if pendingMigration}
 		<section class="gh-section" data-testid="legacy-migration" aria-labelledby="legacy-migration-heading">

@@ -8,6 +8,16 @@ production deployment and real-provider acceptance require separate evidence.
 
 ## Unreleased
 
+### 2026-10-26 - Simplified application chrome
+
+- Replaced header status badges, Gist ID, and setup button with a compact status
+  icon, theme control, and GitHub link; retained accessible labels, hover text,
+  pending/error indicators, and the repair shortcut.
+- Removed repeated page descriptions and summary badges, overview status panels,
+  the Gist information sidebar, and the export summary card. Kept actionable
+  warnings, publication links, and counts beside the relevant lists.
+- Made overview counts navigable and kept the header on one row on small screens.
+
 ### 2026-10-26 - Worktree and PR development workflow
 
 - Adopted FlareMail's task isolation, current-head Codex review, rebase merge,
