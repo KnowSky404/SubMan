@@ -25,6 +25,8 @@
 	--color-success-emphasis: var(--success-emphasis);
 	--color-danger-emphasis: var(--danger-emphasis);
 	--color-attention-emphasis: var(--attention-emphasis);
+	--text-sm: 1rem;
+	--text-xs: 0.857143rem;
 
 	--shadow-sm: 0 1px 0 rgba(31, 35, 40, 0.04);
 	--shadow-medium: 0 8px 24px rgba(140, 149, 159, 0.2);
@@ -45,6 +47,11 @@
 	--accent-muted: rgba(9, 105, 218, 0.15);
 	--accent-subtle: #ddf4ff;
 	--success-emphasis: #1f883d;
+	--success-fg: #1a7f37;
+	--attention-fg: #9a6700;
+	--danger-fg: #cf222e;
+	--button-bg: linear-gradient(180deg, #f6f8fa 0%, #f3f4f6 100%);
+	--button-hover: #eef1f4;
 	--danger-emphasis: #cf222e;
 	--attention-emphasis: #bf8700;
 	--header-bg: #24292f;
@@ -75,6 +82,11 @@
 	--accent-muted: rgba(56, 139, 253, 0.22);
 	--accent-subtle: rgba(56, 139, 253, 0.15);
 	--success-emphasis: #238636;
+	--success-fg: #3fb950;
+	--attention-fg: #d29922;
+	--danger-fg: #f85149;
+	--button-bg: #212830;
+	--button-hover: #262c36;
 	--danger-emphasis: #da3633;
 	--attention-emphasis: #9e6a03;
 	--header-bg: #010409;
@@ -143,6 +155,11 @@ pre {
 	text-decoration: underline;
 }
 
+:where(a, button, summary):focus-visible {
+	outline: 2px solid var(--accent-fg);
+	outline-offset: 3px;
+}
+
 .gh-box {
 	@apply overflow-hidden rounded-md border border-border-default bg-canvas-default;
 	box-shadow: var(--shadow-sm);
@@ -162,24 +179,17 @@ pre {
 
 .gh-btn {
 	@apply inline-flex h-8 items-center justify-center gap-2 rounded-md border border-border-default px-3 py-1.5 text-sm font-medium text-fg-default transition-colors disabled:cursor-not-allowed disabled:opacity-60;
-	background: linear-gradient(180deg, #f6f8fa 0%, #f3f4f6 100%);
+	min-height: 32px;
+	background: var(--button-bg);
 	box-shadow: var(--shadow-sm);
 }
 
 .gh-btn:hover {
-	background: #f3f4f6;
+	background: var(--button-hover);
 }
 
 .gh-btn:active {
 	background: var(--canvas-inset);
-}
-
-:root[data-theme="dark"] .gh-btn {
-	background: #212830;
-}
-
-:root[data-theme="dark"] .gh-btn:hover {
-	background: #262c36;
 }
 
 .gh-btn-primary {
@@ -197,7 +207,7 @@ pre {
 }
 
 .gh-btn-danger {
-	color: var(--danger-emphasis);
+	color: var(--danger-fg);
 }
 
 .gh-btn-danger:hover {
@@ -444,23 +454,23 @@ input[type="checkbox"]:indeterminate {
 }
 
 .gh-list-header {
-	@apply flex items-center justify-between gap-3 border-b border-border-default bg-canvas-subtle px-4 py-2 text-[11px] font-semibold uppercase tracking-wide text-fg-muted;
+	@apply flex items-center justify-between gap-3 border-b border-border-default bg-canvas-subtle px-4 py-2 text-xs font-semibold text-fg-muted;
 }
 
 .gh-list-meta {
-	@apply flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-fg-muted;
+	@apply flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-fg-muted;
 }
 
 .gh-list-meta-code {
-	@apply max-w-full truncate rounded bg-canvas-subtle px-1.5 py-0.5 font-mono text-[10px];
+	@apply max-w-full truncate rounded bg-canvas-subtle px-1.5 py-0.5 font-mono text-xs;
 }
 
 .gh-counter {
-	@apply inline-flex min-h-5 min-w-5 items-center justify-center rounded-full border border-border-default bg-canvas-subtle px-2 text-[11px] font-medium leading-none text-fg-muted;
+	@apply inline-flex min-h-5 min-w-5 items-center justify-center rounded-full border border-border-default bg-canvas-subtle px-2 text-xs font-medium leading-none text-fg-muted;
 }
 
 .gh-label {
-	@apply inline-flex min-h-5 items-center gap-1 rounded-md border border-border-default bg-canvas-subtle px-1.5 text-[11px] font-medium leading-none text-fg-muted;
+	@apply inline-flex min-h-5 items-center gap-1 rounded-md border border-border-default bg-canvas-subtle px-1.5 text-xs font-medium leading-none text-fg-muted;
 }
 
 .gh-label-muted {
@@ -595,13 +605,14 @@ input[type="checkbox"]:indeterminate {
 	@apply flex min-w-0 flex-col gap-4;
 }
 
-.app-repo-inner,
+.app-repo-meta,
+.app-repo-tabs-track,
 .app-main-container {
 	@apply mx-auto w-full max-w-[92rem] px-4 sm:px-6 lg:px-8;
 }
 
 .app-brand-mark {
-	@apply h-6 w-6 shrink-0 object-contain;
+	@apply h-8 w-8 shrink-0 object-contain;
 }
 
 .theme-menu {
@@ -631,27 +642,23 @@ input[type="checkbox"]:indeterminate {
 }
 
 .app-header-link-connected {
-	color: var(--success-emphasis);
+	color: var(--success-fg);
 }
 
 .app-header-link-pending {
-	color: var(--attention-emphasis);
+	color: var(--attention-fg);
 }
 
 .app-header-link-danger {
-	color: var(--danger-emphasis);
+	color: var(--danger-fg);
 }
 
 .app-repo-shell {
 	background: var(--canvas-default);
 }
 
-.app-repo-inner {
-	@apply flex flex-col;
-}
-
 .app-repo-meta {
-	@apply mx-auto flex w-full items-center justify-between gap-3 px-4 py-3 sm:px-6 lg:px-8;
+	@apply flex min-h-16 items-center justify-between gap-3 py-3;
 }
 
 .app-repo-main {
@@ -659,19 +666,38 @@ input[type="checkbox"]:indeterminate {
 }
 
 .app-repo-masthead {
-	@apply w-full border-b border-border-default bg-canvas-subtle;
+	@apply w-full bg-canvas-subtle;
 }
 
 .app-repo-tabs {
-	@apply w-full overflow-x-auto;
+	@apply w-full border-y border-border-default bg-canvas-default;
 }
 
 .app-repo-tabs-track {
-	@apply min-w-max px-4 sm:px-6 lg:px-8;
+	@apply flex min-w-0 items-center gap-1;
+}
+
+.app-repo-tabs-track nav {
+	min-width: 0;
+	flex: 1;
+	scrollbar-width: none;
+	overscroll-behavior-x: contain;
+}
+
+.app-repo-tabs-track nav::-webkit-scrollbar {
+	display: none;
+}
+
+.app-nav-scroll {
+	@apply inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-border-default bg-canvas-subtle;
+}
+
+.app-nav-scroll:hover {
+	background: var(--canvas-inset);
 }
 
 .app-repo-title {
-	@apply flex min-w-0 items-center gap-2 text-lg font-semibold leading-7;
+	@apply flex min-w-0 items-center gap-2.5 rounded-md text-lg font-semibold leading-7;
 	color: var(--fg-default);
 }
 
@@ -681,6 +707,83 @@ input[type="checkbox"]:indeterminate {
 
 .app-repo-actions {
 	@apply flex shrink-0 items-center gap-1;
+}
+
+.app-header-link.app-workspace-control {
+	width: auto;
+	gap: 6px;
+	padding: 0 10px;
+	border: 1px solid var(--border-default);
+	background: var(--canvas-default);
+	font-size: 12px;
+	font-weight: 500;
+}
+
+.app-workspace-control span {
+	max-width: 160px;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.app-sync-notice {
+	@apply mb-4 flex flex-wrap items-center justify-between gap-2 rounded-md border border-border-default bg-canvas-default px-4 py-3 text-sm;
+}
+
+.gh-tooltip {
+	position: fixed;
+	z-index: 300;
+	max-width: min(280px, calc(100vw - 16px));
+	padding: 7px 10px;
+	border-radius: 6px;
+	background: var(--fg-default);
+	color: var(--canvas-default);
+	font-size: 12px;
+	font-weight: 500;
+	line-height: 1.5;
+	overflow-wrap: anywhere;
+	box-shadow: var(--shadow-medium);
+}
+
+.nodes-filter-search .gh-input,
+.gh-search-input.gh-input {
+	padding-left: 36px;
+}
+
+.gh-static-title {
+	@apply min-w-0 truncate text-sm font-semibold text-fg-default;
+}
+
+.gh-config-group {
+	@apply flex min-w-0 flex-col gap-4;
+}
+
+.gh-advanced-options {
+	@apply rounded-md border border-border-default;
+}
+
+.gh-advanced-options > summary {
+	@apply cursor-pointer rounded-md bg-canvas-subtle px-4 py-3 text-sm font-semibold;
+}
+
+.gh-advanced-options[open] > summary {
+	border-bottom: 1px solid var(--border-default);
+	border-radius: 6px 6px 0 0;
+}
+
+@media (max-width: 639px) {
+	.app-workspace-control span {
+		max-width: 100px;
+	}
+
+	.app-header-link.app-workspace-control {
+		padding: 0 7px;
+	}
+
+	.gh-row-actions > .gh-btn {
+		min-width: 40px;
+		min-height: 40px;
+	}
 }
 
 .app-main-container {
@@ -761,7 +864,7 @@ input[type="checkbox"]:indeterminate {
 }
 
 .badge {
-	@apply inline-flex min-h-5 items-center justify-center rounded-full border border-border-default bg-canvas-subtle px-2 text-[11px] font-medium leading-none text-fg-muted;
+	@apply inline-flex min-h-5 items-center justify-center rounded-full border border-border-default bg-canvas-subtle px-2 text-xs font-medium leading-none text-fg-muted;
 }
 
 .badge-success {
@@ -775,7 +878,7 @@ input[type="checkbox"]:indeterminate {
 		var(--success-emphasis) 8%,
 		var(--canvas-default)
 	);
-	color: color-mix(in srgb, var(--success-emphasis) 86%, black);
+	color: var(--success-fg);
 }
 
 .badge-danger {
@@ -789,7 +892,7 @@ input[type="checkbox"]:indeterminate {
 		var(--danger-emphasis) 8%,
 		var(--canvas-default)
 	);
-	color: color-mix(in srgb, var(--danger-emphasis) 86%, black);
+	color: var(--danger-fg);
 }
 
 .State {

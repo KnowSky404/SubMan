@@ -2,6 +2,7 @@
 import { tick } from "svelte";
 import { fade, fly, slide } from "svelte/transition";
 import { type DndEvent, dndzone } from "svelte-dnd-action";
+import { tooltip } from "$lib/actions/tooltip";
 import {
 	type AggregateSubscriptionIssue,
 	BUILT_IN_REGION_FLAG_RULES,
@@ -84,6 +85,7 @@ let allowedTypes: ProxyType[] = [];
 let prependRegionFlags = true;
 let sortMode: SortMode = "none";
 let sortPriority = "";
+let advancedOptionsOpen = false;
 
 // Menu State
 let showRuleMenu = false;
@@ -338,6 +340,13 @@ $: ordinaryPublishDisabled =
 	ruleDirty ||
 	targetDirty ||
 	Boolean(selectedOutputConflict);
+$: publicationHint = selectedOutputConflict
+	? "Resolve the output filename conflict before publishing."
+	: !selectedTargetId
+		? "Save a publish target before publishing."
+		: ruleDirty || targetDirty
+			? "Save changes before publishing, or use Save and Publish."
+			: "Publish generates the output file from the saved rule.";
 $: publishUrl = selectedTargetId
 	? getCommittedPublishTargetUrl(selectedTargetId, $appState)
 	: null;
@@ -411,6 +420,14 @@ function loadRule(rule: AggregateRule | undefined) {
 	prependRegionFlags = rule.prependRegionFlags ?? true;
 	sortMode = rule.sortMode || "none";
 	sortPriority = rule.sortPriority || "";
+	advancedOptionsOpen = Boolean(
+		allowedTypes.length ||
+			sortMode !== "none" ||
+			sortPriority.trim() ||
+			renameMap.trim() ||
+			customRegionFlagMap.trim() ||
+			!prependRegionFlags,
+	);
 }
 
 $: publishedTargetCount = $appState.publishTargets.filter(
@@ -432,6 +449,7 @@ function closePreviewResults() {
 }
 
 function resetRuleForm() {
+	advancedOptionsOpen = false;
 	editingRuleId = "";
 	pendingRuleId = "";
 	ruleName = "";
@@ -939,6 +957,10 @@ function handleExcludeTagsInput() {
 }
 </script>
 
+<svelte:head>
+	<title>{$t("Aggregate")} - SubMan</title>
+</svelte:head>
+
 <div class="gh-page">
 	<header class="gh-page-header">
 		<div class="gh-page-heading">
@@ -1011,6 +1033,7 @@ function handleExcludeTagsInput() {
 					</div>
 				</div>
 				<div class="gh-section-body gap-6">
+					<h2 class="text-sm font-semibold">{$t("Sources and filtering")}</h2>
 					<!-- Basics -->
 					<div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
 						<div class="flex flex-col gap-1.5">
@@ -1137,6 +1160,9 @@ function handleExcludeTagsInput() {
 						</div>
 					</div>
 
+					<details class="gh-advanced-options" bind:open={advancedOptionsOpen}>
+						<summary>{$t("Advanced rule options")}<span class="mt-1 block text-xs font-normal text-fg-muted">{$t("Protocol, sorting, names and region flags")}</span></summary>
+						<div class="gh-section-body">
 					<!-- Allowed Types -->
 					<div class="flex flex-col gap-2">
 						<div id={fieldIds.allowedTypes} class="text-sm font-semibold">{$t("Allowed Protocols")}</div>
@@ -1146,6 +1172,7 @@ function handleExcludeTagsInput() {
 									type="button"
 									class={cn("gh-btn gh-btn-sm", allowedTypes.includes(opt.id) ? "gh-btn-primary" : "bg-canvas-default")}
 									on:click={() => (allowedTypes = toggleSelection(allowedTypes, opt.id))}
+									aria-pressed={allowedTypes.includes(opt.id)}
 								>
 									{opt.label}
 								</button>
@@ -1155,6 +1182,7 @@ function handleExcludeTagsInput() {
 					</div>
 
 					<!-- Sorting Configuration -->
+					<h3 class="text-sm font-semibold">{$t("Sorting and names")}</h3>
 					<div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
 						<div class="flex flex-col gap-1.5">
 							<label class="gh-form-label" for={fieldIds.sortMode}>{$t("Sort Mode")}</label>
@@ -1191,11 +1219,13 @@ function handleExcludeTagsInput() {
 							</div>
 						</div>
 					</div>
+						</div>
+					</details>
 				</div>
 				<div class="gh-section-footer">
 					<div class="gh-btn-group">
 						{#if editingRuleId}
-								<button type="button" class="gh-btn gh-btn-danger" on:click={deleteRule} aria-label={$t("Delete current rule")} title={$t("Delete current rule")} disabled={deletingRuleId === editingRuleId}>{#if deletingRuleId === editingRuleId}<Octicon icon={sync} className="h-4 w-4 animate-spin" />{:else}<Octicon icon={trash} className="h-4 w-4" />{/if}</button>
+								<button type="button" class="gh-btn gh-btn-danger" on:click={deleteRule} aria-label={$t("Delete current rule")} title={$t("Delete current rule")} use:tooltip={$t("Delete current rule")} disabled={deletingRuleId === editingRuleId}>{#if deletingRuleId === editingRuleId}<Octicon icon={sync} className="h-4 w-4 animate-spin" />{:else}<Octicon icon={trash} className="h-4 w-4" />{/if}</button>
 						{/if}
 						<button type="button" class="gh-btn" on:click={buildPreview} disabled={previewLoading}>
 							{#if previewLoading}<Octicon icon={sync} className="mr-1 h-4 w-4 animate-spin" />{:else}<Octicon icon={eye} className="mr-1 h-4 w-4" />{/if}
@@ -1282,6 +1312,7 @@ function handleExcludeTagsInput() {
 						<span class="badge">{$appState.publishTargets.length}</span>
 					</div>
 					<div class="gh-section-body">
+						<p class="gh-form-caption">{$t("A target connects a saved rule to an output filename. Saving a target does not publish the file.")}</p>
 						<div class="flex flex-col gap-1.5">
 							<label class="gh-form-label" for={fieldIds.targetSelect}>{$t("Select Target")}</label>
 							<GitHubSelect id={fieldIds.targetSelect} bind:value={selectedTargetId} options={targetSelectOptions} onValueChange={(id) => { const target = $appState.publishTargets.find(t => t.id === id); target ? loadPublishTarget(target) : resetTargetForm(); }} />
@@ -1308,6 +1339,7 @@ function handleExcludeTagsInput() {
 						{/if}
 
 						<div class="flex flex-col gap-2 pt-2 border-t border-border-default">
+							<p class="gh-form-caption" role="status">{$t(publicationHint)}</p>
 							<button type="button" class="gh-btn w-full" on:click={saveTarget}>{$t("Save Target")}</button>
 							{#if selectedTargetId}
 									<button type="button" class="gh-btn gh-btn-danger w-full" on:click={deleteTarget} disabled={deletingTargetId === selectedTargetId}>
@@ -1390,7 +1422,7 @@ function handleExcludeTagsInput() {
 					<div class="relative">
 						<Octicon icon={search} className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-fg-subtle" />
 						<label class="sr-only" for={fieldIds.builtInRegionMapSearch}>{$t("Search code or keyword")}</label>
-							<input use:focusOnMount id={fieldIds.builtInRegionMapSearch} class="gh-input pl-9 h-10" placeholder={$t("Search code or keyword...")} bind:value={builtInRegionMapSearch} />
+							<input use:focusOnMount id={fieldIds.builtInRegionMapSearch} class="gh-input gh-search-input h-10" placeholder={$t("Search code or keyword...")} bind:value={builtInRegionMapSearch} />
 					</div>
 				</div>
 

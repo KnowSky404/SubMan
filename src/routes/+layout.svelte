@@ -3,11 +3,14 @@ import "../app.css";
 import { onMount, tick } from "svelte";
 import { get } from "svelte/store";
 import { fade, fly, slide } from "svelte/transition";
+import { afterNavigate } from "$app/navigation";
 import { page } from "$app/state";
+import { tooltip } from "$lib/actions/tooltip";
 import Octicon from "$lib/components/Octicon.svelte";
 import { t } from "$lib/i18n";
 import {
 	alert,
+	arrowRight,
 	browser,
 	check,
 	code,
@@ -61,8 +64,11 @@ const themeOptions: {
 	{ value: "dark", label: "Dark", icon: moon },
 ];
 
+let shellMounted = false;
 $: activeThemeOption =
-	themeOptions.find((option) => option.value === $themeMode) ?? themeOptions[0];
+	themeOptions.find(
+		(option) => option.value === (shellMounted ? $themeMode : "system"),
+	) ?? themeOptions[0];
 $: activeThemeLabel = $t(activeThemeOption.label);
 $: isWorkspaceConnected = Boolean(
 	$authState.token &&
@@ -100,7 +106,89 @@ $: syncStatusLabel =
 					} as const
 				)[$workspaceSyncStatus.lifecycle];
 $: workspaceControlLabel = `${$t(workspaceNeedsAttention ? "Repair" : isWorkspaceConnected ? "Manage Workspace" : "Setup GitHub")}: ${$t(syncStatusLabel)}${$workspaceSyncStatus.queueCount > 0 ? `, ${$t("{count} queued", { count: $workspaceSyncStatus.queueCount })}` : ""}`;
+$: workspaceShortLabel = workspaceNeedsAttention
+	? "Needs attention"
+	: workspaceBusy
+		? "Syncing"
+		: workspacePending
+			? "Awaiting cloud"
+			: isWorkspaceConnected
+				? "Connected"
+				: "Not connected";
 let themeMenuOpen = false;
+let themeButton: HTMLButtonElement;
+let themeMenu: HTMLDivElement;
+let navigation: HTMLElement;
+let navigationOverflows = false;
+let navigationAtEnd = false;
+
+function updateNavigationOverflow() {
+	if (!navigation) return;
+	navigationOverflows = navigation.scrollWidth > navigation.clientWidth + 1;
+	navigationAtEnd =
+		navigation.scrollLeft + navigation.clientWidth >=
+		navigation.scrollWidth - 2;
+}
+
+function revealActiveNavigation() {
+	const active = navigation?.querySelector<HTMLElement>(
+		'[aria-current="page"]',
+	);
+	if (active) {
+		const offset =
+			active.getBoundingClientRect().left -
+			navigation.getBoundingClientRect().left;
+		if (offset < 0) navigation.scrollLeft += offset;
+		else if (offset + active.offsetWidth > navigation.clientWidth)
+			navigation.scrollLeft +=
+				offset + active.offsetWidth - navigation.clientWidth;
+	}
+	updateNavigationOverflow();
+}
+
+afterNavigate(() => {
+	void tick().then(revealActiveNavigation);
+});
+
+async function toggleThemeMenu() {
+	themeMenuOpen = !themeMenuOpen;
+	if (themeMenuOpen) {
+		await tick();
+		themeMenu
+			?.querySelector<HTMLButtonElement>('[aria-checked="true"]')
+			?.focus();
+	}
+}
+
+function closeThemeMenu() {
+	themeMenuOpen = false;
+	themeButton?.focus();
+}
+
+function handleThemeKeydown(event: KeyboardEvent) {
+	if (!themeMenuOpen) return;
+	if (event.key === "Escape") {
+		event.preventDefault();
+		closeThemeMenu();
+	} else if (event.key === "Tab") {
+		themeMenuOpen = false;
+		themeButton?.focus();
+	} else if (["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) {
+		event.preventDefault();
+		const items = Array.from(
+			themeMenu.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]'),
+		);
+		const current = items.indexOf(document.activeElement as HTMLButtonElement);
+		const next =
+			event.key === "Home"
+				? 0
+				: event.key === "End"
+					? items.length - 1
+					: (current + (event.key === "ArrowDown" ? 1 : -1) + items.length) %
+						items.length;
+		items[next]?.focus();
+	}
+}
 let confirmDialogElement: HTMLDivElement | null = null;
 let confirmButton: HTMLButtonElement | null = null;
 let confirmWasOpen = false;
@@ -127,7 +215,7 @@ function isActive(pathname: string, href: string) {
 
 function handleThemeChange(nextTheme: ThemeMode) {
 	themeMode.set(nextTheme);
-	themeMenuOpen = false;
+	closeThemeMenu();
 }
 
 function handleConfirmKeydown(event: KeyboardEvent) {
@@ -155,6 +243,9 @@ function handleConfirmKeydown(event: KeyboardEvent) {
 }
 
 onMount(() => {
+	shellMounted = true;
+	const navigationObserver = new ResizeObserver(revealActiveNavigation);
+	navigationObserver.observe(navigation);
 	let cancelled = false;
 	let stopAutoSync = () => {};
 	let stopAuth = () => {};
@@ -186,6 +277,7 @@ onMount(() => {
 		});
 
 	return () => {
+		navigationObserver.disconnect();
 		cancelled = true;
 		stopAuth();
 		stopAutoSync();
@@ -204,41 +296,45 @@ onMount(() => {
 	<link rel="apple-touch-icon" href="/apple-touch-icon.png" sizes="180x180" />
 </svelte:head>
 
+<svelte:window on:keydown={handleThemeKeydown} />
+
 <div class="flex min-h-screen flex-col">
 	<div class="app-repo-shell">
 		<div class="app-repo-masthead">
 			<div class="app-repo-meta">
 				<div class="app-repo-main">
 					<div class="app-repo-title-line">
-						<div class="app-repo-title">
-							<img src="/brand/subman-logo.png" alt="" class="app-brand-mark" width="24" height="24" />
+						<a href="/" class="app-repo-title" aria-label={$t("SubMan home")}>
+							<img src="/brand/subman-logo.png" alt="" class="app-brand-mark" width="32" height="32" />
 							<span>{PROJECT_NAME}</span>
-						</div>
+						</a>
 					</div>
 				</div>
 
 				<div class="app-repo-actions">
 					<a
 						href={workspaceNeedsAttention ? "/auth#workspace-repair" : "/auth"}
-						class={cn("app-header-link", workspaceNeedsAttention ? "app-header-link-danger" : workspacePending ? "app-header-link-pending" : isWorkspaceConnected && "app-header-link-connected")}
+						class={cn("app-header-link app-workspace-control", workspaceNeedsAttention ? "app-header-link-danger" : workspaceBusy || workspacePending ? "app-header-link-pending" : isWorkspaceConnected && "app-header-link-connected")}
 						aria-label={workspaceControlLabel}
 						title={workspaceControlLabel}
+						use:tooltip={workspaceControlLabel}
 					>
 						<Octicon icon={workspaceNeedsAttention ? alert : workspaceBusy || workspacePending ? sync : isWorkspaceConnected ? shieldCheck : database} className={cn("h-4 w-4", workspaceBusy && "animate-spin motion-reduce:animate-none")} />
+						<span>{$t(workspaceShortLabel)}</span>
 					</a>
 					<span class="sr-only" role="status">{workspaceControlLabel}</span>
 
 					<div class="theme-menu relative shrink-0">
-						<button type="button" class="theme-menu-button" on:click={() => (themeMenuOpen = !themeMenuOpen)} aria-haspopup="menu" aria-expanded={themeMenuOpen} aria-label={`${$t("Theme")}: ${activeThemeLabel}`} title={`${$t("Theme")}: ${activeThemeLabel}`}>
+						<button type="button" class="theme-menu-button" bind:this={themeButton} on:click={toggleThemeMenu} aria-haspopup="menu" aria-expanded={themeMenuOpen} aria-label={`${$t("Theme")}: ${activeThemeLabel}`} title={`${$t("Theme")}: ${activeThemeLabel}`} use:tooltip={`${$t("Theme")}: ${activeThemeLabel}`}>
 							<Octicon icon={activeThemeOption.icon} className="h-4 w-4" />
 							<span class="sr-only">{$t("Theme")}: {activeThemeLabel}</span>
 						</button>
 						{#if themeMenuOpen}
-							<button type="button" class="fixed inset-0 z-[140]" on:click={() => (themeMenuOpen = false)} aria-label="Close menu"></button>
-							<div class="gh-dropdown-menu theme-menu-dropdown right-0 top-full w-40" transition:slide={{ duration: 150 }}>
+							<button type="button" class="fixed inset-0 z-[140]" tabindex="-1" on:click={closeThemeMenu} aria-label={$t("Close menu")}></button>
+							<div class="gh-dropdown-menu theme-menu-dropdown right-0 top-full w-40" bind:this={themeMenu} role="menu" aria-label={$t("Theme")} transition:slide={{ duration: 150 }}>
 								<div class="gh-dropdown-body flex flex-col gap-0.5">
 									{#each themeOptions as option (option.value)}
-										<button type="button" class={cn("gh-dropdown-item", $themeMode === option.value ? "font-semibold text-fg-default" : "text-fg-default")} on:click={() => handleThemeChange(option.value)} aria-pressed={$themeMode === option.value}>
+										<button type="button" role="menuitemradio" tabindex="-1" class={cn("gh-dropdown-item", $themeMode === option.value ? "font-semibold text-fg-default" : "text-fg-default")} on:click={() => handleThemeChange(option.value)} aria-checked={$themeMode === option.value}>
 											<Octicon icon={option.icon} className="h-4 w-4 shrink-0 text-fg-muted" />
 											<span class="min-w-0 flex-1 truncate">{$t(option.label)}</span>
 											{#if $themeMode === option.value}
@@ -258,15 +354,17 @@ onMount(() => {
 						class="app-header-link"
 						aria-label={$t("Open project on GitHub")}
 						title={$t("Open project on GitHub")}
+						use:tooltip={$t("Open project on GitHub")}
 					>
 						<Octicon icon={markGithub} className="h-4 w-4" />
 					</a>
 				</div>
 			</div>
+		</div>
 
 			<div class="app-repo-tabs">
 				<div class="app-repo-tabs-track">
-					<nav class="gh-underlinenav" aria-label={$t("Primary")}>
+					<nav class="gh-underlinenav" bind:this={navigation} on:scroll={updateNavigationOverflow} aria-label={$t("Primary")}>
 						{#each navItems as item}
 							<a
 								href={item.href}
@@ -278,12 +376,22 @@ onMount(() => {
 							</a>
 						{/each}
 					</nav>
+					{#if navigationOverflows}
+						<button type="button" class="app-nav-scroll" aria-label={$t(navigationAtEnd ? "Previous navigation items" : "More navigation items")} use:tooltip={$t(navigationAtEnd ? "Previous navigation items" : "More navigation items")} on:click={() => navigation.scrollBy({ left: (navigationAtEnd ? -1 : 1) * navigation.clientWidth * 0.8, behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth" })}>
+							<Octicon icon={arrowRight} className={cn("h-4 w-4", navigationAtEnd && "rotate-180")} />
+						</button>
+					{/if}
 				</div>
 			</div>
-		</div>
 	</div>
 
 	<main class="app-main-container">
+		{#if $workspaceCloudStatus.phase === "ready" && (workspaceNeedsAttention || workspacePending)}
+			<div class="app-sync-notice" role="status">
+				<span class="inline-flex items-center gap-2"><Octicon icon={workspaceNeedsAttention ? alert : sync} className="h-4 w-4 shrink-0" />{$t(syncStatusLabel)}{#if $workspaceSyncStatus.queueCount > 0} · {$t("{count} queued", { count: $workspaceSyncStatus.queueCount })}{/if}</span>
+				<a href={workspaceNeedsAttention ? "/auth#workspace-repair" : "/auth"} class="gh-link">{$t(workspaceNeedsAttention ? "Review connection" : "View sync status")}</a>
+			</div>
+		{/if}
 		{#if page.url.pathname === "/auth" || ($authState.token && $workspaceCloudStatus.phase === "ready")}
 			<slot />
 		{:else}

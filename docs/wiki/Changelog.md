@@ -8,6 +8,21 @@ production deployment and real-provider acceptance require separate evidence.
 
 ## Unreleased
 
+### 2026-10-27 - UI hierarchy and interaction polish
+
+- Separated the linked brand toolbar from navigation, aligned the header with the
+  page, and added visible cloud status, accessible tooltips, keyboard theme controls,
+  and a navigation overflow control on narrow screens.
+- Restored primary-button emphasis in dark mode and readable list metadata;
+  removed duplicate node actions/status, fixed search spacing and filtered empty
+  states, enlarged touch actions, and made available Gist filenames real links.
+- Adapted the overview to recent resources and confirmed publication metadata;
+  retained empty-workspace onboarding. Grouped advanced rule options and explained
+  save, preview, target, and publication prerequisites without changing cloud writes.
+- Completed Chinese labels on these surfaces and localized resource timestamps;
+  kept browser test fixtures reusable and screenshots isolated per test.
+
+
 ### 2026-10-26 - Simplified application chrome
 
 - Replaced header status badges, Gist ID, and setup button with a compact status
