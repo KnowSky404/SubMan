@@ -1,9 +1,10 @@
 <script lang="ts">
 import { tick } from "svelte";
 import { fly, slide } from "svelte/transition";
+import { tooltip } from "$lib/actions/tooltip";
 import GitHubSelect from "$lib/components/GitHubSelect.svelte";
 import Octicon from "$lib/components/Octicon.svelte";
-import { t } from "$lib/i18n";
+import { locale, t } from "$lib/i18n";
 import type {
 	NodeItem,
 	NodeTag,
@@ -209,7 +210,7 @@ $: enabledSubscriptionCount = $appState.subscriptions.filter(
 	(subscription) => subscription.enabled,
 ).length;
 const formatUpdatedAt = (value: string) =>
-	new Intl.DateTimeFormat(undefined, {
+	new Intl.DateTimeFormat($locale, {
 		month: "short",
 		day: "numeric",
 		hour: "2-digit",
@@ -764,6 +765,10 @@ async function copy(text: string) {
 }
 </script>
 
+<svelte:head>
+	<title>{$t("Nodes")} - SubMan</title>
+</svelte:head>
+
 <div class="gh-page">
 	<header class="gh-page-header">
 		<div class="gh-page-heading">
@@ -872,10 +877,6 @@ async function copy(text: string) {
 				<GitHubSelect id={addFormIds.filterStatus} bind:value={filterStatus} options={filterStatusOptions} />
 			</div>
 		</div>
-		<button type="button" class="nodes-filter-action gh-btn shrink-0" on:click={() => (isAddModalOpen = !isAddModalOpen)}>
-			<Octicon icon={plus} className="h-4 w-4" />
-			{$t("New Resource")}
-		</button>
 	</div>
 
 	<!-- Content Box -->
@@ -892,9 +893,8 @@ async function copy(text: string) {
 				{/if}
 			</div>
 		</div>
-		<div class="gh-list-header hidden sm:grid sm:grid-cols-[minmax(0,1.7fr)_140px_auto]">
+		<div class="gh-list-header hidden sm:grid sm:grid-cols-[minmax(0,1fr)_auto]">
 			<span>{$t("Title")}</span>
-			<span>{$t("Meta")}</span>
 			<span class="text-right">{$t("Actions")}</span>
 		</div>
 
@@ -902,14 +902,20 @@ async function copy(text: string) {
 			{#if filteredNodes.length === 0}
 				<div class="blankslate">
 					<Octicon icon={server} className="mb-3 h-10 w-10 text-fg-subtle" />
+					{#if $appState.nodes.length > 0}
+						<h3 class="text-lg font-semibold">{$t("No matching resources")}</h3>
+						<p class="mb-4 text-sm text-fg-muted">{$t("Try another search or clear the filters.")}</p>
+						<button type="button" class="gh-btn" on:click={() => { searchQuery = ""; filterStatus = "all"; }}>{$t("Clear filters")}</button>
+					{:else}
 					<h3 class="text-lg font-bold">{$t("No nodes yet")}</h3>
 					<p class="mb-4 text-sm text-fg-muted">{$t("Add one URI or import a batch.")}</p>
 					<button type="button" class="gh-btn" on:click={() => (isAddModalOpen = true)}>{$t("Add node")}</button>
+					{/if}
 				</div>
 			{:else}
 				{#each filteredNodes as node (node.id)}
 					<div class={cn("gh-box-row group flex flex-col gap-0", !node.enabled && "opacity-70")} out:slide={{ duration: 180 }}>
-							<div class="flex flex-col gap-3 sm:grid sm:grid-cols-[minmax(0,1.7fr)_140px_auto] sm:items-start sm:gap-4">
+							<div class="flex flex-col gap-3 sm:grid sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start sm:gap-4">
 								<div class="gh-row-main">
 									<input
 										type="checkbox"
@@ -929,10 +935,9 @@ async function copy(text: string) {
 										</div>
 										<div class="gh-list-meta">
 											<span>{$t("Updated {time}", { time: formatUpdatedAt(node.updatedAt) })}</span>
-											<span>{$t("Source: {source}", { source: node.source })}</span>
+											<span>{$t("Source: {source}", { source: $t(node.source === "single" ? "Single URI" : "Subscription") })}</span>
 											<span>{$t("{count} tags", { count: node.tags.length })}</span>
 										</div>
-										<code class="gh-list-meta-code">{node.raw}</code>
 										{#if node.tags.length > 0}
 											<div class="flex flex-wrap gap-1">
 												{#each node.tags as nodeTag}
@@ -943,15 +948,10 @@ async function copy(text: string) {
 									</div>
 								</div>
 
-								<div class="gh-list-meta sm:block">
-									<span>{$t("Type: {type}", { type: node.type.toUpperCase() })}</span>
-									<span>{$t(node.enabled ? "Enabled" : "Disabled")}</span>
-								</div>
-
 								<div class="gh-row-actions gh-btn-group">
-									<button type="button" class="gh-btn gh-btn-sm" on:click={() => startEditNode(node)} aria-label={$t("Edit node")} title={$t("Edit node")} disabled={deletingResourceId === node.id}><Octicon icon={pencil} className="h-3.5 w-3.5" /></button>
-									<button type="button" class="gh-btn gh-btn-sm" on:click={() => copy(node.raw)} aria-label={$t("Copy URI")} title={$t("Copy URI")} disabled={deletingResourceId === node.id}><Octicon icon={copyIcon} className="h-3.5 w-3.5" /></button>
-									<button type="button" class="gh-btn gh-btn-sm gh-btn-danger" on:click={() => remove(node.id, "node", node.name)} aria-label={$t("Delete node")} title={$t("Delete node")} disabled={deletingResourceId === node.id}>
+									<button type="button" class="gh-btn gh-btn-sm" on:click={() => startEditNode(node)} aria-label={$t("Edit node")} title={$t("Edit node")} use:tooltip={$t("Edit node")} disabled={deletingResourceId === node.id}><Octicon icon={pencil} className="h-3.5 w-3.5" /></button>
+									<button type="button" class="gh-btn gh-btn-sm" on:click={() => copy(node.raw)} aria-label={$t("Copy URI")} title={$t("Copy URI")} use:tooltip={$t("Copy URI")} disabled={deletingResourceId === node.id}><Octicon icon={copyIcon} className="h-3.5 w-3.5" /></button>
+									<button type="button" class="gh-btn gh-btn-sm gh-btn-danger" on:click={() => remove(node.id, "node", node.name)} aria-label={$t("Delete node")} title={$t("Delete node")} use:tooltip={$t("Delete node")} disabled={deletingResourceId === node.id}>
 										{#if deletingResourceId === node.id}
 											<Octicon icon={sync} className="h-3.5 w-3.5 animate-spin" />
 											<span class="sr-only">{$t("Deleting...")}</span>
@@ -968,14 +968,20 @@ async function copy(text: string) {
 			{#if filteredSubscriptions.length === 0}
 				<div class="blankslate">
 					<Octicon icon={link} className="mb-3 h-10 w-10 text-fg-subtle" />
+					{#if $appState.subscriptions.length > 0}
+						<h3 class="text-lg font-semibold">{$t("No matching resources")}</h3>
+						<p class="mb-4 text-sm text-fg-muted">{$t("Try another search or clear the filters.")}</p>
+						<button type="button" class="gh-btn" on:click={() => { searchQuery = ""; filterStatus = "all"; }}>{$t("Clear filters")}</button>
+					{:else}
 					<h3 class="text-lg font-bold">{$t("No subscriptions yet")}</h3>
 					<p class="mb-4 text-sm text-fg-muted">{$t("Add a feed URL to fetch nodes.")}</p>
 					<button type="button" class="gh-btn" on:click={() => (isAddModalOpen = true)}>{$t("Add subscription")}</button>
+					{/if}
 				</div>
 			{:else}
 				{#each filteredSubscriptions as sub (sub.id)}
 					<div class={cn("gh-box-row group flex flex-col gap-0", !sub.enabled && "opacity-70")} out:slide={{ duration: 180 }}>
-							<div class="flex flex-col gap-3 sm:grid sm:grid-cols-[minmax(0,1.7fr)_140px_auto] sm:items-start sm:gap-4">
+							<div class="flex flex-col gap-3 sm:grid sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start sm:gap-4">
 								<div class="gh-row-main">
 									<input
 										type="checkbox"
@@ -996,7 +1002,7 @@ async function copy(text: string) {
 											<span>{$t("Updated {time}", { time: formatUpdatedAt(sub.updatedAt) })}</span>
 											<span>{$t("{count} tags", { count: sub.tags.length })}</span>
 										</div>
-										<div class="flex items-center gap-1.5 text-[10px] text-fg-muted">
+										<div class="flex items-center gap-1.5 text-xs text-fg-muted">
 											<Octicon icon={linkExternal} className="h-3 w-3" />
 											<span class="gh-list-meta-code">{sub.url}</span>
 										</div>
@@ -1010,17 +1016,11 @@ async function copy(text: string) {
 									</div>
 								</div>
 
-								<div class="gh-list-meta sm:block">
-									<span class={cn("gh-label gh-label-muted", sub.enabled && "badge-success")}>
-										{sub.enabled ? $t("Enabled") : $t("Disabled")}
-									</span>
-								</div>
-
 								<div class="gh-row-actions gh-btn-group">
-									<button type="button" class="gh-btn gh-btn-sm" on:click={() => openSubscriptionPreview(sub)} aria-label={$t("Preview nodes")} title={$t("Preview nodes")} disabled={deletingResourceId === sub.id}><Octicon icon={eye} className="h-3.5 w-3.5" /></button>
-									<button type="button" class="gh-btn gh-btn-sm" on:click={() => startEditSub(sub)} aria-label={$t("Edit subscription")} title={$t("Edit subscription")} disabled={deletingResourceId === sub.id}><Octicon icon={pencil} className="h-3.5 w-3.5" /></button>
-									<button type="button" class="gh-btn gh-btn-sm" on:click={() => copy(sub.url)} aria-label={$t("Copy URL")} title={$t("Copy URL")} disabled={deletingResourceId === sub.id}><Octicon icon={copyIcon} className="h-3.5 w-3.5" /></button>
-									<button type="button" class="gh-btn gh-btn-sm gh-btn-danger" on:click={() => remove(sub.id, "sub", sub.name)} aria-label={$t("Delete subscription")} title={$t("Delete subscription")} disabled={deletingResourceId === sub.id}>
+									<button type="button" class="gh-btn gh-btn-sm" on:click={() => openSubscriptionPreview(sub)} aria-label={$t("Preview nodes")} title={$t("Preview nodes")} use:tooltip={$t("Preview nodes")} disabled={deletingResourceId === sub.id}><Octicon icon={eye} className="h-3.5 w-3.5" /></button>
+									<button type="button" class="gh-btn gh-btn-sm" on:click={() => startEditSub(sub)} aria-label={$t("Edit subscription")} title={$t("Edit subscription")} use:tooltip={$t("Edit subscription")} disabled={deletingResourceId === sub.id}><Octicon icon={pencil} className="h-3.5 w-3.5" /></button>
+									<button type="button" class="gh-btn gh-btn-sm" on:click={() => copy(sub.url)} aria-label={$t("Copy URL")} title={$t("Copy URL")} use:tooltip={$t("Copy URL")} disabled={deletingResourceId === sub.id}><Octicon icon={copyIcon} className="h-3.5 w-3.5" /></button>
+									<button type="button" class="gh-btn gh-btn-sm gh-btn-danger" on:click={() => remove(sub.id, "sub", sub.name)} aria-label={$t("Delete subscription")} title={$t("Delete subscription")} use:tooltip={$t("Delete subscription")} disabled={deletingResourceId === sub.id}>
 										{#if deletingResourceId === sub.id}
 											<Octicon icon={sync} className="h-3.5 w-3.5 animate-spin" />
 											<span class="sr-only">{$t("Deleting...")}</span>

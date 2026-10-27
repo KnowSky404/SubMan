@@ -422,6 +422,10 @@ async function handleDiagnosticsExport() {
 }
 </script>
 
+<svelte:head>
+	<title>{$t("Settings")} - SubMan</title>
+</svelte:head>
+
 <div class="gh-page">
 	<header class="gh-page-header"><div class="gh-page-heading">
 		<h1 class="gh-page-title">{$t("Settings")}</h1>

@@ -800,7 +800,7 @@ for (const { mobile, remembered, manual } of [
 				.fill(GIST_ID);
 			await page.getByTestId("legacy-workspace-check").scrollIntoViewIfNeeded();
 			await page.screenshot({
-				path: `/tmp/subman-manual-entry-${mobile ? "mobile" : "desktop"}.png`,
+				path: test.info().outputPath("manual-entry.png"),
 				fullPage: false,
 			});
 			await page
@@ -813,7 +813,7 @@ for (const { mobile, remembered, manual } of [
 		const panel = page.getByTestId("legacy-migration");
 		await expect(panel).toBeVisible();
 		await expect(page).toHaveURL(/\/auth$/);
-		await expect(page).toHaveTitle("SubMan");
+		await expect(page).toHaveTitle("Settings - SubMan");
 		await expect(
 			page.getByRole("heading", { name: "Settings", exact: true }),
 		).toBeVisible();
@@ -833,7 +833,7 @@ for (const { mobile, remembered, manual } of [
 		).toBe(true);
 		await panel.scrollIntoViewIfNeeded();
 		await page.screenshot({
-			path: `/tmp/subman-migration-${manual ? `manual-${manual}-${remembered ? "connected" : "signed-out"}` : remembered ? "existing" : mobile ? "mobile" : "desktop"}.png`,
+			path: test.info().outputPath("migration.png"),
 			fullPage: false,
 		});
 		if (remembered)
@@ -862,24 +862,27 @@ for (const { mobile, remembered, manual } of [
 			)
 			.toBe(1);
 		await expect
-			.poll(async () => {
-				if (!(await panel.isVisible())) return true;
-				return panel
+			.poll(() =>
+				panel
 					.getByRole("button", {
 						name: "Migrate and load Workspace",
 						exact: true,
 					})
-					.isEnabled();
-			})
+					.evaluateAll((buttons) =>
+						buttons.every((button) => !button.hasAttribute("disabled")),
+					),
+			)
 			.toBe(true);
-		if (await panel.isVisible()) {
-			await panel
-				.getByRole("button", {
-					name: "Migrate and load Workspace",
-					exact: true,
-				})
-				.click();
-		}
+		// The panel can disappear after readiness but before an optional retry.
+		await panel
+			.getByRole("button", {
+				name: "Migrate and load Workspace",
+				exact: true,
+			})
+			.evaluateAll((buttons) => {
+				const button = buttons[0] as HTMLButtonElement | undefined;
+				if (button && !button.disabled) button.click();
+			});
 		await expect(panel).toHaveCount(0);
 		await expect(
 			page.getByText(
@@ -981,7 +984,7 @@ for (const mobile of [false, true]) {
 		await seedIndexedDb(page, initial);
 		await seedAuth(page, { session: "fixture-single-workspace-token" });
 		await page.goto("/auth");
-		await expect(page).toHaveTitle("SubMan");
+		await expect(page).toHaveTitle("Settings - SubMan");
 		await expect(
 			page.getByRole("heading", { name: "Settings", exact: true }),
 		).toBeVisible();
@@ -1057,7 +1060,7 @@ for (const mobile of [false, true]) {
 		).toBeVisible();
 		await page.locator("#workspace-repair").scrollIntoViewIfNeeded();
 		await page.screenshot({
-			path: `/tmp/subman-cloud-settings-${mobile ? "mobile" : "desktop"}.png`,
+			path: test.info().outputPath("cloud-settings.png"),
 			animations: "disabled",
 		});
 		expect(

@@ -1,4 +1,5 @@
 <script lang="ts">
+import { tooltip } from "$lib/actions/tooltip";
 import {
 	createDefaultSingBoxClientProfile,
 	hasClientExportOutputChanged,
@@ -138,6 +139,17 @@ $: publishDisabled =
 	profileDirty ||
 	Boolean(selectedOutputConflict) ||
 	publishing;
+$: publicationHint = !selectedProfile
+	? "Select or create an export profile first."
+	: selectedOutputConflict
+		? "Resolve the output filename conflict before publishing."
+		: profileDirty
+			? "Save the profile changes before generating a preview."
+			: previewSignature !== currentSignature || !previewContent
+				? "Generate a current preview before publishing."
+				: outboundCount <= 0 || previewErrors.length
+					? "Resolve the preview errors before publishing."
+					: "Publish writes the previewed configuration to the cloud.";
 $: publishedUrl = selectedProfileId
 	? getCommittedClientExportUrl(selectedProfileId, $appState)
 	: null;
@@ -516,7 +528,7 @@ async function publishPreview(): Promise<void> {
 				<div class="gh-section-body">
 					{#if $appState.aggregates.length === 0}
 						<div class="gh-alert gh-alert-attention">
-							<span>{$t("Create an Aggregate rule before exporting.")}</span>
+							<div class="space-y-2"><p>{$t("Create an Aggregate rule before exporting.")}</p><a href="/aggregate" class="gh-link">{$t("Compose rules")} →</a></div>
 						</div>
 					{:else if canCreateProfile}
 						<button class="gh-btn gh-btn-primary self-start" type="button" on:click={createProfile} disabled={creatingProfile}>
@@ -560,7 +572,7 @@ async function publishPreview(): Promise<void> {
 													on:click={() => editProfile(profile)}
 													disabled={deletingProfileId === profile.id}
 												aria-label={$t("Edit export profile")}
-												title={$t("Edit export profile")}
+												title={$t("Edit export profile")} use:tooltip={$t("Edit export profile")}
 											>
 												<Octicon icon={pencil} className="h-3.5 w-3.5" />
 												{$t("Edit")}
@@ -704,6 +716,7 @@ async function publishPreview(): Promise<void> {
 						{$t("Publish the generated JSON to the workspace gist, then copy the raw URL as a remote profile URL for compatible sing-box clients.")}
 					</p>
 
+					<p class="gh-form-caption" role="status">{$t(publicationHint)}</p>
 					{#if $authState.token}
 						<button
 							type="button"

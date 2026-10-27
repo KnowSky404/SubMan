@@ -1,5 +1,6 @@
 <script lang="ts">
 import { onMount } from "svelte";
+import { tooltip } from "$lib/actions/tooltip";
 import Octicon from "$lib/components/Octicon.svelte";
 import { getGist } from "$lib/gist";
 import { t } from "$lib/i18n";
@@ -202,6 +203,10 @@ async function cleanupBootstrapMarker() {
 }
 </script>
 
+<svelte:head>
+	<title>{$t("Gists")} - SubMan</title>
+</svelte:head>
+
 <div class="gh-page">
 	<header class="gh-page-header">
 		<div class="gh-page-heading">
@@ -209,7 +214,7 @@ async function cleanupBootstrapMarker() {
 		</div>
 		<div class="gh-page-actions">
 			{#if $appState.activeGistId}
-				<a href={`https://gist.github.com/${$appState.activeGistId}`} target="_blank" rel="noreferrer" class="gh-icon-button" aria-label={$t("View on GitHub")} title={$t("View on GitHub")}><Octicon icon={linkExternal} className="h-4 w-4" /></a>
+				<a href={`https://gist.github.com/${$appState.activeGistId}`} target="_blank" rel="noreferrer" class="gh-icon-button" aria-label={$t("View on GitHub")} title={$t("View on GitHub")} use:tooltip={$t("View on GitHub")}><Octicon icon={linkExternal} className="h-4 w-4" /></a>
 			{/if}
 			<button type="button" class="gh-btn gh-btn-primary" on:click={refreshWorkspace} disabled={loading}>
 				<Octicon icon={sync} className={cn("h-4 w-4", loading && "animate-spin")} />
@@ -275,7 +280,11 @@ async function cleanupBootstrapMarker() {
 								{/if}
 								<div class="min-w-0 space-y-1">
 									<div class="flex items-center gap-2 min-w-0">
-										<span class="gh-row-title cursor-pointer">{gistFile.filename}</span>
+										{#if gistFile.rawUrl}
+											<a href={gistFile.rawUrl} target="_blank" rel="noreferrer" class="gh-row-title">{gistFile.filename}<span class="sr-only"> · {$t("Open Raw")}</span></a>
+										{:else}
+											<span class="gh-static-title">{gistFile.filename}</span>
+										{/if}
 									</div>
 									<div class="gh-list-meta">
 										{#if gistFile.rawUrl}
@@ -293,19 +302,19 @@ async function cleanupBootstrapMarker() {
 								</span>
 							</div>
 
-							<div class="text-[11px] text-fg-subtle sm:text-right">
+							<div class="text-xs text-fg-muted sm:text-right">
 								{gistFile.size} bytes
 							</div>
 
 							<div class="gh-row-actions gh-btn-group">
 								{#if gistFile.rawUrl}
-									<button class="gh-btn gh-btn-sm" on:click={() => copyLink(gistFile.rawUrl)} title={$t("Copy Raw URL")}><Octicon icon={copy} className="h-3.5 w-3.5" /></button>
-									<a href={gistFile.rawUrl} target="_blank" class="gh-btn gh-btn-sm" title={$t("Open Raw")}><Octicon icon={linkExternal} className="h-3.5 w-3.5" /></a>
+									<button class="gh-btn gh-btn-sm" on:click={() => copyLink(gistFile.rawUrl)} title={$t("Copy Raw URL")} use:tooltip={$t("Copy Raw URL")} aria-label={$t("Copy Raw URL")}><Octicon icon={copy} className="h-3.5 w-3.5" /></button>
+									<a href={gistFile.rawUrl} target="_blank" rel="noreferrer" class="gh-btn gh-btn-sm" title={$t("Open Raw")} use:tooltip={$t("Open Raw")} aria-label={$t("Open Raw")}><Octicon icon={linkExternal} className="h-3.5 w-3.5" /></a>
 								{/if}
 								{#if canDeleteWorkspaceFile(gistFile.filename)}
-									<button class="gh-btn gh-btn-sm gh-btn-danger" on:click={() => deleteFile(gistFile.filename)} disabled={deleting} title={$t("Delete")}><Octicon icon={trash} className="h-3.5 w-3.5" /></button>
+									<button class="gh-btn gh-btn-sm gh-btn-danger" on:click={() => deleteFile(gistFile.filename)} disabled={deleting} title={$t("Delete")} use:tooltip={$t("Delete")} aria-label={$t("Delete")}><Octicon icon={trash} className="h-3.5 w-3.5" /></button>
 								{:else if gistFile.filename === WORKSPACE_BOOTSTRAP_FILE_NAME && bootstrapStatus === "stale"}
-									<button class="gh-btn gh-btn-sm" on:click={cleanupBootstrapMarker} disabled={deleting} title={$t("Clean Up")}><Octicon icon={trash} className="h-3.5 w-3.5" /></button>
+									<button class="gh-btn gh-btn-sm" on:click={cleanupBootstrapMarker} disabled={deleting} title={$t("Clean Up")} use:tooltip={$t("Clean Up")} aria-label={$t("Clean Up")}><Octicon icon={trash} className="h-3.5 w-3.5" /></button>
 								{/if}
 							</div>
 						</div>

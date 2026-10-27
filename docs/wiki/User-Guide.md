@@ -21,6 +21,11 @@ if data is missing or a document is rejected.
 
 ## Manage resources
 
+The brand links to the overview. The header shows connection and pending cloud
+states; icon labels appear on hover or keyboard focus. On narrow screens, use the
+navigation arrow to reach additional pages. The overview shows onboarding for an
+empty Workspace, then recent resources and confirmed publication metadata.
+
 | Page | Purpose |
 | --- | --- |
 | `/auth` | Connection, token, delivery status, cloud reload, migration, and diagnostics |
@@ -33,6 +38,11 @@ Import one URI per line or paste base64 subscription content. Preview and
 resolve duplicates before adding. Aggregates select nodes and subscriptions,
 exclude tags, filter protocols, apply regex renaming, add region flags, and sort
 by names, protocols, regions, priority keywords, or manual ordering.
+
+Open **Advanced rule options** for protocol filtering, sorting, renaming, and
+region flags. Existing non-default options open automatically when loading a rule.
+Saving a rule or target stores configuration; publishing generates the output file.
+For client exports, save profile changes and generate a current preview before publishing.
 
 Subscription URLs must permit browser access. Fetches have a 15-second timeout
 and 4 MiB response limit; network/CORS, HTTP, size, encoding, and empty responses
