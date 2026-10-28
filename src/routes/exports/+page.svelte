@@ -9,13 +9,16 @@ import {
 	buildSingBoxClientConfig,
 	type SingBoxClientBuildResult,
 } from "$lib/client-export/sing-box";
+import ActionButton from "$lib/components/ActionButton.svelte";
+import CopyButton from "$lib/components/CopyButton.svelte";
 import GitHubSelect from "$lib/components/GitHubSelect.svelte";
 import Octicon from "$lib/components/Octicon.svelte";
-import { t } from "$lib/i18n";
+import OperationFeedback from "$lib/components/OperationFeedback.svelte";
+import PageHeader from "$lib/components/PageHeader.svelte";
+import { locale, t } from "$lib/i18n";
 import type { AppState, ClientExportProfile } from "$lib/models";
 import {
 	checkCircle,
-	copy,
 	database,
 	download,
 	fileCode,
@@ -53,6 +56,7 @@ let previewWarnings: string[] = [];
 let previewErrors: string[] = [];
 let outboundCount = 0;
 let publishing = false;
+let operationFeedback: WorkspaceOperationPresentation | null = null;
 let deletingProfileId = "";
 let publishedUrl: string | null = null;
 
@@ -193,10 +197,12 @@ function showWorkspaceResult(
 	options: WorkspaceOperationPresentationOptions = {},
 ): WorkspaceOperationPresentation {
 	const presentation = presentWorkspaceOperation(result, options);
-	showToast(
-		$t(presentation.messageKey, presentation.messageParams),
-		presentation.tone,
-	);
+	operationFeedback = presentation;
+	if (presentation.remoteCommitted)
+		showToast(
+			$t(presentation.messageKey, presentation.messageParams),
+			presentation.tone,
+		);
 	return presentation;
 }
 
@@ -384,12 +390,11 @@ function formatPreviewWarning(warning: string): string {
 		: warning;
 }
 
-async function copyPreview(): Promise<void> {
+async function copyPreview(): Promise<boolean> {
 	const content = await refreshPreview();
-	if (!content) return;
-
+	if (!content) return false;
 	await navigator.clipboard.writeText(content);
-	showToast($t("Copied sing-box config"), "success");
+	return true;
 }
 
 async function downloadPreview(): Promise<void> {
@@ -409,13 +414,6 @@ async function downloadPreview(): Promise<void> {
 	link.click();
 	link.remove();
 	URL.revokeObjectURL(url);
-}
-
-async function copyPublishedUrl(): Promise<void> {
-	if (!publishedUrl) return;
-
-	await navigator.clipboard.writeText(publishedUrl);
-	showToast($t("Link copied to clipboard"), "success");
 }
 
 async function publishPreview(): Promise<void> {
@@ -483,25 +481,7 @@ async function publishPreview(): Promise<void> {
 </svelte:head>
 
 <div class="gh-page">
-	<header class="gh-page-header">
-		<div class="gh-page-heading">
-			<h1 class="gh-page-title">{$t("Exports")}</h1>
-		</div>
-		<div class="gh-page-actions">
-			<button class="gh-btn" type="button" on:click={copyPreview} disabled={!selectedProfile}>
-				<Octicon icon={copy} className="h-4 w-4" />
-				{$t("Copy")}
-			</button>
-			<button class="gh-btn" type="button" on:click={downloadPreview} disabled={!selectedProfile}>
-				<Octicon icon={download} className="h-4 w-4" />
-				{$t("Download")}
-			</button>
-			<button class="gh-btn gh-btn-primary" type="button" on:click={publishPreview} disabled={publishDisabled}>
-				<Octicon icon={upload} className="h-4 w-4" />
-				{publishing ? $t("Publishing...") : $t("Publish")}
-			</button>
-		</div>
-</header>
+ <PageHeader title={$t("Exports")} description={$t("Generate and publish client configurations.")} />
 
 {#if outputConflicts.length > 0}
 	<div class="gh-alert gh-alert-warning mb-4 flex-col items-start">
@@ -514,7 +494,7 @@ async function publishPreview(): Promise<void> {
 	</div>
 {/if}
 
-	<div class="gh-layout-sidebar lg:grid-cols-[minmax(0,1fr)_360px]">
+	<div class="gh-layout-sidebar gh-editor-layout">
 		<div class="gh-layout-main">
 			<section class="gh-box !overflow-visible">
 				<div class="gh-box-header">
@@ -672,9 +652,7 @@ async function publishPreview(): Promise<void> {
 
 				{#if selectedProfile}
 					<div class="gh-section-footer">
-						<button class="gh-btn gh-btn-primary" type="button" on:click={saveProfile}>
-							{$t("Save")}
-						</button>
+						<ActionButton label={$t("Save Profile")} action={saveProfile} feedback={operationFeedback} variant="primary" />
 						<button class="gh-btn" type="button" on:click={refreshPreview}>
 							{$t("Generate Preview")}
 						</button>
@@ -689,13 +667,14 @@ async function publishPreview(): Promise<void> {
 			<section class="gh-box overflow-hidden">
 				<div class="gh-box-header">
 					<h2 class="gh-section-title">{$t("Preview")}</h2>
+      <div class="gh-toolbar-group"><CopyButton oncopy={copyPreview} label={$t("Copy")} showLabel disabled={!selectedProfile} /><button class="gh-btn gh-btn-sm" type="button" on:click={downloadPreview} disabled={!selectedProfile}><Octicon icon={download} className="h-4 w-4" />{$t("Download")}</button></div>
 				</div>
 				<pre class="max-h-[36rem] overflow-auto p-4 font-mono text-xs text-fg-default">{previewContent || $t("Generate a preview to inspect config.json")}</pre>
 			</section>
 		</div>
 
 		<aside class="gh-layout-aside">
-			<section class="gh-box overflow-hidden">
+			<section class="gh-box gh-publish-panel overflow-hidden">
 				<div class="gh-box-header">
 					<h2 class="gh-section-title">
 						<Octicon icon={upload} className="h-4 w-4" />
@@ -717,16 +696,9 @@ async function publishPreview(): Promise<void> {
 					</p>
 
 					<p class="gh-form-caption" role="status">{$t(publicationHint)}</p>
+ <OperationFeedback feedback={operationFeedback} />
 					{#if $authState.token}
-						<button
-							type="button"
-							class="gh-btn gh-btn-primary w-full py-3 h-auto"
-							on:click={publishPreview}
-							disabled={publishDisabled}
-						>
-							<Octicon icon={upload} className="h-4 w-4" />
-							{publishing ? $t("Publishing...") : $t("Publish")}
-						</button>
+						<ActionButton label={$t("Publish")} busyLabel={$t("Publishing...")} action={publishPreview} feedback={operationFeedback} variant="primary" icon={upload} disabled={publishDisabled} className="w-full" />
 					{:else}
 						<a href="/auth" class="gh-btn gh-btn-primary w-full py-3 h-auto">
 							<Octicon icon={database} className="h-4 w-4" />
@@ -734,16 +706,16 @@ async function publishPreview(): Promise<void> {
 						</a>
 					{/if}
 					{#if publishedUrl}
+ {@const confirmedPublication = getBrowserWorkspaceBinding()?.baseline?.data.clientExports.find(item => item.id === selectedProfileId)}
+
 						<div class="gh-alert gh-alert-success flex-col items-stretch gap-2">
 							<div class="flex items-center justify-between text-xs font-semibold text-[color:var(--success-emphasis)]">
 								<span>{$t("Live Link")}</span>
 								<Octicon icon={checkCircle} className="h-3 w-3" />
 							</div>
-							<code class="gh-code-block break-all">{publishedUrl}</code>
-							<button type="button" class="gh-btn gh-btn-sm" on:click={copyPublishedUrl}>
-								<Octicon icon={copy} className="h-3 w-3" />
-								{$t("Copy remote profile URL")}
-							</button>
+							{#if confirmedPublication?.lastPublishedAt && Number.isFinite(Date.parse(confirmedPublication.lastPublishedAt))}<p class="text-xs text-fg-muted">{$t("Last published")} <time datetime={confirmedPublication.lastPublishedAt}>{new Intl.DateTimeFormat($locale, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }).format(new Date(confirmedPublication.lastPublishedAt))}</time></p>{/if}
+ <code class="gh-code-block break-all">{publishedUrl}</code>
+							<CopyButton value={publishedUrl} label={$t("Copy remote profile URL")} showLabel />
 						</div>
 					{/if}
 				</div>

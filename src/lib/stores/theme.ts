@@ -51,12 +51,7 @@ function applyTheme(mode: ThemeMode, resolved: ResolvedTheme): void {
 	root.style.colorScheme = resolved;
 	root.dataset.themeMode = mode;
 
-	if (mode === "system") {
-		delete root.dataset.theme;
-		return;
-	}
-
-	root.dataset.theme = mode;
+	root.dataset.theme = resolved;
 }
 
 export function startThemeSync(): () => void {

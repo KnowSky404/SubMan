@@ -2,10 +2,11 @@
 import "../app.css";
 import { onMount, tick } from "svelte";
 import { get } from "svelte/store";
-import { fade, fly, slide } from "svelte/transition";
 import { afterNavigate } from "$app/navigation";
 import { page } from "$app/state";
+import { navigationIndicator } from "$lib/actions/navigation-indicator";
 import { tooltip } from "$lib/actions/tooltip";
+import Dialog from "$lib/components/Dialog.svelte";
 import Octicon from "$lib/components/Octicon.svelte";
 import { t } from "$lib/i18n";
 import {
@@ -32,6 +33,12 @@ import { authState } from "$lib/stores/auth";
 import { confirmDialog, resolveConfirm } from "$lib/stores/confirm";
 import { startThemeSync, type ThemeMode, themeMode } from "$lib/stores/theme";
 import { dismissToast, toastStore } from "$lib/stores/toast";
+import {
+	animatePage,
+	surfaceMotion,
+	veilMotion,
+	watchMotionPreference,
+} from "$lib/ui-motion";
 import { cn } from "$lib/utils/cn";
 import {
 	cancelCloudWorkspaceLoad,
@@ -127,7 +134,21 @@ function updateNavigationOverflow() {
 	navigationOverflows = navigation.scrollWidth > navigation.clientWidth + 1;
 	navigationAtEnd =
 		navigation.scrollLeft + navigation.clientWidth >=
-		navigation.scrollWidth - 2;
+		navigation.scrollWidth - 1;
+}
+
+function scrollNavigation() {
+	const maximum = navigation.scrollWidth - navigation.clientWidth;
+	let target =
+		navigation.scrollLeft +
+		(navigationAtEnd ? -1 : 1) * navigation.clientWidth * 0.8;
+	if (!navigationAtEnd && maximum - target < 4) target = maximum;
+	navigation.scrollTo({
+		left: Math.max(0, Math.min(maximum, target)),
+		behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
+			? "instant"
+			: "smooth",
+	});
 }
 
 function revealActiveNavigation() {
@@ -135,19 +156,21 @@ function revealActiveNavigation() {
 		'[aria-current="page"]',
 	);
 	if (active) {
-		const offset =
-			active.getBoundingClientRect().left -
-			navigation.getBoundingClientRect().left;
-		if (offset < 0) navigation.scrollLeft += offset;
-		else if (offset + active.offsetWidth > navigation.clientWidth)
+		const activeBounds = active.getBoundingClientRect();
+		const offset = activeBounds.left - navigation.getBoundingClientRect().left;
+		if (offset < 0) navigation.scrollLeft += Math.floor(offset) - 1;
+		else if (offset + activeBounds.width > navigation.clientWidth)
 			navigation.scrollLeft +=
-				offset + active.offsetWidth - navigation.clientWidth;
+				Math.ceil(offset + activeBounds.width - navigation.clientWidth) + 1;
 	}
 	updateNavigationOverflow();
 }
 
-afterNavigate(() => {
-	void tick().then(revealActiveNavigation);
+afterNavigate(({ from }) => {
+	void tick().then(() => {
+		revealActiveNavigation();
+		if (from && content) animatePage(content);
+	});
 });
 
 async function toggleThemeMenu() {
@@ -189,57 +212,21 @@ function handleThemeKeydown(event: KeyboardEvent) {
 		items[next]?.focus();
 	}
 }
-let confirmDialogElement: HTMLDivElement | null = null;
-let confirmButton: HTMLButtonElement | null = null;
-let confirmWasOpen = false;
-let confirmReturnFocus: HTMLElement | null = null;
-
-$: if ($confirmDialog.open && !confirmWasOpen) {
-	confirmWasOpen = true;
-	confirmReturnFocus =
-		typeof document === "undefined"
-			? null
-			: document.activeElement instanceof HTMLElement
-				? document.activeElement
-				: null;
-	void tick().then(() => confirmButton?.focus());
-} else if (!$confirmDialog.open && confirmWasOpen) {
-	confirmWasOpen = false;
-	confirmReturnFocus?.focus();
-	confirmReturnFocus = null;
-}
+let content: HTMLElement;
 
 function isActive(pathname: string, href: string) {
 	return href === "/" ? pathname === "/" : pathname.startsWith(href);
 }
 
+let themeAnimationTimer: ReturnType<typeof setTimeout>;
 function handleThemeChange(nextTheme: ThemeMode) {
+	clearTimeout(themeAnimationTimer);
+	document.documentElement.dataset.themeChanging = "true";
 	themeMode.set(nextTheme);
+	themeAnimationTimer = setTimeout(() => {
+		delete document.documentElement.dataset.themeChanging;
+	}, 180);
 	closeThemeMenu();
-}
-
-function handleConfirmKeydown(event: KeyboardEvent) {
-	if (event.key === "Escape") {
-		event.preventDefault();
-		resolveConfirm(false);
-		return;
-	}
-	if (event.key !== "Tab" || !confirmDialogElement) return;
-	const focusable = Array.from(
-		confirmDialogElement.querySelectorAll<HTMLElement>(
-			'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
-		),
-	);
-	const first = focusable[0];
-	const last = focusable.at(-1);
-	if (!first || !last) return;
-	if (event.shiftKey && document.activeElement === first) {
-		event.preventDefault();
-		last.focus();
-	} else if (!event.shiftKey && document.activeElement === last) {
-		event.preventDefault();
-		first.focus();
-	}
 }
 
 onMount(() => {
@@ -251,6 +238,7 @@ onMount(() => {
 	let stopAuth = () => {};
 	let currentToken: string | null | undefined;
 	const stopThemeSync = startThemeSync();
+	const stopUiMotion = watchMotionPreference();
 	const stopWorkspaceEvents = subscribeWorkspaceEvents((event) => {
 		if (event.type !== "workspace-v2-committed" || !currentToken) return;
 		if (get(workspaceCloudStatus).phase === "error") {
@@ -278,6 +266,9 @@ onMount(() => {
 
 	return () => {
 		navigationObserver.disconnect();
+		stopUiMotion();
+		clearTimeout(themeAnimationTimer);
+		delete document.documentElement.dataset.themeChanging;
 		cancelled = true;
 		stopAuth();
 		stopAutoSync();
@@ -331,7 +322,7 @@ onMount(() => {
 						</button>
 						{#if themeMenuOpen}
 							<button type="button" class="fixed inset-0 z-[140]" tabindex="-1" on:click={closeThemeMenu} aria-label={$t("Close menu")}></button>
-							<div class="gh-dropdown-menu theme-menu-dropdown right-0 top-full w-40" bind:this={themeMenu} role="menu" aria-label={$t("Theme")} transition:slide={{ duration: 150 }}>
+							<div class="gh-dropdown-menu theme-menu-dropdown right-0 top-full w-40" bind:this={themeMenu} role="menu" aria-label={$t("Theme")} in:surfaceMotion={{ duration: 120, y: 4 }} out:surfaceMotion={{ duration: 140, y: 4 }} data-ui-motion>
 								<div class="gh-dropdown-body flex flex-col gap-0.5">
 									{#each themeOptions as option (option.value)}
 										<button type="button" role="menuitemradio" tabindex="-1" class={cn("gh-dropdown-item", $themeMode === option.value ? "font-semibold text-fg-default" : "text-fg-default")} on:click={() => handleThemeChange(option.value)} aria-checked={$themeMode === option.value}>
@@ -351,7 +342,7 @@ onMount(() => {
 						href={PROJECT_GITHUB_URL}
 						target="_blank"
 						rel="noreferrer"
-						class="app-header-link"
+						class="app-header-link app-project-link"
 						aria-label={$t("Open project on GitHub")}
 						title={$t("Open project on GitHub")}
 						use:tooltip={$t("Open project on GitHub")}
@@ -364,7 +355,7 @@ onMount(() => {
 
 			<div class="app-repo-tabs">
 				<div class="app-repo-tabs-track">
-					<nav class="gh-underlinenav" bind:this={navigation} on:scroll={updateNavigationOverflow} aria-label={$t("Primary")}>
+					<nav use:navigationIndicator data-ui-motion class="gh-underlinenav" bind:this={navigation} on:scroll={updateNavigationOverflow} aria-label={$t("Primary")}>
 						{#each navItems as item}
 							<a
 								href={item.href}
@@ -377,15 +368,16 @@ onMount(() => {
 						{/each}
 					</nav>
 					{#if navigationOverflows}
-						<button type="button" class="app-nav-scroll" aria-label={$t(navigationAtEnd ? "Previous navigation items" : "More navigation items")} use:tooltip={$t(navigationAtEnd ? "Previous navigation items" : "More navigation items")} on:click={() => navigation.scrollBy({ left: (navigationAtEnd ? -1 : 1) * navigation.clientWidth * 0.8, behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth" })}>
+						<button type="button" class="app-nav-scroll" aria-label={$t(navigationAtEnd ? "Previous navigation items" : "More navigation items")} use:tooltip={$t(navigationAtEnd ? "Previous navigation items" : "More navigation items")} on:click={scrollNavigation}>
 							<Octicon icon={arrowRight} className={cn("h-4 w-4", navigationAtEnd && "rotate-180")} />
 						</button>
 					{/if}
+ <a class="app-header-link app-project-link-narrow" href={PROJECT_GITHUB_URL} target="_blank" rel="noreferrer" aria-label={$t("Open project on GitHub")} use:tooltip={$t("Open project on GitHub")}><Octicon icon={markGithub} className="h-4 w-4" /></a>
 				</div>
 			</div>
 	</div>
 
-	<main class="app-main-container">
+	<main class="app-main-container" bind:this={content} data-ui-motion>
 		{#if $workspaceCloudStatus.phase === "ready" && (workspaceNeedsAttention || workspacePending)}
 			<div class="app-sync-notice" role="status">
 				<span class="inline-flex items-center gap-2"><Octicon icon={workspaceNeedsAttention ? alert : sync} className="h-4 w-4 shrink-0" />{$t(syncStatusLabel)}{#if $workspaceSyncStatus.queueCount > 0} · {$t("{count} queued", { count: $workspaceSyncStatus.queueCount })}{/if}</span>
@@ -400,7 +392,8 @@ onMount(() => {
 					<h1 class="gh-page-title">{$t("Cloud Workspace")}</h1>
 					<p role="status">{$workspaceCloudStatus.phase === "loading" ? $t("Loading cloud data...") : $workspaceCloudStatus.phase === "error" ? $t("Cloud data could not be loaded. Check your connection and retry.") : $t("Connect GitHub to load your cloud data.")}</p>
 					{#if $workspaceCloudStatus.phase === "error"}<p class="text-sm text-fg-muted">{$t($workspaceCloudStatus.message ?? "Cloud synchronization needs review")}</p>{/if}
-					<a href="/auth" class="gh-btn gh-btn-primary">{$t("Setup GitHub")}</a>
+					{#if $workspaceCloudStatus.phase === "loading"}<div class="gh-skeleton-list" aria-hidden="true"><span></span><span></span><span></span></div>{/if}
+     <a href="/auth" class="gh-btn gh-btn-primary">{$t("Setup GitHub")}</a>
 				</div></div>
 			</section>
 		{/if}
@@ -409,8 +402,9 @@ onMount(() => {
 	<div class="pointer-events-none fixed left-1/2 top-20 z-[200] flex w-full max-w-sm -translate-x-1/2 flex-col gap-2 px-4">
 		{#each $toastStore as toast (toast.id)}
 			<div
-				in:fly={{ y: -20, duration: 300 }}
-				out:fade={{ duration: 200 }}
+				in:surfaceMotion={{ y: -8, scale: 1 }}
+				out:veilMotion={{ duration: 140 }}
+    data-ui-motion
 				class="gh-box pointer-events-auto flex items-center gap-3 px-4 py-3 shadow-[var(--shadow-medium)]"
 				role="status"
 			>
@@ -437,24 +431,8 @@ onMount(() => {
 		{/each}
 	</div>
 
-	{#if $confirmDialog.open}
-		<div class="fixed inset-0 z-[150] flex items-center justify-center p-4">
-			<button
-				type="button"
-				class="fixed inset-0 bg-black/55 backdrop-blur-sm"
-				on:click={() => resolveConfirm(false)}
-				aria-label={$t("Close dialog")}
-			></button>
-			<div
-				bind:this={confirmDialogElement}
-				class="gh-box relative w-full max-w-md shadow-[var(--shadow-medium)]"
-				role="dialog"
-				aria-modal="true"
-				aria-labelledby="confirm-dialog-title"
-				tabindex="-1"
-				on:keydown={handleConfirmKeydown}
-				in:fly={{ y: 10, duration: 300 }}
-			>
+ {#if $confirmDialog.open}
+  <Dialog labelledby="confirm-dialog-title" closeLabel={$t("Close dialog")} onclose={() => resolveConfirm(false)} initialFocus="[data-confirm]" className="max-w-md" mobileSheet={false}>
 				<div class="gh-box-header">
 					<span id="confirm-dialog-title" class="flex items-center gap-2">
 						{#if $confirmDialog.danger}
@@ -471,15 +449,15 @@ onMount(() => {
 						<span aria-hidden="true">×</span>
 					</button>
 				</div>
-				<div class="p-4">
+				<div class="gh-section-body">
 					<p class="text-sm text-fg-default">{$confirmDialog.message}</p>
 				</div>
-				<div class="flex justify-end gap-2 border-t border-border-default bg-canvas-subtle p-4">
+				<div class="gh-section-footer">
 					<button type="button" class="gh-btn" on:click={() => resolveConfirm(false)}>
 						{$confirmDialog.cancelText || $t("Cancel")}
 					</button>
 					<button
-						bind:this={confirmButton}
+						data-confirm
 						type="button"
 						class={cn("gh-btn", $confirmDialog.danger ? "gh-btn-danger" : "gh-btn-primary")}
 						on:click={() => resolveConfirm(true)}
@@ -487,7 +465,6 @@ onMount(() => {
 						{$confirmDialog.confirmText || $t("Confirm")}
 					</button>
 				</div>
-			</div>
-		</div>
-	{/if}
+  </Dialog>
+ {/if}
 </div>

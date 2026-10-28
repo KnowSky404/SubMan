@@ -1,8 +1,15 @@
 import type { ToastType } from "$lib/stores/toast";
 import type { WorkspaceOperationResult } from "$lib/workspace-operation-result";
 
+export type WorkspaceFeedbackState =
+	| "pending"
+	| "success"
+	| "attention"
+	| "error";
+
 export type WorkspaceOperationPresentation = {
 	tone: ToastType;
+	feedbackState: WorkspaceFeedbackState;
 	messageKey: string;
 	messageParams?: Record<string, string | number>;
 	finalizeDraft: boolean;
@@ -23,6 +30,7 @@ export function presentWorkspaceOperation(
 		case "remote-committed":
 			return {
 				tone: "success",
+				feedbackState: "success",
 				messageKey: options.remoteCommittedMessageKey ?? "Saved to Workspace",
 				messageParams: options.successMessageParams,
 				finalizeDraft: true,
@@ -31,6 +39,7 @@ export function presentWorkspaceOperation(
 		case "local-durable":
 			return {
 				tone: "info",
+				feedbackState: "pending",
 				messageKey: "Cloud confirmation required; reload from Cloud",
 				finalizeDraft: false,
 				remoteCommitted: false,
@@ -38,6 +47,7 @@ export function presentWorkspaceOperation(
 		case "local-durable-queued":
 			return {
 				tone: "info",
+				feedbackState: "pending",
 				messageKey: "Cloud save pending",
 				finalizeDraft: false,
 				remoteCommitted: false,
@@ -45,6 +55,7 @@ export function presentWorkspaceOperation(
 		case "peer-owned":
 			return {
 				tone: "info",
+				feedbackState: "pending",
 				messageKey: "Cloud save pending; another tab is synchronizing",
 				finalizeDraft: false,
 				remoteCommitted: false,
@@ -52,6 +63,7 @@ export function presentWorkspaceOperation(
 		case "retry-scheduled":
 			return {
 				tone: "info",
+				feedbackState: "pending",
 				messageKey: "Cloud save pending; retrying",
 				finalizeDraft: false,
 				remoteCommitted: false,
@@ -59,6 +71,7 @@ export function presentWorkspaceOperation(
 		case "conflict-or-blocked":
 			return {
 				tone: "info",
+				feedbackState: "attention",
 				messageKey: "Cloud synchronization needs repair: {error}",
 				messageParams: { error: result.messageKey ?? result.code },
 				finalizeDraft: false,
@@ -67,6 +80,7 @@ export function presentWorkspaceOperation(
 		case "rejected-before-durable-commit":
 			return {
 				tone: "error",
+				feedbackState: "error",
 				messageKey:
 					options.rejectedMessageKey ??
 					"Workspace change was not saved: {error}",
@@ -77,6 +91,7 @@ export function presentWorkspaceOperation(
 		case "commit-acknowledgement-uncertain":
 			return {
 				tone: "info",
+				feedbackState: "attention",
 				messageKey:
 					"Workspace save acknowledgement is uncertain; reload before retrying",
 				finalizeDraft: false,

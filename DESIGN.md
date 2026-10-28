@@ -72,3 +72,40 @@ Primer is the open-source design system that powers GitHub. It is built to be ac
 - **Subtle Depth:** Uses thin borders and very soft shadows (`0 1px 0 rgba(27,31,35,0.04)`) rather than large drop shadows.
 - **High Contrast Focus:** Focus states are highly visible, usually using a 2px blue ring.
 - **Hover States:** Most interactive elements use a subtle background color shift (e.g., `bgColor-muted`) to indicate interactivity.
+
+
+## Product interface and motion (2026-10-28)
+
+The accepted references live in `docs/assets/ui/2026-10-28/`. Their layout,
+component geometry, and hierarchy guide the six application routes. Keep the
+existing SubMan mark, horizontal route navigation, system fonts, and Octicons.
+Use local CJK platform font fallbacks alongside the Latin system stack.
+
+- The main canvas is `canvas.default` in both themes. Use `canvas.subtle` for
+  mastheads, table headings, disclosures, and supporting regions. Avoid enclosing
+  every toolbar or metadata group in another bordered box.
+- Page titles and their short descriptions establish the primary hierarchy.
+  Lists use one heading band, readable secondary metadata, restrained protocol
+  labels, and consistent row actions. Resource checkboxes enable resources;
+  they never imply bulk selection.
+- Overview columns fit their own content. Aggregation and client exports share
+  a primary editor/preview and a quieter 320px publication rail. Related actions
+  appear once in their working context.
+- Shared dialogs own focus containment, Escape, focus restoration, background
+  inertness, and the scroll lock. Small-screen editors use bottom sheets with
+  fixed action footers and safe-area spacing. Do not show a drag handle without
+  a drag gesture. Use 44px touch targets.
+- Hover/press feedback takes 120ms; navigation, disclosure, and surface entry
+  take 180ms; surface exit takes 140ms. Route content enters over 160ms with 4px
+  travel. Copy acknowledgement lasts 1.2 seconds after clipboard success.
+- Motion never delays data readiness or business completion. Honor reduced
+  motion in CSS, Svelte transitions, route animation, and preview drag sorting.
+  Finish active finite UI motion when the preference changes.
+- Only the shared operation presenter maps Workspace results to `pending`,
+  `success`, `attention`, or `error` feedback. Only `remote-committed` permits
+  success wording and draft finalization. Queued or blocked operations retain
+  drafts; clipboard acknowledgement is separate from cloud publication.
+
+The root `data-theme` always holds the resolved light/dark palette, including
+automatic mode. `data-theme-mode` and persisted preference keep the user choice.
+The first-paint script retains its SvelteKit CSP nonce.

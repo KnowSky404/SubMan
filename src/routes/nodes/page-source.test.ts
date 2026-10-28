@@ -18,7 +18,7 @@ test("nodes page uses a unified github-style filter bar", () => {
 	expect(nodesPageSource).toContain('class="gh-filter-bar"');
 	expect(nodesPageSource).toContain('class="gh-filter-controls"');
 	expect(nodesPageSource).toContain('class="gh-counter"');
-	expect(nodesPageSource).toContain("gh-btn-group");
+	expect(nodesPageSource).toContain("gh-resource-list");
 });
 
 test("nodes filter bar separates search and status with creation in the page header", () => {
@@ -89,7 +89,7 @@ test("resource editing opens a modal instead of expanding inline editors", () =>
 	expect(nodesPageSource).toContain("Edit Node");
 	expect(nodesPageSource).toContain("Edit Subscription");
 	expect(nodesPageSource).toContain("Close edit modal");
-	expect(nodesPageSource).toContain("fixed inset-0 z-[150]");
+	expect(nodesPageSource).toContain("<Dialog");
 	expect(nodesPageSource).not.toContain("Inline Editor for Node");
 	expect(nodesPageSource).not.toContain("Inline Editor for Subscription");
 	expect(nodesPageSource).not.toContain("expandedId");

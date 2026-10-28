@@ -1,5 +1,5 @@
 <script lang="ts">
-import { slide } from "svelte/transition";
+import { surfaceMotion } from "$lib/ui-motion";
 import { cn } from "$lib/utils/cn";
 
 export type GitHubSelectOption = {
@@ -116,7 +116,7 @@ function handleMenuKeydown(event: KeyboardEvent): void {
 
 function selectValue(nextValue: string) {
 	value = nextValue;
-	open = false;
+	closeMenu();
 	onValueChange?.(nextValue);
 }
 </script>
@@ -150,7 +150,7 @@ function selectValue(nextValue: string) {
 			role="menu"
 			tabindex="-1"
 			onkeydown={handleMenuKeydown}
-			transition:slide={{ duration: 150 }}
+			in:surfaceMotion={{ duration: 120, y: 4 }} out:surfaceMotion={{ duration: 140, y: 4 }} data-ui-motion
 		>
 			<div class="gh-dropdown-body flex flex-col gap-0.5">
 				{#each options as option}
