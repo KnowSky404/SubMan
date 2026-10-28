@@ -1,7 +1,10 @@
 <script lang="ts">
 import { onMount } from "svelte";
 import { tooltip } from "$lib/actions/tooltip";
+import CopyButton from "$lib/components/CopyButton.svelte";
 import Octicon from "$lib/components/Octicon.svelte";
+import OperationFeedback from "$lib/components/OperationFeedback.svelte";
+import PageHeader from "$lib/components/PageHeader.svelte";
 import { getGist } from "$lib/gist";
 import { t } from "$lib/i18n";
 import type { GistMeta } from "$lib/models";
@@ -35,6 +38,7 @@ import {
 import { requireWorkspaceIdentity } from "$lib/workspace-identity";
 import {
 	presentWorkspaceOperation,
+	type WorkspaceOperationPresentation,
 	type WorkspaceOperationPresentationOptions,
 } from "$lib/workspace-operation-presenter";
 import type { WorkspaceOperationResult } from "$lib/workspace-operation-result";
@@ -45,6 +49,7 @@ import {
 
 let workspace: GistMeta | null = null;
 let loading = false;
+let operationFeedback: WorkspaceOperationPresentation | null = null;
 let deleting = false;
 $: workspaceFileCount = workspace?.files.length ?? 0;
 $: bootstrapStatus = getWorkspaceBootstrapStatus(
@@ -63,10 +68,12 @@ function showWorkspaceResult(
 	options: WorkspaceOperationPresentationOptions = {},
 ) {
 	const presentation = presentWorkspaceOperation(result, options);
-	setStatus(
-		$t(presentation.messageKey, presentation.messageParams),
-		presentation.tone,
-	);
+	operationFeedback = presentation;
+	if (presentation.remoteCommitted)
+		setStatus(
+			$t(presentation.messageKey, presentation.messageParams),
+			presentation.tone,
+		);
 	return presentation;
 }
 
@@ -125,16 +132,6 @@ async function refreshWorkspace() {
 onMount(() => {
 	if ($authState.token) void refreshWorkspace();
 });
-
-async function copyLink(url?: string) {
-	if (!url) return;
-	try {
-		await navigator.clipboard.writeText(url);
-		setStatus($t("Copied to clipboard"));
-	} catch {
-		setStatus($t("Copy failed"), "error");
-	}
-}
 
 async function deleteFile(filename: string) {
 	const token = $authState.token;
@@ -208,11 +205,7 @@ async function cleanupBootstrapMarker() {
 </svelte:head>
 
 <div class="gh-page">
-	<header class="gh-page-header">
-		<div class="gh-page-heading">
-			<h1 class="gh-page-title">{$t("Gists")}</h1>
-		</div>
-		<div class="gh-page-actions">
+ <PageHeader title={$t("Gists")} description={$t("Files in your connected cloud Workspace.")}>
 			{#if $appState.activeGistId}
 				<a href={`https://gist.github.com/${$appState.activeGistId}`} target="_blank" rel="noreferrer" class="gh-icon-button" aria-label={$t("View on GitHub")} title={$t("View on GitHub")} use:tooltip={$t("View on GitHub")}><Octicon icon={linkExternal} className="h-4 w-4" /></a>
 			{/if}
@@ -220,8 +213,8 @@ async function cleanupBootstrapMarker() {
 				<Octicon icon={sync} className={cn("h-4 w-4", loading && "animate-spin")} />
 				{loading ? $t("Refreshing...") : $t("Refresh")}
 			</button>
-		</div>
-	</header>
+ </PageHeader>
+ <OperationFeedback feedback={operationFeedback} />
 
 	<!-- File List -->
 	<div class="gh-layout-main">
@@ -262,7 +255,7 @@ async function cleanupBootstrapMarker() {
 					<p class="text-fg-muted">{$t("Refresh to load files.")}</p>
 				</div>
 			{:else}
-				<div class="gh-list-header hidden sm:grid sm:grid-cols-[minmax(0,1.6fr)_120px_96px_auto]">
+				<div class="gh-list-header gh-file-list-header">
 					<span>{$t("Name")}</span>
 					<span>{$t("Kind")}</span>
 					<span class="text-right">{$t("Size")}</span>
@@ -271,7 +264,7 @@ async function cleanupBootstrapMarker() {
 				{#each workspace.files as gistFile}
 					{@const fileKind = classifyWorkspaceFile(gistFile.filename, $appState)}
 					<div class="gh-box-row group">
-						<div class="flex flex-col gap-2 sm:grid sm:grid-cols-[minmax(0,1.6fr)_120px_96px_auto] sm:items-center sm:gap-4">
+						<div class="gh-file-list-row flex flex-col gap-2">
 							<div class="gh-row-main">
 								{#if WORKSPACE_RESERVED_FILE_NAMES.has(gistFile.filename)}
 									<Octicon icon={shieldCheck} className="mt-0.5 h-4 w-4 shrink-0 text-accent-fg" />
@@ -308,7 +301,7 @@ async function cleanupBootstrapMarker() {
 
 							<div class="gh-row-actions gh-btn-group">
 								{#if gistFile.rawUrl}
-									<button class="gh-btn gh-btn-sm" on:click={() => copyLink(gistFile.rawUrl)} title={$t("Copy Raw URL")} use:tooltip={$t("Copy Raw URL")} aria-label={$t("Copy Raw URL")}><Octicon icon={copy} className="h-3.5 w-3.5" /></button>
+									<CopyButton value={gistFile.rawUrl} label={$t("Copy Raw URL")} />
 									<a href={gistFile.rawUrl} target="_blank" rel="noreferrer" class="gh-btn gh-btn-sm" title={$t("Open Raw")} use:tooltip={$t("Open Raw")} aria-label={$t("Open Raw")}><Octicon icon={linkExternal} className="h-3.5 w-3.5" /></a>
 								{/if}
 								{#if canDeleteWorkspaceFile(gistFile.filename)}

@@ -18,14 +18,11 @@
 					root.dataset.themeMode = mode;
 					root.style.colorScheme = resolved;
 
-					if (mode === "system") {
-						delete root.dataset.theme;
-						return;
-					}
-
-					root.dataset.theme = mode;
+					root.dataset.theme = resolved;
 				} catch {
-					document.documentElement.style.colorScheme = window.matchMedia(mediaQuery).matches ? "dark" : "light";
+					const resolved = window.matchMedia(mediaQuery).matches ? "dark" : "light";
+					document.documentElement.style.colorScheme = resolved;
+					document.documentElement.dataset.theme = resolved;
 				}
 			})();
 		</script>

@@ -1,7 +1,7 @@
 <script lang="ts">
-import { tick } from "svelte";
-import { fade, fly, slide } from "svelte/transition";
+import { flip } from "svelte/animate";
 import { type DndEvent, dndzone } from "svelte-dnd-action";
+import { disclosure } from "$lib/actions/disclosure";
 import { tooltip } from "$lib/actions/tooltip";
 import {
 	type AggregateSubscriptionIssue,
@@ -10,9 +10,14 @@ import {
 	type RegionFlagRule,
 	regionCodeToFlagEmoji,
 } from "$lib/aggregate";
+import ActionButton from "$lib/components/ActionButton.svelte";
+import CopyButton from "$lib/components/CopyButton.svelte";
+import Dialog from "$lib/components/Dialog.svelte";
 import GitHubSelect from "$lib/components/GitHubSelect.svelte";
 import Octicon from "$lib/components/Octicon.svelte";
-import { t } from "$lib/i18n";
+import OperationFeedback from "$lib/components/OperationFeedback.svelte";
+import PageHeader from "$lib/components/PageHeader.svelte";
+import { locale, t } from "$lib/i18n";
 import type {
 	AggregatePublishTarget,
 	AggregateRule,
@@ -24,7 +29,6 @@ import {
 	alert,
 	checkCircle,
 	checklist,
-	copy,
 	database,
 	eye,
 	fileCode,
@@ -55,6 +59,12 @@ import {
 	parseTagLabels,
 	resolveLegacyExcludeTags,
 } from "$lib/tags";
+import {
+	collapseMotion,
+	motionDuration,
+	surfaceMotion,
+	veilMotion,
+} from "$lib/ui-motion";
 import { cn } from "$lib/utils/cn";
 import { createId } from "$lib/utils/id";
 import { nowIso } from "$lib/utils/time";
@@ -96,10 +106,8 @@ let subSearchQuery = "";
 
 // Region Browser State
 let showBuiltInRegionMap = false;
+let operationFeedback: WorkspaceOperationPresentation | null = null;
 let builtInRegionMapSearch = "";
-let regionDialogElement: HTMLDivElement | null = null;
-let regionDialogWasOpen = false;
-let regionDialogReturnFocus: HTMLElement | null = null;
 
 type PreviewEntry = {
 	id: string;
@@ -199,55 +207,6 @@ $: filteredRegionRules = BUILT_IN_REGION_FLAG_RULES.filter(
 			k.toLowerCase().includes(builtInRegionMapSearch.toLowerCase()),
 		),
 );
-
-$: if (showBuiltInRegionMap && !regionDialogWasOpen) {
-	regionDialogWasOpen = true;
-	regionDialogReturnFocus =
-		typeof document === "undefined"
-			? null
-			: document.activeElement instanceof HTMLElement
-				? document.activeElement
-				: null;
-	void tick()
-		.then(() => tick())
-		.then(() => {
-			regionDialogElement
-				?.querySelector<HTMLElement>("#aggregate-region-map-search")
-				?.focus();
-		});
-} else if (!showBuiltInRegionMap && regionDialogWasOpen) {
-	regionDialogWasOpen = false;
-	regionDialogReturnFocus?.focus();
-	regionDialogReturnFocus = null;
-}
-
-function handleRegionDialogKeydown(event: KeyboardEvent): void {
-	if (event.key === "Escape") {
-		event.preventDefault();
-		showBuiltInRegionMap = false;
-		return;
-	}
-	if (event.key !== "Tab" || !regionDialogElement) return;
-	const focusable = Array.from(
-		regionDialogElement.querySelectorAll<HTMLElement>(
-			'button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])',
-		),
-	);
-	const first = focusable[0];
-	const last = focusable.at(-1);
-	if (!first || !last) return;
-	if (event.shiftKey && document.activeElement === first) {
-		event.preventDefault();
-		last.focus();
-	} else if (!event.shiftKey && document.activeElement === last) {
-		event.preventDefault();
-		first.focus();
-	}
-}
-
-function focusOnMount(element: HTMLElement): void {
-	element.focus();
-}
 
 $: activeNodeCount = selectedNodeIds.filter((id) =>
 	$appState.nodes.some((n) => n.id === id),
@@ -495,10 +454,12 @@ function showWorkspaceResult(
 	options: WorkspaceOperationPresentationOptions = {},
 ): WorkspaceOperationPresentation {
 	const presentation = presentWorkspaceOperation(result, options);
-	showToast(
-		$t(presentation.messageKey, presentation.messageParams),
-		presentation.tone,
-	);
+	operationFeedback = presentation;
+	if (presentation.remoteCommitted)
+		showToast(
+			$t(presentation.messageKey, presentation.messageParams),
+			presentation.tone,
+		);
 	return presentation;
 }
 
@@ -917,15 +878,6 @@ async function buildPreview() {
 	}
 }
 
-async function copyLine(line: string) {
-	try {
-		await navigator.clipboard.writeText(line);
-		showToast($t("Copied to clipboard"), "success");
-	} catch {
-		showToast($t("Copy failed"), "error");
-	}
-}
-
 function insertRegionRule(rule: RegionFlagRule) {
 	const line = `${rule.code} = ${rule.keywords.join(", ")}`;
 	customRegionFlagMap = customRegionFlagMap.trim()
@@ -962,21 +914,10 @@ function handleExcludeTagsInput() {
 </svelte:head>
 
 <div class="gh-page">
-	<header class="gh-page-header">
-		<div class="gh-page-heading">
-			<h1 class="gh-page-title">{$t("Aggregate")}</h1>
-		</div>
-		<div class="gh-page-actions">
-			<button type="button" class="gh-btn" on:click={buildPreview} disabled={previewLoading}>
-				{#if previewLoading}<Octicon icon={sync} className="h-4 w-4 animate-spin" />{:else}<Octicon icon={eye} className="h-4 w-4" />{/if}
-				{$t("Preview")}
-			</button>
-			<button type="button" class="gh-btn gh-btn-primary" on:click={saveRule}>
-				<Octicon icon={checkCircle} className="h-4 w-4" />
-				{$t("Save Rule")}
-			</button>
-		</div>
-</header>
+ <PageHeader title={$t("Aggregate")} description={$t("Combine sources, preview rules, and publish output.")}>
+  <ActionButton label={$t("Preview")} busyLabel={$t("Loading...")} action={buildPreview} icon={eye} workspace={false} disabled={previewLoading} />
+  <ActionButton label={$t("Save Rule")} action={saveRule} icon={checkCircle} variant="primary" feedback={operationFeedback} />
+ </PageHeader>
 
 {#if outputConflicts.length > 0}
 	<div class="gh-alert gh-alert-warning mb-4 flex-col items-start">
@@ -989,20 +930,20 @@ function handleExcludeTagsInput() {
 	</div>
 {/if}
 
-	<div class="gh-layout-sidebar lg:grid-cols-[minmax(0,1fr)_340px]">
+	<div class="gh-layout-sidebar gh-editor-layout">
 		<!-- Main Rule Editor -->
 		<div class="gh-layout-main">
-			<div class="gh-box shadow-sm !overflow-visible">
-				<div class="gh-box-header">
+			<div class="gh-box gh-editor-panel !overflow-visible">
+				<div class="gh-box-header gh-rule-header">
 					<div class="flex min-w-0 items-center gap-2">
 						<Octicon icon={sliders} className="h-4 w-4" />
 						<span>{$t("Rule Definition")}</span>
-						<span class="gh-counter">{$appState.aggregates.length}</span>
 					</div>
-					<div class="gh-toolbar-group min-w-0 relative">
+					<div class="gh-rule-header-actions relative">
+ {#if editingRuleId}<button type="button" class="gh-icon-button text-danger-fg" on:click={deleteRule} aria-label={$t("Delete current rule")} use:tooltip={$t("Delete current rule")} disabled={deletingRuleId === editingRuleId}><Octicon icon={trash} className="h-4 w-4" /></button>{/if}
 						<button
 							type="button"
-							class="gh-select gh-select-sm flex w-48 items-center justify-between text-left"
+							class="gh-select flex w-48 items-center justify-between text-left"
 							on:click={() => { showRuleMenu = !showRuleMenu; showNodesMenu = false; showSubsMenu = false; }}
 							aria-haspopup="menu"
 							aria-expanded={showRuleMenu}
@@ -1011,7 +952,7 @@ function handleExcludeTagsInput() {
 						</button>
 						{#if showRuleMenu}
 							<button type="button" class="fixed inset-0 z-[110]" on:click={() => (showRuleMenu = false)} aria-label={$t("Close rule menu")}></button>
-							<div class="gh-dropdown-menu right-0 top-full w-56" transition:slide={{ duration: 150 }}>
+							<div class="gh-dropdown-menu right-0 top-full w-56" in:surfaceMotion={{ duration: 120, y: 4 }} out:surfaceMotion={{ duration: 140, y: 4 }} data-ui-motion>
 								<div class="gh-dropdown-body flex flex-col gap-0.5">
 									<button type="button" class="gh-dropdown-item font-semibold text-accent-fg" on:click={() => { resetRuleForm(); showRuleMenu = false; }}>
 										+ {$t("New Rule")}
@@ -1045,7 +986,7 @@ function handleExcludeTagsInput() {
 							<input
 								id={fieldIds.excludeTags}
 								class="gh-input"
-								placeholder="domestic, bypass..."
+								placeholder={$t("e.g. domestic, bypass")}
 								bind:value={excludeTags}
 								on:input={handleExcludeTagsInput}
 							/>
@@ -1089,7 +1030,7 @@ function handleExcludeTagsInput() {
 							
 							{#if showNodesMenu}
 								<button type="button" class="fixed inset-0 z-[110]" on:click={() => (showNodesMenu = false)} aria-label={$t("Close source nodes menu")}></button>
-								<div class="gh-dropdown-menu left-0 top-full w-full min-w-[280px]" transition:slide={{ duration: 150 }}>
+								<div class="gh-dropdown-menu left-0 top-full w-full min-w-[280px]" in:surfaceMotion={{ duration: 120, y: 4 }} out:surfaceMotion={{ duration: 140, y: 4 }} data-ui-motion>
 									<div class="gh-dropdown-header">
 										<div class="relative">
 											<Octicon icon={search} className="absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-fg-subtle" />
@@ -1134,7 +1075,7 @@ function handleExcludeTagsInput() {
 
 							{#if showSubsMenu}
 								<button type="button" class="fixed inset-0 z-[110]" on:click={() => (showSubsMenu = false)} aria-label={$t("Close source subscriptions menu")}></button>
-								<div class="gh-dropdown-menu left-0 top-full w-full min-w-[280px]" transition:slide={{ duration: 150 }}>
+								<div class="gh-dropdown-menu left-0 top-full w-full min-w-[280px]" in:surfaceMotion={{ duration: 120, y: 4 }} out:surfaceMotion={{ duration: 140, y: 4 }} data-ui-motion>
 									<div class="gh-dropdown-header">
 										<div class="relative">
 											<Octicon icon={search} className="absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-fg-subtle" />
@@ -1160,7 +1101,7 @@ function handleExcludeTagsInput() {
 						</div>
 					</div>
 
-					<details class="gh-advanced-options" bind:open={advancedOptionsOpen}>
+					<details class="gh-advanced-options" bind:open={advancedOptionsOpen} use:disclosure data-ui-motion>
 						<summary>{$t("Advanced rule options")}<span class="mt-1 block text-xs font-normal text-fg-muted">{$t("Protocol, sorting, names and region flags")}</span></summary>
 						<div class="gh-section-body">
 					<!-- Allowed Types -->
@@ -1222,22 +1163,10 @@ function handleExcludeTagsInput() {
 						</div>
 					</details>
 				</div>
-				<div class="gh-section-footer">
-					<div class="gh-btn-group">
-						{#if editingRuleId}
-								<button type="button" class="gh-btn gh-btn-danger" on:click={deleteRule} aria-label={$t("Delete current rule")} title={$t("Delete current rule")} use:tooltip={$t("Delete current rule")} disabled={deletingRuleId === editingRuleId}>{#if deletingRuleId === editingRuleId}<Octicon icon={sync} className="h-4 w-4 animate-spin" />{:else}<Octicon icon={trash} className="h-4 w-4" />{/if}</button>
-						{/if}
-						<button type="button" class="gh-btn" on:click={buildPreview} disabled={previewLoading}>
-							{#if previewLoading}<Octicon icon={sync} className="mr-1 h-4 w-4 animate-spin" />{:else}<Octicon icon={eye} className="mr-1 h-4 w-4" />{/if}
-							{$t("Preview")}
-						</button>
-						<button type="button" class="gh-btn gh-btn-primary px-8" on:click={saveRule}><Octicon icon={checkCircle} className="mr-1 h-4 w-4" />{$t("Save")}</button>
-					</div>
-				</div>
-			</div>
+ {#if operationFeedback && operationFeedback.feedbackState !== "success"}<div class="px-6 pb-5"><OperationFeedback feedback={operationFeedback} /></div>{/if}
 
 			{#if previewEntries.length > 0 || previewSubscriptionIssues.length > 0}
-				<div class="gh-box shadow-sm" transition:slide>
+				<div class="gh-preview-section" transition:collapseMotion data-ui-motion>
 					<div class="gh-box-header">
 						<div class="flex items-center gap-2">
 							<Octicon icon={fileCode} className="h-4 w-4" />
@@ -1276,12 +1205,12 @@ function handleExcludeTagsInput() {
 					{/if}
 					<div 
 						class="flex max-h-96 flex-col gap-1 overflow-y-auto bg-canvas-default p-2"
-						use:dndzone={{ items: previewEntries, flipDurationMs: 200, dragDisabled: false }}
+						use:dndzone={{ items: previewEntries, flipDurationMs: motionDuration(), dragDisabled: false }}
 						on:consider={handlePreviewDndConsider}
 						on:finalize={handlePreviewDndFinalize}
 					>
 						{#each previewEntries as entry (entry.id)}
-							<div class="group flex cursor-grab items-center justify-between rounded-md border border-transparent bg-canvas-default p-2 transition-colors hover:border-border-default hover:bg-canvas-subtle active:cursor-grabbing">
+							<div animate:flip={{ duration: motionDuration() }} class="gh-preview-row group flex cursor-grab items-center justify-between rounded-md border border-transparent bg-canvas-default p-2 transition-colors hover:border-border-default hover:bg-canvas-subtle active:cursor-grabbing">
 								<div class="flex items-center gap-3 min-w-0">
 									<div class="text-fg-subtle shrink-0">
 										<div class="grid grid-cols-2 gap-px opacity-50" aria-hidden="true">
@@ -1294,25 +1223,26 @@ function handleExcludeTagsInput() {
 										</div>
 									</div>
 									<span class="gh-label shrink-0">{entry.protocol}</span>
-									<span class="text-xs font-bold truncate">{entry.name}</span>
+									<span class="gh-preview-name truncate">{entry.name}</span>
 								</div>
-								<button type="button" class="gh-btn gh-btn-sm opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity" on:click={() => copyLine(entry.line)} aria-label={$t("Copy preview line")}><Octicon icon={copy} className="h-3.5 w-3.5" /></button>
+								<CopyButton value={entry.line} label={$t("Copy preview line")} />
 							</div>
 						{/each}
 					</div>
 				</div>
 			{/if}
+   </div>
 		</div>
 
 		<!-- Sidebar: Publish Settings -->
 		<aside class="gh-layout-aside">
-				<div class="gh-box shadow-sm !overflow-visible">
+				<div class="gh-box gh-publish-panel !overflow-visible">
 					<div class="gh-box-header text-sm">
 						<div class="flex items-center gap-2"><Octicon icon={upload} className="h-4 w-4" />{$t("Publish to Gist")}</div>
 						<span class="badge">{$appState.publishTargets.length}</span>
 					</div>
 					<div class="gh-section-body">
-						<p class="gh-form-caption">{$t("A target connects a saved rule to an output filename. Saving a target does not publish the file.")}</p>
+						<p class="gh-form-caption">{$t("Save a target, then publish the rule output to its file.")}</p>
 						<div class="flex flex-col gap-1.5">
 							<label class="gh-form-label" for={fieldIds.targetSelect}>{$t("Select Target")}</label>
 							<GitHubSelect id={fieldIds.targetSelect} bind:value={selectedTargetId} options={targetSelectOptions} onValueChange={(id) => { const target = $appState.publishTargets.find(t => t.id === id); target ? loadPublishTarget(target) : resetTargetForm(); }} />
@@ -1339,23 +1269,17 @@ function handleExcludeTagsInput() {
 						{/if}
 
 						<div class="flex flex-col gap-2 pt-2 border-t border-border-default">
-							<p class="gh-form-caption" role="status">{$t(publicationHint)}</p>
-							<button type="button" class="gh-btn w-full" on:click={saveTarget}>{$t("Save Target")}</button>
+							{#if ordinaryPublishDisabled}<p class="gh-form-caption" role="status">{$t(publicationHint)}</p>{/if}
+							<div class="gh-publish-target-actions"><ActionButton label={$t("Save Target")} action={saveTarget} feedback={operationFeedback} className="grow" />
 							{#if selectedTargetId}
-									<button type="button" class="gh-btn gh-btn-danger w-full" on:click={deleteTarget} disabled={deletingTargetId === selectedTargetId}>
+									<button type="button" class="gh-btn gh-btn-danger gh-btn-invisible" on:click={deleteTarget} disabled={deletingTargetId === selectedTargetId}>
 										{#if deletingTargetId === selectedTargetId}<Octicon icon={sync} className="h-4 w-4 animate-spin" />{:else}<Octicon icon={trash} className="h-4 w-4" />{/if}
 									{$t("Delete Target")}
 								</button>
-							{/if}
+							{/if}</div>
 							{#if isWorkspaceConnected}
-								<button type="button" class="gh-btn gh-btn-primary w-full py-3 h-auto" on:click={publish} disabled={ordinaryPublishDisabled}>
-									{#if publishing}<Octicon icon={sync} className="h-4 w-4 animate-spin" />{:else}<Octicon icon={upload} className="h-4 w-4" />{/if}
-									{$t("Publish")}
-								</button>
-								<button type="button" class="gh-btn w-full" on:click={saveAndPublish} disabled={publishing || Boolean(selectedOutputConflict)}>
-									<Octicon icon={upload} className="h-4 w-4" />
-									{$t("Save and Publish")}
-								</button>
+								<ActionButton label={$t("Publish")} busyLabel={$t("Publishing...")} action={publish} icon={upload} feedback={operationFeedback} variant="primary" disabled={ordinaryPublishDisabled} className="w-full" />
+								<ActionButton label={$t("Save and Publish")} busyLabel={$t("Publishing...")} action={saveAndPublish} icon={upload} feedback={operationFeedback} disabled={publishing || Boolean(selectedOutputConflict)} className="w-full" />
 							{:else}
 								<a href="/auth" class="gh-btn gh-btn-primary w-full py-3 h-auto">
 									<Octicon icon={database} className="h-4 w-4" />
@@ -1365,21 +1289,16 @@ function handleExcludeTagsInput() {
 						</div>
 
 						{#if publishUrl}
-							<div class="gh-alert gh-alert-success mt-2 flex-col gap-2" in:fade>
+ {@const confirmedPublication = getBrowserWorkspaceBinding()?.baseline?.data.publishTargets.find(item => item.id === selectedTargetId)}
+
+							<div class="gh-publication-details" in:veilMotion>
 								<div class="flex items-center justify-between text-xs font-semibold text-[color:var(--success-emphasis)]">
 									<span>{$t("Live Link")}</span>
 									<Octicon icon={checkCircle} className="h-3 w-3" />
 								</div>
-								<code class="gh-code-block break-all">{publishUrl}</code>
-									<button type="button" class="gh-btn gh-btn-sm" on:click={async () => { 
-										try {
-										if (!publishUrl) return;
-										await navigator.clipboard.writeText(publishUrl); 
-										showToast($t("Link copied to clipboard"), 'success'); 
-								} catch {
-									showToast($t("Copy failed"), 'error');
-								}
-							}}><Octicon icon={copy} className="h-3 w-3" />{$t("Copy")}</button>
+								{#if confirmedPublication?.lastPublishedAt && Number.isFinite(Date.parse(confirmedPublication.lastPublishedAt))}<p class="text-xs text-fg-muted">{$t("Last published")} <time datetime={confirmedPublication.lastPublishedAt}>{new Intl.DateTimeFormat($locale, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }).format(new Date(confirmedPublication.lastPublishedAt))}</time></p>{/if}
+ <div class="gh-publication-actions"><code class="gh-list-meta-code">{confirmedPublication?.fileName ?? publishTargetFile}</code><CopyButton value={publishUrl} label={$t("Copy")} showLabel /></div>
+ <code class="gh-published-url" title={publishUrl}>{publishUrl}</code>
 						</div>
 					{/if}
 				</div>
@@ -1398,18 +1317,7 @@ function handleExcludeTagsInput() {
 
 <!-- Region Flags Browser Modal -->
 {#if showBuiltInRegionMap}
-	<div class="fixed inset-0 z-[150] flex items-center justify-center p-4">
-		<button type="button" class="fixed inset-0 bg-black/60 backdrop-blur-sm" on:click={() => (showBuiltInRegionMap = false)} aria-label={$t("Close region flag rules")}></button>
-		<div
-			bind:this={regionDialogElement}
-			class="gh-box relative flex max-h-[85vh] w-full max-w-4xl flex-col bg-canvas-default shadow-[var(--shadow-medium)]"
-			role="dialog"
-			aria-modal="true"
-			aria-labelledby="aggregate-region-dialog-title"
-			tabindex="-1"
-			on:keydown={handleRegionDialogKeydown}
-			in:fly={{ y: 20 }}
-		>
+ <Dialog labelledby="aggregate-region-dialog-title" closeLabel={$t("Close region flag rules")} onclose={() => (showBuiltInRegionMap = false)} className="max-w-4xl">
 				<div class="gh-box-header">
 					<div class="flex items-center gap-2">
 						<Octicon icon={globe} className="h-4 w-4" />
@@ -1422,7 +1330,7 @@ function handleExcludeTagsInput() {
 					<div class="relative">
 						<Octicon icon={search} className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-fg-subtle" />
 						<label class="sr-only" for={fieldIds.builtInRegionMapSearch}>{$t("Search code or keyword")}</label>
-							<input use:focusOnMount id={fieldIds.builtInRegionMapSearch} class="gh-input gh-search-input h-10" placeholder={$t("Search code or keyword...")} bind:value={builtInRegionMapSearch} />
+							<input id={fieldIds.builtInRegionMapSearch} class="gh-input gh-search-input h-10" placeholder={$t("Search code or keyword...")} bind:value={builtInRegionMapSearch} />
 					</div>
 				</div>
 
@@ -1448,6 +1356,5 @@ function handleExcludeTagsInput() {
 			<div class="gh-section-footer">
 				<button type="button" class="gh-btn" on:click={() => (showBuiltInRegionMap = false)}>{$t("Close")}</button>
 			</div>
-		</div>
-	</div>
+ </Dialog>
 {/if}

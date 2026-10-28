@@ -1,9 +1,13 @@
 <script lang="ts">
 import { tick } from "svelte";
-import { fly, slide } from "svelte/transition";
 import { tooltip } from "$lib/actions/tooltip";
+import ActionButton from "$lib/components/ActionButton.svelte";
+import CopyButton from "$lib/components/CopyButton.svelte";
+import Dialog from "$lib/components/Dialog.svelte";
 import GitHubSelect from "$lib/components/GitHubSelect.svelte";
 import Octicon from "$lib/components/Octicon.svelte";
+import OperationFeedback from "$lib/components/OperationFeedback.svelte";
+import PageHeader from "$lib/components/PageHeader.svelte";
 import { locale, t } from "$lib/i18n";
 import type {
 	NodeItem,
@@ -58,14 +62,19 @@ import {
 	toSubscriptionFetchDiagnostic,
 } from "$lib/subscription-diagnostics";
 import { reconcileTags } from "$lib/tags";
+import { collapseMotion } from "$lib/ui-motion";
 import { cn } from "$lib/utils/cn";
 import { createId } from "$lib/utils/id";
 import { nowIso } from "$lib/utils/time";
 import {
 	presentWorkspaceOperation,
+	type WorkspaceOperationPresentation,
 	type WorkspaceOperationPresentationOptions,
 } from "$lib/workspace-operation-presenter";
 import type { WorkspaceOperationResult } from "$lib/workspace-operation-result";
+import { workspaceSyncStatus } from "$lib/workspace-sync-status";
+
+let operationFeedback: WorkspaceOperationPresentation | null = null;
 
 let activeTab: "nodes" | "subscriptions" = "nodes";
 let isAddModalOpen = false;
@@ -109,12 +118,6 @@ let nodeDrafts: Record<
 	{ name: string; type: ProxyType; raw: string; tags: string }
 > = {};
 let subDrafts: Record<string, { name: string; url: string; tags: string }> = {};
-let editDialogElement: HTMLDivElement | null = null;
-let editWasOpen = false;
-let editReturnFocus: HTMLElement | null = null;
-let previewDialogElement: HTMLDivElement | null = null;
-let previewWasOpen = false;
-let previewReturnFocus: HTMLElement | null = null;
 const addFormIds = {
 	nodeName: "node-name",
 	nodeType: "node-type",
@@ -156,10 +159,12 @@ function showWorkspaceResult(
 	options: WorkspaceOperationPresentationOptions = {},
 ): boolean {
 	const presentation = presentWorkspaceOperation(result, options);
-	showToastNotify(
-		$t(presentation.messageKey, presentation.messageParams),
-		presentation.tone,
-	);
+	operationFeedback = presentation;
+	if (presentation.remoteCommitted || (!editingResource && !isAddModalOpen))
+		showToastNotify(
+			$t(presentation.messageKey, presentation.messageParams),
+			presentation.tone,
+		);
 	return presentation.finalizeDraft;
 }
 
@@ -232,84 +237,6 @@ function updateNodeDraftRaw(id: string, value: string) {
 $: nodeUriValidation = nodeRaw.trim()
 	? validateProxyUri(nodeRaw, nodeType)
 	: null;
-
-$: if (editingResource && !editWasOpen) {
-	editWasOpen = true;
-	editReturnFocus =
-		typeof document === "undefined"
-			? null
-			: document.activeElement instanceof HTMLElement
-				? document.activeElement
-				: null;
-	void tick()
-		.then(() => tick())
-		.then(() => focusDialogFirst(editDialogElement));
-} else if (!editingResource && editWasOpen) {
-	editWasOpen = false;
-	editReturnFocus?.focus();
-	editReturnFocus = null;
-}
-
-$: if (previewSubscriptionId && !previewWasOpen) {
-	previewWasOpen = true;
-	previewReturnFocus =
-		typeof document === "undefined"
-			? null
-			: document.activeElement instanceof HTMLElement
-				? document.activeElement
-				: null;
-	void tick()
-		.then(() => tick())
-		.then(() => focusDialogFirst(previewDialogElement));
-} else if (!previewSubscriptionId && previewWasOpen) {
-	previewWasOpen = false;
-	previewReturnFocus?.focus();
-	previewReturnFocus = null;
-}
-
-function dialogFocusable(element: HTMLElement): HTMLElement[] {
-	return Array.from(
-		element.querySelectorAll<HTMLElement>(
-			'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
-		),
-	);
-}
-
-function focusDialogFirst(dialog: HTMLElement | null): void {
-	const first =
-		dialog?.querySelector<HTMLElement>(
-			"input:not([disabled]), textarea:not([disabled]), select:not([disabled])",
-		) ?? (dialog ? dialogFocusable(dialog)[0] : null);
-	first?.focus();
-}
-
-function focusOnMount(element: HTMLElement): void {
-	element.focus();
-}
-
-function handleDialogKeydown(
-	event: KeyboardEvent,
-	dialog: HTMLElement | null,
-	close: () => void,
-): void {
-	if (event.key === "Escape") {
-		event.preventDefault();
-		close();
-		return;
-	}
-	if (event.key !== "Tab" || !dialog) return;
-	const focusable = dialogFocusable(dialog);
-	const first = focusable[0];
-	const last = focusable.at(-1);
-	if (!first || !last) return;
-	if (event.shiftKey && document.activeElement === first) {
-		event.preventDefault();
-		last.focus();
-	} else if (!event.shiftKey && document.activeElement === last) {
-		event.preventDefault();
-		first.focus();
-	}
-}
 
 function uniqueNodeName(name: string, excludeId?: string) {
 	return makeUniqueResourceName(
@@ -520,6 +447,7 @@ async function handleAdd() {
 				}
 			}
 		}
+		operationFeedback = failurePresentation ?? durablePresentation;
 		if (failed === 0) {
 			batchContent = "";
 			batchTags = "";
@@ -552,6 +480,7 @@ async function handleAdd() {
 
 // Edit Logic
 function startEditNode(node: NodeItem) {
+	operationFeedback = null;
 	nodeDrafts[node.id] = {
 		name: node.name,
 		type: node.type,
@@ -594,6 +523,7 @@ async function saveEditNode(id: string) {
 }
 
 function startEditSub(sub: SubscriptionItem) {
+	operationFeedback = null;
 	subDrafts[sub.id] = {
 		name: sub.name,
 		url: sub.url,
@@ -758,11 +688,6 @@ async function toggleEnabled(id: string, type: "node" | "sub") {
 		togglingResourceId = null;
 	}
 }
-
-async function copy(text: string) {
-	await navigator.clipboard.writeText(text);
-	showToastNotify($t("Copied to clipboard"));
-}
 </script>
 
 <svelte:head>
@@ -770,21 +695,15 @@ async function copy(text: string) {
 </svelte:head>
 
 <div class="gh-page">
-	<header class="gh-page-header">
-		<div class="gh-page-heading">
-			<h1 class="gh-page-title">{$t("Nodes")}</h1>
-		</div>
-		<div class="gh-page-actions">
-			<button type="button" class="gh-btn gh-btn-primary" on:click={() => (isAddModalOpen = !isAddModalOpen)}>
-				<Octicon icon={plus} className="h-4 w-4" />
-				{$t("New Resource")}
-			</button>
-		</div>
-	</header>
+ <PageHeader title={$t("Nodes")} description={$t("Manage nodes and subscription sources.")}>
+  <button type="button" class="gh-btn gh-btn-primary" on:click={() => { operationFeedback = null; isAddModalOpen = !isAddModalOpen; }}>
+   <Octicon icon={plus} className="h-4 w-4" />{$t("New Resource")}
+  </button>
+ </PageHeader>
 
 	<!-- Add Modal / Embedded Form -->
 	{#if isAddModalOpen}
-		<div class="gh-box !overflow-visible" transition:slide>
+		<div class="gh-box !overflow-visible" transition:collapseMotion>
 			<div class="gh-box-header">
 				<div class="flex items-center gap-4">
 					<button type="button" class={cn("gh-tab", addMode === "single" && "gh-tab-active")} on:click={() => (addMode = "single")}>{$t("Single Entry")}</button>
@@ -844,9 +763,10 @@ async function copy(text: string) {
 					</div>
 				{/if}
 			</div>
+ <div class="px-5"><OperationFeedback feedback={operationFeedback} /></div>
 			<div class="gh-section-footer">
 				<button type="button" class="gh-btn" on:click={() => (isAddModalOpen = false)}>{$t("Cancel")}</button>
-				<button type="button" class="gh-btn gh-btn-primary px-6" on:click={handleAdd}>{$t("Save Resource")}</button>
+				<ActionButton label={$t("Save Resource")} action={handleAdd} feedback={operationFeedback} variant="primary" className="px-6" />
 			</div>
 		</div>
 	{/if}
@@ -880,23 +800,12 @@ async function copy(text: string) {
 	</div>
 
 	<!-- Content Box -->
-	<div class="gh-box shadow-sm">
-		<div class="gh-box-header text-sm">
-			<span>{activeTab === "nodes" ? $t("Nodes") : $t("Subscriptions")}</span>
-			<div class="flex items-center gap-2">
-				{#if activeTab === "nodes"}
-					<span class="badge">{filteredNodes.length} {$t("results")}</span>
-					<span class="badge">{enabledNodeCount} {$t("enabled")}</span>
-				{:else}
-					<span class="badge">{filteredSubscriptions.length} {$t("results")}</span>
-					<span class="badge">{enabledSubscriptionCount} {$t("enabled")}</span>
-				{/if}
-			</div>
-		</div>
-		<div class="gh-list-header hidden sm:grid sm:grid-cols-[minmax(0,1fr)_auto]">
-			<span>{$t("Title")}</span>
-			<span class="text-right">{$t("Actions")}</span>
-		</div>
+	<div class="gh-box gh-resource-list">
+  <div class="gh-resource-header">
+   <span>{$t("Enable")}</span><span>{$t("Resource")}</span>
+   <span class="gh-resource-summary">{activeTab === "nodes" ? filteredNodes.length : filteredSubscriptions.length} {$t("results")} · {activeTab === "nodes" ? enabledNodeCount : enabledSubscriptionCount} {$t("enabled")}</span>
+   <span>{$t("Actions")}</span>
+  </div>
 
 		{#if activeTab === "nodes"}
 			{#if filteredNodes.length === 0}
@@ -914,7 +823,7 @@ async function copy(text: string) {
 				</div>
 			{:else}
 				{#each filteredNodes as node (node.id)}
-					<div class={cn("gh-box-row group flex flex-col gap-0", !node.enabled && "opacity-70")} out:slide={{ duration: 180 }}>
+					<div class={cn("gh-box-row group flex flex-col gap-0", !node.enabled && "gh-resource-disabled")}>
 							<div class="flex flex-col gap-3 sm:grid sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start sm:gap-4">
 								<div class="gh-row-main">
 									<input
@@ -923,7 +832,7 @@ async function copy(text: string) {
 										checked={node.enabled}
 										on:change={() => toggleEnabled(node.id, "node")}
 										aria-label={$t(node.enabled ? "Disable node" : "Enable node")}
-										disabled={deletingResourceId === node.id || togglingResourceId === node.id}
+										disabled={deletingResourceId === node.id || togglingResourceId === node.id || $workspaceSyncStatus.queueCount > 0}
 									/>
 									<div class="flex min-w-0 flex-col gap-1">
 										<div class="flex min-w-0 flex-wrap items-center gap-2">
@@ -936,7 +845,7 @@ async function copy(text: string) {
 										<div class="gh-list-meta">
 											<span>{$t("Updated {time}", { time: formatUpdatedAt(node.updatedAt) })}</span>
 											<span>{$t("Source: {source}", { source: $t(node.source === "single" ? "Single URI" : "Subscription") })}</span>
-											<span>{$t("{count} tags", { count: node.tags.length })}</span>
+											{#if node.tags.length}<span>{$t("{count} tags", { count: node.tags.length })}</span>{/if}
 										</div>
 										{#if node.tags.length > 0}
 											<div class="flex flex-wrap gap-1">
@@ -948,9 +857,9 @@ async function copy(text: string) {
 									</div>
 								</div>
 
-								<div class="gh-row-actions gh-btn-group">
+								<div class="gh-row-actions">
 									<button type="button" class="gh-btn gh-btn-sm" on:click={() => startEditNode(node)} aria-label={$t("Edit node")} title={$t("Edit node")} use:tooltip={$t("Edit node")} disabled={deletingResourceId === node.id}><Octicon icon={pencil} className="h-3.5 w-3.5" /></button>
-									<button type="button" class="gh-btn gh-btn-sm" on:click={() => copy(node.raw)} aria-label={$t("Copy URI")} title={$t("Copy URI")} use:tooltip={$t("Copy URI")} disabled={deletingResourceId === node.id}><Octicon icon={copyIcon} className="h-3.5 w-3.5" /></button>
+									<CopyButton value={node.raw} label={$t("Copy URI")} disabled={deletingResourceId === node.id} />
 									<button type="button" class="gh-btn gh-btn-sm gh-btn-danger" on:click={() => remove(node.id, "node", node.name)} aria-label={$t("Delete node")} title={$t("Delete node")} use:tooltip={$t("Delete node")} disabled={deletingResourceId === node.id}>
 										{#if deletingResourceId === node.id}
 											<Octicon icon={sync} className="h-3.5 w-3.5 animate-spin" />
@@ -980,7 +889,7 @@ async function copy(text: string) {
 				</div>
 			{:else}
 				{#each filteredSubscriptions as sub (sub.id)}
-					<div class={cn("gh-box-row group flex flex-col gap-0", !sub.enabled && "opacity-70")} out:slide={{ duration: 180 }}>
+					<div class={cn("gh-box-row group flex flex-col gap-0", !sub.enabled && "gh-resource-disabled")}>
 							<div class="flex flex-col gap-3 sm:grid sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start sm:gap-4">
 								<div class="gh-row-main">
 									<input
@@ -989,7 +898,7 @@ async function copy(text: string) {
 										checked={sub.enabled}
 										on:change={() => toggleEnabled(sub.id, "sub")}
 										aria-label={$t(sub.enabled ? "Disable subscription" : "Enable subscription")}
-										disabled={deletingResourceId === sub.id || togglingResourceId === sub.id}
+										disabled={deletingResourceId === sub.id || togglingResourceId === sub.id || $workspaceSyncStatus.queueCount > 0}
 									/>
 									<div class="flex min-w-0 flex-col gap-1">
 										<div class="flex min-w-0 flex-wrap items-center gap-2">
@@ -1000,7 +909,7 @@ async function copy(text: string) {
 										</div>
 										<div class="gh-list-meta">
 											<span>{$t("Updated {time}", { time: formatUpdatedAt(sub.updatedAt) })}</span>
-											<span>{$t("{count} tags", { count: sub.tags.length })}</span>
+											{#if sub.tags.length}<span>{$t("{count} tags", { count: sub.tags.length })}</span>{/if}
 										</div>
 										<div class="flex items-center gap-1.5 text-xs text-fg-muted">
 											<Octicon icon={linkExternal} className="h-3 w-3" />
@@ -1016,10 +925,10 @@ async function copy(text: string) {
 									</div>
 								</div>
 
-								<div class="gh-row-actions gh-btn-group">
+								<div class="gh-row-actions">
 									<button type="button" class="gh-btn gh-btn-sm" on:click={() => openSubscriptionPreview(sub)} aria-label={$t("Preview nodes")} title={$t("Preview nodes")} use:tooltip={$t("Preview nodes")} disabled={deletingResourceId === sub.id}><Octicon icon={eye} className="h-3.5 w-3.5" /></button>
 									<button type="button" class="gh-btn gh-btn-sm" on:click={() => startEditSub(sub)} aria-label={$t("Edit subscription")} title={$t("Edit subscription")} use:tooltip={$t("Edit subscription")} disabled={deletingResourceId === sub.id}><Octicon icon={pencil} className="h-3.5 w-3.5" /></button>
-									<button type="button" class="gh-btn gh-btn-sm" on:click={() => copy(sub.url)} aria-label={$t("Copy URL")} title={$t("Copy URL")} use:tooltip={$t("Copy URL")} disabled={deletingResourceId === sub.id}><Octicon icon={copyIcon} className="h-3.5 w-3.5" /></button>
+									<CopyButton value={sub.url} label={$t("Copy URL")} disabled={deletingResourceId === sub.id} />
 									<button type="button" class="gh-btn gh-btn-sm gh-btn-danger" on:click={() => remove(sub.id, "sub", sub.name)} aria-label={$t("Delete subscription")} title={$t("Delete subscription")} use:tooltip={$t("Delete subscription")} disabled={deletingResourceId === sub.id}>
 										{#if deletingResourceId === sub.id}
 											<Octicon icon={sync} className="h-3.5 w-3.5 animate-spin" />
@@ -1040,18 +949,7 @@ async function copy(text: string) {
 <!-- Edit Resource Modal -->
 {#if editingResource}
 	{@const edit = editingResource}
-	<div class="fixed inset-0 z-[150] flex items-center justify-center p-4">
-		<button type="button" class="fixed inset-0 bg-black/50 backdrop-blur-sm" on:click={closeEditModal} aria-label={$t("Close edit modal")}></button>
-		<div
-			bind:this={editDialogElement}
-			class="gh-box relative flex max-h-[85vh] w-full max-w-2xl flex-col shadow-[var(--shadow-medium)]"
-			role="dialog"
-			aria-modal="true"
-			aria-label={edit.type === "node" ? $t("Edit Node") : $t("Edit Subscription")}
-			tabindex="-1"
-			on:keydown={(event) => handleDialogKeydown(event, editDialogElement, closeEditModal)}
-			in:fly={{ y: 20 }}
-		>
+ <Dialog label={edit.type === "node" ? $t("Edit Node") : $t("Edit Subscription")} closeLabel={$t("Close edit modal")} onclose={closeEditModal}>
 			<div class="gh-box-header">
 				<div class="flex min-w-0 items-center gap-2">
 					<Octicon icon={pencil} className="h-4 w-4" />
@@ -1061,11 +959,12 @@ async function copy(text: string) {
 			</div>
 
 			<div class="gh-section-body flex-1 overflow-y-auto">
+ <fieldset class="contents" disabled={$workspaceSyncStatus.queueCount > 0}>
 				{#if edit.type === "node" && nodeDrafts[edit.id]}
 					<div class="grid grid-cols-1 gap-3 md:grid-cols-2">
 						<div class="flex flex-col gap-1.5">
 							<label class="gh-form-label" for={`node-name-${edit.id}`}>{$t("Name")}</label>
-			<input use:focusOnMount id={`node-name-${edit.id}`} class="gh-input" bind:value={nodeDrafts[edit.id].name} />
+			<input id={`node-name-${edit.id}`} class="gh-input" bind:value={nodeDrafts[edit.id].name} />
 						</div>
 						<div class="flex flex-col gap-1.5">
 							<label class="gh-form-label" for={`node-type-${edit.id}`}>{$t("Protocol")}</label>
@@ -1084,7 +983,7 @@ async function copy(text: string) {
 					<div class="flex flex-col gap-3">
 						<div class="flex flex-col gap-1.5">
 							<label class="gh-form-label" for={`sub-name-${edit.id}`}>{$t("Name")}</label>
-			<input use:focusOnMount id={`sub-name-${edit.id}`} class="gh-input" bind:value={subDrafts[edit.id].name} />
+			<input id={`sub-name-${edit.id}`} class="gh-input" bind:value={subDrafts[edit.id].name} />
 						</div>
 						<div class="flex flex-col gap-1.5">
 							<label class="gh-form-label" for={`sub-url-${edit.id}`}>{$t("URL")}</label>
@@ -1096,36 +995,26 @@ async function copy(text: string) {
 						</div>
 					</div>
 				{/if}
+ </fieldset>
+ <OperationFeedback feedback={operationFeedback} />
 			</div>
 
 			<div class="gh-section-footer">
 				<button type="button" class="gh-btn" on:click={closeEditModal}>{$t("Cancel")}</button>
 				{#if edit.type === "node"}
-					<button type="button" class="gh-btn gh-btn-primary" on:click={() => saveEditNode(edit.id)}><Octicon icon={save} className="h-3.5 w-3.5" />{$t("Save")}</button>
+					<ActionButton label={$t("Save")} action={() => saveEditNode(edit.id)} feedback={operationFeedback} variant="primary" icon={save} />
 				{:else}
-					<button type="button" class="gh-btn gh-btn-primary" on:click={() => saveEditSub(edit.id)}><Octicon icon={save} className="h-3.5 w-3.5" />{$t("Save")}</button>
+					<ActionButton label={$t("Save")} action={() => saveEditSub(edit.id)} feedback={operationFeedback} variant="primary" icon={save} />
 				{/if}
 			</div>
-		</div>
-	</div>
+ </Dialog>
 {/if}
 
 <!-- Subscription Preview Modal -->
 {#if previewSubscriptionId}
 	{@const sub = $appState.subscriptions.find(s => s.id === previewSubscriptionId)}
 	{@const cache = subscriptionPreviewCache[previewSubscriptionId]}
-	<div class="fixed inset-0 z-[150] flex items-center justify-center p-4">
-		<button type="button" class="fixed inset-0 bg-black/50 backdrop-blur-sm" on:click={closeSubscriptionPreview} aria-label={$t("Close subscription preview")}></button>
-		<div
-			bind:this={previewDialogElement}
-			class="gh-box relative flex max-h-[80vh] w-full max-w-2xl flex-col shadow-[var(--shadow-medium)]"
-			role="dialog"
-			aria-modal="true"
-			aria-label={$t("Subscription Preview")}
-			tabindex="-1"
-			on:keydown={(event) => handleDialogKeydown(event, previewDialogElement, closeSubscriptionPreview)}
-			in:fly={{ y: 20 }}
-		>
+ <Dialog label={$t("Subscription Preview")} closeLabel={$t("Close subscription preview")} onclose={closeSubscriptionPreview}>
 			<div class="gh-box-header">
 				<div class="flex min-w-0 items-center gap-2">
 					<Octicon icon={eye} className="h-4 w-4" />
@@ -1171,7 +1060,7 @@ async function copy(text: string) {
 										<span class="truncate text-xs font-semibold">{node.name}</span>
 										<span class="gh-label shrink-0">{node.type}</span>
 									</div>
-									<button type="button" class="gh-btn gh-btn-sm opacity-100 transition-opacity sm:opacity-0 sm:group-hover/item:opacity-100" on:click={() => copy(node.raw)} aria-label={$t("Copy node URI")}><Octicon icon={copyIcon} className="h-3 w-3" /></button>
+									<CopyButton value={node.raw} label={$t("Copy node URI")} />
 								</div>
 								<code class="gh-list-meta-code mt-1 block">{node.raw}</code>
 							</div>
@@ -1183,6 +1072,5 @@ async function copy(text: string) {
 			<div class="gh-section-footer">
 				<button type="button" class="gh-btn" on:click={closeSubscriptionPreview}>{$t("Close")}</button>
 			</div>
-		</div>
-	</div>
+ </Dialog>
 {/if}

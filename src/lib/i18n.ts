@@ -7,6 +7,23 @@ const STORAGE_KEY = "subman:locale:v1";
 const DEFAULT_LOCALE: Locale = "en";
 
 const zhCN: Record<string, string> = {
+	"Save a target, then publish the rule output to its file.":
+		"保存目标后，可将规则输出发布到对应文件。",
+	"Manage nodes and subscription sources.": "管理节点与订阅来源。",
+	"Combine sources, preview rules, and publish output.":
+		"组合来源、预览规则并发布输出。",
+	"Generate and publish client configurations.": "生成并发布客户端配置。",
+	"Files in your connected cloud Workspace.": "查看已连接云端工作区的文件。",
+	"Manage your GitHub connection and appearance.":
+		"管理 GitHub 连接与界面偏好。",
+	"Your resources and confirmed publications.": "查看资源与已确认的发布记录。",
+	"Waiting for cloud confirmation...": "等待云端确认…",
+	"Check synchronization status before retrying.":
+		"请先查看云端同步状态，再决定是否重试。",
+	Resource: "资源",
+	Enable: "启用",
+	"e.g. domestic, bypass": "例如 domestic, bypass",
+
 	Settings: "设置",
 	Title: "名称",
 	Actions: "操作",

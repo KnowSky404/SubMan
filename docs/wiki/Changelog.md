@@ -8,6 +8,21 @@ production deployment and real-provider acceptance require separate evidence.
 
 ## Unreleased
 
+### 2026-10-28 - Primer interface and interaction system
+
+- Unified the six routes around the approved GitHub-style concepts: white/dark
+  main canvases, clearer page headings, open filter bars, one resource heading
+  band, content-sized overview columns, and consistent editor/publication layouts.
+- Added shared dialogs, copy acknowledgement, asynchronous action feedback,
+  animated navigation, disclosure and surface transitions, and reduced-motion
+  handling. Mobile editors use accessible bottom sheets with fixed action footers.
+- Kept cloud confirmation authoritative: pending, retrying, blocked, and uncertain
+  results retain drafts; only confirmed remote commits receive success feedback.
+- Fixed automatic theme resolution before first paint and when the system
+  preference changes, while keeping explicit light/dark preferences authoritative.
+- Preserved the public API, Workspace schema, persistence, and delivery protocol.
+
+
 ### 2026-10-27 - UI hierarchy and interaction polish
 
 - Separated the linked brand toolbar from navigation, aligned the header with the

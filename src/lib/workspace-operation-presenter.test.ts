@@ -22,6 +22,7 @@ describe("Workspace operation presenter", () => {
 		);
 		expect(presentation).toEqual({
 			tone: "success",
+			feedbackState: "success",
 			messageKey: "Published successfully",
 			finalizeDraft: true,
 			remoteCommitted: true,
@@ -62,6 +63,7 @@ describe("Workspace operation presenter", () => {
 			const presentation = presentWorkspaceOperation(operation);
 			expect(presentation.messageKey).toBe(messageKey);
 			expect(presentation.tone).toBe("info");
+			expect(presentation.feedbackState).toBe("pending");
 			expect(presentation.finalizeDraft).toBe(false);
 			expect(presentation.remoteCommitted).toBe(false);
 		}
@@ -80,6 +82,7 @@ describe("Workspace operation presenter", () => {
 			"Cloud confirmation required; reload from Cloud",
 		);
 		expect(manual.finalizeDraft).toBe(false);
+		expect(manual.feedbackState).toBe("pending");
 
 		const blocked = presentWorkspaceOperation(
 			result({
@@ -93,6 +96,7 @@ describe("Workspace operation presenter", () => {
 		);
 		expect(blocked.messageParams).toEqual({ error: "auth_required" });
 		expect(blocked.finalizeDraft).toBe(false);
+		expect(blocked.feedbackState).toBe("attention");
 
 		const rejected = presentWorkspaceOperation({
 			status: "rejected-before-durable-commit",
@@ -102,6 +106,7 @@ describe("Workspace operation presenter", () => {
 			message: "Quota exceeded",
 		});
 		expect(rejected.tone).toBe("error");
+		expect(rejected.feedbackState).toBe("error");
 		expect(rejected.finalizeDraft).toBe(false);
 
 		const uncertain = presentWorkspaceOperation(
@@ -114,5 +119,6 @@ describe("Workspace operation presenter", () => {
 		);
 		expect(uncertain.tone).toBe("info");
 		expect(uncertain.finalizeDraft).toBe(false);
+		expect(uncertain.feedbackState).toBe("attention");
 	});
 });

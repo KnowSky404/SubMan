@@ -1,6 +1,7 @@
 <script lang="ts">
 import { onMount } from "svelte";
 import Octicon from "$lib/components/Octicon.svelte";
+import PageHeader from "$lib/components/PageHeader.svelte";
 import { getGist } from "$lib/gist";
 import { t } from "$lib/i18n";
 import type { GistMeta } from "$lib/models";
@@ -426,10 +427,8 @@ async function handleDiagnosticsExport() {
 	<title>{$t("Settings")} - SubMan</title>
 </svelte:head>
 
-<div class="gh-page">
-	<header class="gh-page-header"><div class="gh-page-heading">
-		<h1 class="gh-page-title">{$t("Settings")}</h1>
-	</div></header>
+<div class="gh-page gh-settings-page">
+ <PageHeader title={$t("Settings")} description={$t("Manage your GitHub connection and appearance.")} />
 	{#if pendingMigration}
 		<section class="gh-section" data-testid="legacy-migration" aria-labelledby="legacy-migration-heading">
 			<div class="gh-section-header"><div>

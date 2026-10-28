@@ -14,7 +14,7 @@ test("global theme uses Primer system font stacks without remote font imports", 
 	expect(appCssSource).not.toContain('"Roboto"');
 	expect(appCssSource).not.toContain('"Roboto Mono"');
 	expect(appCssSource).toContain(
-		'-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif',
+		'-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial',
 	);
 	expect(appCssSource).toContain(
 		'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono"',
@@ -28,8 +28,8 @@ test("global theme uses Primer system font stacks without remote font imports", 
 
 test("desktop theme keeps stable base size while increasing tabs", () => {
 	expect(appCssSource).toContain("@media (min-width: 1024px)");
-	expect(appCssSource).toContain("html {\n\tfont-size: 14px;");
+	expect(appCssSource).toContain("font-size: 14px;");
 	expect(appCssSource).not.toContain("html {\n\t\tfont-size: 15px;");
 	expect(appCssSource).toContain(".gh-underlinenav-item,\n\t.gh-tab");
-	expect(appCssSource).toContain("font-size: 1rem;");
+	expect(appCssSource).toContain("font-size: 16px;");
 });

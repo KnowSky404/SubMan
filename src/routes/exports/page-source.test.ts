@@ -76,7 +76,7 @@ test("exports page clears stale live link metadata only after output changes", (
 test("exports page exposes gist live link publishing for remote profiles", () => {
 	expect(exportsPageSource).toContain("Publish to Gist");
 	expect(exportsPageSource).toContain("Live Link");
-	expect(exportsPageSource).toContain("copyPublishedUrl");
+	expect(exportsPageSource).toContain("<CopyButton value={publishedUrl}");
 	expect(exportsPageSource).toContain("publishedUrl");
 	expect(exportsPageSource).toContain("remote profile URL");
 	expect(exportsPageSource).toContain("Connect to Publish");

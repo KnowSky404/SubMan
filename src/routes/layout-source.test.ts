@@ -78,8 +78,8 @@ test("repository tabs are in a full-width band outside the centered content body
 	const tabsTrackIndex = layoutSource.indexOf(
 		'<div class="app-repo-tabs-track">',
 	);
-	const navIndex = layoutSource.indexOf('<nav class="gh-underlinenav"');
-	const mainIndex = layoutSource.indexOf('<main class="app-main-container">');
+	const navIndex = layoutSource.indexOf("<nav use:navigationIndicator");
+	const mainIndex = layoutSource.indexOf('<main class="app-main-container"');
 
 	expect(mastheadIndex).toBeGreaterThan(-1);
 	expect(tabsIndex).toBeGreaterThan(mastheadIndex);
@@ -156,12 +156,20 @@ test("browser persistence initializes before sync with synchronous cleanup", () 
 	expect(layoutSource).not.toContain("onMount(async");
 });
 
-test("confirmation modal exposes keyboard-safe dialog semantics", () => {
-	expect(layoutSource).toContain('role="dialog"');
-	expect(layoutSource).toContain('aria-modal="true"');
-	expect(layoutSource).toContain('aria-labelledby="confirm-dialog-title"');
-	expect(layoutSource).toContain("bind:this={confirmButton}");
-	expect(layoutSource).toContain('event.key === "Escape"');
-	expect(layoutSource).toContain('event.key !== "Tab"');
-	expect(layoutSource).toContain("confirmReturnFocus?.focus()");
+test("confirmation uses the shared keyboard-safe dialog", () => {
+	const dialogSource = readFileSync(
+		new URL("../lib/components/Dialog.svelte", import.meta.url),
+		"utf8",
+	);
+	const modalSource = readFileSync(
+		new URL("../lib/actions/modal.ts", import.meta.url),
+		"utf8",
+	);
+	expect(layoutSource).toContain('labelledby="confirm-dialog-title"');
+	expect(layoutSource).toContain('initialFocus="[data-confirm]"');
+	expect(dialogSource).toContain('role="dialog"');
+	expect(dialogSource).toContain('aria-modal="true"');
+	expect(modalSource).toContain('event.key === "Escape"');
+	expect(modalSource).toContain('event.key === "Tab"');
+	expect(modalSource).toContain("returnFocus.focus()");
 });

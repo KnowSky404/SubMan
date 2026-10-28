@@ -1,5 +1,6 @@
 <script lang="ts">
 import Octicon from "$lib/components/Octicon.svelte";
+import PageHeader from "$lib/components/PageHeader.svelte";
 import { locale, t } from "$lib/i18n";
 import type { AppState } from "$lib/models";
 import {
@@ -132,17 +133,12 @@ $: stats = [
 </script>
 
 <div class="gh-page">
-	<header class="gh-page-header">
-		<div class="gh-page-heading">
-			<h1 class="gh-page-title">{$t("Overview")}</h1>
-		</div>
-		<div class="gh-page-actions">
-			<a href="/nodes" class="gh-btn gh-btn-primary">
+ <PageHeader title={$t("Overview")} description={$t("Your resources and confirmed publications.")}>
+<a href="/nodes" class="gh-btn gh-btn-primary">
 				<Octicon icon={server} className="h-4 w-4" />
 				{$t("Manage Sources")}
 			</a>
-		</div>
-	</header>
+ </PageHeader>
 
 	<div class="gh-layout-main">
 		<section class="gh-box">
@@ -160,7 +156,7 @@ $: stats = [
 		</section>
 
 		{#if hasResources}
-		<div class="grid min-w-0 grid-cols-1 gap-4 lg:grid-cols-2">
+		<div class="gh-overview-columns">
 			<section class="gh-box" aria-labelledby="recent-resources-heading">
 				<div class="gh-box-header"><h2 id="recent-resources-heading">{$t("Recently updated")}</h2><a href="/nodes" class="gh-link text-xs font-normal">{$t("Manage Sources")}</a></div>
 				{#each recentResources as resource (`${resource.kind}:${resource.id}`)}
