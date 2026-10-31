@@ -24,6 +24,7 @@ import {
 } from "$lib/workspace-mutation";
 import {
 	InMemoryWorkspacePersistence,
+	WorkspaceConcurrentUpdateError,
 	type WorkspacePersistenceRecord,
 	workspaceDispatcherLeaseName,
 } from "$lib/workspace-persistence";
@@ -269,6 +270,73 @@ async function seed(
 }
 
 describe("browser Workspace V2 session", () => {
+	for (const previouslyBound of [false, true]) {
+		it(`does not restore a reset device during ${previouslyBound ? "bound" : "unbound"} compatibility snapshot acceptance`, async () => {
+			class ResetBeforeSnapshotCommit extends InMemoryWorkspacePersistence {
+				resetBeforeCommit = false;
+				async resetBeforeWrite() {
+					if (!this.resetBeforeCommit) return;
+					this.resetBeforeCommit = false;
+					const record = await this.read();
+					await this.resetWorkspace({
+						expected: {
+							snapshot: record.snapshot,
+							binding: record.binding,
+							queue: record.workspaces["gist:gist-1"] ?? null,
+						},
+					});
+				}
+				override async repairWorkspaceQueue(
+					input: Parameters<
+						InMemoryWorkspacePersistence["repairWorkspaceQueue"]
+					>[0],
+				) {
+					await this.resetBeforeWrite();
+					return super.repairWorkspaceQueue(input);
+				}
+				override async discardWorkspaceQueue(
+					input: Parameters<
+						InMemoryWorkspacePersistence["discardWorkspaceQueue"]
+					>[0],
+				) {
+					await this.resetBeforeWrite();
+					return super.discardWorkspaceQueue(input);
+				}
+			}
+			const persistence = new ResetBeforeSnapshotCommit();
+			const before = document();
+			if (previouslyBound)
+				await persistence.rebindWorkspace({
+					snapshot: stateFor(before),
+					binding: createWorkspaceV2LocalState("gist-1", { baseline: before }),
+				});
+			persistence.resetBeforeCommit = true;
+			let published = false;
+			let failure: unknown;
+			try {
+				const remote = document(2);
+				await persistBrowserWorkspaceSnapshot(
+					{ origin: "v2", document: remote, state: stateFor(remote) },
+					"gist-1",
+					"automatic",
+					{
+						persistence,
+						getState: () => stateFor(before),
+						setState: () => {
+							published = true;
+						},
+					},
+				);
+			} catch (error) {
+				failure = error;
+			}
+			expect(failure instanceof WorkspaceConcurrentUpdateError).toBe(true);
+			expect(published).toBe(false);
+			expect((await persistence.read()).binding).toBeNull();
+			expect((await persistence.read()).snapshot?.nodes).toEqual([]);
+		});
+	}
+
 	it("retains a migration request durably and reuses its ID on retry", async () => {
 		class PeerAfterRepairPersistence extends InMemoryWorkspacePersistence {
 			override async repairWorkspaceQueue(

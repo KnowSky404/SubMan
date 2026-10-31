@@ -47,6 +47,7 @@ import {
 import { workspaceCloudStatus } from "$lib/workspace-cloud-status";
 import { subscribeWorkspaceEvents } from "$lib/workspace-events";
 import { startWorkspaceMutationSync } from "$lib/workspace-mutation-sync-browser";
+import { invalidateBrowserWorkspacePersistenceCache } from "$lib/workspace-persistence-browser";
 import { workspaceSyncStatus } from "$lib/workspace-sync-status";
 
 const PROJECT_GITHUB_URL = "https://github.com/KnowSky404/SubMan";
@@ -240,6 +241,11 @@ onMount(() => {
 	const stopThemeSync = startThemeSync();
 	const stopUiMotion = watchMotionPreference();
 	const stopWorkspaceEvents = subscribeWorkspaceEvents((event) => {
+		if (event.type === "device-reset") {
+			cancelCloudWorkspaceLoad();
+			invalidateBrowserWorkspacePersistenceCache();
+			return;
+		}
 		if (event.type !== "workspace-v2-committed" || !currentToken) return;
 		if (get(workspaceCloudStatus).phase === "error") {
 			void refreshCloudWorkspace(currentToken);

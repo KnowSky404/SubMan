@@ -16,7 +16,12 @@ import {
 	trash,
 } from "$lib/octicons";
 import { appState } from "$lib/stores/app";
-import { authState, clearAuth, setToken } from "$lib/stores/auth";
+import {
+	authState,
+	clearAuth,
+	defaultAuthState,
+	setToken,
+} from "$lib/stores/auth";
 import { requestConfirm } from "$lib/stores/confirm";
 import { showToast } from "$lib/stores/toast";
 import { cn } from "$lib/utils/cn";
@@ -37,6 +42,7 @@ import { workspaceCloudStatus } from "$lib/workspace-cloud-status";
 import { subscribeWorkspaceEvents } from "$lib/workspace-events";
 import { presentWorkspaceOperation } from "$lib/workspace-operation-presenter";
 import type { WorkspaceOperationResult } from "$lib/workspace-operation-result";
+import type { WorkspaceResetExpectation } from "$lib/workspace-persistence";
 import {
 	createWorkspaceSettingsController,
 	type WorkspaceSettingsView,
@@ -58,11 +64,13 @@ let queueResult: {
 	type: "success" | "info" | "error";
 	message: string;
 } | null = null;
+let resetNotice: { type: "info" | "error"; message: string } | null = null;
 let pendingMigration: {
 	token: string;
 	gist: GistMeta;
 	snapshot: BrowserWorkspaceSnapshot;
 	remember: boolean;
+	expected: WorkspaceResetExpectation;
 	mutationId?: string;
 } | null = null;
 const workspaceController = createWorkspaceSettingsController({
@@ -78,6 +86,20 @@ $: migrationQueued = Boolean(
 
 async function refreshView() {
 	view = await workspaceController.refresh();
+}
+function connectionExpectation(
+	record: WorkspaceSettingsView["record"],
+): WorkspaceResetExpectation {
+	const workspaceId =
+		record.binding?.workspaceId ??
+		(record.snapshot?.activeGistId
+			? `gist:${record.snapshot.activeGistId}`
+			: null);
+	return structuredClone({
+		snapshot: record.snapshot,
+		binding: record.binding,
+		queue: workspaceId ? (record.workspaces[workspaceId] ?? null) : null,
+	});
 }
 function errorMessage(error: unknown): string {
 	const message = error instanceof Error ? error.message : "";
@@ -103,6 +125,26 @@ function errorMessage(error: unknown): string {
 			: "Cloud data could not be loaded. Check your connection and retry.",
 	);
 }
+function resetErrorMessage(error: unknown): string {
+	const message = error instanceof Error ? error.message : "";
+	if (
+		message ===
+		"Cloud delivery is active. Wait for it to finish before resetting this device."
+	)
+		return $t(message);
+	if (
+		typeof error === "object" &&
+		error !== null &&
+		"code" in error &&
+		error.code === "concurrent-update"
+	)
+		return $t(
+			"Workspace changed while reset was being confirmed. Review its current state and try again.",
+		);
+	return $t(
+		"Device reset could not be confirmed. Check browser storage access, reload Settings, and review the connection before retrying.",
+	);
+}
 function showOperation(
 	result: WorkspaceOperationResult,
 	remoteCommittedMessageKey?: string,
@@ -118,14 +160,16 @@ function showOperation(
 }
 onMount(() => {
 	rememberToken = $authState.persistence === "persistent";
+	const revision = connectionRevision;
 	void workspaceController
 		.initialize()
 		.then(async (initial) => {
+			if (revision !== connectionRevision) return;
 			view = initial;
 			const gistId = initial.record.binding?.gistId ?? $appState.activeGistId;
 			const token = $authState.token;
-			const revision = connectionRevision;
 			if (!gistId || !token) return;
+			const expected = connectionExpectation(initial.record);
 			try {
 				const gist = await getGist(token, gistId);
 				const snapshot = await readBrowserWorkspaceSnapshot(
@@ -138,15 +182,27 @@ onMount(() => {
 					token === $authState.token &&
 					snapshot.origin === "v1"
 				)
-					pendingMigration = { token, gist, snapshot, remember: rememberToken };
+					pendingMigration = {
+						token,
+						gist,
+						snapshot,
+						remember: rememberToken,
+						expected,
+					};
 			} catch {
 				// The shared cloud session owns connection feedback.
 			}
 		})
 		.catch((error) => {
+			if (revision !== connectionRevision) return;
 			notice = { type: "error", message: errorMessage(error) };
 		});
-	return subscribeWorkspaceEvents(() => {
+	return subscribeWorkspaceEvents((event) => {
+		if (event.type === "device-reset") {
+			connectionRevision += 1;
+			cancelCloudWorkspaceLoad();
+			pendingMigration = null;
+		}
 		void refreshView().catch(() => undefined);
 	});
 });
@@ -155,15 +211,22 @@ async function connectGist(
 	gist: GistMeta,
 	created: boolean,
 	remember: boolean,
+	expected?: WorkspaceResetExpectation,
 ) {
 	const revision = connectionRevision;
+	const observed =
+		expected ??
+		connectionExpectation((await workspaceController.refresh()).record);
+	if (revision !== connectionRevision) return;
 	const snapshot = await readBrowserWorkspaceSnapshot(token, gist, $appState);
 	if (revision !== connectionRevision) return;
 	const previousBinding = workspaceController.binding();
 	if (previousBinding?.gistId === gist.id && snapshot.origin === "v2") {
 		setToken(token, { remember });
 		await refreshCloudWorkspace(token);
+		if (revision !== connectionRevision) return;
 		await refreshView();
+		if (revision !== connectionRevision) return;
 		if ($workspaceCloudStatus.phase === "ready") {
 			tokenInput = "";
 			showToast($t("Cloud data loaded."), "success");
@@ -176,13 +239,15 @@ async function connectGist(
 		created,
 		snapshot,
 		previousBinding,
+		expected: observed,
 	});
 	if (revision !== connectionRevision) return;
 	if (result.status === "migration-required") {
-		pendingMigration = { token, gist, snapshot, remember };
+		pendingMigration = { token, gist, snapshot, remember, expected: observed };
 		return;
 	}
 	await refreshView();
+	if (revision !== connectionRevision) return;
 	clearLegacyWorkspaceSyncState();
 	setToken(token, { remember });
 	tokenInput = "";
@@ -205,11 +270,15 @@ async function connectGist(
 async function handleTokenSave() {
 	const token = (tokenInput || $authState.token || "").trim();
 	if (!token || workspaceBusy) return;
-	connectionRevision += 1;
+	const revision = ++connectionRevision;
 	workspaceBusy = true;
 	notice = null;
 	try {
 		await refreshView();
+		if (revision !== connectionRevision) return;
+		const expected = connectionExpectation(
+			(view as WorkspaceSettingsView).record,
+		);
 		const gistId =
 			view?.record.binding?.gistId ??
 			$appState.activeGistId ??
@@ -217,6 +286,7 @@ async function handleTokenSave() {
 		if (gistId && !/^[a-zA-Z0-9_-]{1,64}$/.test(gistId))
 			throw new Error("Enter a Gist ID, not a URL.");
 		const discovery = await discoverWorkspaceGist(token, gistId || null);
+		if (revision !== connectionRevision) return;
 		if (discovery.status === "ambiguous") {
 			notice = {
 				type: "info",
@@ -230,8 +300,16 @@ async function handleTokenSave() {
 			discovery.status === "found"
 				? { gist: discovery.gist, created: false }
 				: await ensureWorkspaceBootstrapGist(token);
-		await connectGist(token, target.gist, target.created, rememberToken);
+		if (revision !== connectionRevision) return;
+		await connectGist(
+			token,
+			target.gist,
+			target.created,
+			rememberToken,
+			expected,
+		);
 	} catch (error) {
+		if (revision !== connectionRevision) return;
 		notice = { type: "error", message: errorMessage(error) };
 	} finally {
 		workspaceBusy = false;
@@ -263,14 +341,21 @@ async function handleLegacyWorkspaceCheck() {
 		$appState.activeGistId
 	)
 		return;
-	connectionRevision += 1;
+	const revision = ++connectionRevision;
 	workspaceBusy = true;
 	legacyCheckResult = null;
 	try {
 		if (!/^[a-zA-Z0-9_-]{1,64}$/.test(gistId))
 			throw new Error("Enter a Gist ID, not a URL.");
+		await refreshView();
+		if (revision !== connectionRevision) return;
+		const expected = connectionExpectation(
+			(view as WorkspaceSettingsView).record,
+		);
 		const gist = await getGist(token, gistId);
+		if (revision !== connectionRevision) return;
 		const candidate = await classifyWorkspaceCandidate(token, gist);
+		if (revision !== connectionRevision) return;
 		if (candidate.kind === "invalid")
 			throw new Error(
 				"This Gist is not a valid Workspace. Check its description is SubMan-Data and it contains a valid subman.json.",
@@ -285,8 +370,9 @@ async function handleLegacyWorkspaceCheck() {
 			};
 			return;
 		}
-		await connectGist(token, gist, false, rememberToken);
+		await connectGist(token, gist, false, rememberToken, expected);
 	} catch (error) {
+		if (revision !== connectionRevision) return;
 		legacyCheckResult = { type: "error", message: errorMessage(error) };
 	} finally {
 		workspaceBusy = false;
@@ -294,6 +380,7 @@ async function handleLegacyWorkspaceCheck() {
 }
 async function handleLegacyMigration() {
 	if (!pendingMigration || workspaceBusy) return;
+	const revision = connectionRevision;
 	workspaceBusy = true;
 	try {
 		const migration = pendingMigration;
@@ -302,10 +389,13 @@ async function handleLegacyMigration() {
 			gistId: migration.gist.id,
 			snapshot: migration.snapshot,
 			retryMutationId: migration.mutationId,
+			expected: migration.expected,
 		});
+		if (revision !== connectionRevision) return;
 		if (result.mutationId) migration.mutationId = result.mutationId;
 		setToken(migration.token, { remember: migration.remember });
 		await refreshView();
+		if (revision !== connectionRevision) return;
 		if (
 			showOperation(
 				result,
@@ -316,6 +406,7 @@ async function handleLegacyMigration() {
 			workspaceCloudStatus.set({ phase: "ready", message: null });
 		}
 	} catch (error) {
+		if (revision !== connectionRevision) return;
 		notice = { type: "error", message: errorMessage(error) };
 	} finally {
 		workspaceBusy = false;
@@ -323,16 +414,26 @@ async function handleLegacyMigration() {
 }
 async function handleRecheckMigration() {
 	if (!pendingMigration || workspaceBusy) return;
+	const revision = connectionRevision;
 	workspaceBusy = true;
 	try {
 		const migration = pendingMigration;
+		await refreshView();
+		if (revision !== connectionRevision) return;
+		const expected = connectionExpectation(
+			(view as WorkspaceSettingsView).record,
+		);
+		const gist = await getGist(migration.token, migration.gist.id);
+		if (revision !== connectionRevision) return;
 		await connectGist(
 			migration.token,
-			await getGist(migration.token, migration.gist.id),
+			gist,
 			false,
 			migration.remember,
+			expected,
 		);
 	} catch (error) {
+		if (revision !== connectionRevision) return;
 		notice = { type: "error", message: errorMessage(error) };
 	} finally {
 		workspaceBusy = false;
@@ -372,6 +473,53 @@ async function handleReloadCloud() {
 		await refreshView();
 	} catch (error) {
 		notice = { type: "error", message: errorMessage(error) };
+	} finally {
+		workspaceBusy = false;
+	}
+}
+async function handleDeviceReset() {
+	if (workspaceBusy) return;
+	workspaceBusy = true;
+	resetNotice = null;
+	try {
+		const expected = await workspaceController.prepareDeviceReset();
+		const confirmed = await requestConfirm({
+			title: $t("Reset this device"),
+			message: $t(
+				"Reset this browser's Workspace connection and cached data, and discard all unconfirmed changes? Cloud data is preserved. Close other SubMan tabs before continuing.",
+			),
+			confirmText: $t("Reset this device"),
+			danger: true,
+		});
+		if (!confirmed) return;
+		connectionRevision += 1;
+		cancelCloudWorkspaceLoad();
+		view = await workspaceController.resetDevice(expected);
+		let tokenCleared = true;
+		try {
+			clearAuth();
+		} catch {
+			authState.set({ ...defaultAuthState });
+			tokenCleared = false;
+		}
+		pendingMigration = null;
+		tokenInput = "";
+		rememberToken = false;
+		gistIdInput = "";
+		legacyGistIdInput = "";
+		notice = null;
+		legacyCheckResult = null;
+		queueResult = null;
+		resetNotice = {
+			type: tokenCleared ? "info" : "error",
+			message: $t(
+				tokenCleared
+					? "Device reset. Connect again to load cloud data or create an empty Workspace."
+					: "Device reset completed, but saved token removal could not be confirmed. Check browser storage access before reconnecting.",
+			),
+		};
+	} catch (error) {
+		resetNotice = { type: "error", message: resetErrorMessage(error) };
 	} finally {
 		workspaceBusy = false;
 	}
@@ -517,4 +665,15 @@ async function handleDiagnosticsExport() {
 			<div class="flex flex-wrap gap-2"><button type="button" class="gh-btn gh-btn-sm" on:click={refreshView} disabled={workspaceBusy}><Octicon icon={sync} className="h-4 w-4" />{$t("Refresh")}</button><button type="button" class="gh-btn gh-btn-sm" on:click={handleDiagnosticsExport}><Octicon icon={download} className="h-4 w-4" />{$t("Export Diagnostics")}</button></div>
 		</div>
 	</details>
+	<section class="gh-section" data-testid="device-reset" aria-labelledby="device-reset-heading">
+		<div class="gh-section-header"><div>
+			<h2 id="device-reset-heading" class="gh-section-title"><Octicon icon={trash} className="h-5 w-5" />{$t("Reset this device")}</h2>
+			<p class="gh-section-description">{$t("If the original Gist was deleted or this browser cannot reconnect, reset its Workspace connection and start setup again.")}</p>
+		</div></div>
+		<div class="gh-section-body space-y-3">
+			<p class="text-sm text-fg-muted">{$t("Reset removes this browser's Workspace connection and cached data and discards unconfirmed changes. Cloud data is preserved. Close other SubMan tabs first.")}</p>
+			{#if resetNotice}<p data-testid="device-reset-notice" class={cn("text-sm", resetNotice.type === "error" ? "text-danger-fg" : "text-fg-muted")} role={resetNotice.type === "error" ? "alert" : "status"}>{resetNotice.message}</p>{/if}
+			<button type="button" class="gh-btn gh-btn-danger" data-testid="device-reset-action" on:click={handleDeviceReset} disabled={workspaceBusy}>{$t("Reset this device")}</button>
+		</div>
+	</section>
 </div>

@@ -9,6 +9,7 @@ import {
 import { getWorkspaceBusinessData, WORKSPACE_FILE } from "$lib/workspace-data";
 import { exportWorkspaceDiagnosticsFromPersistence } from "$lib/workspace-diagnostics";
 import type { WorkspaceDocumentV2 } from "$lib/workspace-document";
+import { broadcastWorkspaceEvent } from "$lib/workspace-events";
 import {
 	requireWorkspaceIdentity,
 	withWorkspaceBinding,
@@ -22,15 +23,18 @@ import { parseWorkspaceMutation } from "$lib/workspace-mutation";
 import type { WorkspaceOperationResult } from "$lib/workspace-operation-result";
 import {
 	type BrowserWorkspacePersistence,
+	inspectWorkspacePersistenceRecord,
 	WorkspaceBindingLockedError,
 	WorkspaceConcurrentUpdateError,
 	type WorkspacePersistenceRecord,
 	type WorkspaceQueueInspection,
+	type WorkspaceResetExpectation,
 } from "$lib/workspace-persistence";
 import {
 	getBrowserWorkspacePersistence,
 	initializeBrowserWorkspacePersistence,
 	refreshBrowserWorkspacePersistence,
+	resetBrowserWorkspacePersistence,
 } from "$lib/workspace-persistence-browser";
 import {
 	discardInspectedWorkspaceQueue,
@@ -121,6 +125,66 @@ export function createWorkspaceSettingsController(
 		const inspection = await refreshWorkspaceQueueInspection(persistence());
 		view = { record, inspection };
 		return view;
+	}
+
+	function resetExpectation(
+		record: WorkspacePersistenceRecord,
+	): WorkspaceResetExpectation {
+		const workspaceId =
+			record.binding?.workspaceId ??
+			(record.snapshot?.activeGistId
+				? `gist:${record.snapshot.activeGistId}`
+				: null);
+		return structuredClone({
+			snapshot: record.snapshot,
+			binding: record.binding,
+			queue: workspaceId ? (record.workspaces[workspaceId] ?? null) : null,
+		});
+	}
+
+	function requireExpectedRecord(
+		record: WorkspacePersistenceRecord,
+		expected: WorkspaceResetExpectation,
+	): void {
+		if (JSON.stringify(resetExpectation(record)) !== JSON.stringify(expected)) {
+			throw new WorkspaceConcurrentUpdateError();
+		}
+	}
+
+	async function prepareDeviceReset(): Promise<WorkspaceResetExpectation> {
+		return resetExpectation(await readRecord());
+	}
+
+	async function resetDevice(
+		expected: WorkspaceResetExpectation,
+	): Promise<WorkspaceSettingsView> {
+		const record = dependencies.persistence
+			? await dependencies.persistence.resetWorkspace({ expected })
+			: await resetBrowserWorkspacePersistence(expected);
+		view = { record, inspection: inspectWorkspacePersistenceRecord(record) };
+		try {
+			if (record.snapshot) dependencies.setState(record.snapshot);
+		} catch {
+			// Hydration failure cannot undo the committed reset.
+		}
+		try {
+			dispatch({
+				type: "WORKSPACE_DISCONNECTED",
+				queue: deriveWorkspaceQueueMetrics(record),
+			});
+		} catch {
+			// Presentation failure cannot turn the reset into a rejected transaction.
+		}
+		try {
+			broadcastWorkspaceEvent({
+				type: "device-reset",
+				gistId: null,
+				fileName: null,
+			});
+		} catch {
+			// The committed record remains authoritative when peer notification fails.
+		}
+		return structuredClone(view);
 	}
 
 	async function requireBoundWorkspace(
@@ -371,8 +435,10 @@ export function createWorkspaceSettingsController(
 	async function refreshCloud(
 		snapshot: BrowserWorkspaceSnapshot,
 		gistId: string,
+		expected?: WorkspaceResetExpectation,
 	): Promise<AppState> {
 		const current = await requireBoundWorkspace(gistId);
+		if (expected) requireExpectedRecord(current.record, expected);
 		if (snapshot.origin !== "v2") {
 			throw new Error("Upgrade this Workspace to continue.");
 		}
@@ -397,7 +463,7 @@ export function createWorkspaceSettingsController(
 			snapshot: state,
 			binding: nextBinding,
 			mutations: [],
-			expected: {
+			expected: expected ?? {
 				snapshot: current.record.snapshot,
 				binding: current.record.binding,
 				queue: current.record.workspaces[nextBinding.workspaceId] ?? null,
@@ -416,6 +482,7 @@ export function createWorkspaceSettingsController(
 		resolvedState: AppState;
 		syncMode: "automatic" | "manual";
 		replacePending?: boolean;
+		expected?: WorkspaceResetExpectation;
 	}): Promise<WorkspaceOperationResult> {
 		await requireBoundWorkspace(input.gistId);
 		const result = await reconcileBrowserWorkspace(
@@ -432,6 +499,7 @@ export function createWorkspaceSettingsController(
 		created: boolean;
 		snapshot: BrowserWorkspaceSnapshot;
 		previousBinding: WorkspaceV2LocalState | null;
+		expected?: WorkspaceResetExpectation;
 	}): Promise<
 		| {
 				status: "created" | "synced";
@@ -441,6 +509,7 @@ export function createWorkspaceSettingsController(
 		| { status: "migration-required" }
 	> {
 		const current = await requireBoundWorkspace(input.gistId);
+		if (input.expected) requireExpectedRecord(current.record, input.expected);
 		if (input.snapshot.origin === "v1") return { status: "migration-required" };
 		requireIdleCloudQueue(current.record, input.gistId);
 		if (input.created || input.snapshot.origin === "bootstrap") {
@@ -454,6 +523,7 @@ export function createWorkspaceSettingsController(
 					input.gistId,
 				),
 				syncMode: "automatic",
+				expected: input.expected ?? resetExpectation(current.record),
 			});
 			if (operation.status === "remote-committed") {
 				dispatchPersistedState("WORKSPACE_BOUND");
@@ -461,7 +531,11 @@ export function createWorkspaceSettingsController(
 			return { status: "created", operation };
 		}
 
-		await refreshCloud(input.snapshot, input.gistId);
+		await refreshCloud(
+			input.snapshot,
+			input.gistId,
+			input.expected ?? resetExpectation(current.record),
+		);
 		return { status: "synced", operation: null };
 	}
 
@@ -470,6 +544,7 @@ export function createWorkspaceSettingsController(
 		gistId: string;
 		snapshot: BrowserWorkspaceSnapshot;
 		retryMutationId?: string;
+		expected?: WorkspaceResetExpectation;
 	}): Promise<WorkspaceOperationResult> {
 		await requireBoundWorkspace(input.gistId);
 		const operation = await migrateBrowserWorkspace(
@@ -776,6 +851,8 @@ export function createWorkspaceSettingsController(
 
 	return {
 		initialize,
+		prepareDeviceReset,
+		resetDevice,
 		refresh,
 		currentView,
 		binding,

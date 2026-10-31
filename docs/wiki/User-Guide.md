@@ -28,7 +28,7 @@ empty Workspace, then recent resources and confirmed publication metadata.
 
 | Page | Purpose |
 | --- | --- |
-| `/auth` | Connection, token, delivery status, cloud reload, migration, and diagnostics |
+| `/auth` | Connection, token, delivery status, cloud reload, device reset, migration, and diagnostics |
 | `/nodes` | Nodes and subscriptions, tags, search, filters, and batch import |
 | `/aggregate` | Rule editing, preview ordering, publish targets, and publication |
 | `/exports` | sing-box configuration preview, copy, download, and publication |
@@ -81,6 +81,28 @@ Diagnostics export counts, safe metadata, hashes, and retry classifications;
 they do not export business data or credentials. There is no browser business
 JSON backup/restore, local overwrite/merge, manual push, or Workspace switching.
 For operator procedures, see [operations and repair](../workspace-v2-operations.md).
+
+## Start again after removing your Gist
+
+Disconnect removes your token but keeps this device's Workspace binding and
+pending changes. Reconnecting still reads the original Gist, even when it is
+unavailable. A GitHub 404 can also mean the token cannot access it.
+
+If you deliberately deleted the original Gist or want to abandon this device's
+current connection, open Settings and choose **Reset this device**. The control
+is available while signed out or when cloud loading fails. Close other SubMan
+tabs, then review the confirmation: reset removes the current binding, cached
+business data, and the complete current pending queue. Unconfirmed changes in
+that queue will be lost. Historical queues and quarantined recovery evidence
+remain available in Sync recovery; existing cloud files are unchanged.
+
+After a successful reset, enter your token and choose **Connect** again. SubMan
+finds existing cloud data or, if none exists, initializes an empty private
+Workspace. Reset itself never creates or deletes a Gist or uploads an old cache.
+The local reset affects other SubMan tabs on the same site. If delivery is active,
+wait for it to finish and retry; if state changes during confirmation, review the
+new state before trying again. A failed storage transaction does not report a
+successful reset or clear authentication.
 
 ## Backend automation
 

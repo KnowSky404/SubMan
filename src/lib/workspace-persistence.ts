@@ -1,4 +1,5 @@
 import type { AppState, GistFile, GistMeta } from "$lib/models";
+import { createDefaultWorkspaceState } from "$lib/workspace-data";
 import {
 	canonicalizeWorkspaceData,
 	validateWorkspaceData,
@@ -172,6 +173,12 @@ export type WorkspacePersistenceRecord = {
 	nextFencingToken: number;
 };
 
+export type WorkspaceResetExpectation = {
+	snapshot: AppState | null;
+	binding: WorkspaceV2LocalState | null;
+	queue: PersistedWorkspaceQueue | null;
+};
+
 type WorkspacePersistenceRoot = WorkspacePersistenceRecord & {
 	quarantinePayloads: Record<string, string>;
 };
@@ -271,6 +278,9 @@ export interface BrowserWorkspacePersistence {
 	inspectQueues(
 		activeWorkspaceId?: string | null,
 	): Promise<WorkspaceQueueInspection>;
+	resetWorkspace(input: {
+		expected: WorkspaceResetExpectation;
+	}): Promise<WorkspacePersistenceRecord>;
 	discardWorkspaceQueue(input: {
 		workspaceId: string;
 		snapshot?: AppState;
@@ -1414,6 +1424,43 @@ function validateRetryInput(
 	return validateRetry(value);
 }
 
+export function inspectWorkspacePersistenceRecord(
+	record: WorkspacePersistenceRecord,
+	activeWorkspaceId?: string | null,
+): WorkspaceQueueInspection {
+	const active =
+		activeWorkspaceId === undefined
+			? (record.binding?.workspaceId ?? null)
+			: activeWorkspaceId;
+	const identity =
+		active === null ? null : canonicalWorkspaceId(active, "activeWorkspaceId");
+	const metrics = deriveWorkspaceQueueMetrics(record, identity);
+	const workspaces = Object.values(record.workspaces)
+		.filter(
+			(queue) =>
+				queue.mutations.length > 0 ||
+				queue.delivery.blocked !== null ||
+				queue.delivery.deadLetters.length > 0,
+		)
+		.sort((a, b) => a.workspaceId.localeCompare(b.workspaceId))
+		.map((queue) => ({
+			workspaceId: queue.workspaceId,
+			active: queue.workspaceId === identity,
+			mutations: queue.mutations.map((mutation) => ({
+				mutationId: mutation.mutationId,
+				workspaceId: mutation.workspaceId,
+				expectedRevision: mutation.expectedRevision,
+				createdAt: mutation.createdAt,
+				kind: mutation.kind,
+				payloadBytes: payloadBytes(mutation),
+			})),
+			retry: { ...queue.delivery.retry },
+			blocked: queue.delivery.blocked ? { ...queue.delivery.blocked } : null,
+			deadLetters: queue.delivery.deadLetters.map((entry) => ({ ...entry })),
+		}));
+	return { activeWorkspaceId: identity, ...metrics, workspaces };
+}
+
 export class TransactionalWorkspacePersistence
 	implements BrowserWorkspacePersistence
 {
@@ -1907,42 +1954,89 @@ export class TransactionalWorkspacePersistence
 	async inspectQueues(
 		activeWorkspaceId: string | null = null,
 	): Promise<WorkspaceQueueInspection> {
-		if (activeWorkspaceId !== null) {
-			activeWorkspaceId = canonicalWorkspaceId(
-				activeWorkspaceId,
-				"activeWorkspaceId",
-			);
-		}
 		const record = await this.read();
-		const metrics = deriveWorkspaceQueueMetrics(record, activeWorkspaceId);
-		const workspaces = Object.values(record.workspaces)
-			.filter(
-				(queue) =>
-					queue.mutations.length > 0 ||
-					queue.delivery.blocked !== null ||
-					queue.delivery.deadLetters.length > 0,
-			)
-			.sort((a, b) => a.workspaceId.localeCompare(b.workspaceId))
-			.map((queue) => ({
-				workspaceId: queue.workspaceId,
-				active: queue.workspaceId === activeWorkspaceId,
-				mutations: queue.mutations.map((mutation) => ({
-					mutationId: mutation.mutationId,
-					workspaceId: mutation.workspaceId,
-					expectedRevision: mutation.expectedRevision,
-					createdAt: mutation.createdAt,
-					kind: mutation.kind,
-					payloadBytes: payloadBytes(mutation),
-				})),
-				retry: queue.delivery.retry,
-				blocked: queue.delivery.blocked,
-				deadLetters: queue.delivery.deadLetters,
-			}));
-		return {
-			activeWorkspaceId,
-			...metrics,
-			workspaces,
-		};
+		return inspectWorkspacePersistenceRecord(record, activeWorkspaceId);
+	}
+
+	async resetWorkspace(input: {
+		expected: WorkspaceResetExpectation;
+	}): Promise<WorkspacePersistenceRecord> {
+		return this.backend.transact((draft, checkpoint) => {
+			const workspaceId =
+				draft.binding?.workspaceId ??
+				(draft.snapshot?.activeGistId
+					? canonicalWorkspaceId(
+							`gist:${draft.snapshot.activeGistId}`,
+							"workspaceId",
+						)
+					: null);
+			if (
+				!workspaceBindingsEqual(draft.binding, input.expected.binding) ||
+				!persistenceValuesEqual(draft.snapshot, input.expected.snapshot) ||
+				!persistenceValuesEqual(
+					workspaceId ? (draft.workspaces[workspaceId] ?? null) : null,
+					input.expected.queue,
+				)
+			) {
+				throw new WorkspaceConcurrentUpdateError();
+			}
+			const now = this.nowMs();
+			const lease = workspaceId
+				? draft.leases[workspaceDispatcherLeaseName(workspaceId)]
+				: null;
+			if (lease && lease.expiresAt > now) {
+				throw new WorkspaceConcurrentUpdateError(
+					"Cloud delivery is active. Wait for it to finish before resetting this device.",
+				);
+			}
+			const previousTime = Date.parse(draft.snapshot?.lastUpdated ?? "");
+			const resetTime = Math.max(
+				now,
+				Number.isFinite(previousTime) ? previousTime + 1 : now,
+			);
+			let resetAt: string;
+			try {
+				if (!Number.isFinite(now)) throw new RangeError("Invalid reset clock");
+				resetAt = canonicalTimestamp(
+					new Date(resetTime).toISOString(),
+					"reset.timestamp",
+				);
+			} catch (error) {
+				throw corrupt("Workspace reset timestamp is invalid", error);
+			}
+			draft.snapshot = createDefaultWorkspaceState(resetAt);
+			checkpoint("after-snapshot");
+			draft.binding = null;
+			checkpoint("after-binding");
+			if (workspaceId) {
+				delete draft.workspaces[workspaceId];
+				delete draft.leases[workspaceDispatcherLeaseName(workspaceId)];
+			}
+			if (draft.migration.cleanupCompletedAt === null) {
+				const completedAt = [
+					resetAt,
+					draft.migration.confirmedAt,
+					draft.migration.validatedAt,
+					draft.migration.copiedAt,
+					draft.migration.startedAt,
+				]
+					.filter((value): value is string => value !== null)
+					.sort()
+					.at(-1) as string;
+				draft.migration = {
+					version: 1,
+					phase: "confirmed",
+					startedAt: draft.migration.startedAt ?? completedAt,
+					copiedAt: draft.migration.copiedAt ?? completedAt,
+					validatedAt: draft.migration.validatedAt ?? completedAt,
+					confirmedAt: draft.migration.confirmedAt ?? completedAt,
+					updatedAt: completedAt,
+					cleanupCompletedAt: completedAt,
+				};
+			}
+			checkpoint("after-queue");
+			return publicWorkspacePersistenceRecord(draft);
+		});
 	}
 
 	async discardWorkspaceQueue(input: {
@@ -2563,7 +2657,8 @@ export class IndexedDbWorkspacePersistenceBackend
 				} catch (error) {
 					completed = true;
 					reject(
-						error instanceof WorkspaceBindingLockedError
+						error instanceof WorkspaceBindingLockedError ||
+							error instanceof WorkspaceConcurrentUpdateError
 							? error
 							: normalizeError(error, "transaction-aborted"),
 					);

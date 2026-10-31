@@ -30,6 +30,7 @@ import {
 	WorkspaceConcurrentUpdateError,
 	type WorkspaceMutationDraft,
 	type WorkspacePersistenceRecord,
+	type WorkspaceResetExpectation,
 } from "$lib/workspace-persistence";
 import {
 	getBrowserWorkspacePersistence,
@@ -697,14 +698,25 @@ export async function persistBrowserWorkspaceSnapshot(
 		snapshot.document,
 		gistId,
 	);
+	const expected = {
+		snapshot: record.snapshot,
+		binding: record.binding,
+		queue: record.workspaces[binding.workspaceId] ?? null,
+	};
 	if (record.binding?.workspaceId === binding.workspaceId) {
 		await persistence.discardWorkspaceQueue({
 			workspaceId: binding.workspaceId,
 			snapshot: state,
 			binding,
+			expected,
 		});
 	} else {
-		await persistence.rebindWorkspace({ snapshot: state, binding });
+		await persistence.repairWorkspaceQueue({
+			snapshot: state,
+			binding,
+			mutations: [],
+			expected,
+		});
 	}
 	publishState(dependencies, state);
 	await readPersistence(dependencies, persistence);
@@ -721,6 +733,7 @@ async function reconcileBrowserWorkspaceInternal(
 		replacePending?: boolean;
 		migrationSourceSha256?: string;
 		migrationMutationId?: string;
+		expected?: WorkspaceResetExpectation;
 	},
 	dependencies: BrowserWorkspaceSessionDependencies = {},
 ): Promise<WorkspaceOperationResult> {
@@ -843,7 +856,16 @@ async function reconcileBrowserWorkspaceInternal(
 			);
 			let rebindError: unknown = null;
 			try {
-				await persistence.rebindWorkspace({ snapshot: state, binding });
+				await persistence.repairWorkspaceQueue({
+					snapshot: state,
+					binding,
+					mutations: [],
+					expected: {
+						snapshot: record.snapshot,
+						binding: record.binding,
+						queue: record.workspaces[workspaceId] ?? null,
+					},
+				});
 			} catch (error) {
 				rebindError = error;
 			}
@@ -913,7 +935,7 @@ async function reconcileBrowserWorkspaceInternal(
 			snapshot: state,
 			binding,
 			mutations: [mutation],
-			expected: {
+			expected: input.expected ?? {
 				snapshot: record.snapshot,
 				binding: record.binding,
 				queue: record.workspaces[workspaceId] ?? null,
@@ -954,6 +976,7 @@ export async function migrateBrowserWorkspace(
 		gistId: string;
 		snapshot: BrowserWorkspaceSnapshot;
 		retryMutationId?: string;
+		expected?: WorkspaceResetExpectation;
 	},
 	dependencies: BrowserWorkspaceSessionDependencies = {},
 ): Promise<WorkspaceOperationResult> {
@@ -969,6 +992,7 @@ export async function migrateBrowserWorkspace(
 				syncMode: "automatic",
 				migrationSourceSha256: input.snapshot.legacySourceSha256,
 				migrationMutationId: input.retryMutationId,
+				expected: input.expected,
 			},
 			dependencies,
 		);
@@ -985,6 +1009,7 @@ export async function reconcileBrowserWorkspace(
 		resolvedState: AppState;
 		syncMode: Exclude<WorkspaceV2LocalState["syncMode"], "paused-conflict">;
 		replacePending?: boolean;
+		expected?: WorkspaceResetExpectation;
 	},
 	dependencies: BrowserWorkspaceSessionDependencies = {},
 ): Promise<WorkspaceOperationResult> {

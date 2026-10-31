@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import type { AppState } from "$lib/models";
+import { createDefaultWorkspaceState } from "$lib/workspace-data";
 import type { WorkspaceDocumentV2 } from "$lib/workspace-document";
 import type { WorkspaceMutation } from "$lib/workspace-mutation";
 import {
@@ -9,6 +10,7 @@ import {
 	IndexedDbWorkspacePersistenceBackend,
 	InMemoryWorkspacePersistence,
 	InMemoryWorkspacePersistenceBackend,
+	inspectWorkspacePersistenceRecord,
 	LEGACY_APP_STATE_KEY,
 	LEGACY_MUTATION_QUEUE_KEY,
 	LEGACY_WORKSPACE_STATE_KEY,
@@ -1261,6 +1263,442 @@ describe("queue inspection and repair", () => {
 		};
 		return record;
 	}
+
+	function resetExpected(record: WorkspacePersistenceRecord) {
+		const workspaceId =
+			record.binding?.workspaceId ??
+			(record.snapshot?.activeGistId
+				? `gist:${record.snapshot.activeGistId}`
+				: null);
+		return {
+			snapshot: record.snapshot,
+			binding: record.binding,
+			queue: workspaceId ? (record.workspaces[workspaceId] ?? null) : null,
+		};
+	}
+
+	it("resets the complete active queue and retains historical recovery evidence", async () => {
+		const record = seededRecord();
+		record.workspaces[WORKSPACE_ID].mutations.push(mutation(MUTATION_ID_3, 1));
+		record.workspaces[WORKSPACE_ID].delivery.blocked = {
+			mutationId: MUTATION_ID,
+			kind: "node.delete",
+			code: "mutation_recovery_failed",
+			disposition: "operator-repair",
+			messageKey: "workspace.operator-repair",
+			createdAt: NOW,
+			blockedAt: NOW,
+		};
+		record.workspaces[WORKSPACE_ID].delivery.deadLetters.push({
+			...record.workspaces[WORKSPACE_ID].delivery.blocked,
+			mutationId: "b0000000-0000-4000-8000-000000000004",
+			payloadBytes: 15,
+		});
+		record.quarantines.push({
+			id: "reset-retained",
+			source: "legacy",
+			reason: "invalid-legacy-snapshot",
+			bytes: 9,
+			createdAt: NOW,
+		});
+		record.nextFencingToken = 17;
+		const retained = {
+			...record,
+			quarantinePayloads: { "reset-retained": "raw-data!" },
+		};
+		const persistence = new InMemoryWorkspacePersistence(retained, () =>
+			Date.parse(NOW_2),
+		);
+		const before = await persistence.read();
+		const result = await persistence.resetWorkspace({
+			expected: resetExpected(before),
+		});
+		expect(result.snapshot).toEqual(createDefaultWorkspaceState(NOW_2));
+		expect(result.binding).toBeNull();
+		expect(result.workspaces[WORKSPACE_ID]).toBe(undefined);
+		expect(result.workspaces[OTHER_WORKSPACE_ID]).toEqual(
+			before.workspaces[OTHER_WORKSPACE_ID],
+		);
+		expect(result.quarantines).toEqual(before.quarantines);
+		expect(
+			await persistence.readQuarantinePayloadForRepair("reset-retained"),
+		).toBe("raw-data!");
+		expect(result.nextFencingToken).toBe(17);
+		expect(result.migration.phase).toBe("confirmed");
+		expect(result.migration.cleanupCompletedAt).toBe(NOW_2);
+		expect("quarantinePayloads" in result).toBe(false);
+		expect(await persistence.read()).toEqual(result);
+	});
+
+	it("inspects durable records without reading again and preserves explicit unbound inspection", async () => {
+		const persistence = new InMemoryWorkspacePersistence(seededRecord());
+		const record = await persistence.read();
+		expect(inspectWorkspacePersistenceRecord(record)).toEqual(
+			await persistence.inspectQueues(WORKSPACE_ID),
+		);
+		expect(inspectWorkspacePersistenceRecord(record, null)).toEqual(
+			await persistence.inspectQueues(null),
+		);
+		expect(inspectWorkspacePersistenceRecord(record).activeWorkspaceId).toBe(
+			WORKSPACE_ID,
+		);
+		expect(
+			inspectWorkspacePersistenceRecord(record, null).activeWorkspaceId,
+		).toBeNull();
+		expect(
+			JSON.stringify(inspectWorkspacePersistenceRecord(record)),
+		).not.toContain("node-1");
+	});
+
+	it("forgets a snapshot-only connection and clears its whole historical active queue", async () => {
+		const record = seededRecord();
+		record.binding = null;
+		const persistence = new InMemoryWorkspacePersistence(record, () =>
+			Date.parse(NOW_2),
+		);
+		const result = await persistence.resetWorkspace({
+			expected: resetExpected(await persistence.read()),
+		});
+		expect(result.binding).toBeNull();
+		expect(result.snapshot).toEqual(createDefaultWorkspaceState(NOW_2));
+		expect(result.workspaces[WORKSPACE_ID]).toBe(undefined);
+		expect(result.workspaces[OTHER_WORKSPACE_ID]).toEqual(
+			record.workspaces[OTHER_WORKSPACE_ID],
+		);
+	});
+
+	it("retains completed migration evidence and unrelated dispatcher leases", async () => {
+		const record = seededRecord();
+		record.migration = {
+			version: 1,
+			phase: "confirmed",
+			startedAt: NOW,
+			copiedAt: NOW,
+			validatedAt: NOW,
+			confirmedAt: NOW,
+			updatedAt: NOW,
+			cleanupCompletedAt: NOW,
+		};
+		const orphanLease = workspaceDispatcherLeaseName(OTHER_WORKSPACE_ID);
+		record.leases[orphanLease] = {
+			name: orphanLease,
+			ownerId: "historical-owner",
+			fencingToken: 12,
+			expiresAt: Date.parse(NOW_2) + 100,
+			heartbeatAt: Date.parse(NOW),
+		};
+		record.nextFencingToken = 13;
+		const persistence = new InMemoryWorkspacePersistence(record, () =>
+			Date.parse(NOW_2),
+		);
+		const result = await persistence.resetWorkspace({
+			expected: resetExpected(await persistence.read()),
+		});
+		expect(result.migration).toEqual(record.migration);
+		expect(result.leases[orphanLease]).toEqual(record.leases[orphanLease]);
+		expect(result.nextFencingToken).toBe(13);
+	});
+
+	it("rolls back every reset component at each pre-commit failure", async () => {
+		for (const point of [
+			"before-transaction",
+			"after-snapshot",
+			"after-binding",
+			"after-queue",
+			"before-commit",
+		] as const) {
+			const persistence = new InMemoryWorkspacePersistence(seededRecord());
+			const before = await persistence.read();
+			persistence.setFault(point);
+			expect(
+				(
+					await captureError(
+						persistence.resetWorkspace({ expected: resetExpected(before) }),
+					)
+				).code,
+			).toBe("transaction-aborted");
+			expect(await persistence.read()).toEqual(before);
+		}
+	});
+
+	it("distinguishes repeated empty resets in one millisecond and rejects pre-reset discovery", async () => {
+		const record = createEmptyWorkspacePersistenceRecord();
+		record.snapshot = createDefaultWorkspaceState(NOW);
+		const persistence = new InMemoryWorkspacePersistence(record, () =>
+			Date.parse(NOW),
+		);
+		const first = await persistence.resetWorkspace({
+			expected: resetExpected(record),
+		});
+		const expected = resetExpected(first);
+		const second = await persistence.resetWorkspace({ expected });
+		expect(Date.parse(second.snapshot?.lastUpdated ?? "")).toBeGreaterThan(
+			Date.parse(first.snapshot?.lastUpdated ?? ""),
+		);
+		expect(
+			JSON.stringify(second.snapshot) === JSON.stringify(first.snapshot),
+		).toBe(false);
+		const error = await captureError(
+			persistence.repairWorkspaceQueue({
+				snapshot: committedSnapshot(),
+				binding: binding(),
+				mutations: [],
+				expected,
+			}),
+		);
+		expect(error instanceof WorkspaceConcurrentUpdateError).toBe(true);
+		expect(await persistence.read()).toEqual(second);
+	});
+
+	it("keeps reset snapshots strictly advancing when the clock moves backward", async () => {
+		const record = createEmptyWorkspacePersistenceRecord();
+		record.snapshot = createDefaultWorkspaceState(NOW);
+		let clock = Date.parse(NOW_2);
+		const persistence = new InMemoryWorkspacePersistence(record, () => clock);
+		const first = await persistence.resetWorkspace({
+			expected: resetExpected(record),
+		});
+		clock = Date.parse(NOW) - 1000;
+		const second = await persistence.resetWorkspace({
+			expected: resetExpected(first),
+		});
+		expect(Date.parse(second.snapshot?.lastUpdated ?? "")).toBeGreaterThan(
+			Date.parse(first.snapshot?.lastUpdated ?? ""),
+		);
+		expect(second.binding).toBeNull();
+	});
+
+	it("rejects non-finite or unrepresentable reset timestamps without changing state", async () => {
+		for (const clock of [
+			Number.NaN,
+			Number.POSITIVE_INFINITY,
+			Number.MAX_VALUE,
+		]) {
+			const record = createEmptyWorkspacePersistenceRecord();
+			record.snapshot = createDefaultWorkspaceState(NOW);
+			const persistence = new InMemoryWorkspacePersistence(record, () => clock);
+			const before = await persistence.read();
+			const error = await captureError(
+				persistence.resetWorkspace({ expected: resetExpected(record) }),
+			);
+			expect(error.code).toBe("corrupt-data");
+			expect(await persistence.read()).toEqual(before);
+		}
+		const record = createEmptyWorkspacePersistenceRecord();
+		record.snapshot = createDefaultWorkspaceState("9999-12-31T23:59:59.999Z");
+		const persistence = new InMemoryWorkspacePersistence(record, () =>
+			Date.parse(NOW),
+		);
+		const before = await persistence.read();
+		const error = await captureError(
+			persistence.resetWorkspace({ expected: resetExpected(record) }),
+		);
+		expect(error.code).toBe("corrupt-data");
+		expect(await persistence.read()).toEqual(before);
+	});
+
+	it("preserves an edit made after reset confirmation was prepared", async () => {
+		const persistence = manualPersistence();
+		const inspected = await persistence.read();
+		await persistence.commitLocalAction({
+			snapshot: snapshot("newer-edit"),
+			binding: manualBinding(),
+		});
+		const before = await persistence.read();
+		expect(
+			(await captureError(
+				persistence.resetWorkspace({ expected: resetExpected(inspected) }),
+			)) instanceof WorkspaceConcurrentUpdateError,
+		).toBe(true);
+		expect(await persistence.read()).toEqual(before);
+	});
+
+	it("preserves mutations appended after reset confirmation was prepared", async () => {
+		const persistence = automaticPersistence();
+		const inspected = await persistence.read();
+		await persistence.commitAutomaticAction({
+			snapshot: committedSnapshot(),
+			binding: binding(),
+			mutation: mutationDraft(reconcileMutation()),
+		});
+		const before = await persistence.read();
+		expect(
+			(await captureError(
+				persistence.resetWorkspace({ expected: resetExpected(inspected) }),
+			)) instanceof WorkspaceConcurrentUpdateError,
+		).toBe(true);
+		expect(await persistence.read()).toEqual(before);
+	});
+
+	it("preserves cloud confirmation arriving after reset confirmation was prepared", async () => {
+		const persistence = automaticPersistence();
+		await persistence.commitAutomaticAction({
+			snapshot: committedSnapshot(),
+			binding: binding(),
+			mutation: mutationDraft(reconcileMutation()),
+		});
+		const inspected = await persistence.read();
+		const fence = await acquireFence(persistence);
+		await persistence.commitDeliverySuccess({
+			snapshot: committedSnapshot(),
+			binding: binding(1),
+			mutationId: MUTATION_ID,
+			fence,
+		});
+		const before = await persistence.read();
+		expect(
+			(await captureError(
+				persistence.resetWorkspace({ expected: resetExpected(inspected) }),
+			)) instanceof WorkspaceConcurrentUpdateError,
+		).toBe(true);
+		expect(await persistence.read()).toEqual(before);
+	});
+
+	it("waits for active delivery and invalidates expired dispatcher fences during reset", async () => {
+		let now = Date.parse(NOW);
+		const persistence = automaticPersistence(() => now);
+		await persistence.commitAutomaticAction({
+			snapshot: committedSnapshot(),
+			binding: binding(),
+			mutation: mutationDraft(reconcileMutation()),
+		});
+		const fence = await acquireFence(
+			persistence,
+			WORKSPACE_ID,
+			"reset-owner",
+			now,
+		);
+		const inspected = await persistence.read();
+		const busy = await captureError(
+			persistence.resetWorkspace({ expected: resetExpected(inspected) }),
+		);
+		expect(busy instanceof WorkspaceConcurrentUpdateError).toBe(true);
+		expect(busy.message).toBe(
+			"Cloud delivery is active. Wait for it to finish before resetting this device.",
+		);
+		expect(await persistence.read()).toEqual(inspected);
+		now += 101;
+		const result = await persistence.resetWorkspace({
+			expected: resetExpected(inspected),
+		});
+		expect(result.leases[workspaceDispatcherLeaseName(WORKSPACE_ID)]).toBe(
+			undefined,
+		);
+		expect(result.nextFencingToken).toBe(inspected.nextFencingToken);
+		expect(
+			await persistence.renewLease({
+				name: workspaceDispatcherLeaseName(WORKSPACE_ID),
+				...fence,
+				now,
+				ttlMs: 100,
+			}),
+		).toBeNull();
+		expect(
+			(
+				await captureError(
+					persistence.commitDeliverySuccess({
+						snapshot: committedSnapshot(),
+						binding: binding(1),
+						mutationId: MUTATION_ID,
+						fence,
+					}),
+				)
+			).code,
+		).toBe("corrupt-data");
+		expect(await persistence.read()).toEqual(result);
+		expect(
+			(await captureError(
+				persistence.commitAutomaticAction({
+					snapshot: committedSnapshot(),
+					binding: binding(),
+					mutation: mutationDraft(reconcileMutation(MUTATION_ID_2)),
+				}),
+			)) instanceof WorkspaceConcurrentUpdateError,
+		).toBe(true);
+		expect(await persistence.read()).toEqual(result);
+	});
+
+	it("allows a fresh Gist binding only after an explicit reset", async () => {
+		const persistence = automaticPersistence();
+		const next = {
+			snapshot: committedSnapshot(OTHER_GIST_ID),
+			binding: binding(0, OTHER_GIST_ID),
+		};
+		expect((await captureError(persistence.rebindWorkspace(next))).code).toBe(
+			"workspace_binding_locked",
+		);
+		await persistence.resetWorkspace({
+			expected: resetExpected(await persistence.read()),
+		});
+		await persistence.rebindWorkspace(next);
+		expect((await persistence.read()).binding?.gistId).toBe(OTHER_GIST_ID);
+	});
+
+	it("does not resurrect legacy data after a reset", async () => {
+		const storage = new MemoryStorage();
+		seedLegacy(storage);
+		const persistence = automaticPersistence();
+		const reset = await persistence.resetWorkspace({
+			expected: resetExpected(await persistence.read()),
+		});
+		await migrateLegacyWorkspacePersistence(persistence, storage, {
+			now: () => NOW_2,
+		});
+		expect(await persistence.read()).toEqual(reset);
+		expect((await persistence.read()).binding).toBeNull();
+	});
+
+	it("returns durable reset state without requiring a later backend read", async () => {
+		const initial = seededRecord();
+		const shared = new InMemoryWorkspacePersistenceBackend(initial);
+		const noReads = new Proxy(shared, {
+			get(target, property) {
+				if (property === "read")
+					return async () => {
+						throw new Error("post-commit read unavailable");
+					};
+				const value = Reflect.get(target, property);
+				return typeof value === "function" ? value.bind(target) : value;
+			},
+		});
+		const persistence = new TransactionalWorkspacePersistence(noReads, () =>
+			Date.parse(NOW_2),
+		);
+		const result = await persistence.resetWorkspace({
+			expected: resetExpected(initial),
+		});
+		expect(result.snapshot).toEqual(createDefaultWorkspaceState(NOW_2));
+		expect(result.binding).toBeNull();
+		expect(result.workspaces[WORKSPACE_ID]).toBe(undefined);
+	});
+
+	it("serializes IndexedDB resets and preserves actionable concurrency errors", async () => {
+		const factory = new DeterministicIdbFactory() as unknown as IDBFactory;
+		const first = new TransactionalWorkspacePersistence(
+			new IndexedDbWorkspacePersistenceBackend(factory, "reset-cas"),
+		);
+		const second = new TransactionalWorkspacePersistence(
+			new IndexedDbWorkspacePersistenceBackend(factory, "reset-cas"),
+		);
+		await first.rebindWorkspace({
+			snapshot: committedSnapshot(),
+			binding: binding(),
+		});
+		const expected = resetExpected(await first.read());
+		const results = await Promise.allSettled([
+			first.resetWorkspace({ expected }),
+			second.resetWorkspace({ expected }),
+		]);
+		expect(results.map((result) => result.status)).toEqual([
+			"fulfilled",
+			"rejected",
+		]);
+		expect(
+			results[1].status === "rejected" &&
+				results[1].reason instanceof WorkspaceConcurrentUpdateError,
+		).toBe(true);
+		expect((await second.read()).binding).toBeNull();
+	});
 
 	it("reports active, total, orphan, blocked, and dead-letter counts", async () => {
 		const persistence = new InMemoryWorkspacePersistence(seededRecord());

@@ -84,3 +84,39 @@ test("repair tooling retains safe diagnostics and complete historical queues", (
 	);
 	expect(authPageSource).not.toContain(".remove(mutation.mutationId)");
 });
+
+test("device reset is a separately confirmed local recovery action", () => {
+	const handler = authPageSource.slice(
+		authPageSource.indexOf("async function handleDeviceReset()"),
+		authPageSource.indexOf("async function handleQueueDiscard("),
+	);
+	expect(authPageSource).toContain('data-testid="device-reset"');
+	expect(authPageSource).toContain('data-testid="device-reset-action"');
+	expect(handler).toContain("workspaceController.prepareDeviceReset()");
+	expect(
+		handler.indexOf("workspaceController.prepareDeviceReset()"),
+	).toBeLessThan(handler.indexOf("await requestConfirm("));
+	expect(
+		handler.indexOf("workspaceController.resetDevice(expected)"),
+	).toBeGreaterThan(handler.indexOf("if (!confirmed) return"));
+	expect(handler.indexOf("clearAuth()")).toBeGreaterThan(
+		handler.indexOf("workspaceController.resetDevice(expected)"),
+	);
+	expect(handler).toContain("cancelCloudWorkspaceLoad()");
+	expect(handler).not.toContain("ensureWorkspaceBootstrapGist");
+	expect(handler).not.toContain("refreshCloudWorkspace");
+	expect(handler).not.toContain("localStorage.clear()");
+});
+
+test("connection discovery captures its persistent state before network reads", () => {
+	const handler = authPageSource.slice(
+		authPageSource.indexOf("async function handleTokenSave()"),
+		authPageSource.indexOf("async function handleSync()"),
+	);
+	expect(handler.indexOf("connectionExpectation(")).toBeGreaterThan(-1);
+	expect(handler.indexOf("connectionExpectation(")).toBeLessThan(
+		handler.indexOf("discoverWorkspaceGist("),
+	);
+	expect(handler).toMatch(/rememberToken,\s+expected/);
+	expect(authPageSource).toContain("expected?: WorkspaceResetExpectation");
+});

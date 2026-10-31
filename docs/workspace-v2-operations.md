@@ -15,6 +15,8 @@ rollback for the Workspace Schema V2 coordinator.
 - The browser has one cloud binding, with no Workspace list or switching. Both
   rebind and queue-repair transactions reject replacing an active binding with
   another Gist, including competing browser tabs and legacy recovery paths.
+  A confirmed device reset may explicitly remove the binding before a separate
+  fresh connection; it never selects or creates a replacement Gist itself.
 - Startup loads the latest cloud document before enabling business pages. Login
   and token replacement retain the existing Gist identity; a failed lookup must
   never fall through to another Gist or create a new one. An ambiguous initial
@@ -275,6 +277,39 @@ Domain conflicts and repair evidence remain blocked until resolved or explicitly
 discarded; timestamps never authorize overwrite and remote tombstones stay
 protected. Logout clears authentication and stops delivery without deleting the
 binding, cache, pending mutation identities, or recovery evidence.
+
+## Device Reset After An Unavailable Gist
+
+Ordinary reconnect remains pinned to the original Gist. A 404 does not prove
+deletion: it may also reflect missing access. First check the token and original
+Gist if recovery is intended. If the user deliberately removed it or chooses to
+abandon the current local connection, Settings offers **Reset this device** even
+without authentication or a successful cloud load.
+
+The user must confirm loss of the current cached business snapshot and complete
+active queue. Close other SubMan tabs before confirming. In one
+`WorkspacePersistence` transaction, reset compares the inspected binding,
+snapshot, and active queue, rejects an unexpired active dispatcher lease, clears
+that binding and complete queue, and writes an empty unbound snapshot. It retains
+historical orphan queues, quarantine metadata and inaccessible raw evidence, and
+the monotonically allocated fencing counter. It records completed migration so
+legacy localStorage cannot restore the abandoned binding or cache.
+
+The initiating tab clears authentication only after the transaction commits.
+Other same-origin tabs refresh their persistent state; delayed cloud reads,
+captured queue heads, and delivery acknowledgements cannot restore the old
+binding. Persisted compare-and-swap and fencing checks enforce this even when
+cross-tab notifications are unavailable. An active-delivery or concurrent-change
+rejection requires waiting or refreshing and a new confirmation; unavailable or
+failed storage remains fail-closed without a success report.
+
+Reset sends no GitHub or coordinator mutation requests, deletes no cloud files,
+and does not reconnect automatically. The user subsequently enters a token and
+chooses **Connect**. Unbound discovery then loads existing cloud data or creates
+an empty private bootstrap Gist and initializes it through the coordinator. The
+discarded browser cache is never uploaded as business authority. Safe historical
+queue evidence remains in Sync recovery and is never automatically rebound or
+delivered.
 
 ## Leases, Retry, And Upstream Failures
 

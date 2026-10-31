@@ -227,6 +227,19 @@ export async function dispatchPersistedWorkspaceMutation(
 
 	try {
 		if (!(await renewFence())) return { status: "stale" };
+		const beforeSubmission = await options.persistence.read();
+		const activeQueue = beforeSubmission.workspaces[binding.workspaceId];
+		if (
+			JSON.stringify(beforeSubmission.binding) !== JSON.stringify(binding) ||
+			JSON.stringify(activeQueue?.mutations[0]) !== JSON.stringify(mutation) ||
+			activeQueue?.delivery.blocked ||
+			(activeQueue?.delivery.retry.nextAttemptAt !== null &&
+				activeQueue?.delivery.retry.nextAttemptAt !== undefined &&
+				activeQueue.delivery.retry.nextAttemptAt > now())
+		) {
+			return { status: "stale" };
+		}
+		if (!(await renewFence())) return { status: "stale" };
 		const submissionOptions: WorkspaceMutationSubmissionOptions = {
 			mutation,
 			githubToken: options.githubToken,
