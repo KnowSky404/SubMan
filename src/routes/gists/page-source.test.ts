@@ -39,10 +39,13 @@ test("gists page shows an explicit loading state while workspace files load", ()
 	);
 });
 
-test("gists output deletion is submitted through the Workspace coordinator", () => {
-	expect(gistsPageSource).toContain("submitBrowserWorkspaceMutation");
-	expect(gistsPageSource).toContain('kind: "output.delete"');
-	expect(gistsPageSource).not.toContain("deleteWorkspaceOutputFile");
+test("gists page is a read-only file viewer without mutation or confirmation handlers", () => {
+	expect(gistsPageSource).toContain('$t("Read-only")');
+	expect(gistsPageSource).not.toContain("submitBrowserWorkspaceMutation");
+	expect(gistsPageSource).not.toContain("requestConfirm");
+	expect(gistsPageSource).not.toContain("deleteFile");
+	expect(gistsPageSource).not.toContain("cleanupBootstrapMarker");
+	expect(gistsPageSource).not.toContain("canDeleteWorkspaceFile");
 });
 
 test("gists reads use the authoritative Workspace binding", () => {
@@ -62,21 +65,18 @@ test("gists page uses only the transactional browser persistence boundary", () =
 	expect(gistsPageSource).not.toContain("WorkspaceMutationQueue");
 	expect(gistsPageSource).not.toContain("mutationDependencies");
 	expect(gistsPageSource).toContain("getBrowserWorkspaceBinding");
-	expect(gistsPageSource).toContain("submitBrowserWorkspaceMutation(");
+	expect(gistsPageSource).toContain("initializeBrowserWorkspacePersistence()");
 });
 
-test("gists page protects every reserved Workspace file", () => {
-	expect(gistsPageSource).toContain("canDeleteWorkspaceFile(filename)");
-	expect(gistsPageSource).toContain(
-		"canDeleteWorkspaceFile(gistFile.filename)",
-	);
+test("gists page labels reserved, managed, and external files", () => {
+	expect(gistsPageSource).toContain("WORKSPACE_RESERVED_FILE_NAMES.has");
 	expect(gistsPageSource).toContain("V1 Migration Backup");
 	expect(gistsPageSource).toContain("Bootstrap Marker");
 	expect(gistsPageSource).toContain("Managed Output");
 	expect(gistsPageSource).toContain("External File");
 });
 
-test("gists page sends incomplete setup to Settings and coordinates stale marker cleanup", () => {
+test("gists page keeps bootstrap warnings and sends incomplete setup to Settings", () => {
 	expect(gistsPageSource).toContain('bootstrapStatus === "stale"');
 	expect(gistsPageSource).toContain('$t("Initialization incomplete")');
 	expect(gistsPageSource).not.toContain("resumeBootstrapInitialization");
@@ -84,8 +84,7 @@ test("gists page sends incomplete setup to Settings and coordinates stale marker
 	expect(gistsPageSource).not.toContain("current local business data");
 	expect(gistsPageSource).toContain('href="/auth"');
 	expect(gistsPageSource).toContain("requireWorkspaceIdentity");
-	expect(gistsPageSource).toContain('kind: "workspace.bootstrap.cleanup"');
-	expect(gistsPageSource).toContain("requestConfirm({");
+	expect(gistsPageSource).not.toContain('kind: "workspace.bootstrap.cleanup"');
 	expect(gistsPageSource).toContain("migration_backup_conflict");
 	expect(gistsPageSource).toContain("invalid_bootstrap_marker");
 });

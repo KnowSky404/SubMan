@@ -30,7 +30,9 @@ const zhCN: Record<string, string> = {
 	"Combine sources, preview rules, and publish output.":
 		"组合来源、预览规则并发布输出。",
 	"Generate and publish client configurations.": "生成并发布客户端配置。",
-	"Files in your connected cloud Workspace.": "查看已连接云端工作区的文件。",
+	"Read-only cloud files. Manage publications in Aggregation or Client Exports.":
+		"云端文件仅供查看。请在聚合或客户端导出页面管理发布。",
+	"Read-only": "只读",
 	"Manage your GitHub connection and appearance.":
 		"管理 GitHub 连接与界面偏好。",
 	"Your resources and confirmed publications.": "查看资源与已确认的发布记录。",
