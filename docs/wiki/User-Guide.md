@@ -32,7 +32,7 @@ empty Workspace, then recent resources and confirmed publication metadata.
 | `/nodes` | Nodes and subscriptions, tags, search, filters, and batch import |
 | `/aggregate` | Rule editing, preview ordering, publish targets, and publication |
 | `/exports` | sing-box configuration preview, copy, download, and publication |
-| `/gists` | Output files, raw links, and cleanup |
+| `/gists` | Read-only cloud file list, raw links, and link copying |
 
 Import one URI per line or paste base64 subscription content. Preview and
 resolve duplicates before adding. Aggregates select nodes and subscriptions,
@@ -58,8 +58,11 @@ a file creates a new URL; review the cleanup result before removing the old file
 Node edits do not automatically republish existing aggregate or sing-box files.
 
 Configuration and outputs are committed together through the coordinator.
-`subman.json`, `subman.v1.backup.json`, and `subman.bootstrap.json` are reserved;
-they cannot be outputs or be removed in the file manager.
+The Gists page is read-only for all files, including managed outputs, external
+files, and bootstrap markers. Use Aggregation or Client Exports to manage
+publications; file preview, link copying, and refresh remain available in Gists.
+`subman.json`, `subman.v1.backup.json`, and `subman.bootstrap.json` are reserved
+and cannot be outputs.
 
 ## Delivery and recovery
 

@@ -18,6 +18,15 @@ production deployment and real-provider acceptance require separate evidence.
 - Kept reset local: authentication clears only after storage commits, and a
   separate connection loads cloud data or initializes an empty Workspace.
 
+### 2026-10-31 - Read-only Gist file viewer
+
+- Made Gists read-only for every file kind, removing output deletion and stale
+  bootstrap marker cleanup controls and handlers. Kept refresh, file links,
+  link copying, file classification, and bootstrap warnings.
+- Added English and Chinese guidance to manage publications in Aggregation or
+  Client Exports, with browser coverage for viewing and refreshing files without
+  submitting cloud mutations. Existing repair states still require diagnosis.
+
 ### 2026-10-28 - Primer interface and interaction system
 
 - Unified the six routes around the approved GitHub-style concepts: white/dark

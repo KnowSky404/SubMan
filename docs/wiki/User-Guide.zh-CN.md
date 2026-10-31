@@ -26,7 +26,7 @@ SubMan 查找描述为 `SubMan-Data`、包含权威文档 `subman.json` 的私�
 | `/nodes` | 节点与订阅、标签、搜索、过滤、批量导入 |
 | `/aggregate` | 规则编辑、预览排序、发布目标与发布 |
 | `/exports` | sing-box 配置预览、复制、下载和发布 |
-| `/gists` | 输出文件、原始链接和清理 |
+| `/gists` | 只读云端文件列表、查看与复制原始链接 |
 
 每行粘贴一个 URI，也可导入 base64 订阅内容；预览并处理重复项后再添加。
 聚合规则可选择节点和订阅、排除标签、过滤协议、正则重命名、添加地区旗帜，
@@ -46,8 +46,9 @@ SubMan 查找描述为 `SubMan-Data`、包含权威文档 `subman.json` 的私�
 同一 Gist 和文件名可保持原始订阅 URL 稳定；重命名会产生新 URL，删除旧文件前先查看清理结果。
 修改节点后不会自动重新发布现有聚合或 sing-box 文件。
 
-配置与输出由协调器一并提交。`subman.json`、`subman.v1.backup.json` 和
-`subman.bootstrap.json` 为保留文件，不可用作输出，也不能通过文件管理器删除。
+配置与输出由协调器一并提交。Gists 页面中的所有文件均为只读，包括托管输出、外部文件
+和引导标记。请在聚合或客户端导出页面管理发布；Gists 保留查看文件、复制链接和刷新功能。
+`subman.json`、`subman.v1.backup.json` 和 `subman.bootstrap.json` 为保留文件，不可用作输出。
 
 ## 发送与恢复
 

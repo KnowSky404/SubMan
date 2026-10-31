@@ -29,6 +29,7 @@ export async function seedUiWorkspace(
 	page: Page,
 	context: BrowserContext,
 	data: UiWorkspaceData = structuredClone(defaultUiData),
+	extraFiles: Record<string, string> = {},
 ) {
 	const now = "2026-10-23T10:00:00.000Z";
 	const gistId = "accessibility-cloud";
@@ -65,6 +66,18 @@ export async function seedUiWorkspace(
 				updated_at: now,
 				html_url: `https://gist.github.com/e2e/${gistId}`,
 				files: {
+					...Object.fromEntries(
+						Object.entries(extraFiles).map(([filename, content]) => [
+							filename,
+							{
+								filename,
+								raw_url: `https://gist.githubusercontent.com/e2e/${gistId}/raw/${filename}`,
+								size: new TextEncoder().encode(content).byteLength,
+								content,
+								truncated: false,
+							},
+						]),
+					),
 					"subman.json": {
 						filename: "subman.json",
 						raw_url: `https://gist.githubusercontent.com/e2e/${gistId}/raw/subman.json`,
