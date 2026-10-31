@@ -10,7 +10,10 @@ import {
 	type WorkspaceCloudStatus,
 	workspaceCloudStatus,
 } from "$lib/workspace-cloud-status";
-import type { BrowserWorkspacePersistence } from "$lib/workspace-persistence";
+import {
+	type BrowserWorkspacePersistence,
+	WorkspaceConcurrentUpdateError,
+} from "$lib/workspace-persistence";
 import { getBrowserWorkspacePersistence } from "$lib/workspace-persistence-browser";
 import { createWorkspaceSettingsController } from "$lib/workspace-settings-controller";
 
@@ -88,62 +91,82 @@ export function createCloudWorkspaceSession(
 			const workspaceId = `gist:${gistId}`;
 			const persistence =
 				dependencies.persistence ?? getBrowserWorkspacePersistence();
-			const queue = view.record.workspaces[workspaceId];
-			if (queue?.mutations.length) {
-				if (view.record.binding?.syncMode !== "automatic") {
-					setStatus({ phase: "error", message: RETAINED_CHANGES_MESSAGE });
-					return false;
-				}
-				if (queue.delivery.blocked?.disposition === "auth-required") {
-					await persistence.resumeWorkspaceAfterAuth(workspaceId);
+			for (let attempt = 0; attempt < 2; attempt += 1) {
+				try {
+					const queue = view.record.workspaces[workspaceId];
+					if (queue?.mutations.length) {
+						if (view.record.binding?.syncMode !== "automatic") {
+							setStatus({ phase: "error", message: RETAINED_CHANGES_MESSAGE });
+							return false;
+						}
+						if (queue.delivery.blocked?.disposition === "auth-required") {
+							await persistence.resumeWorkspaceAfterAuth(workspaceId);
+							if (!isCurrent()) return false;
+						}
+						const target = queue.mutations.at(-1);
+						if (!target) throw new Error(PENDING_MESSAGE);
+						const result = await commitQueuedBrowserWorkspaceMutation(
+							{ token, mutationId: target.mutationId },
+							{
+								persistence,
+								getState: dependencies.getState,
+								setState: publishState,
+								fetchImpl: deliverWithCurrentSession,
+							},
+						);
+						if (!isCurrent()) return false;
+						if (result.status !== "remote-committed") {
+							setStatus({ phase: "error", message: PENDING_MESSAGE });
+							return false;
+						}
+						view = await controller.refresh();
+						if (!isCurrent()) return false;
+						if (view.record.binding?.workspaceId !== workspaceId) {
+							throw new Error(LOAD_FAILED_MESSAGE);
+						}
+					}
+					const readCloudSnapshot =
+						dependencies.readCloudSnapshot ??
+						(async (currentToken, currentGistId, current) => {
+							const gist = await getGist(currentToken, currentGistId);
+							return readBrowserWorkspaceSnapshot(currentToken, gist, current);
+						});
+					const snapshot = await readCloudSnapshot(
+						token,
+						gistId,
+						dependencies.getState(),
+					);
 					if (!isCurrent()) return false;
-				}
-				const target = queue.mutations.at(-1);
-				if (!target) throw new Error(PENDING_MESSAGE);
-				const result = await commitQueuedBrowserWorkspaceMutation(
-					{ token, mutationId: target.mutationId },
-					{
-						persistence,
-						getState: dependencies.getState,
-						setState: publishState,
-						fetchImpl: deliverWithCurrentSession,
-					},
-				);
-				if (!isCurrent()) return false;
-				if (result.status !== "remote-committed") {
-					setStatus({ phase: "error", message: PENDING_MESSAGE });
-					return false;
-				}
-				view = await controller.refresh();
-				if (!isCurrent()) return false;
-				if (view.record.binding?.workspaceId !== workspaceId) {
-					throw new Error(LOAD_FAILED_MESSAGE);
+					if (snapshot.origin !== "v2") {
+						setStatus({ phase: "error", message: MIGRATION_MESSAGE });
+						return false;
+					}
+					await controller.refreshCloud(snapshot, gistId, {
+						snapshot: view.record.snapshot,
+						binding: view.record.binding,
+						queue: view.record.workspaces[workspaceId] ?? null,
+					});
+					if (!isCurrent()) return false;
+					setStatus({ phase: "ready", message: null });
+					return true;
+				} catch (error) {
+					if (
+						!(error instanceof WorkspaceConcurrentUpdateError) ||
+						attempt !== 0 ||
+						!isCurrent()
+					) {
+						throw error;
+					}
+					view = await controller.refresh();
+					if (
+						!isCurrent() ||
+						view.record.binding?.workspaceId !== workspaceId
+					) {
+						throw error;
+					}
 				}
 			}
-			const readCloudSnapshot =
-				dependencies.readCloudSnapshot ??
-				(async (currentToken, currentGistId, current) => {
-					const gist = await getGist(currentToken, currentGistId);
-					return readBrowserWorkspaceSnapshot(currentToken, gist, current);
-				});
-			const snapshot = await readCloudSnapshot(
-				token,
-				gistId,
-				dependencies.getState(),
-			);
-			if (!isCurrent()) return false;
-			if (snapshot.origin !== "v2") {
-				setStatus({ phase: "error", message: MIGRATION_MESSAGE });
-				return false;
-			}
-			await controller.refreshCloud(snapshot, gistId, {
-				snapshot: view.record.snapshot,
-				binding: view.record.binding,
-				queue: view.record.workspaces[workspaceId] ?? null,
-			});
-			if (!isCurrent()) return false;
-			setStatus({ phase: "ready", message: null });
-			return true;
+			throw new Error(LOAD_FAILED_MESSAGE);
 		} catch {
 			if (isCurrent()) {
 				setStatus({ phase: "error", message: LOAD_FAILED_MESSAGE });

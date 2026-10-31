@@ -144,11 +144,102 @@ function deferred<T>() {
 }
 
 describe("cloud Workspace session", () => {
+	it("retries a concurrent peer refresh of the same Gist with a fresh cloud read", async () => {
+		const store = persistence();
+		const firstStarted = deferred<void>();
+		const secondStarted = deferred<void>();
+		const firstResponse = deferred<BrowserWorkspaceSnapshot>();
+		const secondResponse = deferred<BrowserWorkspaceSnapshot>();
+		let reads = 0;
+		let writes = 0;
+		const targets: string[] = [];
+		const noWrites: typeof fetch = async () => {
+			writes += 1;
+			throw new Error("Refreshing peer caches must not write cloud data");
+		};
+		const first = setup(
+			store,
+			async (_token, gistId) => {
+				reads += 1;
+				targets.push(gistId);
+				firstStarted.resolve();
+				return firstResponse.promise;
+			},
+			noWrites,
+		);
+		let secondReads = 0;
+		const second = setup(
+			store,
+			async (_token, gistId) => {
+				reads += 1;
+				secondReads += 1;
+				targets.push(gistId);
+				secondStarted.resolve();
+				return secondReads === 1
+					? secondResponse.promise
+					: snapshot(document(1, [node("fresh-peer-retry")]));
+			},
+			noWrites,
+		);
+		const firstLoad = first.refreshCloudWorkspace("fixture-token");
+		const secondLoad = second.refreshCloudWorkspace("fixture-token");
+		await Promise.all([firstStarted.promise, secondStarted.promise]);
+		firstResponse.resolve(snapshot());
+		expect(await firstLoad).toBe(true);
+		secondResponse.resolve(snapshot());
+		expect(await secondLoad).toBe(true);
+		expect(first.status().phase).toBe("ready");
+		expect(second.status().phase).toBe("ready");
+		expect(reads).toBe(3);
+		expect(targets).toEqual([GIST_ID, GIST_ID, GIST_ID]);
+		expect(writes).toBe(0);
+		expect(second.state().nodes.map((item) => item.id)).toEqual([
+			"fresh-peer-retry",
+		]);
+		expect((await store.read()).workspaces[WORKSPACE_ID]?.mutations).toEqual(
+			[],
+		);
+	});
+
+	it("bounds concurrent cloud refresh retries to one fresh attempt", async () => {
+		const store = persistence();
+		let reads = 0;
+		let writes = 0;
+		const targets: string[] = [];
+		const session = setup(
+			store,
+			async (_token, gistId) => {
+				reads += 1;
+				targets.push(gistId);
+				const peerDocument = document(reads, [node(`peer-${reads}`)]);
+				await store.rebindWorkspace({
+					snapshot: state(peerDocument),
+					binding: createWorkspaceV2LocalState(GIST_ID, {
+						baseline: peerDocument,
+					}),
+				});
+				return snapshot(peerDocument);
+			},
+			async () => {
+				writes += 1;
+				throw new Error("Contended refresh must not publish");
+			},
+		);
+		expect(await session.refreshCloudWorkspace("fixture-token")).toBe(false);
+		expect(reads).toBe(2);
+		expect(targets).toEqual([GIST_ID, GIST_ID]);
+		expect(writes).toBe(0);
+		expect(session.status().phase).toBe("error");
+		expect((await store.read()).binding?.revision).toBe(2);
+	});
+
 	it("does not restore a binding when a pre-reset cloud read completes without a peer event", async () => {
 		const store = persistence();
 		const readStarted = deferred<void>();
 		const remote = deferred<BrowserWorkspaceSnapshot>();
+		let reads = 0;
 		const session = setup(store, async () => {
+			reads += 1;
 			readStarted.resolve();
 			return remote.promise;
 		});
@@ -166,6 +257,47 @@ describe("cloud Workspace session", () => {
 		expect(await loading).toBe(false);
 		expect((await store.read()).binding).toBeNull();
 		expect((await store.read()).snapshot?.nodes).toEqual([]);
+		expect(session.status().phase).not.toBe("ready");
+		expect(reads).toBe(1);
+	});
+
+	it("does not retry or follow a different Gist after the original connection changes", async () => {
+		const store = persistence();
+		const readStarted = deferred<void>();
+		const remote = deferred<BrowserWorkspaceSnapshot>();
+		const targets: string[] = [];
+		const session = setup(store, async (_token, gistId) => {
+			targets.push(gistId);
+			readStarted.resolve();
+			return remote.promise;
+		});
+		const loading = session.refreshCloudWorkspace("fixture-token");
+		await readStarted.promise;
+		const before = await store.read();
+		await store.resetWorkspace({
+			expected: {
+				snapshot: before.snapshot,
+				binding: before.binding,
+				queue: null,
+			},
+		});
+		const otherGistId = "different-cloud-gist";
+		const otherDocument = { ...document(), workspaceId: `gist:${otherGistId}` };
+		await store.rebindWorkspace({
+			snapshot: hydrateAppStateFromWorkspaceDocument(
+				createDefaultWorkspaceState(NOW),
+				otherDocument,
+				otherGistId,
+			),
+			binding: createWorkspaceV2LocalState(otherGistId, {
+				baseline: otherDocument,
+			}),
+		});
+		const changed = await store.read();
+		remote.resolve(snapshot(document(2)));
+		expect(await loading).toBe(false);
+		expect(targets).toEqual([GIST_ID]);
+		expect(await store.read()).toEqual(changed);
 		expect(session.status().phase).not.toBe("ready");
 	});
 

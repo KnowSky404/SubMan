@@ -17,6 +17,8 @@ production deployment and real-provider acceptance require separate evidence.
   active delivery or concurrent changes. Stale tabs cannot restore the old binding.
 - Kept reset local: authentication clears only after storage commits, and a
   separate connection loads cloud data or initializes an empty Workspace.
+- Retry a concurrent cloud load once against the original Workspace when another
+  tab updates local delivery state; a reset or changed binding still stops stale loads.
 
 ### 2026-10-31 - Read-only Gist file viewer
 
