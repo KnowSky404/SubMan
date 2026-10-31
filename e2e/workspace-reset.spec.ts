@@ -437,6 +437,8 @@ test("device reset removes cached business state in another open tab", async ({
 	expect(peerRecord.binding).toBeNull();
 	expect((peerRecord.snapshot as JsonRecord).nodes).toEqual([]);
 	expect(writes).toEqual([]);
+	// Drain connections before closing the peer in the local Worker harness.
+	await peer.waitForLoadState("networkidle");
 	await peer.close();
 });
 
