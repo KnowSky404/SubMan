@@ -7,6 +7,9 @@ import type { WorkspaceMutation } from "$lib/workspace-mutation";
 import {
 	type BrowserWorkspacePersistence,
 	IndexedDbWorkspacePersistence,
+	LEGACY_APP_STATE_KEY,
+	LEGACY_MUTATION_QUEUE_KEY,
+	LEGACY_WORKSPACE_STATE_KEY,
 	migrateLegacyWorkspacePersistence,
 	validateWorkspacePersistenceRecord,
 	WorkspaceConcurrentUpdateError,
@@ -14,6 +17,7 @@ import {
 	WorkspacePersistenceError,
 	type WorkspacePersistenceRecord,
 	WorkspaceQueueRecoveryError,
+	type WorkspaceResetExpectation,
 } from "$lib/workspace-persistence";
 import { deriveWorkspaceQueueMetrics } from "$lib/workspace-queue-metrics";
 import {
@@ -39,6 +43,7 @@ let productionPersistence: IndexedDbWorkspacePersistence | null = null;
 let persistenceOverride: BrowserWorkspacePersistence | null = null;
 let initializePromise: Promise<WorkspacePersistenceRecord> | null = null;
 let currentRecord: WorkspacePersistenceRecord | null = null;
+let recordGeneration = 0;
 
 function persistence(): BrowserWorkspacePersistence {
 	if (persistenceOverride) return persistenceOverride;
@@ -89,7 +94,9 @@ function emptyQueueMetrics(): WorkspaceQueueMetrics {
 }
 
 async function readAndCache(): Promise<WorkspacePersistenceRecord> {
+	const generation = recordGeneration;
 	const publicRecord = await persistence().read();
+	if (generation !== recordGeneration) return readAndCache();
 	const record = validateWorkspacePersistenceRecord({
 		...publicRecord,
 		quarantinePayloads: {},
@@ -161,6 +168,36 @@ export function setBrowserWorkspacePersistenceForTest(
 	persistenceOverride = override;
 	initializePromise = null;
 	currentRecord = null;
+	recordGeneration += 1;
+}
+
+export async function resetBrowserWorkspacePersistence(
+	expected: WorkspaceResetExpectation,
+	options: { storage?: Pick<Storage, "removeItem"> } = {},
+): Promise<WorkspacePersistenceRecord> {
+	const record = await persistence().resetWorkspace({ expected });
+	recordGeneration += 1;
+	currentRecord = record;
+	initializePromise = Promise.resolve(record);
+	try {
+		const storage =
+			options.storage ??
+			(typeof localStorage === "undefined" ? null : localStorage);
+		for (const key of [
+			LEGACY_APP_STATE_KEY,
+			LEGACY_WORKSPACE_STATE_KEY,
+			LEGACY_MUTATION_QUEUE_KEY,
+		]) {
+			storage?.removeItem(key);
+		}
+	} catch {
+		// Confirmed migration prevents re-import even when obsolete key cleanup fails.
+	}
+	return structuredClone(record);
+}
+
+export function invalidateBrowserWorkspacePersistenceCache(): void {
+	recordGeneration += 1;
 }
 
 export async function initializeBrowserWorkspacePersistence(

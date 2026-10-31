@@ -23,6 +23,7 @@ import {
 } from "$lib/workspace-persistence";
 import {
 	getBrowserWorkspacePersistence,
+	invalidateBrowserWorkspacePersistenceCache,
 	refreshBrowserWorkspacePersistence,
 } from "$lib/workspace-persistence-browser";
 import { dispatchPersistedWorkspaceMutation } from "$lib/workspace-persistence-dispatcher";
@@ -434,12 +435,20 @@ function startPersistenceWorkspaceMutationSync(
 		}
 		schedule();
 	});
-	const refreshForWorkspaceEvent = async (): Promise<void> => {
+	const refreshForWorkspaceEvent = async (
+		deviceReset = false,
+	): Promise<void> => {
 		try {
 			const record = await refresh();
 			lastRecord = record;
 			if (stopped) return;
 			hydrate(record);
+			if (deviceReset) {
+				dispatchWorkspaceSyncEvent({
+					type: "WORKSPACE_DISCONNECTED",
+					queue: deriveWorkspaceQueueMetrics(record),
+				});
+			}
 			reportContext(record);
 			reportPersistedBlock(record);
 			schedule();
@@ -449,12 +458,15 @@ function startPersistenceWorkspaceMutationSync(
 	};
 	const eventsUnsub = (options.subscribeEvents ?? subscribeWorkspaceEvents)(
 		(event) => {
+			if (event.type === "device-reset")
+				invalidateBrowserWorkspacePersistenceCache();
 			if (
 				event.type === "mutation-queue-changed" ||
 				event.type === "workspace-v2-committed" ||
-				event.type === "paused-conflict"
+				event.type === "paused-conflict" ||
+				event.type === "device-reset"
 			) {
-				void refreshForWorkspaceEvent();
+				void refreshForWorkspaceEvent(event.type === "device-reset");
 			}
 		},
 	);

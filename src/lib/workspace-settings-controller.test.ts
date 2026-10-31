@@ -143,6 +143,108 @@ async function expectRejection(
 }
 
 describe("Workspace settings controller", () => {
+	it("returns a committed reset even when state hydration and sync presentation fail", async () => {
+		const persistence = queuedPersistence();
+		const setup = createWorkspaceSettingsController({
+			persistence,
+			getState: () => state(),
+			setState: () => {
+				throw new Error("Hydration failed");
+			},
+			dispatchSyncEvent: () => {
+				throw new Error("Presentation failed");
+			},
+		});
+		await setup.initialize();
+		const expected = await setup.prepareDeviceReset();
+		const result = await setup.resetDevice(expected);
+		expect(result.record.binding).toBeNull();
+		expect((await persistence.read()).snapshot?.nodes).toEqual([]);
+	});
+
+	it("resets the current device only after persistence commits and returns a durable view", async () => {
+		const persistence = queuedPersistence();
+		let requests = 0;
+		const setup = controller(persistence, state(), async () => {
+			requests += 1;
+			throw new Error("Reset must not access cloud data");
+		});
+		await setup.controller.initialize();
+		const expected = await setup.controller.prepareDeviceReset();
+		const reset = await setup.controller.resetDevice(expected);
+		expect(reset.record.binding).toBeNull();
+		expect(reset.record.snapshot?.activeGistId).toBeNull();
+		expect(reset.inspection.activeQueueCount).toBe(0);
+		expect(setup.state()).toEqual(reset.record.snapshot);
+		expect(setup.controller.binding()).toBeNull();
+		expect(setup.events.at(-1)?.type).toBe("WORKSPACE_DISCONNECTED");
+		expect(requests).toBe(0);
+	});
+
+	it("keeps device memory and authentication context unchanged when reset fails", async () => {
+		const persistence = queuedPersistence();
+		const setup = controller(persistence);
+		await setup.controller.initialize();
+		const expected = await setup.controller.prepareDeviceReset();
+		const before = setup.state();
+		persistence.setFault("before-commit");
+		await captureError(setup.controller.resetDevice(expected));
+		expect(setup.state()).toEqual(before);
+		expect(setup.controller.binding()).toEqual(expected.binding);
+		expect(setup.events).toEqual([]);
+	});
+
+	it("rejects a connection whose cloud read started before the device was reset", async () => {
+		const persistence = queuedPersistence();
+		const setup = controller(persistence);
+		await setup.controller.initialize();
+		const expected = await setup.controller.prepareDeviceReset();
+		await setup.controller.resetDevice(expected);
+		const afterReset = await persistence.read();
+		const failure = await captureError(
+			setup.controller.connect({
+				token: "fixture-token",
+				gistId: GIST_ID,
+				created: false,
+				snapshot: { origin: "v2", document: document(), state: state() },
+				previousBinding: expected.binding,
+				expected,
+			}),
+		);
+		expect(failure instanceof WorkspaceConcurrentUpdateError).toBe(true);
+		expect(await persistence.read()).toEqual(afterReset);
+		expect(setup.state().activeGistId).toBeNull();
+	});
+
+	it("rejects bootstrap initialization captured before reset without submitting it", async () => {
+		const persistence = new InMemoryWorkspacePersistence();
+		let requests = 0;
+		const setup = controller(
+			persistence,
+			createDefaultWorkspaceState(NOW),
+			async () => {
+				requests += 1;
+				throw new Error("Stale initialization must not submit");
+			},
+		);
+		await setup.controller.initialize();
+		const expected = await setup.controller.prepareDeviceReset();
+		await setup.controller.resetDevice(expected);
+		const failure = await captureError(
+			setup.controller.connect({
+				token: "fixture-token",
+				gistId: GIST_ID,
+				created: true,
+				snapshot: { origin: "bootstrap", document: document(), state: state() },
+				previousBinding: null,
+				expected,
+			}),
+		);
+		expect(failure instanceof WorkspaceConcurrentUpdateError).toBe(true);
+		expect(requests).toBe(0);
+		expect((await persistence.read()).binding).toBeNull();
+	});
+
 	for (const action of [
 		"connect",
 		"migrate",

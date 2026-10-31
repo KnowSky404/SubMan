@@ -742,7 +742,9 @@ describe("browser Workspace mutation scheduler", () => {
 		}
 	});
 
-	it("refreshes persisted state for queue, commit, and conflict wake events before scheduling", async () => {
+	it("refreshes persisted state for queue, commit, conflict, and device reset wake events before scheduling", async () => {
+		const statusModule = await import("$lib/workspace-sync-status");
+		const { get } = await import("svelte/store");
 		const [workspaceData, persistenceModule, stateModule, sync] =
 			await Promise.all([
 				import("$lib/workspace-data"),
@@ -750,21 +752,28 @@ describe("browser Workspace mutation scheduler", () => {
 				import("$lib/workspace-v2-state"),
 				import("$lib/workspace-mutation-sync-browser"),
 			]);
-		const snapshots = ["queue", "commit", "conflict"].map((name, index) => ({
-			...stateModule.hydrateAppStateFromWorkspaceDocument(
-				workspaceData.createDefaultWorkspaceState(NOW),
-				document(1),
-				GIST_ID,
-			),
-			lastUpdated: `${NOW}:${index}:${name}`,
-		}));
+		const snapshots = ["queue", "commit", "conflict", "reset"].map(
+			(name, index) => ({
+				...(name === "reset"
+					? workspaceData.createDefaultWorkspaceState(NOW)
+					: stateModule.hydrateAppStateFromWorkspaceDocument(
+							workspaceData.createDefaultWorkspaceState(NOW),
+							document(1),
+							GIST_ID,
+						)),
+				lastUpdated: `${NOW}:${index}:${name}`,
+			}),
+		);
 		const records = snapshots.map((snapshot, index) => {
 			const record = persistenceModule.createEmptyWorkspacePersistenceRecord();
 			record.snapshot = snapshot;
-			record.binding = stateModule.createWorkspaceV2LocalState(GIST_ID, {
-				baseline: document(1),
-				syncMode: index === 2 ? "paused-conflict" : "automatic",
-			});
+			record.binding =
+				index === 3
+					? null
+					: stateModule.createWorkspaceV2LocalState(GIST_ID, {
+							baseline: document(1),
+							syncMode: index === 2 ? "paused-conflict" : "automatic",
+						});
 			return record;
 		});
 		const persistence = new persistenceModule.InMemoryWorkspacePersistence(
@@ -810,10 +819,18 @@ describe("browser Workspace mutation scheduler", () => {
 				gistId: GIST_ID,
 				fileName: "subman.json",
 			},
+			{ type: "device-reset", gistId: null, fileName: null },
 		];
 
 		try {
 			for (const [index, event] of wakeEvents.entries()) {
+				if (event.type === "device-reset") {
+					statusModule.workspaceSyncStatus.set({
+						...statusModule.defaultWorkspaceSyncStatus,
+						phase: "operator-repair-required",
+						repairRequired: true,
+					});
+				}
 				eventListener(event);
 				for (
 					let attempt = 0;
@@ -825,6 +842,8 @@ describe("browser Workspace mutation scheduler", () => {
 			}
 			expect(seen).toEqual(snapshots.map((snapshot) => snapshot.lastUpdated));
 			expect(state).toEqual(snapshots.at(-1));
+			expect(get(statusModule.workspaceSyncStatus).phase).toBe("disconnected");
+			expect(get(statusModule.workspaceSyncStatus).repairRequired).toBe(false);
 		} finally {
 			stop();
 		}

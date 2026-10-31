@@ -7,6 +7,23 @@ const STORAGE_KEY = "subman:locale:v1";
 const DEFAULT_LOCALE: Locale = "en";
 
 const zhCN: Record<string, string> = {
+	"Reset this device": "重置此设备",
+	"If the original Gist was deleted or this browser cannot reconnect, reset its Workspace connection and start setup again.":
+		"如果原 Gist 已删除，或此浏览器无法重新连接，可重置此设备的工作区连接后重新设置。",
+	"Reset removes this browser's Workspace connection and cached data and discards unconfirmed changes. Cloud data is preserved. Close other SubMan tabs first.":
+		"重置会移除此浏览器的工作区连接和缓存，并丢弃未确认的变更，云端数据会保留。请先关闭其他 SubMan 标签页。",
+	"Reset this browser's Workspace connection and cached data, and discard all unconfirmed changes? Cloud data is preserved. Close other SubMan tabs before continuing.":
+		"是否重置此浏览器的工作区连接和缓存，并丢弃全部未确认变更？云端数据会保留。请先关闭其他 SubMan 标签页再继续。",
+	"Device reset. Connect again to load cloud data or create an empty Workspace.":
+		"此设备已重置。请重新连接，以加载云端数据或创建空工作区。",
+	"Device reset completed, but saved token removal could not be confirmed. Check browser storage access before reconnecting.":
+		"设备重置已完成，但无法确认已保存的 Token 是否移除。请检查浏览器存储权限后再重新连接。",
+	"Cloud delivery is active. Wait for it to finish before resetting this device.":
+		"当前仍在发送云端变更，请等待发送结束后再重置此设备。",
+	"Workspace changed while reset was being confirmed. Review its current state and try again.":
+		"确认重置期间工作区已发生变化。请查看当前状态后重试。",
+	"Device reset could not be confirmed. Check browser storage access, reload Settings, and review the connection before retrying.":
+		"无法确认设备重置结果。请检查浏览器存储权限、重新加载设置，并查看连接状态后再重试。",
 	"Save a target, then publish the rule output to its file.":
 		"保存目标后，可将规则输出发布到对应文件。",
 	"Manage nodes and subscription sources.": "管理节点与订阅来源。",
@@ -25,6 +42,7 @@ const zhCN: Record<string, string> = {
 	"e.g. domestic, bypass": "例如 domestic, bypass",
 
 	Settings: "设置",
+	Connect: "连接",
 	Title: "名称",
 	Actions: "操作",
 	Kind: "类型",

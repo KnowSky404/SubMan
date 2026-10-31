@@ -8,6 +8,16 @@ production deployment and real-provider acceptance require separate evidence.
 
 ## Unreleased
 
+### 2026-10-31 - Explicit device reset and fresh connection
+
+- Added a confirmed Settings recovery action for devices whose original Gist was
+  deleted or is inaccessible, including signed-out and cloud-error states.
+- Reset atomically removes the current binding, cached business data, and complete
+  active queue; preserves historical queues and quarantined evidence; and rejects
+  active delivery or concurrent changes. Stale tabs cannot restore the old binding.
+- Kept reset local: authentication clears only after storage commits, and a
+  separate connection loads cloud data or initializes an empty Workspace.
+
 ### 2026-10-28 - Primer interface and interaction system
 
 - Unified the six routes around the approved GitHub-style concepts: white/dark

@@ -144,6 +144,31 @@ function deferred<T>() {
 }
 
 describe("cloud Workspace session", () => {
+	it("does not restore a binding when a pre-reset cloud read completes without a peer event", async () => {
+		const store = persistence();
+		const readStarted = deferred<void>();
+		const remote = deferred<BrowserWorkspaceSnapshot>();
+		const session = setup(store, async () => {
+			readStarted.resolve();
+			return remote.promise;
+		});
+		const loading = session.refreshCloudWorkspace("fixture-token");
+		await readStarted.promise;
+		const before = await store.read();
+		await store.resetWorkspace({
+			expected: {
+				snapshot: before.snapshot,
+				binding: before.binding,
+				queue: before.workspaces[WORKSPACE_ID] ?? null,
+			},
+		});
+		remote.resolve(snapshot(document(2, [node("old-cloud-response")])));
+		expect(await loading).toBe(false);
+		expect((await store.read()).binding).toBeNull();
+		expect((await store.read()).snapshot?.nodes).toEqual([]);
+		expect(session.status().phase).not.toBe("ready");
+	});
+
 	it("revalidates only the saved cloud Gist and replaces the browser cache", async () => {
 		const store = persistence();
 		const calls: string[] = [];

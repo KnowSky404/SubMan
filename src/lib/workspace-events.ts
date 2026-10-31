@@ -6,6 +6,7 @@ const FALLBACK_EVENT = "subman:workspace-message";
 export type WorkspaceEvent = {
 	type:
 		| "reset"
+		| "device-reset"
 		| "paused-conflict"
 		| "mutation-queue-changed"
 		| "workspace-v2-committed";

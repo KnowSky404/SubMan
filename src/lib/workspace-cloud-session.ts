@@ -136,7 +136,11 @@ export function createCloudWorkspaceSession(
 				setStatus({ phase: "error", message: MIGRATION_MESSAGE });
 				return false;
 			}
-			await controller.refreshCloud(snapshot, gistId);
+			await controller.refreshCloud(snapshot, gistId, {
+				snapshot: view.record.snapshot,
+				binding: view.record.binding,
+				queue: view.record.workspaces[workspaceId] ?? null,
+			});
 			if (!isCurrent()) return false;
 			setStatus({ phase: "ready", message: null });
 			return true;

@@ -183,6 +183,85 @@ async function waitUntil(
 }
 
 describe("persistence-backed Workspace dispatcher", () => {
+	it("does not submit a captured head after reset precedes lease acquisition", async () => {
+		const persistence = client(backend(), () => NOW_MS);
+		const initial = await persistence.read();
+		let submitted = 0;
+		const resetBeforeLease = new Proxy(persistence, {
+			get(target, property) {
+				if (property === "acquireLease")
+					return async (
+						input: Parameters<BrowserWorkspacePersistence["acquireLease"]>[0],
+					) => {
+						await target.resetWorkspace({
+							expected: {
+								snapshot: initial.snapshot,
+								binding: initial.binding,
+								queue: initial.workspaces[WORKSPACE_ID] ?? null,
+							},
+						});
+						return target.acquireLease(input);
+					};
+				const value = Reflect.get(target, property);
+				return typeof value === "function" ? value.bind(target) : value;
+			},
+		}) as BrowserWorkspacePersistence;
+		expect(
+			await dispatchPersistedWorkspaceMutation({
+				persistence: resetBeforeLease,
+				githubToken: "token",
+				ownerId: "tab-a",
+				now: () => NOW_MS,
+				submit: async () => {
+					submitted += 1;
+					return committed();
+				},
+			}),
+		).toEqual({ status: "stale" });
+		expect(submitted).toBe(0);
+		expect((await persistence.read()).binding).toBeNull();
+	});
+
+	it("does not submit a captured head discarded before lease acquisition", async () => {
+		const persistence = client(backend(), () => NOW_MS);
+		const initial = await persistence.read();
+		if (!initial.binding || !initial.snapshot)
+			throw new Error("Expected bound fixture");
+		const initialSnapshot = initial.snapshot;
+		const initialBinding = initial.binding;
+		let submitted = 0;
+		const discardBeforeLease = new Proxy(persistence, {
+			get(target, property) {
+				if (property === "acquireLease")
+					return async (
+						input: Parameters<BrowserWorkspacePersistence["acquireLease"]>[0],
+					) => {
+						await target.discardWorkspaceQueue({
+							workspaceId: WORKSPACE_ID,
+							snapshot: initialSnapshot,
+							binding: initialBinding,
+						});
+						return target.acquireLease(input);
+					};
+				const value = Reflect.get(target, property);
+				return typeof value === "function" ? value.bind(target) : value;
+			},
+		}) as BrowserWorkspacePersistence;
+		expect(
+			await dispatchPersistedWorkspaceMutation({
+				persistence: discardBeforeLease,
+				githubToken: "token",
+				ownerId: "tab-a",
+				now: () => NOW_MS,
+				submit: async () => {
+					submitted += 1;
+					return committed();
+				},
+			}),
+		).toEqual({ status: "stale" });
+		expect(submitted).toBe(0);
+	});
+
 	it("commits the head and replays the remaining optimistic queue", async () => {
 		const second = mutation(MUTATION_ID_2, 1, NOW_2);
 		const shared = backend(seededRecord({ mutations: [mutation(), second] }));

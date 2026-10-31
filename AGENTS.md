@@ -174,9 +174,17 @@ GitHub authentication remains outside that database:
   an explicit reconcile. Rebind and repair transactions must reject changing an
   active binding to another Gist. Preserve historical orphan queues without
   restoring Workspace switching.
+- A user-confirmed **Reset this device** is a separate recovery operation. It
+  atomically clears the current binding, cached business snapshot, and complete
+  active queue, while preserving historical orphan queues, quarantined evidence,
+  and the monotonic fencing counter. It must reject changed state and an active
+  dispatcher lease. Reset never writes to GitHub; only a subsequent explicit
+  connection may run unbound discovery or initialize an empty Workspace.
 - Cloud refresh uses compare-and-swap checks so a concurrent edit cannot be
-  silently discarded. Abandoning active pending work requires confirmation to
-  discard the complete queue and reload the latest original cloud document.
+  silently discarded. Ordinary cloud reload requires confirmation before
+  discarding the complete active queue and loading the latest original document.
+  Stale reads or dispatchers must not restore a binding abandoned by device reset,
+  including when cross-tab notifications are unavailable.
 - One dispatcher owns a persisted lease with an owner ID, monotonically allocated
   fencing token, expiry, and heartbeat. Web Locks and BroadcastChannel are
   optional coordination aids, not correctness boundaries.
@@ -207,7 +215,9 @@ GitHub authentication remains outside that database:
   preview and confirmation. Unbound setup may inspect an explicit original Gist
   ID; ambiguous discovery requires that ID. Bound startup and reconnection must
   read only the original Gist, never choose or create another one. Legacy checks
-  require an explicit ID and do not create a Gist.
+  require an explicit ID and do not create a Gist. A deliberate device reset may
+  remove the binding before a new connection; it must prevent legacy storage from
+  restoring the abandoned binding or uploading the old cache.
 - `workspace.migrate` is an internal, source-hash-checked browser mutation. It
   preserves the original Gist, output bytes, filenames, and publication metadata;
   it does not regenerate or republish outputs. Pending/repair evidence must be

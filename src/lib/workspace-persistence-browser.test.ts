@@ -15,7 +15,9 @@ import {
 	getBrowserWorkspacePersistenceRecord,
 	getBrowserWorkspaceQueueMetrics,
 	initializeBrowserWorkspacePersistence,
+	invalidateBrowserWorkspacePersistenceCache,
 	refreshBrowserWorkspacePersistence,
+	resetBrowserWorkspacePersistence,
 	setBrowserWorkspacePersistenceForTest,
 } from "$lib/workspace-persistence-browser";
 import {
@@ -152,6 +154,180 @@ class DefiniteCommitFailurePersistence extends ControllableReadFailurePersistenc
 		);
 	}
 }
+
+test("device reset replaces browser caches and cached initialization with its committed record", async () => {
+	const record = createEmptyWorkspacePersistenceRecord();
+	record.snapshot = hydrateAppStateFromWorkspaceDocument(
+		createDefaultWorkspaceState(NOW),
+		workspaceDocument(),
+		GIST_ID,
+	);
+	record.binding = createWorkspaceV2LocalState(GIST_ID, {
+		baseline: workspaceDocument(),
+	});
+	const persistence = new InMemoryWorkspacePersistence(record);
+	setBrowserWorkspacePersistenceForTest(persistence);
+	try {
+		const before = await initializeBrowserWorkspacePersistence({
+			storage: new MemoryStorage(),
+		});
+		const reset = await resetBrowserWorkspacePersistence({
+			snapshot: before.snapshot,
+			binding: before.binding,
+			queue: null,
+		});
+		expect(reset.snapshot?.activeGistId).toBeNull();
+		expect(getBrowserWorkspacePersistenceRecord()).toEqual(reset);
+		expect(await initializeBrowserWorkspacePersistence()).toEqual(reset);
+	} finally {
+		setBrowserWorkspacePersistenceForTest(null);
+	}
+});
+
+test("a cache read started before reset cannot restore the old browser binding", async () => {
+	let started!: () => void;
+	let release!: () => void;
+	const reading = new Promise<void>((resolve) => {
+		started = resolve;
+	});
+	const gate = new Promise<void>((resolve) => {
+		release = resolve;
+	});
+	class DelayedReadPersistence extends InMemoryWorkspacePersistence {
+		delayNextRead = false;
+		override async read() {
+			const record = await super.read();
+			if (this.delayNextRead) {
+				this.delayNextRead = false;
+				started();
+				await gate;
+			}
+			return record;
+		}
+	}
+	const record = createEmptyWorkspacePersistenceRecord();
+	record.snapshot = hydrateAppStateFromWorkspaceDocument(
+		createDefaultWorkspaceState(NOW),
+		workspaceDocument(),
+		GIST_ID,
+	);
+	record.binding = createWorkspaceV2LocalState(GIST_ID, {
+		baseline: workspaceDocument(),
+	});
+	const persistence = new DelayedReadPersistence(record);
+	setBrowserWorkspacePersistenceForTest(persistence);
+	try {
+		const before = await initializeBrowserWorkspacePersistence({
+			storage: new MemoryStorage(),
+		});
+		persistence.delayNextRead = true;
+		const pendingRead = refreshBrowserWorkspacePersistence();
+		await reading;
+		const reset = await resetBrowserWorkspacePersistence({
+			snapshot: before.snapshot,
+			binding: before.binding,
+			queue: null,
+		});
+		release();
+		expect(await pendingRead).toEqual(reset);
+		expect(getBrowserWorkspacePersistenceRecord()?.binding).toBeNull();
+	} finally {
+		release();
+		setBrowserWorkspacePersistenceForTest(null);
+	}
+});
+
+test("peer reset invalidation prevents an older refresh from replacing a fresh reset cache", async () => {
+	let started!: () => void;
+	let release!: () => void;
+	const reading = new Promise<void>((resolve) => {
+		started = resolve;
+	});
+	const gate = new Promise<void>((resolve) => {
+		release = resolve;
+	});
+	class DelayedPeerRead extends InMemoryWorkspacePersistence {
+		delayNextRead = false;
+		override async read() {
+			const record = await super.read();
+			if (this.delayNextRead) {
+				this.delayNextRead = false;
+				started();
+				await gate;
+			}
+			return record;
+		}
+	}
+	const record = createEmptyWorkspacePersistenceRecord();
+	record.snapshot = hydrateAppStateFromWorkspaceDocument(
+		createDefaultWorkspaceState(NOW),
+		workspaceDocument(),
+		GIST_ID,
+	);
+	record.binding = createWorkspaceV2LocalState(GIST_ID, {
+		baseline: workspaceDocument(),
+	});
+	const persistence = new DelayedPeerRead(record);
+	setBrowserWorkspacePersistenceForTest(persistence);
+	try {
+		const before = await initializeBrowserWorkspacePersistence({
+			storage: new MemoryStorage(),
+		});
+		persistence.delayNextRead = true;
+		const pending = refreshBrowserWorkspacePersistence();
+		await reading;
+		const reset = await persistence.resetWorkspace({
+			expected: {
+				snapshot: before.snapshot,
+				binding: before.binding,
+				queue: null,
+			},
+		});
+		invalidateBrowserWorkspacePersistenceCache();
+		expect(await refreshBrowserWorkspacePersistence()).toEqual(reset);
+		release();
+		expect(await pending).toEqual(reset);
+		expect(getBrowserWorkspacePersistenceRecord()?.binding).toBeNull();
+	} finally {
+		release();
+		setBrowserWorkspacePersistenceForTest(null);
+	}
+});
+
+test("reset removes obsolete business keys without making cleanup failure a rejected reset", async () => {
+	const persistence = new InMemoryWorkspacePersistence();
+	const storage = new MemoryStorage();
+	setBrowserWorkspacePersistenceForTest(persistence);
+	try {
+		const before = await initializeBrowserWorkspacePersistence({ storage });
+		const keys = [
+			"subman:state:v1",
+			"subman:workspace-state:v2",
+			"subman:workspace-mutation-queue:v1",
+		];
+		for (const key of keys) storage.setItem(key, "obsolete-state");
+		await resetBrowserWorkspacePersistence(
+			{ snapshot: before.snapshot, binding: before.binding, queue: null },
+			{ storage },
+		);
+		for (const key of keys) expect(storage.getItem(key)).toBeNull();
+		const current = await persistence.read();
+		const reset = await resetBrowserWorkspacePersistence(
+			{ snapshot: current.snapshot, binding: current.binding, queue: null },
+			{
+				storage: {
+					removeItem: () => {
+						throw new Error("Storage unavailable");
+					},
+				},
+			},
+		);
+		expect(reset.binding).toBeNull();
+		expect(getBrowserWorkspacePersistenceRecord()).toEqual(reset);
+	} finally {
+		setBrowserWorkspacePersistenceForTest(null);
+	}
+});
 
 test("browser persistence initializes once, hydrates, and exposes a stable adapter", async () => {
 	const record = createEmptyWorkspacePersistenceRecord();
