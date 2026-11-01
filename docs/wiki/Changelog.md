@@ -8,6 +8,17 @@ production deployment and real-provider acceptance require separate evidence.
 
 ## Unreleased
 
+### 2026-11-01 - Foreground cloud operation loading
+
+- Keep saves, publication generation, and Gist refresh in a visible foreground
+  loading dialog. Freeze background editing and navigation until the operation
+  settles, while keeping explicit confirmation dialogs usable.
+- Retain drafts and pending/repair feedback when cloud confirmation is missing;
+  only confirmed remote commits finalize saves and publication links.
+- Capture the publication profile, target, and filename before asynchronous
+  generation so the result stays attached to the original operation. Initialize
+  export drafts before checking for unsaved changes on first load.
+
 ### 2026-10-31 - Explicit device reset and fresh connection
 
 - Added a confirmed Settings recovery action for devices whose original Gist was

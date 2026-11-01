@@ -455,6 +455,15 @@ test("reset remains reachable when browser persistence initialization fails", as
 		});
 	});
 	await page.goto("/auth");
+	await expect(
+		page
+			.getByRole("alert")
+			.filter({
+				hasText:
+					"Cloud data could not be loaded. Check your connection and retry.",
+			})
+			.first(),
+	).toBeVisible();
 	const action = page.getByTestId("device-reset-action");
 	await expect(action).toBeEnabled();
 	await action.click();

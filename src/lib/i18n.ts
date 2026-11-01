@@ -37,6 +37,8 @@ const zhCN: Record<string, string> = {
 		"管理 GitHub 连接与界面偏好。",
 	"Your resources and confirmed publications.": "查看资源与已确认的发布记录。",
 	"Waiting for cloud confirmation...": "等待云端确认…",
+	"Please wait for this operation to finish before making more changes.":
+		"操作正在进行，请等待完成后再继续修改。",
 	"Check synchronization status before retrying.":
 		"请先查看云端同步状态，再决定是否重试。",
 	Resource: "资源",

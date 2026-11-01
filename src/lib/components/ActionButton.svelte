@@ -9,6 +9,7 @@ import type {
 	WorkspaceFeedbackState,
 	WorkspaceOperationPresentation,
 } from "$lib/workspace-operation-presenter";
+import { withWorkspaceOperation } from "$lib/workspace-operation-progress";
 import { workspaceSyncStatus } from "$lib/workspace-sync-status";
 
 let {
@@ -62,7 +63,8 @@ async function run() {
 	busy = true;
 	feedbackStatus = "idle";
 	try {
-		await action();
+		if (workspace) await withWorkspaceOperation(action);
+		else await action();
 		if (!mounted) return;
 		if (feedback && feedback !== previous)
 			feedbackStatus = feedback.feedbackState;

@@ -21,6 +21,7 @@ import {
 	parseWorkspaceMutation,
 	type WorkspaceMutation,
 } from "$lib/workspace-mutation";
+import { withWorkspaceOperation } from "$lib/workspace-operation-progress";
 import {
 	rejectedWorkspaceOperation,
 	type WorkspaceOperationResult,
@@ -185,8 +186,8 @@ function runPreparedWorkspaceAction(
 		return rejectedActionHandle(error);
 	}
 
-	const completion = serializedAction(
-		async (): Promise<WorkspaceActionResult> => {
+	const completion = withWorkspaceOperation(() =>
+		serializedAction(async (): Promise<WorkspaceActionResult> => {
 			const mutationId = crypto.randomUUID();
 			const createdAt = nowIso();
 			try {
@@ -266,7 +267,7 @@ function runPreparedWorkspaceAction(
 			} catch (error) {
 				return rejectedWorkspaceOperation(error, mutationId);
 			}
-		},
+		}),
 	);
 	return { submitted: true, completion };
 }
