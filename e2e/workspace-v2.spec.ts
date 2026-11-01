@@ -1329,7 +1329,7 @@ test("keeps an edit modal and draft open when the transaction aborts", async ({
 	).toBeVisible();
 	await failNextPersistencePut(page, "AbortError");
 	await page.getByRole("button", { name: "Edit node" }).click();
-	const dialog = page.getByRole("dialog");
+	const dialog = page.getByRole("dialog", { name: "Edit Node", exact: true });
 	await dialog.getByLabel("Name").fill("Unsaved Edit");
 	await dialog.getByRole("button", { name: "Save", exact: true }).click();
 
@@ -1340,6 +1340,18 @@ test("keeps an edit modal and draft open when the transaction aborts", async ({
 	).toBeVisible();
 	await expect(page.getByText("Node updated", { exact: true })).toHaveCount(0);
 	await expect(page.getByText(/Workspace change was not saved/)).toHaveCount(1);
+	await expect(
+		page.getByRole("dialog", {
+			name: "Waiting for cloud confirmation...",
+			exact: true,
+		}),
+	).toHaveCount(0);
+	await page
+		.getByLabel("Name", { exact: true })
+		.fill("Retained Draft After Failure");
+	await expect(page.getByLabel("Name", { exact: true })).toHaveValue(
+		"Retained Draft After Failure",
+	);
 	const stored = await readIndexedDb(page);
 	expect(((stored.snapshot as JsonRecord).nodes as JsonRecord[])[0]?.name).toBe(
 		existing.name,
@@ -1552,7 +1564,7 @@ test("cloud load failures keep cached data hidden and prevent offline local edit
 test("resource save keeps its draft and withholds success until cloud commitment", async ({
 	page,
 	context,
-}) => {
+}, testInfo) => {
 	await seedIndexedDb(page, persistenceRecord());
 	await seedAuth(page, { session: "fixture-confirmed-save-token" });
 	let release = () => {};
@@ -1569,6 +1581,25 @@ test("resource save keeps its draft and withholds success until cloud commitment
 	await page.goto("/nodes");
 	await addNode(page, "Cloud Confirmed Node", "vless://confirmed.example");
 	await expect.poll(() => mutations.length).toBe(1);
+	const waiting = page.getByRole("dialog", {
+		name: "Waiting for cloud confirmation...",
+		exact: true,
+	});
+	await expect(waiting).toBeVisible();
+	await expect(waiting).toHaveAttribute("aria-busy", "true");
+	expect(
+		await page
+			.getByLabel("Name", { exact: true })
+			.evaluate((element) => Boolean(element.closest("[inert]"))),
+	).toBe(true);
+	await page.keyboard.press("Escape");
+	await expect(waiting).toBeVisible();
+	await page.mouse.click(4, 4);
+	await expect(waiting).toBeVisible();
+	await page.evaluate(() => {
+		document.querySelector<HTMLAnchorElement>('a[href="/gists"]')?.click();
+	});
+	await expect(page).toHaveURL(/\/nodes$/);
 	await expect(page.getByText("Resource added", { exact: true })).toHaveCount(
 		0,
 	);
@@ -1578,11 +1609,21 @@ test("resource save keeps its draft and withholds success until cloud commitment
 	await expect(page.getByLabel("Raw URI", { exact: true })).toHaveValue(
 		"vless://confirmed.example",
 	);
+	await expect(waiting).toHaveCSS("opacity", "1");
+	await page.screenshot({
+		path: testInfo.outputPath("resource-cloud-confirmation.png"),
+	});
 	release();
+	await expect(waiting).toHaveCount(0);
 	await expect(page.getByText("Resource added", { exact: true })).toBeVisible();
 	await expect(
 		page.getByText("Cloud Confirmed Node", { exact: true }),
 	).toBeVisible();
+	await expect(page.getByLabel("Raw URI", { exact: true })).toHaveCount(0);
+	await expect(
+		page.getByRole("button", { name: "New Resource", exact: true }),
+	).toBeEnabled();
+	expect(mutations).toHaveLength(1);
 	const stored = await readIndexedDb(page);
 	expect((stored.binding as JsonRecord).revision).toBe(1);
 	expect(
@@ -1888,6 +1929,111 @@ test("allows one tab to take over an expired lease without duplicate submission"
 	expect(requestCount).toBe(1);
 });
 
+test("target rename hands keyboard focus from cloud waiting through Save and Publish confirmations", async ({
+	context,
+	page,
+}) => {
+	const data = aggregateData();
+	await seedIndexedDb(
+		page,
+		persistenceRecord({
+			snapshot: snapshot({ data, gists: [gistMetadata()] }),
+			binding: binding({ baseline: workspaceDocument({ data }) }),
+		}),
+	);
+	await seedAuth(page, { session: "fixture-target-rename-token" });
+	let releaseRule = () => {};
+	const heldRule = new Promise<void>((resolve) => {
+		releaseRule = resolve;
+	});
+	let releaseTarget = () => {};
+	const heldTarget = new Promise<void>((resolve) => {
+		releaseTarget = resolve;
+	});
+	const mutations: JsonRecord[] = [];
+	let remoteData = structuredClone(data);
+	await context.route("**/api/workspaces/**/mutations", async (route) => {
+		const mutation = route.request().postDataJSON() as JsonRecord;
+		mutations.push(mutation);
+		if (mutation.kind === "aggregate.upsert") await heldRule;
+		if (mutation.kind === "publish-target.upsert") await heldTarget;
+		const result = committedResult(mutation, remoteData);
+		remoteData = (result.document as JsonRecord).data as JsonRecord;
+		await route.fulfill({ json: result });
+	});
+	await page.goto("/aggregate");
+	await page
+		.locator('.gh-rule-header-actions button[aria-haspopup="menu"]')
+		.click();
+	await page
+		.getByRole("button", { name: "E2E Aggregate", exact: true })
+		.click();
+	await page.getByLabel("Rule Name", { exact: true }).fill("Renamed Aggregate");
+	await page.getByLabel("Select Target", { exact: true }).click();
+	await page.getByRole("button", { name: "E2E Target", exact: true }).click();
+	await page.getByLabel("Output File", { exact: true }).fill("renamed.txt");
+	const save = page.getByRole("button", {
+		name: "Save and Publish",
+		exact: true,
+	});
+	await save.focus();
+	await page.keyboard.press("Enter");
+	const waiting = page.getByRole("dialog", {
+		name: "Waiting for cloud confirmation...",
+		exact: true,
+	});
+	await expect.poll(() => mutations.length).toBe(1);
+	await expect(waiting).toBeVisible();
+	await expect(waiting).toBeFocused();
+	expect(mutations[0]?.kind).toBe("aggregate.upsert");
+	releaseRule();
+	const rename = page.getByRole("dialog", {
+		name: "Change output file",
+		exact: true,
+	});
+	await expect(rename).toBeVisible();
+	await expect(
+		rename.getByRole("button", { name: "Continue", exact: true }),
+	).toBeFocused();
+	await page.keyboard.press("Enter");
+	const cleanup = page.getByRole("dialog", {
+		name: "Previous output file",
+		exact: true,
+	});
+	await expect(cleanup).toBeVisible();
+	const keep = cleanup.getByRole("button", {
+		name: "Keep old file",
+		exact: true,
+	});
+	await keep.focus();
+	await expect(keep).toBeFocused();
+	expect(
+		await keep.evaluate((element) => Boolean(element.closest("[inert]"))),
+	).toBe(false);
+	await page.keyboard.press("Enter");
+	await expect.poll(() => mutations.length).toBe(2);
+	await expect(waiting).toBeVisible();
+	await expect(waiting).toBeFocused();
+	expect(mutations[1]?.kind).toBe("publish-target.upsert");
+	expect((mutations[1]?.payload as JsonRecord).previousFileCleanup).toBe(
+		"keep",
+	);
+	releaseTarget();
+	await expect(waiting).toHaveCount(0);
+	await expect(
+		page.getByText("Published successfully to GitHub Gist", { exact: true }),
+	).toBeVisible();
+	await expect(page.getByLabel("Output File", { exact: true })).toHaveValue(
+		"renamed.txt",
+	);
+	await expect(save).toBeEnabled();
+	expect(mutations.map((mutation) => mutation.kind)).toEqual([
+		"aggregate.upsert",
+		"publish-target.upsert",
+		"aggregate.publish",
+	]);
+});
+
 test("Save and Publish stops when the target draft cannot be persisted", async ({
 	context,
 	page,
@@ -2175,6 +2321,97 @@ test("aggregate publish keeps one mutation across retry, reload, and recovery", 
 	).toBeVisible();
 });
 
+test("client export publication locks the editor until cloud confirmation", async ({
+	context,
+	page,
+}, testInfo) => {
+	const data = clientExportData();
+	const profiles = data.clientExports as JsonRecord[];
+	profiles.push({
+		...structuredClone(profiles[0]),
+		id: "other-export-e2e",
+		name: "Other Client Export",
+		fileName: "other-client.json",
+		lastPublishedAt: null,
+		lastPublishedUrl: null,
+	});
+	await seedIndexedDb(
+		page,
+		persistenceRecord({
+			snapshot: snapshot({ data, gists: [gistMetadata()] }),
+			binding: binding({ baseline: workspaceDocument({ data }) }),
+		}),
+	);
+	await seedAuth(page, { session: "fixture-export-confirmation-token" });
+	let release = () => {};
+	const held = new Promise<void>((resolve) => {
+		release = resolve;
+	});
+	const mutations: JsonRecord[] = [];
+	await context.route("**/api/workspaces/**/mutations", async (route) => {
+		const mutation = route.request().postDataJSON() as JsonRecord;
+		mutations.push(mutation);
+		await held;
+		await fulfillCommitted(route, mutation, data);
+	});
+	await page.goto("/exports");
+	await expect(page.locator(".app-header-link-connected")).toBeVisible();
+	await expect(
+		page.getByText("Generate a current preview before publishing.", {
+			exact: true,
+		}),
+	).toBeVisible();
+	await page.getByRole("button", { name: "Generate Preview" }).click();
+	await page.getByRole("button", { name: "Publish", exact: true }).click();
+	await expect.poll(() => mutations.length).toBe(1);
+	const waiting = page.getByRole("dialog", {
+		name: "Waiting for cloud confirmation...",
+		exact: true,
+	});
+	await expect(waiting).toBeVisible();
+	expect(
+		await page
+			.getByLabel("Listen Port", { exact: true })
+			.evaluate((element) => Boolean(element.closest("[inert]"))),
+	).toBe(true);
+	expect(
+		await page
+			.locator("button.gh-row-main")
+			.filter({ hasText: "Other Client Export" })
+			.evaluate((element) => Boolean(element.closest("[inert]"))),
+	).toBe(true);
+	await page.keyboard.press("Escape");
+	await expect(waiting).toBeVisible();
+	await expect(page.getByText("Published sing-box config")).toHaveCount(0);
+	const liveUrl = `https://gist.githubusercontent.com/e2e/${GIST_ID}/raw/client-e2e.json`;
+	await expect(page.getByText(liveUrl, { exact: true })).toHaveCount(0);
+	await expect(
+		page.getByText(EXISTING_EXPORT_URL, { exact: true }),
+	).toBeVisible();
+	expect(mutations[0]?.kind).toBe("client-export.publish");
+	expect((mutations[0]?.payload as JsonRecord).profileId).toBe("export-e2e");
+	expect(
+		((mutations[0]?.payload as JsonRecord).output as JsonRecord).fileName,
+	).toBe("client-e2e.json");
+	await expect(waiting).toHaveCSS("opacity", "1");
+	await page.screenshot({
+		path: testInfo.outputPath("export-cloud-confirmation.png"),
+	});
+	release();
+	await expect(waiting).toHaveCount(0);
+	await expect(page.getByText("Published sing-box config")).toBeVisible();
+	await expect(page.getByText(liveUrl, { exact: true })).toBeVisible();
+	await page.getByLabel("Listen Port", { exact: true }).fill("2090");
+	await expect(page.getByLabel("Listen Port", { exact: true })).toHaveValue(
+		"2090",
+	);
+	await page.getByRole("button", { name: /Other Client Export/ }).click();
+	await expect(page.getByLabel("File Name", { exact: true })).toHaveValue(
+		"other-client.json",
+	);
+	expect(mutations).toHaveLength(1);
+});
+
 test("client export publication hides its live link until remote commitment", async ({
 	context,
 	page,
@@ -2209,6 +2446,7 @@ test("client export publication hides its live link until remote commitment", as
 	});
 
 	await page.goto("/exports");
+	await expect(page.locator(".app-header-link-connected")).toBeVisible();
 	await expect(
 		page.getByText(EXISTING_EXPORT_URL, { exact: true }),
 	).toBeVisible();
@@ -2227,6 +2465,22 @@ test("client export publication hides its live link until remote commitment", as
 			.getByRole("status")
 			.getByText("Cloud save pending; retrying", { exact: true }),
 	).toBeVisible();
+	await expect(
+		page.getByRole("dialog", {
+			name: "Waiting for cloud confirmation...",
+			exact: true,
+		}),
+	).toHaveCount(0);
+	const syncStatusLink = page.getByRole("link", {
+		name: "View sync status",
+		exact: true,
+	});
+	await expect(syncStatusLink).toBeVisible();
+	expect(
+		await syncStatusLink.evaluate((element) =>
+			Boolean(element.closest("[inert]")),
+		),
+	).toBe(false);
 	await expect(page.getByText("Published sing-box config")).toHaveCount(0);
 	await expect(
 		page.getByText(EXISTING_EXPORT_URL, { exact: true }),

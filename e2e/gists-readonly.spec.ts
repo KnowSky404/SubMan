@@ -12,7 +12,7 @@ for (const variant of [
 	test(`Gists stays read-only while viewing and refreshing all file kinds (${variant.name})`, async ({
 		page,
 		context,
-	}) => {
+	}, testInfo) => {
 		await page.setViewportSize(variant);
 		const errors: string[] = [];
 		const writes: string[] = [];
@@ -71,7 +71,11 @@ for (const variant of [
 		await expect(page).toHaveURL(/\/gists$/);
 		await expect(page).toHaveTitle("Gists - SubMan");
 		await expect(page.locator(".app-header-link-connected")).toBeVisible();
-		const main = page.getByRole("main");
+		const main = page.locator("main");
+		await expect(main.locator(".gh-box.shadow-sm")).toHaveAttribute(
+			"aria-busy",
+			"false",
+		);
 		await expect(main.getByRole("heading", { name: "Gists" })).toBeVisible();
 		await expect(
 			main.getByText(variant.locale === "en" ? "Read-only" : "只读", {
@@ -116,15 +120,50 @@ for (const variant of [
 			"data-copied-url",
 			rawUrl,
 		);
-		await Promise.all([
-			page.waitForResponse(gistUrl),
-			main
-				.getByRole("button", {
-					name: variant.locale === "en" ? "Refresh" : "刷新",
-					exact: true,
-				})
-				.click(),
-		]);
+		let release = () => {};
+		const held = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		let requests = 0;
+		await context.route(gistUrl, async (route) => {
+			requests += 1;
+			await held;
+			await route.fallback();
+		});
+		await main
+			.getByRole("button", {
+				name: variant.locale === "en" ? "Refresh" : "刷新",
+				exact: true,
+			})
+			.click();
+		const waiting = page.getByRole("dialog", {
+			name:
+				variant.locale === "en"
+					? "Loading workspace files..."
+					: "正在加载工作区文件...",
+			exact: true,
+		});
+		await expect(waiting).toBeVisible();
+		await expect(waiting).toHaveAttribute("aria-busy", "true");
+		await expect(main.locator(".gh-box.shadow-sm")).toHaveAttribute(
+			"aria-busy",
+			"true",
+		);
+		await page.keyboard.press("Escape");
+		await expect(waiting).toBeVisible();
+		await expect(waiting).toHaveCSS("opacity", "1");
+		await page.screenshot({
+			path: testInfo.outputPath("gists-refresh-loading.png"),
+		});
+		release();
+		await expect(waiting).toHaveCount(0);
+		await expect(
+			main.getByRole("button", {
+				name: variant.locale === "en" ? "Refresh" : "刷新",
+				exact: true,
+			}),
+		).toBeEnabled();
+		expect(requests).toBe(1);
 		await expect(main.locator(".gh-box-row")).toHaveCount(5);
 		await expect(main.getByRole("button")).toHaveCount(6);
 		expect(

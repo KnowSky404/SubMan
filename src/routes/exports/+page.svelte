@@ -86,6 +86,12 @@ $: selectedProfile =
 $: selectedRule =
 	$appState.aggregates.find((rule) => rule.id === selectedProfile?.ruleId) ??
 	null;
+$: if (
+	selectedProfile &&
+	syncedDraftProfileSignature !== getProfileDraftSignature(selectedProfile)
+) {
+	syncDraftFromProfile(selectedProfile);
+}
 $: profileCount = $appState.clientExports.length;
 $: canCreateProfile = !!firstRule;
 $: ruleOptions = $appState.aggregates.map((rule) => ({
@@ -157,13 +163,6 @@ $: publicationHint = !selectedProfile
 $: publishedUrl = selectedProfileId
 	? getCommittedClientExportUrl(selectedProfileId, $appState)
 	: null;
-
-$: if (
-	selectedProfile &&
-	syncedDraftProfileSignature !== getProfileDraftSignature(selectedProfile)
-) {
-	syncDraftFromProfile(selectedProfile);
-}
 
 function getProfileDraftSignature(profile: ClientExportProfile): string {
 	return JSON.stringify({
@@ -419,16 +418,20 @@ async function downloadPreview(): Promise<void> {
 async function publishPreview(): Promise<void> {
 	const token = $authState.token;
 	const gistId = $appState.activeGistId;
-	if (!token || !gistId || !selectedProfile) return;
+	const profile = selectedProfile;
+	const rule = selectedRule;
+	const state = $appState;
+	if (!token || !gistId || !profile || publishing) return;
+	const profileId = profile.id;
+	const fileName = normalizeExportFileName(profile.fileName);
 
 	publishing = true;
 	try {
-		const profileId = selectedProfile.id;
 		const publicationBuild = await buildSingBoxClientConfig(
-			selectedProfile,
-			selectedRule,
-			$appState.nodes,
-			$appState.subscriptions,
+			profile,
+			rule,
+			state.nodes,
+			state.subscriptions,
 		);
 		if (
 			publicationBuild.errors.length > 0 ||
@@ -443,7 +446,7 @@ async function publishPreview(): Promise<void> {
 			payload: {
 				profileId,
 				output: {
-					fileName: normalizeExportFileName(selectedProfile.fileName),
+					fileName,
 					content: publicationBuild.content,
 				},
 			},

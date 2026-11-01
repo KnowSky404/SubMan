@@ -8,6 +8,7 @@ import { navigationIndicator } from "$lib/actions/navigation-indicator";
 import { tooltip } from "$lib/actions/tooltip";
 import Dialog from "$lib/components/Dialog.svelte";
 import Octicon from "$lib/components/Octicon.svelte";
+import WorkspaceOperationProgress from "$lib/components/WorkspaceOperationProgress.svelte";
 import { t } from "$lib/i18n";
 import {
 	alert,
@@ -436,6 +437,8 @@ onMount(() => {
 			</div>
 		{/each}
 	</div>
+
+ <WorkspaceOperationProgress />
 
  {#if $confirmDialog.open}
   <Dialog labelledby="confirm-dialog-title" closeLabel={$t("Close dialog")} onclose={() => resolveConfirm(false)} initialFocus="[data-confirm]" className="max-w-md" mobileSheet={false}>

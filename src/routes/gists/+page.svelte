@@ -26,6 +26,7 @@ import {
 	type WorkspaceFileKind,
 } from "$lib/workspace-file-inventory";
 import { requireWorkspaceIdentity } from "$lib/workspace-identity";
+import { withWorkspaceOperation } from "$lib/workspace-operation-progress";
 import {
 	getBrowserWorkspaceBinding,
 	initializeBrowserWorkspacePersistence,
@@ -80,16 +81,18 @@ function workspaceFailureMessage(error: unknown, fallback: string): string {
 
 async function refreshWorkspace() {
 	const token = $authState.token;
-	if (!token) return;
+	if (!token || loading) return;
 
 	loading = true;
 	try {
-		await initializeBrowserWorkspacePersistence();
-		const identity = requireWorkspaceIdentity(
-			$appState,
-			getBrowserWorkspaceBinding(),
-		);
-		workspace = await getGist(token, identity.gistId);
+		await withWorkspaceOperation(async () => {
+			await initializeBrowserWorkspacePersistence();
+			const identity = requireWorkspaceIdentity(
+				$appState,
+				getBrowserWorkspaceBinding(),
+			);
+			workspace = await getGist(token, identity.gistId);
+		}, "Loading workspace files...");
 	} catch (error) {
 		setStatus(workspaceFailureMessage(error, "Failed to fetch"), "error");
 	} finally {
@@ -131,7 +134,7 @@ onMount(() => {
 				{/if}
 			</div>
 		{/if}
-		<div class="gh-box shadow-sm">
+		<div class="gh-box shadow-sm" aria-busy={loading}>
 			<div class="gh-box-header">
 				<div class="flex items-center gap-2">
 					<Octicon icon={code} className="h-4 w-4" />

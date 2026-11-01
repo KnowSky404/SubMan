@@ -98,9 +98,9 @@ test("edit stays open and busy until the original cloud mutation is confirmed", 
 		"true",
 	);
 	await expect(dialog.locator(".gh-action-button")).toBeDisabled();
-	await expect(
-		dialog.getByRole("textbox", { name: "Name", exact: true }),
-	).toHaveValue("Cloud-confirmed edit");
+	await expect(dialog.getByLabel("Name", { exact: true })).toHaveValue(
+		"Cloud-confirmed edit",
+	);
 	await expect(
 		page.getByRole("status").filter({ hasText: "Node updated" }),
 	).toHaveCount(0);
@@ -278,6 +278,7 @@ test("automatic theme follows the OS while explicit light mode stays fixed", asy
 		"rgb(13, 17, 23)",
 	);
 	await page.reload();
+	await expect(page.locator(".app-header-link-connected")).toBeVisible();
 	await expect(page.locator("body")).toHaveCSS(
 		"background-color",
 		"rgb(13, 17, 23)",

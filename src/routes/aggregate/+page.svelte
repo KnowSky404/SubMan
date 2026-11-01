@@ -708,21 +708,19 @@ async function deleteRule(): Promise<void> {
 async function publishSaved(): Promise<void> {
 	const token = $authState.token;
 	const gistId = $appState.activeGistId;
-	if (!token || !gistId || !selectedTargetId) return;
+	const targetId = selectedTargetId;
+	const state = $appState;
+	if (!token || !gistId || !targetId || publishing) return;
 
 	publishing = true;
 	try {
-		const target = $appState.publishTargets.find(
-			(item) => item.id === selectedTargetId,
-		);
-		const rule = $appState.aggregates.find(
-			(item) => item.id === target?.ruleId,
-		);
+		const target = state.publishTargets.find((item) => item.id === targetId);
+		const rule = state.aggregates.find((item) => item.id === target?.ruleId);
 		if (!target || !rule) throw new Error("Publish target not found");
 		const output = await buildAggregateOutput(
 			rule,
-			$appState.nodes,
-			$appState.subscriptions,
+			state.nodes,
+			state.subscriptions,
 		);
 		if (output.errors.length > 0) {
 			throw new Error(output.errors[0] ?? "Publish failed");
@@ -742,9 +740,8 @@ async function publishSaved(): Promise<void> {
 		if (!presentation.remoteCommitted || result.status !== "remote-committed")
 			return;
 		publishUrl =
-			result.state.publishTargets.find(
-				(target) => target.id === selectedTargetId,
-			)?.lastPublishedUrl ?? null;
+			result.state.publishTargets.find((target) => target.id === targetId)
+				?.lastPublishedUrl ?? null;
 		if (output.subscriptionIssues.length > 0) {
 			showToast(
 				$t(
@@ -775,7 +772,7 @@ async function publish(): Promise<void> {
 }
 
 async function saveAndPublish(): Promise<void> {
-	if (!isWorkspaceConnected) return;
+	if (!isWorkspaceConnected || publishing) return;
 	publishing = true;
 	try {
 		if (ruleDirty) {
