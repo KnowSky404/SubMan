@@ -102,23 +102,28 @@ test("mobile navigation reveals settings and keeps the selected page visible", a
 	await seedUiWorkspace(page, context);
 	await page.goto("/");
 	await expect(page.locator(".app-header-link-connected")).toBeVisible();
+	const navigation = page.getByRole("navigation", { name: "Primary" });
+	const scroll = page.locator(".app-nav-scroll");
 	for (let attempt = 0; attempt < 4; attempt++) {
-		const more = page.getByRole("button", {
-			name: "More navigation items",
-			exact: true,
-		});
-		if (!(await more.count())) break;
-		const previous = await page
-			.locator("nav")
-			.evaluate((node) => node.scrollLeft);
-		await more.click();
+		const previous = await navigation.evaluate((node) => ({
+			left: node.scrollLeft,
+			remaining: node.scrollWidth - node.clientWidth - node.scrollLeft,
+		}));
+		if (previous.remaining <= 1) break;
+		await expect(scroll).toHaveAttribute("aria-label", "More navigation items");
+		await scroll.click();
 		await expect
-			.poll(() => page.locator("nav").evaluate((node) => node.scrollLeft))
-			.toBeGreaterThan(previous);
+			.poll(() => navigation.evaluate((node) => node.scrollLeft))
+			.toBeGreaterThan(previous.left);
+		const atEnd = await navigation.evaluate(
+			(node) => node.scrollWidth - node.clientWidth - node.scrollLeft <= 1,
+		);
+		await expect(scroll).toHaveAttribute(
+			"aria-label",
+			atEnd ? "Previous navigation items" : "More navigation items",
+		);
 	}
-	const settings = page
-		.getByRole("navigation", { name: "Primary" })
-		.getByRole("link", { name: "Settings" });
+	const settings = navigation.getByRole("link", { name: "Settings" });
 	await expect(settings).toBeInViewport({ ratio: 1 });
 	await settings.click();
 	await expect(page).toHaveURL(/\/auth$/);
@@ -219,6 +224,11 @@ test("Gist filenames expose real raw links and accessible icon labels", async ({
 	await seedUiWorkspace(page, context);
 	await page.goto("/gists");
 	await expect(page.locator(".app-header-link-connected")).toBeVisible();
+	await expect(page.locator(".gh-box.shadow-sm")).toHaveAttribute(
+		"aria-busy",
+		"false",
+	);
+	await expect(page.getByRole("dialog")).toHaveCount(0);
 	await expect(
 		page.getByRole("link", { name: "subman.json · Open Raw" }),
 	).toHaveAttribute(
@@ -227,6 +237,7 @@ test("Gist filenames expose real raw links and accessible icon labels", async ({
 	);
 	const copy = page.getByRole("button", { name: "Copy Raw URL", exact: true });
 	await copy.focus();
+	await expect(copy).toBeFocused();
 	await expect(page.getByRole("tooltip")).toHaveText("Copy Raw URL");
 });
 

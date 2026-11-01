@@ -18,6 +18,8 @@ production deployment and real-provider acceptance require separate evidence.
 - Capture the publication profile, target, and filename before asynchronous
   generation so the result stays attached to the original operation. Initialize
   export drafts before checking for unsaved changes on first load.
+- Wait for Gist refresh completion before exercising file actions in browser
+  tests, and keep navigation tests stable while the scroll button label changes.
 
 ### 2026-10-31 - Explicit device reset and fresh connection
 
