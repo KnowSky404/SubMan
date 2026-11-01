@@ -20,6 +20,7 @@ export type ServerWorkspace = {
 	gist: GistMeta;
 	workspaceId: string;
 	revision: number;
+	resetRevision?: number;
 	data: WorkspaceData;
 };
 
@@ -86,6 +87,10 @@ export async function loadServerWorkspace(
 			gist,
 			workspaceId,
 			revision: parsed.schemaVersion === 2 ? parsed.document.revision : 0,
+			...(parsed.schemaVersion === 2 &&
+			parsed.document.resetRevision !== undefined
+				? { resetRevision: parsed.document.resetRevision }
+				: {}),
 			data: selectWorkspaceData(parsed.document.data),
 		};
 	} catch (error) {
@@ -110,12 +115,20 @@ export function createServerMutationIdentity(
 	clock: ServerMutationClock = defaultClock,
 ): Pick<
 	WorkspaceMutation,
-	"mutationId" | "workspaceId" | "expectedRevision" | "source" | "createdAt"
+	| "mutationId"
+	| "workspaceId"
+	| "expectedRevision"
+	| "expectedResetRevision"
+	| "source"
+	| "createdAt"
 > {
 	return {
 		mutationId: clock.id(),
 		workspaceId: workspace.workspaceId,
 		expectedRevision: workspace.revision,
+		...(workspace.resetRevision === undefined
+			? {}
+			: { expectedResetRevision: workspace.resetRevision }),
 		source: "server-api",
 		createdAt: clock.now(),
 	};

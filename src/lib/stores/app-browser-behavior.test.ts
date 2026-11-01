@@ -767,3 +767,245 @@ test("a stale browser cache rebases one business intent onto the latest IndexedD
 	expect(stored.quarantines).toEqual([]);
 	runtime.setBrowserWorkspacePersistenceForTest(null);
 });
+
+async function resetActionHarness() {
+	Object.defineProperty(globalThis, "localStorage", {
+		configurable: true,
+		value: new FailingStorage(),
+	});
+	Object.defineProperty(globalThis, "sessionStorage", {
+		configurable: true,
+		value: new FailingStorage(),
+	});
+	Object.defineProperty(globalThis, "document", {
+		configurable: true,
+		value: { documentElement: { lang: "" } },
+	});
+	const [
+		workspaceData,
+		stateModule,
+		persistenceModule,
+		runtime,
+		appStore,
+		authStore,
+		cloudStatus,
+		mutations,
+	] = await Promise.all([
+		import("$lib/workspace-data"),
+		import("$lib/workspace-v2-state"),
+		import("$lib/workspace-persistence"),
+		import("$lib/workspace-persistence-browser"),
+		import("$lib/stores/app"),
+		import("$lib/stores/auth"),
+		import("$lib/workspace-cloud-status"),
+		import("$lib/workspace-mutation"),
+	]);
+	const baseline: WorkspaceDocumentV2 = {
+		version: 2,
+		schemaVersion: 2,
+		workspaceId: WORKSPACE_ID,
+		revision: 0,
+		updatedAt: NOW,
+		lastMutationId: null,
+		data: {
+			nodes: [],
+			subscriptions: [],
+			aggregates: [],
+			publishTargets: [],
+			clientExports: [],
+		},
+		tombstones: {
+			nodes: [],
+			subscriptions: [],
+			aggregates: [],
+			publishTargets: [],
+			clientExports: [],
+		},
+	};
+	const record = persistenceModule.createEmptyWorkspacePersistenceRecord();
+	const initial = stateModule.hydrateAppStateFromWorkspaceDocument(
+		workspaceData.createDefaultWorkspaceState(NOW),
+		baseline,
+		GIST_ID,
+	);
+	record.snapshot = initial;
+	record.binding = stateModule.createWorkspaceV2LocalState(GIST_ID, {
+		baseline,
+	});
+	const persistence = new persistenceModule.InMemoryWorkspacePersistence(
+		record,
+	);
+	runtime.setBrowserWorkspacePersistenceForTest(persistence);
+	await appStore.initializeAppStatePersistence();
+	authStore.authState.update((state) => ({
+		...state,
+		token: "reset-intent-fixture-token",
+	}));
+	cloudStatus.workspaceCloudStatus.set({ phase: "ready", message: null });
+	const resetDocument = mutations.applyWorkspaceMutation(
+		baseline,
+		{
+			mutationId: "f0000000-0000-4000-8000-000000000010",
+			workspaceId: WORKSPACE_ID,
+			expectedRevision: 0,
+			source: "browser",
+			createdAt: NOW,
+			kind: "workspace.reset",
+			payload: {},
+		},
+		{ committedAt: NOW, gist: { id: GIST_ID, files: [] } },
+	).document;
+	const resetSnapshot = stateModule.hydrateAppStateFromWorkspaceDocument(
+		initial,
+		resetDocument,
+		GIST_ID,
+	);
+	const resetBinding = stateModule.createWorkspaceV2LocalState(GIST_ID, {
+		baseline: resetDocument,
+	});
+	return {
+		appStore,
+		persistence,
+		persistenceModule,
+		runtime,
+		resetDocument,
+		applyPeerReset: () =>
+			persistence.rebindWorkspace({
+				snapshot: resetSnapshot,
+				binding: resetBinding,
+			}),
+	};
+}
+
+function unseenResetNode(id: string) {
+	return {
+		id,
+		name: "Never uploaded before reset",
+		type: "vless" as const,
+		raw: `vless://${id}`,
+		tags: [],
+		enabled: true,
+		updatedAt: NOW,
+		source: "single" as const,
+	};
+}
+
+for (const refreshCache of [false, true]) {
+	test(`accepted new-node intents cannot cross reset before serialization with a ${refreshCache ? "refreshed" : "stale"} cache`, async () => {
+		const harness = await resetActionHarness();
+		const { appStore, persistence, runtime } = harness;
+		let releaseRead = () => {};
+		const readGate = new Promise<void>((resolve) => {
+			releaseRead = resolve;
+		});
+		let firstReadArrived = () => {};
+		const readStarted = new Promise<void>((resolve) => {
+			firstReadArrived = resolve;
+		});
+		const originalRead = persistence.read.bind(persistence);
+		let gateNextRead = true;
+		persistence.read = async () => {
+			if (gateNextRead) {
+				gateNextRead = false;
+				firstReadArrived();
+				await readGate;
+			}
+			return originalRead();
+		};
+		let commitCount = 0;
+		const originalCommit = persistence.commitAutomaticAction.bind(persistence);
+		persistence.commitAutomaticAction = async (input) => {
+			commitCount += 1;
+			return originalCommit(input);
+		};
+		let requestCount = 0;
+		const originalFetch = globalThis.fetch;
+		globalThis.fetch = (async () => {
+			requestCount += 1;
+			throw new Error("Unexpected delivery of a pre-reset intent");
+		}) as typeof fetch;
+		const actions: ReturnType<typeof appStore.upsertNode>[] = [];
+		try {
+			// The first accepted action holds serialization before either intent persists.
+			actions.push(
+				appStore.upsertNode(
+					unseenResetNode("f0000000-0000-4000-8000-000000000011"),
+				),
+			);
+			actions.push(
+				appStore.upsertNode(
+					unseenResetNode("f0000000-0000-4000-8000-000000000012"),
+				),
+			);
+			expect(actions.map((action) => action.submitted)).toEqual([true, true]);
+			await readStarted;
+			await harness.applyPeerReset();
+			if (refreshCache) await runtime.refreshBrowserWorkspacePersistence();
+			expect(
+				runtime.getBrowserWorkspaceBinding()?.baseline?.resetRevision ?? 0,
+			).toBe(refreshCache ? 1 : 0);
+			expect(harness.resetDocument.tombstones.nodes).toEqual([]);
+			releaseRead();
+			for (const action of actions) {
+				const result = await action.completion;
+				expect(result.status).toBe("rejected-before-durable-commit");
+				expect("code" in result ? result.code : null).toBe("concurrent-update");
+			}
+			const stored = await persistence.read();
+			expect(stored.binding?.baseline?.resetRevision).toBe(1);
+			expect(stored.snapshot?.nodes).toEqual([]);
+			expect(stored.workspaces).toEqual({});
+			expect(stored.quarantines).toEqual([]);
+			expect(commitCount).toBe(0);
+			expect(requestCount).toBe(0);
+		} finally {
+			releaseRead();
+			await Promise.all(actions.map((action) => action.completion));
+			globalThis.fetch = originalFetch;
+			runtime.setBrowserWorkspacePersistenceForTest(null);
+		}
+	});
+}
+
+test("an automatic CAS retry rejects a new-node intent when reset changes the generation", async () => {
+	const harness = await resetActionHarness();
+	const { appStore, persistence, persistenceModule, runtime } = harness;
+	const originalCommit = persistence.commitAutomaticAction.bind(persistence);
+	let commitCount = 0;
+	persistence.commitAutomaticAction = async (input) => {
+		commitCount += 1;
+		if (commitCount === 1) {
+			await harness.applyPeerReset();
+			throw new persistenceModule.WorkspaceConcurrentUpdateError();
+		}
+		return originalCommit(input);
+	};
+	let requestCount = 0;
+	const originalFetch = globalThis.fetch;
+	globalThis.fetch = (async () => {
+		requestCount += 1;
+		throw new Error(
+			"Unexpected delivery after crossing reset during CAS retry",
+		);
+	}) as typeof fetch;
+	try {
+		const action = appStore.upsertNode(
+			unseenResetNode("f0000000-0000-4000-8000-000000000013"),
+		);
+		expect(action.submitted).toBe(true);
+		const result = await action.completion;
+		expect(result.status).toBe("rejected-before-durable-commit");
+		expect("code" in result ? result.code : null).toBe("concurrent-update");
+		const stored = await persistence.read();
+		expect(stored.binding?.baseline?.resetRevision).toBe(1);
+		expect(stored.binding?.baseline?.tombstones.nodes).toEqual([]);
+		expect(stored.snapshot?.nodes).toEqual([]);
+		expect(stored.workspaces).toEqual({});
+		expect(stored.quarantines).toEqual([]);
+		expect(commitCount).toBe(1);
+		expect(requestCount).toBe(0);
+	} finally {
+		globalThis.fetch = originalFetch;
+		runtime.setBrowserWorkspacePersistenceForTest(null);
+	}
+});

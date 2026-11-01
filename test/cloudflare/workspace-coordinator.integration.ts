@@ -6,10 +6,321 @@ import { SqlWorkspaceCoordinatorJournal } from "../../src/lib/server/workspace-c
 import {
 	hashWorkspaceSource,
 	serializeWorkspaceDocumentV2,
+	type WorkspaceDocumentV2,
 } from "../../src/lib/workspace-document";
 import type { WorkspaceMutation } from "../../src/lib/workspace-mutation";
 
+function cloudResetFixture(gistId: string) {
+	const now = "2026-11-01T10:00:00.000Z";
+	const document: WorkspaceDocumentV2 = {
+		version: 2,
+		schemaVersion: 2,
+		workspaceId: `gist:${gistId}`,
+		revision: 1,
+		updatedAt: now,
+		lastMutationId: null,
+		data: {
+			nodes: [
+				{
+					id: "existing-node",
+					name: "Existing",
+					type: "vless",
+					raw: "vless://existing",
+					tags: [],
+					enabled: true,
+					updatedAt: now,
+					source: "single",
+				},
+			],
+			subscriptions: [],
+			aggregates: [
+				{
+					id: "existing-rule",
+					name: "Existing rule",
+					nodeIds: ["existing-node"],
+					subscriptionIds: [],
+					excludeTagIds: [],
+					renameMap: {},
+					allowedTypes: [],
+					updatedAt: now,
+				},
+			],
+			publishTargets: [
+				{
+					id: "existing-target",
+					name: "Existing target",
+					ruleId: "existing-rule",
+					fileName: "published.txt",
+					description: "",
+					isPublic: false,
+					lastPublishedAt: now,
+					lastPublishedUrl: `https://gist.githubusercontent.com/owner/${gistId}/raw/published.txt`,
+					lastPublishTransitionAt: null,
+					lastPublishTransitionFromFileName: null,
+					lastPublishTransitionToFileName: null,
+					lastPublishTransitionOutcome: null,
+					updatedAt: now,
+				},
+			],
+			clientExports: [],
+		},
+		tombstones: {
+			nodes: [],
+			subscriptions: [],
+			aggregates: [],
+			publishTargets: [],
+			clientExports: [],
+		},
+	};
+	const files: Record<string, string> = {
+		"subman.json": serializeWorkspaceDocumentV2(document),
+		"subman.v1.backup.json": "immutable original backup",
+		"published.txt": "published proxy output",
+		"unknown.txt": "unowned file must remain",
+	};
+	const patches: Array<Record<string, { content: string } | null>> = [];
+	vi.spyOn(globalThis, "fetch").mockImplementation(
+		async (input: RequestInfo | URL, init?: RequestInit) => {
+			if (String(input) !== `https://api.github.com/gists/${gistId}`)
+				throw new Error("Unexpected outbound request");
+			if (init?.method === "PATCH") {
+				const patch = JSON.parse(String(init.body)) as {
+					files: Record<string, { content: string } | null>;
+				};
+				patches.push(patch.files);
+				for (const [name, file] of Object.entries(patch.files)) {
+					if (file) files[name] = file.content;
+					else delete files[name];
+				}
+				return Response.json({ ok: true });
+			}
+			return Response.json({
+				id: gistId,
+				owner: { login: "owner" },
+				files: Object.fromEntries(
+					Object.entries(files).map(([name, content]) => [
+						name,
+						{
+							filename: name,
+							language: "Text",
+							size: content.length,
+							content,
+							truncated: false,
+						},
+					]),
+				),
+			});
+		},
+	);
+	return { document, files, patches };
+}
+
 describe("WorkspaceCoordinator Durable Object", () => {
+	it("resets through RPC without erasing SQLite history and rejects old reset boundaries", async () => {
+		const gistId = "cloud-reset-rpc-sqlite";
+		const { document, files, patches } = cloudResetFixture(gistId);
+		const workspaceId = document.workspaceId;
+		const token = "cloud-reset-rpc-token-must-not-persist";
+		const stub = env.WORKSPACE_COORDINATOR.getByName(workspaceId);
+		const beforeReset = {
+			mutationId: "80000000-0000-4000-8000-000000000030",
+			workspaceId,
+			expectedRevision: 1,
+			source: "browser",
+			createdAt: document.updatedAt,
+			kind: "node.upsert",
+			payload: {
+				operation: "replace",
+				node: {
+					...document.data.nodes[0],
+					id: "before-reset",
+					raw: "vless://before-reset",
+				},
+			},
+		} satisfies WorkspaceMutation;
+		const reset = {
+			mutationId: "80000000-0000-4000-8000-000000000031",
+			workspaceId,
+			expectedRevision: 2,
+			source: "browser",
+			createdAt: document.updatedAt,
+			kind: "workspace.reset",
+			payload: {},
+		} satisfies WorkspaceMutation;
+		try {
+			expect(
+				(await stub.mutate({ gistId, mutation: beforeReset }, token)).ok,
+			).toBe(true);
+			const committed = await stub.mutate({ gistId, mutation: reset }, token);
+			expect(committed).toMatchObject({
+				ok: true,
+				result: {
+					status: "committed",
+					document: {
+						workspaceId,
+						revision: 3,
+						resetRevision: 3,
+						data: {
+							nodes: [],
+							subscriptions: [],
+							aggregates: [],
+							publishTargets: [],
+							clientExports: [],
+						},
+					},
+				},
+			});
+			expect(patches[1]).toMatchObject({ "published.txt": null });
+			expect(Object.keys(patches[1]).sort()).toEqual([
+				"published.txt",
+				"subman.json",
+			]);
+			expect(files["published.txt"]).toBeUndefined();
+			expect(files["unknown.txt"]).toBe("unowned file must remain");
+			expect(files["subman.v1.backup.json"]).toBe("immutable original backup");
+			for (const mutation of [beforeReset, reset]) {
+				expect(await stub.mutate({ gistId, mutation }, token)).toMatchObject({
+					ok: true,
+					result: {
+						status: "already-committed",
+						document: { revision: 3, resetRevision: 3, data: { nodes: [] } },
+					},
+				});
+			}
+			expect(patches).toHaveLength(2);
+			const oldIntent = {
+				...beforeReset,
+				mutationId: "80000000-0000-4000-8000-000000000032",
+				expectedRevision: 3,
+				payload: {
+					operation: "replace",
+					node: {
+						...document.data.nodes[0],
+						id: "never-reached-cloud",
+						raw: "vless://never-reached-cloud",
+					},
+				},
+			} satisfies WorkspaceMutation;
+			expect(
+				await stub.mutate({ gistId, mutation: oldIntent }, token),
+			).toMatchObject({
+				ok: false,
+				error: {
+					code: "revision_conflict",
+					revision: 3,
+					document: { resetRevision: 3 },
+				},
+			});
+			const fresh = {
+				...oldIntent,
+				mutationId: "80000000-0000-4000-8000-000000000033",
+				expectedResetRevision: 3,
+			} satisfies WorkspaceMutation;
+			expect(
+				await stub.mutate({ gistId, mutation: fresh }, token),
+			).toMatchObject({
+				ok: true,
+				result: { document: { revision: 4, resetRevision: 3 } },
+			});
+			expect(patches).toHaveLength(3);
+			await runInDurableObject(
+				stub,
+				async (_instance: WorkspaceCoordinator, state) => {
+					const rows = state.storage.sql
+						.exec<{ mutation_id: string; committed_revision: number }>(
+							"SELECT mutation_id, committed_revision FROM processed_mutations ORDER BY committed_revision",
+						)
+						.toArray();
+					expect(rows).toEqual([
+						{ mutation_id: beforeReset.mutationId, committed_revision: 2 },
+						{ mutation_id: reset.mutationId, committed_revision: 3 },
+						{ mutation_id: fresh.mutationId, committed_revision: 4 },
+					]);
+					expect(
+						state.storage.sql.exec("SELECT * FROM pending_mutations").toArray(),
+					).toEqual([]);
+					expect(
+						JSON.stringify(
+							state.storage.sql
+								.exec("SELECT * FROM processed_mutations")
+								.toArray(),
+						),
+					).not.toContain(token);
+				},
+			);
+		} finally {
+			vi.restoreAllMocks();
+		}
+	});
+
+	it("returns HTTP 409 instead of resetting a revision newer than the confirmed preview", async () => {
+		const gistId = "cloud-reset-stale-http";
+		const { document, files, patches } = cloudResetFixture(gistId);
+		const workspaceId = document.workspaceId;
+		const token = "cloud-reset-http-fixture-token";
+		try {
+			const concurrent = {
+				mutationId: "80000000-0000-4000-8000-000000000034",
+				workspaceId,
+				expectedRevision: 1,
+				source: "browser",
+				createdAt: document.updatedAt,
+				kind: "node.upsert",
+				payload: {
+					operation: "replace",
+					node: {
+						...document.data.nodes[0],
+						id: "concurrent-node",
+						raw: "vless://concurrent",
+					},
+				},
+			} satisfies WorkspaceMutation;
+			expect(
+				(
+					await env.WORKSPACE_COORDINATOR.getByName(workspaceId).mutate(
+						{ gistId, mutation: concurrent },
+						token,
+					)
+				).ok,
+			).toBe(true);
+			const staleReset = {
+				mutationId: "80000000-0000-4000-8000-000000000035",
+				workspaceId,
+				expectedRevision: 1,
+				source: "browser",
+				createdAt: document.updatedAt,
+				kind: "workspace.reset",
+				payload: {},
+			} satisfies WorkspaceMutation;
+			const response = await SELF.fetch(
+				`https://subman.example/api/workspaces/${encodeURIComponent(workspaceId)}/mutations`,
+				{
+					method: "POST",
+					headers: {
+						Authorization: `Bearer ${token}`,
+						"Content-Type": "application/json",
+					},
+					body: JSON.stringify(staleReset),
+				},
+			);
+			expect(response.status).toBe(409);
+			expect(await response.json()).toMatchObject({
+				error: { code: "revision_conflict", disposition: "state-conflict" },
+				revision: 2,
+				document: { revision: 2 },
+			});
+			expect(
+				JSON.parse(files["subman.json"]).data.nodes.map(
+					(node: { id: string }) => node.id,
+				),
+			).toEqual(["concurrent-node", "existing-node"]);
+			expect(files["published.txt"]).toBe("published proxy output");
+			expect(patches).toHaveLength(1);
+		} finally {
+			vi.restoreAllMocks();
+		}
+	});
+
 	it("routes percent-containing external keys through the API authentication boundary", async () => {
 		for (const key of ["vps-100%", "vps%2Fregion"]) {
 			const response = await SELF.fetch(

@@ -77,6 +77,18 @@ function mutation(): WorkspaceMutation {
 }
 
 describe("loadServerWorkspace", () => {
+	it("retains the reset boundary for internal Server API mutations", async () => {
+		const result = await loadServerWorkspace(TOKEN, {
+			ensureWorkspace: async () => ({ gist: gist(), created: false }),
+			getFileContent: async () =>
+				serializeWorkspaceDocumentV2({ ...document(), resetRevision: 3 }),
+		});
+		expect(result.resetRevision).toBe(3);
+		const identity = createServerMutationIdentity(result);
+		expect(identity.expectedRevision).toBe(4);
+		expect(identity.expectedResetRevision).toBe(3);
+	});
+
 	it("loads legacy V1 data at revision zero for coordinator migration", async () => {
 		const state = createDefaultWorkspaceState();
 		state.nodes = document().data.nodes;

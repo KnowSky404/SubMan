@@ -311,6 +311,35 @@ discarded browser cache is never uploaded as business authority. Safe historical
 queue evidence remains in Sync recovery and is never automatically rebound or
 delivered.
 
+## Cloud Data Reset With The Original Connection
+
+Settings **Reset cloud data** requires a ready automatic V2 binding, authentication,
+an idle active queue, and no active delivery lease. It reads the original Gist,
+previews resource counts and file ownership, and requires typed `RESET` confirmation.
+The snapshot, binding, complete queue, and cloud revision are pinned; changed state
+requires a fresh confirmation rather than automatic re-preparation.
+
+The internal browser-only `workspace.reset` mutation clears all five business
+collections and removes only outputs with publication evidence in one coordinator
+Gist PATCH. It retains the original Gist/token/binding, immutable V1 backup,
+external files, earlier tombstones, processed journal, and browser recovery
+evidence. Removed entities gain tombstones; revision continues increasing.
+
+Optional document `resetRevision` records the last reset's committed revision.
+Internal envelopes carry `expectedResetRevision` from the original action's
+baseline; absent fields compare as zero and retain historical hash/serialization
+shape. Ordinary CAS retries, compatibility reconcile, and Server API adapters
+must preserve this boundary. The coordinator rejects a mismatched boundary as
+`revision_conflict`. A historical committed receipt remains recoverable without
+re-executing it. Old queues require explicit complete-queue cloud reload, never
+automatic rebase across reset. Older strict clients must refresh their app.
+
+Only `remote-committed` completes reset. Retry/uncertain results retain the
+original mutation ID; cloud success followed by local acknowledgement failure
+must not create a second reset. Reset does not erase GitHub history or repair
+invalid documents, backup mismatch, or unresolved coordinator pending records.
+See the [accepted specification](archive/specs/2026-11-01-cloud-workspace-reset.md).
+
 ## Leases, Retry, And Upstream Failures
 
 Each Workspace dispatcher acquires a persisted lease with a random owner ID,

@@ -122,11 +122,18 @@ export type WorkspaceDocumentV2 = {
 	schemaVersion: 2;
 	workspaceId: string;
 	revision: number;
+	resetRevision?: number;
 	updatedAt: string;
 	lastMutationId: string | null;
 	data: WorkspaceData;
 	tombstones: WorkspaceTombstones;
 };
+
+export function getWorkspaceResetRevision(
+	document: Pick<WorkspaceDocumentV2, "resetRevision">,
+): number {
+	return document.resetRevision ?? 0;
+}
 
 export type WorkspaceDocumentV1 = {
 	version: 1;
@@ -812,16 +819,21 @@ function parseV2(
 	value: Record<string, unknown>,
 	expectedWorkspaceId?: string,
 ): WorkspaceDocumentV2 {
-	keys(value, "workspace", [
-		"version",
-		"schemaVersion",
-		"workspaceId",
-		"revision",
-		"updatedAt",
-		"lastMutationId",
-		"data",
-		"tombstones",
-	]);
+	keys(
+		value,
+		"workspace",
+		[
+			"version",
+			"schemaVersion",
+			"workspaceId",
+			"revision",
+			"updatedAt",
+			"lastMutationId",
+			"data",
+			"tombstones",
+		],
+		["resetRevision"],
+	);
 	if (value.version !== 2) invalid("version must be 2 for Schema V2");
 	if (value.schemaVersion !== 2) invalid("schemaVersion must be 2");
 	const workspaceId = string(value.workspaceId, "workspaceId");
@@ -832,12 +844,20 @@ function parseV2(
 		);
 	}
 	const revision = integer(value.revision, "revision", { minimum: 0 });
+	const resetRevision =
+		value.resetRevision === undefined
+			? undefined
+			: integer(value.resetRevision, "resetRevision", { minimum: 0 });
+	if (resetRevision !== undefined && resetRevision > revision) {
+		invalid("resetRevision cannot exceed revision");
+	}
 	const data = parseWorkspaceData(value.data);
 	return {
 		version: 2,
 		schemaVersion: 2,
 		workspaceId,
 		revision,
+		...(resetRevision === undefined ? {} : { resetRevision }),
 		updatedAt: timestamp(value.updatedAt, "updatedAt"),
 		lastMutationId:
 			value.lastMutationId === null
@@ -1108,6 +1128,9 @@ export function serializeWorkspaceDocumentV2(
 			schemaVersion: 2,
 			workspaceId: parsed.workspaceId,
 			revision: parsed.revision,
+			...(parsed.resetRevision === undefined
+				? {}
+				: { resetRevision: parsed.resetRevision }),
 			updatedAt: parsed.updatedAt,
 			lastMutationId: parsed.lastMutationId,
 			data,
@@ -1134,5 +1157,8 @@ export function getWorkspaceContentSignature(
 			parsed.revision,
 			data,
 		),
+		...(getWorkspaceResetRevision(parsed) === 0
+			? {}
+			: { resetRevision: parsed.resetRevision }),
 	});
 }

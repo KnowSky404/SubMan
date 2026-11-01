@@ -17,6 +17,7 @@ import {
 	makeUniqueResourceName,
 } from "$lib/resource-dedupe";
 import {
+	getWorkspaceResetRevision,
 	serializeWorkspaceDocumentV2,
 	validateWorkspaceAggregate,
 	validateWorkspaceClientExport,
@@ -39,6 +40,7 @@ import {
 	findWorkspaceOutputConflicts,
 	getConflictingOutputOwners,
 	getWorkspaceOutputOwners,
+	getWorkspaceResetOutputFileNames,
 	isCurrentClientExportOutputPublished,
 	isCurrentPublishTargetOutputPublished,
 } from "$lib/workspace-output";
@@ -61,6 +63,7 @@ type MutationBase<Kind extends string, Payload> = {
 	mutationId: string;
 	workspaceId: string;
 	expectedRevision: number;
+	expectedResetRevision?: number;
 	source: WorkspaceMutationSource;
 	createdAt: string;
 	kind: Kind;
@@ -119,6 +122,7 @@ export type WorkspaceMutation =
 	  >
 	| MutationBase<"output.delete", { fileName: string }>
 	| MutationBase<"workspace.bootstrap.cleanup", Record<string, never>>
+	| MutationBase<"workspace.reset", Record<string, never>>
 	| MutationBase<"workspace.migrate", { sourceSha256: string }>
 	| MutationBase<
 			"workspace.reconcile",
@@ -514,21 +518,27 @@ const MUTATION_KINDS = new Set<WorkspaceMutation["kind"]>([
 	"client-export.publish",
 	"output.delete",
 	"workspace.bootstrap.cleanup",
+	"workspace.reset",
 	"workspace.migrate",
 	"workspace.reconcile",
 ]);
 
 function parseWorkspaceMutationShape(inputValue: unknown): WorkspaceMutation {
 	const input = record(inputValue, "mutation");
-	exactKeys(input, "mutation", [
-		"mutationId",
-		"workspaceId",
-		"expectedRevision",
-		"source",
-		"createdAt",
-		"kind",
-		"payload",
-	]);
+	exactKeys(
+		input,
+		"mutation",
+		[
+			"mutationId",
+			"workspaceId",
+			"expectedRevision",
+			"source",
+			"createdAt",
+			"kind",
+			"payload",
+		],
+		["expectedResetRevision"],
+	);
 	const mutationId = documentValue(() =>
 		validateWorkspaceUuid(input.mutationId, "mutationId"),
 	);
@@ -537,6 +547,16 @@ function parseWorkspaceMutationShape(inputValue: unknown): WorkspaceMutation {
 		input.expectedRevision,
 		"expectedRevision",
 	);
+	const expectedResetRevision =
+		input.expectedResetRevision === undefined
+			? undefined
+			: safeRevision(input.expectedResetRevision, "expectedResetRevision");
+	if (
+		expectedResetRevision !== undefined &&
+		expectedResetRevision > expectedRevision
+	) {
+		invalid("expectedResetRevision cannot exceed expectedRevision");
+	}
 	const sourceValue = nonempty(input.source, "source");
 	if (sourceValue !== "browser" && sourceValue !== "server-api") {
 		invalid(`source is unsupported: ${sourceValue}`);
@@ -558,6 +578,7 @@ function parseWorkspaceMutationShape(inputValue: unknown): WorkspaceMutation {
 		mutationId,
 		workspaceId,
 		expectedRevision,
+		...(expectedResetRevision === undefined ? {} : { expectedResetRevision }),
 		source,
 		createdAt,
 	};
@@ -695,7 +716,8 @@ function parseWorkspaceMutationShape(inputValue: unknown): WorkspaceMutation {
 				invalid("payload.sourceSha256 must be a SHA-256 hash");
 			return { ...base, kind, payload: { sourceSha256 } };
 		}
-		case "workspace.bootstrap.cleanup": {
+		case "workspace.bootstrap.cleanup":
+		case "workspace.reset": {
 			const payload = record(input.payload, "payload");
 			exactKeys(payload, "payload", []);
 			return { ...base, kind, payload: {} };
@@ -1156,6 +1178,14 @@ export function applyWorkspaceMutation(
 		fail(
 			"revision_conflict",
 			`Expected revision ${mutation.expectedRevision}, found ${current.revision}`,
+		);
+	}
+	if (
+		(mutation.expectedResetRevision ?? 0) !== getWorkspaceResetRevision(current)
+	) {
+		fail(
+			"revision_conflict",
+			"Workspace was reset after this change was prepared",
 		);
 	}
 	const nextRevision = current.revision + 1;
@@ -1659,6 +1689,38 @@ export function applyWorkspaceMutation(
 			receipt = { kind: mutation.kind, deleted: true };
 			break;
 		}
+		case "workspace.reset": {
+			files = Object.fromEntries(
+				getWorkspaceResetOutputFileNames(data).map((fileName) => [
+					fileName,
+					null,
+				]),
+			);
+			for (const collection of Object.keys(data) as EntityCollection[]) {
+				// Validated documents already exclude overlapping live and deleted IDs.
+				tombstones = {
+					...tombstones,
+					[collection]: [
+						...tombstones[collection],
+						...data[collection].map((item) => ({
+							id: item.id,
+							deletedAt: committedAt,
+							deletedRevision: nextRevision,
+							mutationId: mutation.mutationId,
+						})),
+					],
+				};
+			}
+			data = {
+				nodes: [],
+				subscriptions: [],
+				aggregates: [],
+				publishTargets: [],
+				clientExports: [],
+			};
+			receipt = { kind: mutation.kind, deleted: true };
+			break;
+		}
 		case "workspace.reconcile": {
 			const requested = mutation.payload.data;
 			const resolved: WorkspaceData = {
@@ -1763,7 +1825,9 @@ export function applyWorkspaceMutation(
 	reconcileChangedValueLimits(current.data, data);
 	assertEntityCountGrowth(current.data, data);
 	const nextDocument = finalize(
-		current,
+		mutation.kind === "workspace.reset"
+			? { ...current, resetRevision: nextRevision }
+			: current,
 		mutation,
 		data,
 		tombstones,

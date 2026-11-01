@@ -33,6 +33,7 @@ import {
 	type WorkspaceResetExpectation,
 } from "$lib/workspace-persistence";
 import {
+	getBrowserWorkspaceBinding,
 	getBrowserWorkspacePersistence,
 	initializeBrowserWorkspacePersistence,
 	refreshBrowserWorkspacePersistence,
@@ -64,6 +65,7 @@ export type BrowserWorkspaceSnapshot = {
 
 type BrowserWorkspaceSessionDependencies = {
 	persistence?: BrowserWorkspacePersistence;
+	getBinding?: () => WorkspaceV2LocalState | null;
 	getState?: () => AppState;
 	setState?: (state: AppState) => void;
 	fetchImpl?: typeof fetch;
@@ -378,6 +380,9 @@ function mutationDraft(
 			: crypto.randomUUID(),
 		workspaceId: binding.workspaceId,
 		expectedRevision: binding.revision ?? 0,
+		...(binding.baseline?.resetRevision !== undefined
+			? { expectedResetRevision: binding.baseline.resetRevision }
+			: {}),
 		source: "browser",
 		createdAt: (dependencies.now ?? (() => new Date().toISOString()))(),
 		kind,
@@ -689,6 +694,14 @@ export async function persistBrowserWorkspaceSnapshot(
 	if (record.binding && record.binding.gistId !== gistId) {
 		throw new WorkspaceBindingLockedError();
 	}
+	if (
+		record.binding?.baseline &&
+		(snapshot.document.revision < (record.binding.revision ?? 0) ||
+			(snapshot.document.resetRevision ?? 0) <
+				(record.binding.baseline.resetRevision ?? 0))
+	) {
+		throw new WorkspaceConcurrentUpdateError();
+	}
 	const binding = createWorkspaceV2LocalState(gistId, {
 		baseline: snapshot.document,
 		syncMode,
@@ -746,6 +759,17 @@ async function reconcileBrowserWorkspaceInternal(
 	let record = await readPersistence(dependencies, persistence);
 	if (record.binding && record.binding.workspaceId !== workspaceId) {
 		throw new WorkspaceBindingLockedError();
+	}
+	const originalResetRevision = baseline.resetRevision ?? 0;
+	const localIntentBaseline =
+		record.binding?.conflictBaseline ?? record.binding?.baseline;
+	if (
+		localIntentBaseline &&
+		(localIntentBaseline.resetRevision ?? 0) !== originalResetRevision
+	) {
+		throw new WorkspaceConcurrentUpdateError(
+			"Cloud Workspace was reset. Reload from Cloud before retrying this action.",
+		);
 	}
 	let pending = record.workspaces[workspaceId]?.mutations ?? [];
 	if (
@@ -834,6 +858,11 @@ async function reconcileBrowserWorkspaceInternal(
 			throw new Error("Committed Workspace state is unavailable");
 		}
 		baseline = committed.baseline;
+		if ((baseline.resetRevision ?? 0) !== originalResetRevision) {
+			throw new WorkspaceConcurrentUpdateError(
+				"Cloud Workspace was reset. Reload from Cloud before retrying this action.",
+			);
+		}
 		pending = record.workspaces[workspaceId]?.mutations ?? [];
 		if (pending.length > 0) {
 			throw new Error("Pending Workspace delivery did not settle");
@@ -1025,18 +1054,37 @@ export async function submitBrowserWorkspaceMutation(
 		token: string;
 		kind: WorkspaceMutation["kind"];
 		payload: unknown;
+		expected?: WorkspaceResetExpectation;
+		expectedRevision?: number;
+		expectedResetRevision?: number;
 	},
 	dependencies: BrowserWorkspaceSessionDependencies = {},
 ): Promise<WorkspaceOperationResult> {
 	let mutationId: string | null = null;
 	try {
+		const acceptedBinding =
+			dependencies.getBinding?.() ??
+			(dependencies.persistence ? undefined : getBrowserWorkspaceBinding());
+		let workspaceId: string | null = acceptedBinding?.workspaceId ?? null;
+		let observedResetRevision =
+			input.expectedResetRevision ??
+			(acceptedBinding?.baseline
+				? (acceptedBinding.baseline.resetRevision ?? 0)
+				: undefined);
 		dependencies = await withStateAccess(dependencies);
 		const persistence = await persistenceFor(dependencies);
 		mutationId = dependencies.mutationId
 			? dependencies.mutationId()
 			: crypto.randomUUID();
 		const createdAt = (dependencies.now ?? (() => new Date().toISOString()))();
-		let workspaceId: string | null = null;
+		if (
+			input.kind === "workspace.reset" &&
+			(!input.expected || input.expectedRevision === undefined)
+		) {
+			throw new WorkspaceConcurrentUpdateError(
+				"Prepare and confirm cloud reset before submitting it.",
+			);
+		}
 		for (let attempt = 0; attempt < 2; attempt += 1) {
 			const record = await readPersistence(dependencies, persistence);
 			const binding = record.binding;
@@ -1047,6 +1095,18 @@ export async function submitBrowserWorkspaceMutation(
 				);
 			}
 			workspaceId ??= binding.workspaceId;
+			observedResetRevision ??= binding.baseline.resetRevision ?? 0;
+			const queue = record.workspaces[binding.workspaceId] ?? null;
+			if (
+				(binding.baseline.resetRevision ?? 0) !== observedResetRevision ||
+				(input.expectedRevision !== undefined &&
+					binding.revision !== input.expectedRevision) ||
+				(input.expected &&
+					JSON.stringify({ snapshot: record.snapshot, binding, queue }) !==
+						JSON.stringify(input.expected))
+			) {
+				throw new WorkspaceConcurrentUpdateError();
+			}
 			if (binding.workspaceId !== workspaceId) {
 				return rejectedWorkspaceOperation(
 					new WorkspaceConcurrentUpdateError(),
@@ -1070,6 +1130,10 @@ export async function submitBrowserWorkspaceMutation(
 				mutationId,
 				workspaceId: binding.workspaceId,
 				expectedRevision: binding.revision,
+				...(input.expectedResetRevision !== undefined ||
+				binding.baseline.resetRevision !== undefined
+					? { expectedResetRevision: observedResetRevision }
+					: {}),
 				source: "browser",
 				createdAt,
 				kind: input.kind,
@@ -1077,7 +1141,11 @@ export async function submitBrowserWorkspaceMutation(
 			});
 			const { expectedRevision: _allocatedByPersistence, ...draft } = parsed;
 			try {
-				await persistence.commitExplicitAction({ binding, mutation: draft });
+				await persistence.commitExplicitAction({
+					binding,
+					mutation: draft,
+					expected: input.expected,
+				});
 			} catch (error) {
 				const recovered = await hydrateAfterDurableCommit(
 					dependencies,
@@ -1091,7 +1159,12 @@ export async function submitBrowserWorkspaceMutation(
 						"workspace_explicit_commit_acknowledgement_failed",
 					);
 				}
-				if (error instanceof WorkspaceConcurrentUpdateError && attempt === 0) {
+				if (
+					error instanceof WorkspaceConcurrentUpdateError &&
+					attempt === 0 &&
+					input.kind !== "workspace.reset" &&
+					!input.expected
+				) {
 					continue;
 				}
 				return rejectedWorkspaceOperation(error, mutationId);

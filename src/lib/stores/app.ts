@@ -86,6 +86,9 @@ function createMutationDraft(
 		mutationId: options.mutationId ?? VALIDATION_MUTATION_ID,
 		workspaceId: binding?.workspaceId ?? LOCAL_VALIDATION_WORKSPACE_ID,
 		expectedRevision: binding?.revision ?? 0,
+		...(binding?.baseline?.resetRevision !== undefined
+			? { expectedResetRevision: binding.baseline.resetRevision }
+			: {}),
 		source: "browser",
 		createdAt: options.createdAt ?? VALIDATION_TIMESTAMP,
 		kind,
@@ -177,9 +180,13 @@ function runPreparedWorkspaceAction(
 		createdAt: string,
 	) => PreparedAction,
 ): WorkspaceActionHandle {
+	let acceptedWorkspaceId: string | undefined;
+	let acceptedResetRevision = 0;
 	try {
 		const binding = getBrowserWorkspaceBinding();
 		requireCloudAction(binding);
+		acceptedWorkspaceId = binding?.workspaceId;
+		acceptedResetRevision = binding?.baseline?.resetRevision ?? 0;
 		const preliminary = prepare(get(appState), binding, VALIDATION_TIMESTAMP);
 		createMutationDraft(kind, preliminary.payload, binding);
 	} catch (error) {
@@ -197,6 +204,14 @@ function runPreparedWorkspaceAction(
 					const current = record.snapshot ?? get(appState);
 					if (record.snapshot) appState.set(record.snapshot);
 					const binding = record.binding;
+					if (
+						binding?.workspaceId !== acceptedWorkspaceId ||
+						(binding?.baseline?.resetRevision ?? 0) !== acceptedResetRevision
+					) {
+						throw new WorkspaceConcurrentUpdateError(
+							"Cloud Workspace was reset. Reload from Cloud before retrying this action.",
+						);
+					}
 					const token = requireCloudAction(binding);
 					const queue = binding ? record.workspaces[binding.workspaceId] : null;
 					if (

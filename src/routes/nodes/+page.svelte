@@ -71,7 +71,11 @@ import {
 	type WorkspaceOperationPresentation,
 	type WorkspaceOperationPresentationOptions,
 } from "$lib/workspace-operation-presenter";
-import type { WorkspaceOperationResult } from "$lib/workspace-operation-result";
+import {
+	rejectedWorkspaceOperation,
+	type WorkspaceOperationResult,
+} from "$lib/workspace-operation-result";
+import { getBrowserWorkspaceBinding } from "$lib/workspace-persistence-browser";
 import { workspaceSyncStatus } from "$lib/workspace-sync-status";
 
 let operationFeedback: WorkspaceOperationPresentation | null = null;
@@ -334,6 +338,8 @@ async function handleAdd() {
 		}
 	} else {
 		// Batch Import Logic
+		const batchBinding = getBrowserWorkspaceBinding();
+		const batchResetRevision = batchBinding?.baseline?.resetRevision ?? 0;
 		const lines = batchContent
 			.split("\n")
 			.map((l) => l.trim())
@@ -347,11 +353,31 @@ async function handleAdd() {
 		let failurePresentation: ReturnType<
 			typeof presentWorkspaceOperation
 		> | null = null;
+		function canContinueBatch(): boolean {
+			const currentBinding = getBrowserWorkspaceBinding();
+			if (
+				batchBinding &&
+				currentBinding?.workspaceId === batchBinding.workspaceId &&
+				(currentBinding.baseline?.resetRevision ?? 0) === batchResetRevision
+			)
+				return true;
+			failed++;
+			failurePresentation ??= presentWorkspaceOperation(
+				rejectedWorkspaceOperation(
+					new Error(
+						$t(
+							"Cloud Workspace was reset. Reload from Cloud before retrying this action.",
+						),
+					),
+				),
+			);
+			return false;
+		}
 
 		if (activeTab === "nodes") {
 			const seenRaw = new Set($appState.nodes.map((node) => node.raw.trim()));
 			let importedNames = $appState.nodes.map((node) => node.name);
-			for (const line of lines) {
+			nodeBatch: for (const line of lines) {
 				const nodes = extractSubscriptionNodeLines(line);
 				if (nodes.length === 0) {
 					failed++;
@@ -368,6 +394,7 @@ async function handleAdd() {
 						importedNames,
 						formatResourceNameTimestamp(),
 					);
+					if (!canContinueBatch()) break nodeBatch;
 					const result = await upsertNode({
 						id: createId("node"),
 						name,
@@ -378,11 +405,12 @@ async function handleAdd() {
 						updatedAt: nowIso(),
 						source: "single",
 					}).completion;
+					if (!canContinueBatch()) break nodeBatch;
 					const presentation = presentWorkspaceOperation(result);
 					if (!presentation.finalizeDraft) {
 						failed++;
 						failurePresentation ??= presentation;
-						continue;
+						break nodeBatch;
 					}
 					durablePresentation ??= presentation;
 					seenRaw.add(normalizedRaw);
@@ -424,6 +452,7 @@ async function handleAdd() {
 						importedNames,
 						formatResourceNameTimestamp(),
 					);
+					if (!canContinueBatch()) break;
 					const result = await upsertSubscription({
 						id: createId("sub"),
 						name,
@@ -432,11 +461,12 @@ async function handleAdd() {
 						tags: reconcileTags(batchTags),
 						updatedAt: nowIso(),
 					}).completion;
+					if (!canContinueBatch()) break;
 					const presentation = presentWorkspaceOperation(result);
 					if (!presentation.finalizeDraft) {
 						failed++;
 						failurePresentation ??= presentation;
-						continue;
+						break;
 					}
 					durablePresentation ??= presentation;
 					seenUrl.add(url);

@@ -1,5 +1,6 @@
 <script lang="ts">
 import { onMount } from "svelte";
+import Dialog from "$lib/components/Dialog.svelte";
 import Octicon from "$lib/components/Octicon.svelte";
 import PageHeader from "$lib/components/PageHeader.svelte";
 import { getGist } from "$lib/gist";
@@ -45,6 +46,7 @@ import type { WorkspaceOperationResult } from "$lib/workspace-operation-result";
 import type { WorkspaceResetExpectation } from "$lib/workspace-persistence";
 import {
 	createWorkspaceSettingsController,
+	type WorkspaceCloudResetPreview,
 	type WorkspaceSettingsView,
 } from "$lib/workspace-settings-controller";
 import { workspaceSyncStatus } from "$lib/workspace-sync-status";
@@ -65,6 +67,14 @@ let queueResult: {
 	message: string;
 } | null = null;
 let resetNotice: { type: "info" | "error"; message: string } | null = null;
+let cloudResetPreview: WorkspaceCloudResetPreview | null = null;
+let cloudResetConfirmation = "";
+let cloudResetSubmitting = false;
+let cloudResetAttempted = false;
+let cloudResetNotice: {
+	type: "success" | "info" | "error";
+	message: string;
+} | null = null;
 let pendingMigration: {
 	token: string;
 	gist: GistMeta;
@@ -81,6 +91,23 @@ $: migrationQueued = Boolean(
 	pendingMigration &&
 		view?.record.workspaces[`gist:${pendingMigration.gist.id}`]?.mutations.some(
 			(mutation) => mutation.kind === "workspace.migrate",
+		),
+);
+$: cloudResetEnabled = Boolean(
+	$authState.token &&
+		$workspaceCloudStatus.phase === "ready" &&
+		!pendingMigration &&
+		view?.record.binding?.baseline?.schemaVersion === 2 &&
+		view.record.binding.syncMode === "automatic" &&
+		!view.record.workspaces[view.record.binding.workspaceId]?.mutations
+			.length &&
+		!view.record.workspaces[view.record.binding.workspaceId]?.delivery
+			.blocked &&
+		!view.record.workspaces[view.record.binding.workspaceId]?.delivery
+			.deadLetters.length &&
+		!(
+			view.record.leases[`dispatcher:${view.record.binding.workspaceId}`]
+				?.expiresAt > Date.now()
 		),
 );
 
@@ -143,6 +170,32 @@ function resetErrorMessage(error: unknown): string {
 		);
 	return $t(
 		"Device reset could not be confirmed. Check browser storage access, reload Settings, and review the connection before retrying.",
+	);
+}
+function cloudResetErrorMessage(error: unknown): string {
+	const message = error instanceof Error ? error.message : "";
+	if (
+		typeof error === "object" &&
+		error !== null &&
+		"code" in error &&
+		error.code === "concurrent-update"
+	) {
+		return $t(
+			"Workspace changed while cloud reset was being prepared. Review the latest cloud data and try again.",
+		);
+	}
+	const safeMessages = [
+		"Upgrade this Workspace to continue.",
+		"Connect GitHub before changing cloud data.",
+		"Load the latest cloud data before resetting cloud data.",
+		"Pending cloud changes must finish syncing before refreshing cloud data.",
+		"Workspace queue requires repair before connection",
+		"Cloud delivery is active. Wait for it to finish before resetting cloud data.",
+	];
+	return $t(
+		safeMessages.includes(message)
+			? message
+			: "Cloud reset could not be prepared. Check the connection and try again.",
 	);
 }
 function showOperation(
@@ -524,6 +577,65 @@ async function handleDeviceReset() {
 		workspaceBusy = false;
 	}
 }
+function closeCloudReset() {
+	if (cloudResetSubmitting) return;
+	cloudResetPreview = null;
+	cloudResetConfirmation = "";
+	cloudResetAttempted = false;
+}
+async function handlePrepareCloudReset() {
+	const token = $authState.token;
+	if (!token || workspaceBusy || !cloudResetEnabled) return;
+	workspaceBusy = true;
+	cloudResetNotice = null;
+	cloudResetConfirmation = "";
+	cloudResetAttempted = false;
+	try {
+		const preview = await workspaceController.prepareCloudReset(token);
+		if (token !== $authState.token) return;
+		await refreshView();
+		cloudResetPreview = preview;
+	} catch (error) {
+		cloudResetNotice = {
+			type: "error",
+			message: cloudResetErrorMessage(error),
+		};
+	} finally {
+		workspaceBusy = false;
+	}
+}
+async function handleCloudReset() {
+	const token = $authState.token;
+	const preview = cloudResetPreview;
+	if (
+		!token ||
+		!preview ||
+		cloudResetSubmitting ||
+		cloudResetAttempted ||
+		cloudResetConfirmation !== "RESET" ||
+		!cloudResetEnabled
+	)
+		return;
+	workspaceBusy = true;
+	cloudResetSubmitting = true;
+	cloudResetAttempted = true;
+	try {
+		const result = await workspaceController.submitCloudReset(preview, token);
+		const presentation = showOperation(
+			result,
+			"Cloud data reset. This Workspace is ready to start again.",
+		);
+		cloudResetNotice = {
+			type: presentation.tone,
+			message: $t(presentation.messageKey, presentation.messageParams),
+		};
+		await refreshView().catch(() => undefined);
+		if (presentation.remoteCommitted) cloudResetPreview = null;
+	} finally {
+		cloudResetSubmitting = false;
+		workspaceBusy = false;
+	}
+}
 async function handleQueueDiscard(workspaceId: string) {
 	if (workspaceId === view?.record.binding?.workspaceId) {
 		await handleReloadCloud();
@@ -676,4 +788,39 @@ async function handleDiagnosticsExport() {
 			<button type="button" class="gh-btn gh-btn-danger" data-testid="device-reset-action" on:click={handleDeviceReset} disabled={workspaceBusy}>{$t("Reset this device")}</button>
 		</div>
 	</section>
+	<section class="gh-section" data-testid="cloud-reset" aria-labelledby="cloud-reset-heading">
+		<div class="gh-section-header"><div>
+			<h2 id="cloud-reset-heading" class="gh-section-title"><Octicon icon={trash} className="h-5 w-5" />{$t("Reset cloud data")}</h2>
+			<p class="gh-section-description">{$t("Start again with an empty Workspace in the same Gist. Your GitHub connection is kept.")}</p>
+		</div></div>
+		<div class="gh-section-body space-y-3">
+			<p class="text-sm text-danger-fg">{$t("This clears cloud resources, rules, publication settings, and managed published files for every connected device. Existing subscription links may stop working.")}</p>
+			<p class="text-sm text-fg-muted">{$t("The original Gist, migration backup, and external files are retained. Finish pending synchronization or repair before continuing.")}</p>
+			{#if cloudResetNotice}<p data-testid="cloud-reset-notice" class={cn("text-sm", cloudResetNotice.type === "error" ? "text-danger-fg" : "text-fg-muted")} role={cloudResetNotice.type === "error" ? "alert" : "status"}>{cloudResetNotice.message}</p>{/if}
+			<button type="button" class="gh-btn gh-btn-danger" data-testid="cloud-reset-action" on:click={handlePrepareCloudReset} disabled={workspaceBusy || !cloudResetEnabled}>{$t("Reset cloud data")}</button>
+		</div>
+	</section>
 </div>
+
+{#if cloudResetPreview}
+	<Dialog labelledby="cloud-reset-dialog-title" closeLabel={$t("Close dialog")} onclose={closeCloudReset} initialFocus="#cloud-reset-dialog-title" className="max-w-lg" mobileSheet={false} dismissible={!cloudResetSubmitting} busy={cloudResetSubmitting}>
+		<div class="gh-box-header"><h2 id="cloud-reset-dialog-title" class="font-semibold" tabindex="-1">{$t("Reset cloud data")}</h2></div>
+		<div class="gh-section-body max-h-[60vh] overflow-y-auto">
+			<div class="space-y-4">
+				<p id="cloud-reset-warning" class="text-sm text-danger-fg">{$t("This clears cloud resources, rules, publication settings, and managed published files for every connected device. Existing subscription links may stop working.")}</p>
+				<p class="break-all text-sm">{$t("Workspace")}: <code>{cloudResetPreview.gistId}</code></p>
+				<p class="text-sm">{$t("Nodes: {nodes}, subscriptions: {subscriptions}, rules: {aggregates}, publish targets: {publishTargets}, client exports: {clientExports}", cloudResetPreview.counts)}</p>
+				<div class="space-y-1 text-sm"><p class="font-semibold">{$t("Files to remove")}: {cloudResetPreview.deletedFiles.length}</p>{#each cloudResetPreview.deletedFiles as fileName}<p class="break-all font-mono text-xs">{fileName}</p>{/each}</div>
+				<div class="space-y-1 text-sm"><p class="font-semibold">{$t("Files to retain")}: {cloudResetPreview.retainedFiles.length}</p>{#each cloudResetPreview.retainedFiles as fileName}<p class="break-all font-mono text-xs">{fileName}</p>{/each}</div>
+				<p class="text-sm text-fg-muted">{$t("The Gist and your GitHub connection stay in place. Only confirmed cloud reset completes this action.")}</p>
+				<label class="gh-form-label" for="cloud-reset-confirmation">{$t("Type RESET to confirm")}</label>
+				<input id="cloud-reset-confirmation" class="gh-input w-full font-mono" bind:value={cloudResetConfirmation} aria-describedby="cloud-reset-warning" autocomplete="off" spellcheck="false" disabled={cloudResetSubmitting || cloudResetAttempted} />
+				{#if cloudResetNotice}<p data-testid="cloud-reset-dialog-notice" role={cloudResetNotice.type === "error" ? "alert" : "status"}>{cloudResetNotice.message}</p>{/if}
+			</div>
+		</div>
+		<div class="gh-section-footer flex flex-wrap justify-end gap-2">
+			<button type="button" class="gh-btn" on:click={closeCloudReset} disabled={cloudResetSubmitting}>{$t("Cancel")}</button>
+			<button type="button" class="gh-btn gh-btn-danger" data-testid="cloud-reset-confirm" on:click={handleCloudReset} disabled={cloudResetSubmitting || cloudResetAttempted || cloudResetConfirmation !== "RESET" || !cloudResetEnabled}>{cloudResetSubmitting ? $t("Resetting cloud data...") : $t("Clear cloud data and start again")}</button>
+		</div>
+	</Dialog>
+{/if}

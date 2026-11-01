@@ -1,6 +1,8 @@
 // @ts-nocheck
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
+import { presentWorkspaceOperation } from "$lib/workspace-operation-presenter";
+import { rejectedWorkspaceOperation } from "$lib/workspace-operation-result";
 
 const nodesPageSource = readFileSync(
 	new URL("./+page.svelte", import.meta.url),
@@ -110,3 +112,78 @@ test("subscription preview shows safe actionable fetch diagnostics", () => {
 		"err instanceof Error ? err.message : String(err)",
 	);
 });
+
+for (const resource of ["nodes", "subscriptions"]) {
+	for (const outcome of ["reset", "pending"]) {
+		test(`batch ${resource} import stops after ${outcome} without clearing its draft`, async () => {
+			const handleAddSource = nodesPageSource.slice(
+				nodesPageSource.indexOf("async function handleAdd()"),
+				nodesPageSource.indexOf("// Edit Logic"),
+			);
+			const compiled = new Bun.Transpiler({ loader: "ts" }).transformSync(
+				handleAddSource,
+			);
+			let binding = {
+				workspaceId: "gist:batch",
+				baseline: { resetRevision: 0 },
+			};
+			let submitted = 0;
+			const state = { nodes: [], subscriptions: [] };
+			const upsert = () => {
+				submitted += 1;
+				if (outcome === "reset") {
+					binding = { ...binding, baseline: { resetRevision: 2 } };
+				}
+				return {
+					completion: Promise.resolve({
+						status:
+							outcome === "pending"
+								? "local-durable-queued"
+								: "remote-committed",
+						durable: true,
+						mutationId: "batch-mutation",
+						state,
+						revision: 1,
+					}),
+				};
+			};
+			const context = {
+				addMode: "batch",
+				activeTab: resource,
+				batchContent:
+					resource === "nodes"
+						? "vless://first\nvless://second"
+						: "https://first.test\nhttps://second.test",
+				batchTags: "retained tag",
+				$appState: state,
+				isAddModalOpen: true,
+				operationFeedback: null,
+				getBrowserWorkspaceBinding: () => binding,
+				extractSubscriptionNodeLines: (line) => [line],
+				makeUniqueResourceName: (name) => name,
+				inferNodeNameFromRaw: (raw) => raw,
+				formatResourceNameTimestamp: () => "time",
+				inferNodeTypeFromRaw: () => "vless",
+				createId: () => "batch-id",
+				nowIso: () => "2026-11-01T12:00:00.000Z",
+				reconcileTags: () => [],
+				upsertNode: upsert,
+				upsertSubscription: upsert,
+				presentWorkspaceOperation,
+				rejectedWorkspaceOperation,
+				$t: (key) => key,
+				showToastNotify: () => undefined,
+			};
+			const originalDraft = context.batchContent;
+			const handleAdd = new Function(
+				"context",
+				`with (context) { ${compiled}; return handleAdd; }`,
+			)(context);
+			await handleAdd();
+			expect(submitted).toBe(1);
+			expect(context.batchContent).toBe(originalDraft);
+			expect(context.batchTags).toBe("retained tag");
+			expect(context.isAddModalOpen).toBe(true);
+		});
+	}
+}

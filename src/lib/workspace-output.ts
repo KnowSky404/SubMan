@@ -34,6 +34,21 @@ export function isCurrentClientExportOutputPublished(
 	return profile.lastPublishedAt !== null;
 }
 
+export function getWorkspaceResetOutputFileNames(
+	data: Pick<WorkspaceData, "publishTargets" | "clientExports">,
+): string[] {
+	return [
+		...new Set([
+			...data.publishTargets
+				.filter(isCurrentPublishTargetOutputPublished)
+				.map((target) => target.fileName),
+			...data.clientExports
+				.filter(isCurrentClientExportOutputPublished)
+				.map((profile) => profile.fileName),
+		]),
+	].sort();
+}
+
 export function getWorkspaceOutputOwners(
 	data: Pick<WorkspaceData, "publishTargets" | "clientExports">,
 	fileNameValue: string,

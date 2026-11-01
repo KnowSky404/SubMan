@@ -8,6 +8,7 @@ import type {
 } from "$lib/models";
 import {
 	getWorkspaceContentSignature,
+	getWorkspaceResetRevision,
 	migrateWorkspaceDocumentV1ToV2,
 	parseWorkspaceDocument,
 	serializeWorkspaceDocumentV2,
@@ -259,6 +260,45 @@ describe("Workspace Schema V2 migration", () => {
 				JSON.stringify({ version: 1, data: { gists: [null] } }),
 			),
 		).toThrow("data.gists[0] must be an object");
+	});
+});
+
+describe("Workspace reset revision compatibility", () => {
+	it("preserves historical document bytes and signatures when the boundary is absent", () => {
+		const legacy = document();
+		const serialized = serializeWorkspaceDocumentV2(legacy);
+		const parsed = parseWorkspaceDocument(serialized);
+		if (parsed.schemaVersion !== 2) throw new Error("Expected V2");
+		expect(Object.hasOwn(parsed.document, "resetRevision")).toBe(false);
+		expect(getWorkspaceResetRevision(parsed.document)).toBe(0);
+		expect(serializeWorkspaceDocumentV2(parsed.document)).toBe(serialized);
+		expect(getWorkspaceContentSignature(parsed.document)).toBe(
+			JSON.stringify({
+				data: JSON.parse(serialized).data,
+				tombstones: JSON.parse(serialized).tombstones,
+			}),
+		);
+	});
+
+	it("round-trips the reset revision and includes it in recovery signatures", () => {
+		const reset = document({ resetRevision: 6 });
+		const parsed = parseWorkspaceDocument(serializeWorkspaceDocumentV2(reset));
+		if (parsed.schemaVersion !== 2) throw new Error("Expected V2");
+		expect(parsed.document.resetRevision).toBe(6);
+		expect(getWorkspaceResetRevision(parsed.document)).toBe(6);
+		expect(getWorkspaceContentSignature(parsed.document)).not.toBe(
+			getWorkspaceContentSignature(document()),
+		);
+	});
+
+	it("rejects invalid or future reset revisions", () => {
+		for (const resetRevision of [-1, 1.5, 8, "0", null]) {
+			expect(() =>
+				parseWorkspaceDocument(
+					JSON.stringify({ ...document(), resetRevision }),
+				),
+			).toThrow();
+		}
 	});
 });
 

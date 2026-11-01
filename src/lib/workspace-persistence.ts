@@ -236,6 +236,7 @@ export interface BrowserWorkspacePersistence {
 		binding: WorkspaceV2LocalState;
 		mutation: WorkspaceMutationDraft;
 		snapshot?: AppState;
+		expected?: WorkspaceResetExpectation;
 	}): Promise<WorkspaceMutation>;
 	commitLocalAction(input: {
 		snapshot: AppState;
@@ -574,6 +575,7 @@ const MUTATION_KINDS = new Set<WorkspaceMutation["kind"]>([
 	"output.delete",
 	"workspace.bootstrap.cleanup",
 	"workspace.migrate",
+	"workspace.reset",
 	"workspace.reconcile",
 ]);
 
@@ -1569,6 +1571,7 @@ export class TransactionalWorkspacePersistence
 		binding: WorkspaceV2LocalState;
 		mutation: WorkspaceMutationDraft;
 		snapshot?: AppState;
+		expected?: WorkspaceResetExpectation;
 	}): Promise<WorkspaceMutation> {
 		const binding = validatePersistenceBinding(input.binding);
 		const snapshot =
@@ -1590,6 +1593,29 @@ export class TransactionalWorkspacePersistence
 		return this.backend.transact((draft, checkpoint) => {
 			if (!draft.binding || !workspaceBindingsEqual(draft.binding, binding)) {
 				throw new WorkspaceConcurrentUpdateError();
+			}
+			const activeQueue = draft.workspaces[binding.workspaceId] ?? null;
+			if (
+				input.expected &&
+				(!persistenceValuesEqual(draft.snapshot, input.expected.snapshot) ||
+					!workspaceBindingsEqual(draft.binding, input.expected.binding) ||
+					!persistenceValuesEqual(activeQueue, input.expected.queue))
+			) {
+				throw new WorkspaceConcurrentUpdateError();
+			}
+			if (input.mutation.kind === "workspace.reset") {
+				const lease =
+					draft.leases[workspaceDispatcherLeaseName(binding.workspaceId)];
+				if (
+					!input.expected ||
+					binding.syncMode !== "automatic" ||
+					(activeQueue?.mutations.length ?? 0) > 0 ||
+					activeQueue?.delivery.blocked ||
+					(activeQueue?.delivery.deadLetters.length ?? 0) > 0 ||
+					(lease && lease.expiresAt > this.nowMs())
+				) {
+					throw new WorkspaceConcurrentUpdateError();
+				}
 			}
 			const queue =
 				draft.workspaces[binding.workspaceId] ??
@@ -2170,6 +2196,18 @@ export class TransactionalWorkspacePersistence
 				!persistenceValuesEqual(currentQueue, input.expected.queue)
 			) {
 				throw new WorkspaceConcurrentUpdateError();
+			}
+			const intentBaseline =
+				draft.binding?.conflictBaseline ?? draft.binding?.baseline;
+			if (
+				mutations.length > 0 &&
+				intentBaseline &&
+				(intentBaseline.resetRevision ?? 0) !==
+					(binding.baseline?.resetRevision ?? 0)
+			) {
+				throw new WorkspaceConcurrentUpdateError(
+					"Cloud Workspace was reset. Reload from Cloud before retrying this action.",
+				);
 			}
 			const previousWorkspaceId = draft.binding?.workspaceId;
 			draft.snapshot = snapshot;
