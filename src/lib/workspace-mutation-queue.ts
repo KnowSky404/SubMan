@@ -62,6 +62,7 @@ const MUTATION_KINDS = new Set<WorkspaceMutation["kind"]>([
 	"output.delete",
 	"workspace.bootstrap.cleanup",
 	"workspace.migrate",
+	"workspace.reset",
 	"workspace.reconcile",
 ]);
 

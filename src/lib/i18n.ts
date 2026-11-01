@@ -7,6 +7,34 @@ const STORAGE_KEY = "subman:locale:v1";
 const DEFAULT_LOCALE: Locale = "en";
 
 const zhCN: Record<string, string> = {
+	"Reset cloud data": "重置云端数据",
+	"Start again with an empty Workspace in the same Gist. Your GitHub connection is kept.":
+		"清空当前 Gist 的工作区数据并重新开始，保留 GitHub 连接。",
+	"This clears cloud resources, rules, publication settings, and managed published files for every connected device. Existing subscription links may stop working.":
+		"此操作会清空云端资源、规则、发布设置及受管理的已发布文件，并影响所有已连接设备。现有订阅链接可能失效。",
+	"The original Gist, migration backup, and external files are retained. Finish pending synchronization or repair before continuing.":
+		"原 Gist、迁移备份和外部文件会保留。请先完成待处理的同步或修复。",
+	"Nodes: {nodes}, subscriptions: {subscriptions}, rules: {aggregates}, publish targets: {publishTargets}, client exports: {clientExports}":
+		"节点：{nodes}，订阅：{subscriptions}，规则：{aggregates}，发布目标：{publishTargets}，客户端导出：{clientExports}",
+	"Files to remove": "将移除的文件",
+	"Files to retain": "将保留的文件",
+	"The Gist and your GitHub connection stay in place. Only confirmed cloud reset completes this action.":
+		"Gist 和 GitHub 连接将保留。只有云端确认后，重置才算完成。",
+	"Type RESET to confirm": "输入 RESET 以确认",
+	"Clear cloud data and start again": "清空云端并重新开始",
+	"Resetting cloud data...": "正在重置云端数据...",
+	"Cloud data reset. This Workspace is ready to start again.":
+		"云端数据已重置，可以在当前工作区重新开始。",
+	"Cloud reset could not be prepared. Check the connection and try again.":
+		"无法准备云端重置。请检查连接后重试。",
+	"Workspace changed while cloud reset was being prepared. Review the latest cloud data and try again.":
+		"准备云端重置期间工作区已发生变化。请查看最新云端数据后重试。",
+	"Load the latest cloud data before resetting cloud data.":
+		"请先加载最新云端数据，再重置云端数据。",
+	"Cloud delivery is active. Wait for it to finish before resetting cloud data.":
+		"当前仍在发送云端变更，请等待发送结束后再重置云端数据。",
+	"Cloud Workspace was reset. Reload from Cloud before retrying this action.":
+		"云端工作区已重置。请从云端重新加载后再重试此操作。",
 	"Reset this device": "重置此设备",
 	"If the original Gist was deleted or this browser cannot reconnect, reset its Workspace connection and start setup again.":
 		"如果原 Gist 已删除，或此浏览器无法重新连接，可重置此设备的工作区连接后重新设置。",

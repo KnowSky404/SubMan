@@ -309,6 +309,178 @@ async function expectCode(
 }
 
 describe("Workspace coordinator serialization and idempotency", () => {
+	it("resets in one verified PATCH and preserves backup, external files, and idempotency", async () => {
+		const initial = document();
+		initial.data.publishTargets[0] = {
+			...target(),
+			lastPublishedAt: T0,
+			lastPublishedUrl:
+				"https://gist.githubusercontent.com/owner/gist-1/raw/aggregate.txt",
+		};
+		const gateway = new MemoryGateway({
+			"subman.json": serializeWorkspaceDocumentV2(initial),
+			"subman.v1.backup.json": "immutable legacy bytes",
+			"aggregate.txt": "published output",
+			"client.json": "unpublished external output",
+			"notes.txt": "external notes",
+		});
+		const { core, journal } = coordinator(gateway);
+		const reset = mutation(
+			"10000000-0000-4000-8000-000000000080",
+			1,
+			"workspace.reset",
+			{},
+		);
+		const result = await core.mutate({
+			githubToken: TOKEN,
+			gistId: GIST_ID,
+			mutation: reset,
+		});
+		expect(result.document.resetRevision).toBe(2);
+		expect(result.document.data.nodes).toEqual([]);
+		expect(gateway.patches).toHaveLength(1);
+		expect(gateway.patches[0]?.["aggregate.txt"]).toBeNull();
+		expect(gateway.files["aggregate.txt"]).toBe(undefined);
+		expect(gateway.files["client.json"]).toBe("unpublished external output");
+		expect(gateway.files["notes.txt"]).toBe("external notes");
+		expect(gateway.files["subman.v1.backup.json"]).toBe(
+			"immutable legacy bytes",
+		);
+		expect(journal.processed.has(reset.mutationId)).toBe(true);
+		const retry = await core.mutate({
+			githubToken: TOKEN,
+			gistId: GIST_ID,
+			mutation: reset,
+		});
+		expect(retry.status).toBe("already-committed");
+		expect(gateway.patches).toHaveLength(1);
+	});
+
+	it("allows historical committed retries after reset but rejects uncommitted pre-reset intents", async () => {
+		const gateway = new MemoryGateway({
+			"subman.json": serializeWorkspaceDocumentV2(document()),
+		});
+		const { core } = coordinator(gateway);
+		const old = replaceNodeMutation("10000000-0000-4000-8000-000000000081");
+		await core.mutate({ githubToken: TOKEN, gistId: GIST_ID, mutation: old });
+		await core.mutate({
+			githubToken: TOKEN,
+			gistId: GIST_ID,
+			mutation: mutation(
+				"10000000-0000-4000-8000-000000000082",
+				2,
+				"workspace.reset",
+				{},
+			),
+		});
+		const retry = await core.mutate({
+			githubToken: TOKEN,
+			gistId: GIST_ID,
+			mutation: old,
+		});
+		expect(retry.status).toBe("already-committed");
+		expect(retry.document.data.nodes).toEqual([]);
+		const rejected = await core.mutateSettled({
+			githubToken: TOKEN,
+			gistId: GIST_ID,
+			mutation: replaceNodeMutation(
+				"10000000-0000-4000-8000-000000000083",
+				3,
+				"new-before-reset",
+			),
+		});
+		expect(rejected.ok).toBe(false);
+		if (rejected.ok) throw new Error("Expected reset boundary conflict");
+		if (!(rejected.error instanceof WorkspaceCoordinatorError))
+			throw new Error("Expected coordinator conflict");
+		expect(rejected.error.code).toBe("revision_conflict");
+		expect(rejected.error.latestDocument?.resetRevision).toBe(3);
+		const created = await core.mutate({
+			githubToken: TOKEN,
+			gistId: GIST_ID,
+			mutation: {
+				...replaceNodeMutation(
+					"10000000-0000-4000-8000-000000000084",
+					3,
+					"new-after-reset",
+				),
+				expectedResetRevision: 3,
+			},
+		});
+		expect(created.document.data.nodes.map((item) => item.id)).toEqual([
+			"new-after-reset",
+		]);
+		expect(created.document.resetRevision).toBe(3);
+		expect(gateway.patches).toHaveLength(3);
+	});
+
+	it("does not clear concurrent changes after a stale reset preview", async () => {
+		const gateway = new MemoryGateway({
+			"subman.json": serializeWorkspaceDocumentV2(document()),
+		});
+		const { core } = coordinator(gateway);
+		await core.mutate({
+			githubToken: TOKEN,
+			gistId: GIST_ID,
+			mutation: replaceNodeMutation("10000000-0000-4000-8000-000000000085"),
+		});
+		await expectCode(
+			core.mutate({
+				githubToken: TOKEN,
+				gistId: GIST_ID,
+				mutation: mutation(
+					"10000000-0000-4000-8000-000000000086",
+					1,
+					"workspace.reset",
+					{},
+				),
+			}),
+			"revision_conflict",
+		);
+		expect(gateway.patches).toHaveLength(1);
+	});
+
+	it("recovers a reset and its output deletions after losing the acknowledgement", async () => {
+		const initial = document();
+		initial.data.publishTargets[0] = {
+			...target(),
+			lastPublishedAt: T0,
+			lastPublishedUrl:
+				"https://gist.githubusercontent.com/owner/gist-1/raw/aggregate.txt",
+		};
+		const gateway = new MemoryGateway({
+			"subman.json": serializeWorkspaceDocumentV2(initial),
+			"aggregate.txt": "published output",
+		});
+		const journal = new MemoryJournal();
+		journal.failNextCommit = true;
+		const reset = mutation(
+			"10000000-0000-4000-8000-000000000087",
+			1,
+			"workspace.reset",
+			{},
+		);
+		await expectCode(
+			coordinator(gateway, journal).core.mutate({
+				githubToken: TOKEN,
+				gistId: GIST_ID,
+				mutation: reset,
+			}),
+			"commit_index_failed",
+		);
+		expect(journal.pending.has(reset.mutationId)).toBe(true);
+		const result = await coordinator(gateway, journal).core.mutate({
+			githubToken: TOKEN,
+			gistId: GIST_ID,
+			mutation: reset,
+		});
+		expect(result.status).toBe("already-committed");
+		expect(result.document.resetRevision).toBe(2);
+		expect(gateway.files["aggregate.txt"]).toBe(undefined);
+		expect(gateway.patches).toHaveLength(1);
+		expect(journal.pending.size).toBe(0);
+	});
+
 	it("preserves safe timeout metadata and releases the operation queue", async () => {
 		const backing = new MemoryGateway({
 			"subman.json": serializeWorkspaceDocumentV2(document()),

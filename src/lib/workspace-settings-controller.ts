@@ -1,14 +1,22 @@
-import type { AppState } from "$lib/models";
+import { get } from "svelte/store";
+import { getGist } from "$lib/gist";
+import type { AppState, GistMeta } from "$lib/models";
 import { getSyncStateSignature } from "$lib/serialization";
 import {
 	type BrowserWorkspaceSnapshot,
 	migrateBrowserWorkspace,
 	persistBrowserWorkspaceSnapshot,
+	readBrowserWorkspaceSnapshot,
 	reconcileBrowserWorkspace,
+	submitBrowserWorkspaceMutation,
 } from "$lib/workspace-browser-session-v2";
+import { workspaceCloudStatus } from "$lib/workspace-cloud-status";
 import { getWorkspaceBusinessData, WORKSPACE_FILE } from "$lib/workspace-data";
 import { exportWorkspaceDiagnosticsFromPersistence } from "$lib/workspace-diagnostics";
-import type { WorkspaceDocumentV2 } from "$lib/workspace-document";
+import {
+	WORKSPACE_BOOTSTRAP_FILE_NAME,
+	type WorkspaceDocumentV2,
+} from "$lib/workspace-document";
 import { broadcastWorkspaceEvent } from "$lib/workspace-events";
 import {
 	requireWorkspaceIdentity,
@@ -20,7 +28,11 @@ import {
 	type WorkspaceMergeNotice,
 } from "$lib/workspace-merge";
 import { parseWorkspaceMutation } from "$lib/workspace-mutation";
-import type { WorkspaceOperationResult } from "$lib/workspace-operation-result";
+import {
+	rejectedWorkspaceOperation,
+	type WorkspaceOperationResult,
+} from "$lib/workspace-operation-result";
+import { getWorkspaceResetOutputFileNames } from "$lib/workspace-output";
 import {
 	type BrowserWorkspacePersistence,
 	inspectWorkspacePersistenceRecord,
@@ -29,6 +41,7 @@ import {
 	type WorkspacePersistenceRecord,
 	type WorkspaceQueueInspection,
 	type WorkspaceResetExpectation,
+	workspaceDispatcherLeaseName,
 } from "$lib/workspace-persistence";
 import {
 	getBrowserWorkspacePersistence,
@@ -63,6 +76,23 @@ export type WorkspaceSettingsView = {
 	inspection: WorkspaceQueueInspection;
 };
 
+export type WorkspaceCloudResetPreview = {
+	gistId: string;
+	revision: number;
+	resetRevision: number;
+	counts: Record<
+		| "nodes"
+		| "subscriptions"
+		| "aggregates"
+		| "publishTargets"
+		| "clientExports",
+		number
+	>;
+	deletedFiles: string[];
+	retainedFiles: string[];
+	expected: WorkspaceResetExpectation;
+};
+
 export type WorkspaceManualPullDecision =
 	| { status: "already-synced" }
 	| { status: "confirm-pull" };
@@ -83,6 +113,12 @@ type ControllerDependencies = {
 	persistence?: BrowserWorkspacePersistence;
 	fetchImpl?: typeof fetch;
 	dispatchSyncEvent?: typeof dispatchWorkspaceSyncEvent;
+	isCloudReady?: () => boolean;
+	readCloudResetSnapshot?: (
+		token: string,
+		gistId: string,
+		current: AppState,
+	) => Promise<{ gist: GistMeta; snapshot: BrowserWorkspaceSnapshot }>;
 };
 
 type ConflictResolution =
@@ -153,6 +189,164 @@ export function createWorkspaceSettingsController(
 
 	async function prepareDeviceReset(): Promise<WorkspaceResetExpectation> {
 		return resetExpectation(await readRecord());
+	}
+
+	function requireSameResetGeneration(
+		record: WorkspacePersistenceRecord,
+		baseline: WorkspaceDocumentV2,
+	): void {
+		if (
+			record.binding?.baseline &&
+			(record.binding.baseline.resetRevision ?? 0) !==
+				(baseline.resetRevision ?? 0)
+		) {
+			throw new WorkspaceConcurrentUpdateError(
+				"Cloud Workspace was reset. Reload from Cloud before retrying this action.",
+			);
+		}
+	}
+
+	function requireCloudResetReady(
+		record: WorkspacePersistenceRecord,
+		token: string,
+	): asserts record is WorkspacePersistenceRecord & {
+		binding: WorkspaceV2LocalState;
+		snapshot: AppState;
+	} {
+		if (!token.trim()) {
+			throw new Error("Connect GitHub before changing cloud data.");
+		}
+		if (
+			!(
+				dependencies.isCloudReady?.() ??
+				get(workspaceCloudStatus).phase === "ready"
+			) ||
+			!record.binding?.baseline ||
+			record.binding.revision === null ||
+			record.binding.syncMode !== "automatic" ||
+			!record.snapshot
+		) {
+			throw new Error(
+				"Load the latest cloud data before resetting cloud data.",
+			);
+		}
+		requireWorkspaceIdentity(record.snapshot, record.binding);
+		requireIdleCloudQueue(record, record.binding.gistId);
+		const lease =
+			record.leases[workspaceDispatcherLeaseName(record.binding.workspaceId)];
+		if (lease && lease.expiresAt > Date.now()) {
+			throw new Error(
+				"Cloud delivery is active. Wait for it to finish before resetting cloud data.",
+			);
+		}
+	}
+
+	async function prepareCloudReset(
+		token: string,
+	): Promise<WorkspaceCloudResetPreview> {
+		const current = await refresh();
+		requireCloudResetReady(current.record, token);
+		const gistId = current.record.binding.gistId;
+		const currentSnapshot = current.record.snapshot;
+		const expected = resetExpectation(current.record);
+		const { gist, snapshot } = dependencies.readCloudResetSnapshot
+			? await dependencies.readCloudResetSnapshot(
+					token,
+					gistId,
+					currentSnapshot,
+				)
+			: await (async () => {
+					const gist = await getGist(token, gistId);
+					return {
+						gist,
+						snapshot: await readBrowserWorkspaceSnapshot(
+							token,
+							gist,
+							currentSnapshot,
+						),
+					};
+				})();
+		if (snapshot.origin !== "v2") {
+			throw new Error("Upgrade this Workspace to continue.");
+		}
+		if (
+			gist.id !== gistId ||
+			snapshot.document.workspaceId !== `gist:${gistId}`
+		) {
+			throw new WorkspaceBindingLockedError();
+		}
+		const observed = await refresh();
+		requireExpectedRecord(observed.record, expected);
+		requireCloudResetReady(observed.record, token);
+		await refreshCloud(snapshot, gistId, expected);
+		const prepared = await refresh();
+		requireCloudResetReady(prepared.record, token);
+		if (
+			prepared.record.binding.revision !== snapshot.document.revision ||
+			(prepared.record.binding.baseline?.resetRevision ?? 0) !==
+				(snapshot.document.resetRevision ?? 0)
+		) {
+			throw new WorkspaceConcurrentUpdateError();
+		}
+		const managedNames = new Set(
+			getWorkspaceResetOutputFileNames(snapshot.document.data),
+		);
+		const files = gist.files
+			.map((file) => file.filename)
+			.filter((name) => name !== WORKSPACE_FILE)
+			.sort();
+		if (files.includes(WORKSPACE_BOOTSTRAP_FILE_NAME)) {
+			managedNames.add(WORKSPACE_BOOTSTRAP_FILE_NAME);
+		}
+		return {
+			gistId,
+			revision: snapshot.document.revision,
+			resetRevision: snapshot.document.resetRevision ?? 0,
+			counts: {
+				nodes: snapshot.document.data.nodes.length,
+				subscriptions: snapshot.document.data.subscriptions.length,
+				aggregates: snapshot.document.data.aggregates.length,
+				publishTargets: snapshot.document.data.publishTargets.length,
+				clientExports: snapshot.document.data.clientExports.length,
+			},
+			deletedFiles: [...managedNames].sort(),
+			retainedFiles: files.filter((name) => !managedNames.has(name)),
+			expected: resetExpectation(prepared.record),
+		};
+	}
+
+	async function submitCloudReset(
+		preview: WorkspaceCloudResetPreview,
+		token: string,
+	): Promise<WorkspaceOperationResult> {
+		try {
+			const current = await refresh();
+			requireExpectedRecord(current.record, preview.expected);
+			requireCloudResetReady(current.record, token);
+			if (
+				current.record.binding.gistId !== preview.gistId ||
+				current.record.binding.revision !== preview.revision ||
+				(current.record.binding.baseline?.resetRevision ?? 0) !==
+					preview.resetRevision
+			) {
+				throw new WorkspaceConcurrentUpdateError();
+			}
+			const operation = await submitBrowserWorkspaceMutation(
+				{
+					token,
+					kind: "workspace.reset",
+					payload: {},
+					expected: preview.expected,
+					expectedRevision: preview.revision,
+					expectedResetRevision: preview.resetRevision,
+				},
+				sessionDependencies(),
+			);
+			await refresh().catch(() => undefined);
+			return operation;
+		} catch (error) {
+			return rejectedWorkspaceOperation(error);
+		}
 	}
 
 	async function resetDevice(
@@ -325,6 +519,7 @@ export function createWorkspaceSettingsController(
 			syncMode: "paused-conflict",
 		});
 		const current = await requireBoundWorkspace(input.gistId);
+		requireSameResetGeneration(current.record, input.document);
 		const persistedQueue = current.record.workspaces[paused.workspaceId];
 		if (
 			(persistedQueue?.delivery.blocked &&
@@ -342,6 +537,7 @@ export function createWorkspaceSettingsController(
 			mutationId: crypto.randomUUID(),
 			workspaceId: paused.workspaceId,
 			expectedRevision: input.document.revision,
+			expectedResetRevision: input.document.resetRevision ?? 0,
 			source: "browser",
 			createdAt,
 			kind: "workspace.reconcile",
@@ -484,7 +680,8 @@ export function createWorkspaceSettingsController(
 		replacePending?: boolean;
 		expected?: WorkspaceResetExpectation;
 	}): Promise<WorkspaceOperationResult> {
-		await requireBoundWorkspace(input.gistId);
+		const current = await requireBoundWorkspace(input.gistId);
+		requireSameResetGeneration(current.record, input.baseline);
 		const result = await reconcileBrowserWorkspace(
 			input,
 			sessionDependencies(),
@@ -559,6 +756,7 @@ export function createWorkspaceSettingsController(
 
 	async function bindOnly(conflict: WorkspaceSettingsConflict): Promise<void> {
 		const current = await requireBoundWorkspace(conflict.gistId);
+		requireSameResetGeneration(current.record, conflict.remoteDocument);
 		const nextBinding = createWorkspaceV2LocalState(conflict.gistId, {
 			baseline: conflict.remoteDocument,
 			syncMode: "manual",
@@ -586,6 +784,7 @@ export function createWorkspaceSettingsController(
 				mutationId: crypto.randomUUID(),
 				workspaceId: nextBinding.workspaceId,
 				expectedRevision: conflict.remoteDocument.revision,
+				expectedResetRevision: conflict.remoteDocument.resetRevision ?? 0,
 				source: "browser",
 				createdAt,
 				kind: "workspace.reconcile",
@@ -630,7 +829,8 @@ export function createWorkspaceSettingsController(
 		baselineMode?: "conflict" | "current";
 		syncMode?: "automatic" | "manual";
 	}): Promise<ConflictResolution> {
-		await requireBoundWorkspace(input.conflict.gistId);
+		const current = await requireBoundWorkspace(input.conflict.gistId);
+		requireSameResetGeneration(current.record, input.conflict.remoteDocument);
 		if (input.action === "remote") {
 			await persistSnapshot(
 				{
@@ -853,6 +1053,8 @@ export function createWorkspaceSettingsController(
 		initialize,
 		prepareDeviceReset,
 		resetDevice,
+		prepareCloudReset,
+		submitCloudReset,
 		refresh,
 		currentView,
 		binding,

@@ -8,6 +8,17 @@ production deployment and real-provider acceptance require separate evidence.
 
 ## Unreleased
 
+### 2026-11-01 - Confirmed cloud data reset
+
+- Added a Settings preview and typed confirmation to clear cloud business data
+  while retaining the original Gist connection and authentication.
+- Reset and proven published-output removal share one coordinator PATCH. External
+  files, immutable migration backup, tombstones, and recovery journals remain.
+- Added reset revision fencing so old queues and delayed actions cannot replay
+  across reset; stale confirmations require a new preview. Public API shapes stay
+  unchanged and cloud confirmation remains the only success result.
+- Recorded the [accepted implementation specification](../archive/specs/2026-11-01-cloud-workspace-reset.md).
+
 ### 2026-11-01 - Foreground cloud operation loading
 
 - Keep saves, publication generation, and Gist refresh in a visible foreground

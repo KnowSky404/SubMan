@@ -211,6 +211,7 @@ describe("Workspace mutation parsing", () => {
 				},
 			],
 			["output.delete", { fileName: "aggregate.txt" }],
+			["workspace.reset", {}],
 			["workspace.bootstrap.cleanup", {}],
 			["workspace.migrate", { sourceSha256: "a".repeat(64) }],
 			["workspace.reconcile", { baselineRevision: 0, data: data() }],
@@ -349,6 +350,193 @@ describe("Workspace mutation parsing", () => {
 				),
 			),
 		).not.toBe(firstSignature);
+	});
+});
+
+describe("Workspace cloud reset", () => {
+	it("clears all live collections, preserves tombstones, and records a reset boundary", () => {
+		const previous = document();
+		previous.tombstones.nodes.push({
+			id: "previously-deleted",
+			deletedAt: T0,
+			deletedRevision: 1,
+			mutationId: "20000000-0000-4000-8000-000000000001",
+		});
+		const reset = parseWorkspaceMutation(mutation("workspace.reset", {}));
+		const applied = applyWorkspaceMutation(previous, reset, context);
+		expect(applied.document.workspaceId).toBe(WORKSPACE_ID);
+		expect(applied.document.revision).toBe(2);
+		expect(applied.document.resetRevision).toBe(2);
+		expect(applied.document.lastMutationId).toBe(reset.mutationId);
+		for (const collection of Object.keys(previous.data) as Array<
+			keyof WorkspaceData
+		>) {
+			expect(applied.document.data[collection]).toEqual([]);
+			for (const item of previous.data[collection]) {
+				expect(
+					applied.document.tombstones[collection].find(
+						(tombstone) => tombstone.id === item.id,
+					),
+				).toEqual({
+					id: item.id,
+					deletedAt: T1,
+					deletedRevision: 2,
+					mutationId: reset.mutationId,
+				});
+			}
+		}
+		expect(applied.document.tombstones.nodes[0]).toEqual(
+			previous.tombstones.nodes[0],
+		);
+		expect(applied.receipt).toEqual({ kind: "workspace.reset", deleted: true });
+	});
+
+	it("deletes only outputs with current publication evidence", () => {
+		const previous = document();
+		previous.data.publishTargets[0] = {
+			...target(),
+			lastPublishedAt: T0,
+			lastPublishedUrl:
+				"https://gist.githubusercontent.com/owner/gist-1/raw/aggregate.txt",
+		};
+		previous.data.publishTargets.push({
+			...target("unpublished-target"),
+			fileName: "manual.txt",
+		});
+		previous.data.publishTargets.push({
+			...target("renamed-target"),
+			fileName: "renamed.txt",
+			lastPublishedAt: T0,
+			lastPublishedUrl:
+				"https://gist.githubusercontent.com/owner/gist-1/raw/historical.txt",
+		});
+		previous.data.clientExports[0] = {
+			...profile(),
+			lastPublishedAt: T0,
+			lastPublishedUrl: "https://example.com/client.json",
+		};
+		const applied = applyWorkspaceMutation(
+			previous,
+			parseWorkspaceMutation(mutation("workspace.reset", {})),
+			context,
+		);
+		expect(applied.files).toEqual({
+			"aggregate.txt": null,
+			"client.json": null,
+		});
+	});
+
+	it("rejects pre-reset intents even when their revision matches the latest document", () => {
+		const current = document({ revision: 3, resetRevision: 2 });
+		for (const expectedResetRevision of [undefined, 0, 1]) {
+			expectCode(
+				() =>
+					applyWorkspaceMutation(
+						current,
+						parseWorkspaceMutation(
+							mutation(
+								"node.upsert",
+								{ operation: "replace", node: node("new-before-reset") },
+								{
+									expectedRevision: 3,
+									...(expectedResetRevision === undefined
+										? {}
+										: { expectedResetRevision }),
+								},
+							),
+						),
+						context,
+					),
+				"revision_conflict",
+			);
+		}
+		const applied = applyWorkspaceMutation(
+			current,
+			parseWorkspaceMutation(
+				mutation(
+					"node.upsert",
+					{ operation: "replace", node: node("new-after-reset") },
+					{ expectedRevision: 3, expectedResetRevision: 2 },
+				),
+			),
+			context,
+		);
+		expect(applied.document.revision).toBe(4);
+		expect(applied.document.resetRevision).toBe(2);
+	});
+
+	it("restricts reset to browser requests with an empty payload", () => {
+		expectCode(
+			() =>
+				parseWorkspaceMutation(
+					mutation("workspace.reset", {}, { source: "server-api" }),
+				),
+			"invalid_mutation",
+		);
+		expectCode(
+			() =>
+				parseWorkspaceMutation(
+					mutation("workspace.reset", { deleteEverything: true }),
+				),
+			"invalid_mutation",
+		);
+		for (const expectedResetRevision of [-1, 1.5, 2, "0", null]) {
+			expectCode(
+				() =>
+					parseWorkspaceMutation(
+						mutation("workspace.reset", {}, { expectedResetRevision }),
+					),
+				"invalid_mutation",
+			);
+		}
+	});
+
+	it("keeps deleted IDs fenced after a reset-aware retry", () => {
+		const reset = applyWorkspaceMutation(
+			document(),
+			parseWorkspaceMutation(mutation("workspace.reset", {})),
+			context,
+		).document;
+		expectCode(
+			() =>
+				applyWorkspaceMutation(
+					reset,
+					parseWorkspaceMutation(
+						mutation(
+							"node.upsert",
+							{ operation: "replace", node: node() },
+							{ expectedRevision: 2, expectedResetRevision: 2 },
+						),
+					),
+					context,
+				),
+			"entity_deleted",
+		);
+		expectCode(
+			() =>
+				applyWorkspaceMutation(
+					reset,
+					parseWorkspaceMutation(
+						mutation(
+							"workspace.reconcile",
+							{ baselineRevision: 2, data: data() },
+							{ expectedRevision: 2, expectedResetRevision: 2 },
+						),
+					),
+					context,
+				),
+			"entity_deleted",
+		);
+	});
+
+	it("keeps the legacy mutation hash stable when the reset field is absent", async () => {
+		const parsed = parseWorkspaceMutation(
+			mutation("node.delete", { id: "node-1" }),
+		);
+		expect(Object.hasOwn(parsed, "expectedResetRevision")).toBe(false);
+		expect(await getWorkspaceMutationSignature(parsed)).toBe(
+			"37bfc7fdd177e7dba26c7bb93d2217aafb61736f0a3a88a550052dd688d9b264",
+		);
 	});
 });
 

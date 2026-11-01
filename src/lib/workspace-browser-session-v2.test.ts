@@ -46,6 +46,210 @@ const MUTATION_ID = "b0000000-0000-4000-8000-000000000001";
 const MUTATION_ID_2 = "b0000000-0000-4000-8000-000000000002";
 const MUTATION_ID_3 = "b0000000-0000-4000-8000-000000000003";
 
+describe("cloud reset submission boundaries", () => {
+	it("captures the action boundary before the first asynchronous persistence read", async () => {
+		const original = document();
+		const originalBinding = createWorkspaceV2LocalState("gist-1", {
+			baseline: original,
+		});
+		class ResetBeforeFirstRead extends InMemoryWorkspacePersistence {
+			resetOnRead = false;
+			override async read() {
+				if (this.resetOnRead) {
+					this.resetOnRead = false;
+					const reset = { ...document(2, MUTATION_ID_3, []), resetRevision: 2 };
+					await this.rebindWorkspace({
+						snapshot: stateFor(reset),
+						binding: createWorkspaceV2LocalState("gist-1", { baseline: reset }),
+					});
+				}
+				return super.read();
+			}
+		}
+		const persistence = new ResetBeforeFirstRead();
+		let current = stateFor(original);
+		await seed(persistence, current, originalBinding);
+		persistence.resetOnRead = true;
+		const result = await submitBrowserWorkspaceMutation(
+			{
+				token: "test-token",
+				kind: "node.upsert",
+				payload: { operation: "replace", node: node("unseen-before-reset") },
+			},
+			{
+				persistence,
+				getBinding: () => originalBinding,
+				getState: () => current,
+				setState: (next) => {
+					current = next;
+				},
+				fetchImpl: async () => {
+					throw new Error("Old intent cannot be submitted");
+				},
+			},
+		);
+		expect(result.status).toBe("rejected-before-durable-commit");
+		expect((await persistence.read()).workspaces["gist:gist-1"]).toBe(
+			undefined,
+		);
+	});
+	it("does not roll the reset boundary back when accepting a stale cloud snapshot", async () => {
+		const persistence = new InMemoryWorkspacePersistence();
+		const reset = { ...document(2, MUTATION_ID_3, []), resetRevision: 2 };
+		let current = stateFor(reset);
+		await seed(
+			persistence,
+			current,
+			createWorkspaceV2LocalState("gist-1", { baseline: reset }),
+		);
+		let rejected = false;
+		try {
+			await persistBrowserWorkspaceSnapshot(
+				{ origin: "v2", document: document(), state: stateFor(document()) },
+				"gist-1",
+				"automatic",
+				{
+					persistence,
+					getState: () => current,
+					setState: (next) => {
+						current = next;
+					},
+				},
+			);
+		} catch (error) {
+			rejected = error instanceof WorkspaceConcurrentUpdateError;
+		}
+		expect(rejected).toBe(true);
+		expect((await persistence.read()).binding?.baseline?.resetRevision).toBe(2);
+		expect(current.nodes).toEqual([]);
+	});
+	it("never automatically reprepares a reset after a local CAS conflict", async () => {
+		class ConflictingPersistence extends InMemoryWorkspacePersistence {
+			attempts = 0;
+			override async commitExplicitAction(
+				_input: Parameters<
+					InMemoryWorkspacePersistence["commitExplicitAction"]
+				>[0],
+			): Promise<WorkspaceMutation> {
+				this.attempts += 1;
+				throw new WorkspaceConcurrentUpdateError();
+			}
+		}
+		const persistence = new ConflictingPersistence();
+		const original = document();
+		let current = stateFor(original);
+		await seed(
+			persistence,
+			current,
+			createWorkspaceV2LocalState("gist-1", { baseline: original }),
+		);
+		const before = await persistence.read();
+		const result = await submitBrowserWorkspaceMutation(
+			{
+				token: "test-token",
+				kind: "workspace.reset",
+				payload: {},
+				expectedRevision: original.revision,
+				expectedResetRevision: 0,
+				expected: {
+					snapshot: before.snapshot,
+					binding: before.binding,
+					queue: null,
+				},
+			},
+			{
+				persistence,
+				getState: () => current,
+				setState: (next) => {
+					current = next;
+				},
+			},
+		);
+		expect(result.status).toBe("rejected-before-durable-commit");
+		expect(persistence.attempts).toBe(1);
+	});
+	it("rejects an unseen old creation when CAS retry crosses a cloud reset", async () => {
+		class ResetDuringCommit extends InMemoryWorkspacePersistence {
+			attempts = 0;
+			override async commitExplicitAction(
+				input: Parameters<
+					InMemoryWorkspacePersistence["commitExplicitAction"]
+				>[0],
+			) {
+				this.attempts += 1;
+				if (this.attempts === 1) {
+					const reset = { ...document(2, MUTATION_ID_3, []), resetRevision: 2 };
+					await this.rebindWorkspace({
+						snapshot: stateFor(reset),
+						binding: createWorkspaceV2LocalState("gist-1", { baseline: reset }),
+					});
+					throw new WorkspaceConcurrentUpdateError();
+				}
+				return super.commitExplicitAction(input);
+			}
+		}
+		const persistence = new ResetDuringCommit();
+		let current = stateFor(document());
+		await seed(
+			persistence,
+			current,
+			createWorkspaceV2LocalState("gist-1", { baseline: document() }),
+		);
+		const result = await submitBrowserWorkspaceMutation(
+			{
+				token: "test-token",
+				kind: "node.upsert",
+				payload: { operation: "replace", node: node("never-uploaded") },
+			},
+			{
+				persistence,
+				getState: () => current,
+				setState: (next) => {
+					current = next;
+				},
+				fetchImpl: async () => {
+					throw new Error("Old intent must not reach the network");
+				},
+			},
+		);
+		expect(result.status).toBe("rejected-before-durable-commit");
+		expect(persistence.attempts).toBe(1);
+		expect((await persistence.read()).workspaces["gist:gist-1"]).toBe(
+			undefined,
+		);
+	});
+	it("includes the observed reset boundary in fresh mutations", async () => {
+		const persistence = new InMemoryWorkspacePersistence();
+		const reset = { ...document(2, MUTATION_ID_3, []), resetRevision: 2 };
+		let current = stateFor(reset);
+		await seed(
+			persistence,
+			current,
+			createWorkspaceV2LocalState("gist-1", { baseline: reset }),
+		);
+		await submitBrowserWorkspaceMutation(
+			{
+				token: "test-token",
+				kind: "node.upsert",
+				payload: { operation: "replace", node: node("fresh") },
+			},
+			{
+				persistence,
+				getState: () => current,
+				setState: (next) => {
+					current = next;
+				},
+				fetchImpl: async () =>
+					failureResponse(503, "gist_read_failed", "retryable-upstream"),
+			},
+		);
+		expect(
+			(await persistence.read()).workspaces["gist:gist-1"]?.mutations[0]
+				?.expectedResetRevision,
+		).toBe(2);
+	});
+});
+
 function node(id: string, name = id): NodeItem {
 	return {
 		id,

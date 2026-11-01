@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
-import type { AppState, NodeItem } from "$lib/models";
+import type { AppState, GistMeta, NodeItem } from "$lib/models";
+import type { BrowserWorkspaceSnapshot } from "$lib/workspace-browser-session-v2";
 import { createDefaultWorkspaceState } from "$lib/workspace-data";
 import type { WorkspaceDocumentV2 } from "$lib/workspace-document";
 import { parseWorkspaceMutation } from "$lib/workspace-mutation";
@@ -141,6 +142,278 @@ async function expectRejection(
 	const failure = await captureError(operation);
 	expect(failure instanceof Error ? failure.message : "").toBe(message);
 }
+
+describe("Cloud Workspace reset", () => {
+	function setupCloudReset(remote = document(3, [node("cloud-node")])) {
+		const record = createEmptyWorkspacePersistenceRecord();
+		record.snapshot = state(document(2));
+		record.binding = createWorkspaceV2LocalState(GIST_ID, {
+			baseline: document(2),
+			syncMode: "automatic",
+		});
+		const persistence = new InMemoryWorkspacePersistence(record);
+		let current = record.snapshot;
+		let reads = 0;
+		const gist: GistMeta = {
+			id: GIST_ID,
+			description: "SubMan-Data",
+			updatedAt: NOW,
+			url: `https://gist.github.com/${GIST_ID}`,
+			files: ["subman.json", "subman.v1.backup.json", "notes.txt"].map(
+				(filename) => ({ filename, language: null, size: 10 }),
+			),
+		};
+		let snapshot: BrowserWorkspaceSnapshot = {
+			origin: "v2",
+			document: remote,
+			state: state(remote),
+		};
+		const requests: unknown[] = [];
+		const controller = createWorkspaceSettingsController({
+			persistence,
+			getState: () => current,
+			setState: (next) => {
+				current = next;
+			},
+			isCloudReady: () => true,
+			readCloudResetSnapshot: async () => {
+				reads += 1;
+				return { gist, snapshot };
+			},
+			fetchImpl: (async (_input, init) => {
+				const mutation = JSON.parse(String(init?.body));
+				requests.push(mutation);
+				const committed = document(mutation.expectedRevision + 1);
+				committed.resetRevision = committed.revision;
+				committed.lastMutationId = mutation.mutationId;
+				return Response.json({
+					status: "committed",
+					mutationId: mutation.mutationId,
+					workspaceId: WORKSPACE_ID,
+					committedRevision: committed.revision,
+					committedAt: NOW,
+					receipt: { kind: "workspace.reset" },
+					document: committed,
+				});
+			}) as typeof fetch,
+			dispatchSyncEvent: () => true,
+		});
+		return {
+			controller,
+			persistence,
+			gist,
+			requests,
+			reads: () => reads,
+			setSnapshot: (value: BrowserWorkspaceSnapshot) => {
+				snapshot = value;
+			},
+		};
+	}
+
+	it("previews the latest original cloud revision and retains external files and the V1 backup", async () => {
+		const setup = setupCloudReset();
+		const preview = await setup.controller.prepareCloudReset("test-token");
+		expect(preview.gistId).toBe(GIST_ID);
+		expect(preview.revision).toBe(3);
+		expect(preview.resetRevision).toBe(0);
+		expect(preview.counts.nodes).toBe(1);
+		expect(preview.deletedFiles).toEqual([]);
+		expect(preview.retainedFiles).toEqual([
+			"notes.txt",
+			"subman.v1.backup.json",
+		]);
+		expect(preview.expected.binding?.revision).toBe(3);
+		expect(setup.requests).toEqual([]);
+	});
+
+	it("previews published filenames from the latest document even when the earlier file inventory omits them", async () => {
+		const remote = document(3);
+		remote.data.aggregates = [
+			{
+				id: "new-rule",
+				name: "New rule",
+				nodeIds: [],
+				subscriptionIds: [],
+				excludeTagIds: [],
+				renameMap: {},
+				allowedTypes: [],
+				updatedAt: NOW,
+			},
+		];
+		remote.data.publishTargets = [
+			{
+				id: "new-target",
+				name: "New target",
+				ruleId: "new-rule",
+				fileName: "newly-published.txt",
+				description: "",
+				isPublic: false,
+				lastPublishedAt: NOW,
+				lastPublishedUrl:
+					"https://gist.githubusercontent.com/user/gist/raw/newly-published.txt",
+				lastPublishTransitionAt: null,
+				lastPublishTransitionFromFileName: null,
+				lastPublishTransitionToFileName: null,
+				lastPublishTransitionOutcome: null,
+				updatedAt: NOW,
+			},
+		];
+		const setup = setupCloudReset(remote);
+		const preview = await setup.controller.prepareCloudReset("test-token");
+		expect(preview.deletedFiles).toEqual(["newly-published.txt"]);
+	});
+
+	it("lists a stale bootstrap marker for cleanup instead of promising to retain it", async () => {
+		const setup = setupCloudReset();
+		setup.gist.files.push({
+			filename: "subman.bootstrap.json",
+			language: "JSON",
+			size: 10,
+		});
+		const preview = await setup.controller.prepareCloudReset("test-token");
+		expect(preview.deletedFiles).toEqual(["subman.bootstrap.json"]);
+		expect(preview.retainedFiles).toEqual([
+			"notes.txt",
+			"subman.v1.backup.json",
+		]);
+	});
+
+	it("requires an idle local queue before reading the cloud reset preview", async () => {
+		const persistence = queuedPersistence();
+		let reads = 0;
+		const setup = createWorkspaceSettingsController({
+			persistence,
+			getState: () => state(),
+			setState: () => undefined,
+			isCloudReady: () => true,
+			readCloudResetSnapshot: async () => {
+				reads += 1;
+				throw new Error("Must not read cloud");
+			},
+		});
+		await expectRejection(
+			setup.prepareCloudReset("test-token"),
+			"Pending cloud changes must finish syncing before refreshing cloud data.",
+		);
+		expect(reads).toBe(0);
+	});
+
+	it("rejects V1 reset previews without migrating or submitting a mutation", async () => {
+		const setup = setupCloudReset();
+		const before = await setup.persistence.read();
+		setup.setSnapshot({ origin: "v1", document: document(3), state: state() });
+		await expectRejection(
+			setup.controller.prepareCloudReset("test-token"),
+			"Upgrade this Workspace to continue.",
+		);
+		expect(await setup.persistence.read()).toEqual(before);
+		expect(setup.requests).toEqual([]);
+	});
+
+	it("rejects cloud reset while another dispatcher owns an active lease", async () => {
+		const setup = setupCloudReset();
+		await setup.persistence.acquireLease({
+			name: workspaceDispatcherLeaseName(WORKSPACE_ID),
+			ownerId: "peer",
+			now: Date.now(),
+			ttlMs: 60_000,
+		});
+		await expectRejection(
+			setup.controller.prepareCloudReset("test-token"),
+			"Cloud delivery is active. Wait for it to finish before resetting cloud data.",
+		);
+		expect(setup.reads()).toBe(0);
+	});
+
+	it("does not reprepare a confirmed preview after a concurrent local change", async () => {
+		const setup = setupCloudReset();
+		const preview = await setup.controller.prepareCloudReset("test-token");
+		if (!preview.expected.binding) throw new Error("Expected bound preview");
+		await setup.persistence.commitExplicitAction({
+			binding: preview.expected.binding,
+			mutation: {
+				mutationId: MUTATION_ID,
+				workspaceId: WORKSPACE_ID,
+				source: "browser",
+				createdAt: NOW,
+				kind: "node.delete",
+				payload: { id: "cloud-node" },
+			},
+		});
+		const before = await setup.persistence.read();
+		const result = await setup.controller.submitCloudReset(
+			preview,
+			"test-token",
+		);
+		expect(result.status).toBe("rejected-before-durable-commit");
+		expect(setup.reads()).toBe(1);
+		expect(setup.requests).toEqual([]);
+		expect(await setup.persistence.read()).toEqual(before);
+	});
+
+	it("resets through one fixed revisioned browser mutation and keeps the Gist binding", async () => {
+		const setup = setupCloudReset();
+		const preview = await setup.controller.prepareCloudReset("test-token");
+		const result = await setup.controller.submitCloudReset(
+			preview,
+			"test-token",
+		);
+		expect(result.status).toBe("remote-committed");
+		expect(setup.requests).toHaveLength(1);
+		const submitted = setup.requests[0] as Record<string, unknown>;
+		expect(submitted.kind).toBe("workspace.reset");
+		expect(submitted.expectedRevision).toBe(3);
+		expect(submitted.expectedResetRevision).toBe(0);
+		expect(submitted.payload).toEqual({});
+		const stored = await setup.persistence.read();
+		expect(stored.binding?.gistId).toBe(GIST_ID);
+		expect(stored.snapshot?.activeGistId).toBe(GIST_ID);
+		expect(stored.snapshot?.nodes).toEqual([]);
+		expect(stored.binding?.baseline?.resetRevision).toBe(4);
+	});
+
+	for (const action of [
+		"bind-only",
+		"reconcile",
+		"local",
+		"remote",
+		"merge",
+	] as const) {
+		it(`rejects ${action} recovery captured before a cloud reset`, async () => {
+			const remote = document(4);
+			remote.resetRevision = 4;
+			const setup = setupCloudReset(remote);
+			await setup.controller.prepareCloudReset("test-token");
+			const stale = document(3, [node("old-node")]);
+			const conflict = setup.controller.createConflict(stale, GIST_ID);
+			const before = await setup.persistence.read();
+			let operation: Promise<unknown>;
+			if (action === "bind-only") {
+				operation = setup.controller.bindOnly(conflict);
+			} else if (action === "reconcile") {
+				operation = setup.controller.reconcile({
+					token: "test-token",
+					gistId: GIST_ID,
+					baseline: stale,
+					resolvedState: state(stale),
+					syncMode: "automatic",
+				});
+			} else {
+				operation = setup.controller.resolveConflict({
+					token: "test-token",
+					conflict,
+					action,
+				});
+			}
+			await expectRejection(
+				operation,
+				"Cloud Workspace was reset. Reload from Cloud before retrying this action.",
+			);
+			expect(await setup.persistence.read()).toEqual(before);
+			expect(setup.requests).toEqual([]);
+		});
+	}
+});
 
 describe("Workspace settings controller", () => {
 	it("returns a committed reset even when state hydration and sync presentation fail", async () => {

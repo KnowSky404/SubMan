@@ -42,6 +42,94 @@ const MUTATION_ID_2 = "b0000000-0000-4000-8000-000000000002";
 const MUTATION_ID_3 = "b0000000-0000-4000-8000-000000000003";
 const TOKEN_CANARY = "credential-canary-do-not-persist";
 
+describe("cloud reset transaction", () => {
+	function expectation(record: WorkspacePersistenceRecord) {
+		return {
+			snapshot: record.snapshot,
+			binding: record.binding,
+			queue: record.workspaces[WORKSPACE_ID] ?? null,
+		};
+	}
+	function resetDraft() {
+		return mutationDraft({
+			mutationId: MUTATION_ID_2,
+			workspaceId: WORKSPACE_ID,
+			expectedRevision: 0,
+			source: "browser",
+			createdAt: NOW_2,
+			kind: "workspace.reset",
+			payload: {},
+		});
+	}
+	it("requires a complete confirmed expectation before journaling reset", async () => {
+		const persistence = automaticPersistence();
+		const before = await persistence.read();
+		expect(
+			(await captureError(
+				persistence.commitExplicitAction({
+					binding: binding(),
+					mutation: resetDraft(),
+				}),
+			)) instanceof WorkspaceConcurrentUpdateError,
+		).toBe(true);
+		expect(await persistence.read()).toEqual(before);
+	});
+	it("rejects an active lease even when the confirmed business state is unchanged", async () => {
+		const persistence = automaticPersistence(() => 10);
+		const before = await persistence.read();
+		await persistence.acquireLease({
+			name: workspaceDispatcherLeaseName(WORKSPACE_ID),
+			ownerId: "peer",
+			now: 10,
+			ttlMs: 100,
+		});
+		const leased = await persistence.read();
+		expect(
+			(await captureError(
+				persistence.commitExplicitAction({
+					binding: binding(),
+					mutation: resetDraft(),
+					expected: expectation(before),
+				}),
+			)) instanceof WorkspaceConcurrentUpdateError,
+		).toBe(true);
+		expect(await persistence.read()).toEqual(leased);
+	});
+	it("rejects a queue append made after confirmation without discarding it", async () => {
+		const persistence = automaticPersistence();
+		const before = await persistence.read();
+		await persistence.commitExplicitAction({
+			binding: binding(),
+			mutation: mutationDraft(reconcileMutation()),
+		});
+		const queued = await persistence.read();
+		expect(
+			(await captureError(
+				persistence.commitExplicitAction({
+					binding: binding(),
+					mutation: resetDraft(),
+					expected: expectation(before),
+				}),
+			)) instanceof WorkspaceConcurrentUpdateError,
+		).toBe(true);
+		expect(await persistence.read()).toEqual(queued);
+	});
+	it("journals the original reset atomically while keeping the committed baseline", async () => {
+		const persistence = automaticPersistence();
+		const before = await persistence.read();
+		const committed = await persistence.commitExplicitAction({
+			binding: binding(),
+			mutation: resetDraft(),
+			expected: expectation(before),
+		});
+		const record = await persistence.read();
+		expect(committed.kind).toBe("workspace.reset");
+		expect(record.binding).toEqual(before.binding);
+		expect(record.snapshot?.activeGistId).toBe(GIST_ID);
+		expect(record.workspaces[WORKSPACE_ID]?.mutations).toEqual([committed]);
+	});
+});
+
 async function captureError(
 	promise: Promise<unknown>,
 ): Promise<Error & { code?: string }> {

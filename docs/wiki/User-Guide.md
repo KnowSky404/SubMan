@@ -28,7 +28,7 @@ empty Workspace, then recent resources and confirmed publication metadata.
 
 | Page | Purpose |
 | --- | --- |
-| `/auth` | Connection, token, delivery status, cloud reload, device reset, migration, and diagnostics |
+| `/auth` | Connection, token, delivery status, cloud reload, cloud/device reset, migration, and diagnostics |
 | `/nodes` | Nodes and subscriptions, tags, search, filters, and batch import |
 | `/aggregate` | Rule editing, preview ordering, publish targets, and publication |
 | `/exports` | sing-box configuration preview, copy, download, and publication |
@@ -84,6 +84,25 @@ Diagnostics export counts, safe metadata, hashes, and retry classifications;
 they do not export business data or credentials. There is no browser business
 JSON backup/restore, local overwrite/merge, manual push, or Workspace switching.
 For operator procedures, see [operations and repair](../workspace-v2-operations.md).
+
+## Reset cloud data and keep your connection
+
+In Settings, choose **Reset cloud data** to return the original Gist to an empty
+business state while keeping your token and connection. This affects every device
+using that Gist. Complete or repair pending delivery first, then review the latest
+resource counts and files and type `RESET` to confirm.
+
+Reset clears nodes, subscriptions, rules, publish targets, and client export
+profiles. It removes outputs with confirmed SubMan publication metadata; the
+preview lists preserved external files and migration backups. It preserves the
+Gist itself and its GitHub history. Existing subscription links for removed
+outputs stop serving those files; previously downloaded copies are unaffected.
+
+Only cloud confirmation completes reset. If delivery is pending or uncertain,
+retain the original operation and use existing retry/recovery controls. If data
+changes during confirmation, review a new preview. Older devices cannot replay
+pre-reset changes; confirm a complete-queue cloud reload before editing again.
+Older application versions may need a page refresh after reset.
 
 ## Start again after removing your Gist
 
