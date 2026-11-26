@@ -7,6 +7,14 @@
 
 ## 未发布
 
+### 2026-11-26 - SubMan 操作 Skill 与 MCP
+
+- 添加可安装的操作 Skill 和 [Hermes 配置指南](../agents/subman-operator-guide.zh-CN.md)，
+  支持查询节点以及启用或停用明确指定的节点。
+- 增加按需启用的 Streamable HTTP `/mcp`。它采用独立的读写凭证，读取固定工作区并返回
+  安全节点摘要。节点变更使用现有协调器，云端核验后才报告提交成功。
+- 记录 [首版设计 SPEC](../archive/specs/2026-11-26-subman-agent-mcp.md)。
+
 ### 2026-11-01 - 确认后重置云端数据
 
 - 设置页增加云端重置预览和输入确认，清空云端业务数据，同时保留原 Gist 连接与认证。

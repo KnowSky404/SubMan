@@ -11,6 +11,15 @@ export default defineConfig({
 	plugins: [
 		cloudflareTest({
 			wrangler: { configPath: "./wrangler.toml" },
+			miniflare: {
+				bindings: {
+					GITHUB_TOKEN: "fixture-github-token-for-worker-test",
+					SUBMAN_API_TOKEN: "fixture-rest-token-for-worker-test",
+					SUBMAN_MCP_GIST_ID: "0123456789abcdef0123456789abcdef",
+					SUBMAN_MCP_READ_TOKEN: "fixture-mcp-read-token-for-worker-test",
+					SUBMAN_MCP_WRITE_TOKEN: "fixture-mcp-write-token-for-worker-test",
+				},
+			},
 		}),
 	],
 	test: {

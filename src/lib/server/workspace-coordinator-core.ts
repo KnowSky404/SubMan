@@ -34,7 +34,10 @@ const RESERVED_CONTENT_FILES = [
 ] as const;
 
 export type WorkspaceGistSnapshot = {
-	gist: Pick<GistMeta, "id" | "ownerLogin" | "files">;
+	gist: Pick<GistMeta, "id" | "ownerLogin" | "files"> & {
+		description?: GistMeta["description"];
+		public?: boolean;
+	};
 	contents: Readonly<Record<string, string>>;
 };
 

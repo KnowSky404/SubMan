@@ -27,6 +27,9 @@ Schema、operation ID、参数、响应头与示例的机器可读定义见
 安装脚本对接、已核对的 `sing-box-vps` 调用方契约及其校验差异见
 [sing-box-vps 对接指南](../integrations/sing-box-vps.zh-CN.md)。
 
+Hermes 等兼容 Agent 可通过独立凭证连接 SubMan 的可选 MCP 端点并发现工具。
+配置方法见 [Agent 接入指南](../agents/subman-operator-guide.zh-CN.md)。
+
 ## 基础地址
 
 使用 SubMan 实际部署的源站：

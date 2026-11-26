@@ -18,7 +18,8 @@ SubMan 使用一个私有 GitHub Gist 管理代理资源。从[使用指南](Use
 | 产品规划 | [Roadmap](../ROADMAP.md) | [路线图](../ROADMAP.zh-CN.md) |
 | API 扩展提案 | [API roadmap](../api/roadmap.md) | [API 路线图](../api/roadmap.zh-CN.md) |
 | 贡献者入门 | [Agent guide](../agents/subman-agent-guide.md) | [Agent 指南](../agents/subman-agent-guide.zh-CN.md) |
-| 可安装的 Agent Skill | [Skill](../agents/subman-skill/SKILL.md) | [Skill 说明](../agents/subman-skill/SKILL.zh-CN.md) |
+| 贡献者 Skill | [Project skill](../agents/subman-skill/SKILL.md) | [项目 Skill](../agents/subman-skill/SKILL.zh-CN.md) |
+| 通过 Hermes 和其他 MCP 客户端操作节点 | [Operator guide](../agents/subman-operator-guide.md) | [操作指南](../agents/subman-operator-guide.zh-CN.md) |
 | 版本与开发日志 | [Changelog](Changelog.md) | [变更记录](Changelog.zh-CN.md) |
 
 [OpenAPI 契约](../api/openapi.yaml)是机器可读的 API 来源。

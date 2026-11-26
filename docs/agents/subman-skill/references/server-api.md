@@ -10,6 +10,9 @@ automation work. For the complete sing-box-vps caller workflow, use
 [the integration guide](../../../integrations/sing-box-vps.md)
 ([简体中文](../../../integrations/sing-box-vps.zh-CN.md)).
 
+For an agent operating a deployed SubMan instance, see the
+[MCP connection guide](../../subman-operator-guide.md).
+
 ## Purpose
 
 The Server API is for owner-operated, trusted backend scripts. It runs inside the

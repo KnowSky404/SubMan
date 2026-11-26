@@ -18,7 +18,8 @@ SubMan manages proxy resources in one private GitHub Gist. Start with the
 | Product direction | [Roadmap](../ROADMAP.md) | [路线图](../ROADMAP.zh-CN.md) |
 | Proposed API expansion | [API roadmap](../api/roadmap.md) | [API 路线图](../api/roadmap.zh-CN.md) |
 | Contributor orientation | [Agent guide](../agents/subman-agent-guide.md) | [Agent 指南](../agents/subman-agent-guide.zh-CN.md) |
-| Installable agent skill | [Skill](../agents/subman-skill/SKILL.md) | [Skill 说明](../agents/subman-skill/SKILL.zh-CN.md) |
+| Contributor skill | [Project skill](../agents/subman-skill/SKILL.md) | [项目 Skill](../agents/subman-skill/SKILL.zh-CN.md) |
+| Node operations from Hermes and other MCP clients | [Operator guide](../agents/subman-operator-guide.md) | [操作指南](../agents/subman-operator-guide.zh-CN.md) |
 | Release and development notes | [Changelog](Changelog.md) | [变更记录](Changelog.zh-CN.md) |
 
 The [OpenAPI contract](../api/openapi.yaml) is the machine-readable API source.

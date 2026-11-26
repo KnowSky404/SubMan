@@ -110,8 +110,13 @@ export async function loadServerWorkspace(
 	}
 }
 
-export function createServerMutationIdentity(
-	workspace: ServerWorkspace,
+export function createServerMutationIdentity<
+	Workspace extends Pick<
+		ServerWorkspace,
+		"workspaceId" | "revision" | "resetRevision"
+	>,
+>(
+	workspace: Workspace,
 	clock: ServerMutationClock = defaultClock,
 ): Pick<
 	WorkspaceMutation,

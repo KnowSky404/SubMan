@@ -32,6 +32,10 @@ For installer integration, including the checked `sing-box-vps` caller contract
 and its remaining validation gaps, see the
 [sing-box-vps integration guide](../integrations/sing-box-vps.md).
 
+For Hermes and compatible agents, SubMan also provides an opt-in MCP endpoint
+with its own credentials and tool discovery. See the
+[Agent connection guide](../agents/subman-operator-guide.md).
+
 ## Base URL
 
 Use the origin where SubMan is deployed:
