@@ -7,6 +7,8 @@
 [API 路线图](../../../api/roadmap.zh-CN.md)。sing-box-vps 的调用流程见
 [集成指南](../../../integrations/sing-box-vps.zh-CN.md)。
 
+Agent 操作已部署实例的配置见 [MCP 接入指南](../../subman-operator-guide.zh-CN.md)。
+
 ## 用途和鉴权
 
 这是面向站点所有者及可信后端脚本的 API，与浏览器 UI 运行在同一个 Cloudflare

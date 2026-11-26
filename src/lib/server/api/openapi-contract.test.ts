@@ -261,6 +261,8 @@ describe("public Server API OpenAPI contract", () => {
 			readmeEnglish: "README.en.md",
 			readmeChinese: "README.zh-CN.md",
 			agentSkill: "docs/agents/subman-skill/references/server-api.md",
+			agentMcp: "docs/agents/subman-operator-guide.md",
+			agentMcpChinese: "docs/agents/subman-operator-guide.zh-CN.md",
 			integration: "docs/integrations/sing-box-vps.md",
 			integrationChinese: "docs/integrations/sing-box-vps.zh-CN.md",
 		};

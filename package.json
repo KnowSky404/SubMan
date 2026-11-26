@@ -45,10 +45,12 @@
 		"wrangler": "4.127.0"
 	},
 	"dependencies": {
+		"@modelcontextprotocol/server": "^2.4.0",
 		"@primer/octicons": "^19.23.1",
 		"clsx": "^2.1.1",
 		"svelte-dnd-action": "^0.9.69",
-		"tailwind-merge": "^3.5.0"
+		"tailwind-merge": "^3.5.0",
+		"zod": "^4.6.7"
 	},
 	"description": "Proxy subscription management with a single GitHub Gist, sing-box exports, and a trusted automation API on Cloudflare Workers.",
 	"keywords": [

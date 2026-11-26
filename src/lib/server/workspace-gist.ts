@@ -1,5 +1,8 @@
 import { toStableGistRawUrl } from "$lib/gist-raw-url";
-import type { WorkspaceCoordinatorGateway } from "$lib/server/workspace-coordinator-core";
+import type {
+	WorkspaceCoordinatorGateway,
+	WorkspaceGistSnapshot,
+} from "$lib/server/workspace-coordinator-core";
 import { WORKSPACE_LIMITS } from "$lib/workspace-limits";
 
 const API_ROOT = "https://api.github.com";
@@ -90,6 +93,8 @@ type GistApiFile = {
 
 type GistApiResponse = {
 	id: string;
+	description?: string | null;
+	public?: boolean;
 	owner?: { login?: string } | null;
 	files: Record<string, GistApiFile>;
 };
@@ -316,6 +321,68 @@ async function loadFileContent(
 	);
 }
 
+async function readWorkspaceGist(
+	githubToken: string,
+	gistId: string,
+	requiredFiles: readonly string[],
+	fetchImpl: typeof fetch,
+	options: Required<WorkspaceGistGatewayOptions>,
+): Promise<WorkspaceGistSnapshot> {
+	const gist = await githubRequest(
+		"gist.read",
+		`${API_ROOT}/gists/${encodeURIComponent(gistId)}`,
+		{ headers: githubHeaders(githubToken) },
+		(response, signal) =>
+			readBoundedResponseJson<GistApiResponse>(
+				response,
+				GITHUB_RESPONSE_BYTE_LIMITS.gistMetadata,
+				signal,
+			),
+		options,
+		fetchImpl,
+	);
+	const files = Object.values(gist.files);
+	const requested = new Set(requiredFiles);
+	const contents = Object.fromEntries(
+		await Promise.all(
+			files
+				.filter((file) => requested.size === 0 || requested.has(file.filename))
+				.map(async (file) => [
+					file.filename,
+					await loadFileContent(githubToken, file, fetchImpl, options),
+				]),
+		),
+	);
+	return {
+		gist: {
+			id: gist.id,
+			...(gist.description === undefined
+				? {}
+				: { description: gist.description }),
+			...(gist.public === undefined ? {} : { public: gist.public }),
+			...(gist.owner?.login ? { ownerLogin: gist.owner.login } : {}),
+			files: files.map((file) => ({
+				filename: file.filename,
+				language: file.language,
+				size: file.size,
+				...(file.raw_url ? { rawUrl: toStableGistRawUrl(file.raw_url) } : {}),
+			})),
+		},
+		contents,
+	};
+}
+
+export function readWorkspaceGistSnapshot(
+	githubToken: string,
+	gistId: string,
+	requiredFiles: readonly string[],
+): Promise<WorkspaceGistSnapshot> {
+	return readWorkspaceGist(githubToken, gistId, requiredFiles, fetch, {
+		timeoutMs: DEFAULT_TIMEOUT_MS,
+		now: Date.now,
+	});
+}
+
 export function createWorkspaceGistGateway(
 	fetchImpl: typeof fetch = fetch,
 	configured: WorkspaceGistGatewayOptions = {},
@@ -328,50 +395,8 @@ export function createWorkspaceGistGateway(
 		throw new TypeError("GitHub request timeout must be a positive integer");
 	}
 	return {
-		async read(githubToken, gistId, requiredFiles = []) {
-			const gist = await githubRequest(
-				"gist.read",
-				`${API_ROOT}/gists/${encodeURIComponent(gistId)}`,
-				{ headers: githubHeaders(githubToken) },
-				(response, signal) =>
-					readBoundedResponseJson<GistApiResponse>(
-						response,
-						GITHUB_RESPONSE_BYTE_LIMITS.gistMetadata,
-						signal,
-					),
-				options,
-				fetchImpl,
-			);
-			const files = Object.values(gist.files);
-			const requested = new Set(requiredFiles);
-			const contents = Object.fromEntries(
-				await Promise.all(
-					files
-						.filter(
-							(file) => requested.size === 0 || requested.has(file.filename),
-						)
-						.map(async (file) => [
-							file.filename,
-							await loadFileContent(githubToken, file, fetchImpl, options),
-						]),
-				),
-			);
-			return {
-				gist: {
-					id: gist.id,
-					...(gist.owner?.login ? { ownerLogin: gist.owner.login } : {}),
-					files: files.map((file) => ({
-						filename: file.filename,
-						language: file.language,
-						size: file.size,
-						...(file.raw_url
-							? { rawUrl: toStableGistRawUrl(file.raw_url) }
-							: {}),
-					})),
-				},
-				contents,
-			};
-		},
+		read: (githubToken, gistId, requiredFiles = []) =>
+			readWorkspaceGist(githubToken, gistId, requiredFiles, fetchImpl, options),
 
 		async patch(githubToken, gistId, files) {
 			await githubRequest(

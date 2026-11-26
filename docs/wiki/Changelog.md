@@ -8,6 +8,15 @@ production deployment and real-provider acceptance require separate evidence.
 
 ## Unreleased
 
+### 2026-11-26 - SubMan operator skill and MCP
+
+- Added an installable operator skill and [Hermes setup guide](../agents/subman-operator-guide.md)
+  for finding nodes and enabling or disabling an explicitly selected node.
+- Added an opt-in Streamable HTTP `/mcp` endpoint with independent read and write
+  credentials, a fixed workspace, and safe node summaries. Node changes use the
+  existing coordinator and report a commit only after cloud verification.
+- Recorded the [first-release specification](../archive/specs/2026-11-26-subman-agent-mcp.md).
+
 ### 2026-11-01 - Confirmed cloud data reset
 
 - Added a Settings preview and typed confirmation to clear cloud business data
