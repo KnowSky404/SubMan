@@ -2524,6 +2524,9 @@ test("stale tabs without BroadcastChannel rebase without reviving a deletion", a
 		}),
 	);
 	await seedAuth(page, { persistent: "fake-stale-tab-token" });
+	// Keep startup refresh timers from updating the stale tab before its edit.
+	await page.clock.install({ time: new Date(NOW) });
+	await page.clock.pauseAt(new Date(LATER));
 	let remote = structuredClone(baseline) as JsonRecord;
 	const submissions: JsonRecord[] = [];
 	await context.route("**/api/workspaces/**/mutations", async (route) => {

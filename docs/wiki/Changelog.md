@@ -14,6 +14,8 @@ production deployment and real-provider acceptance require separate evidence.
   review cycles, and compact PR handoff evidence.
 - Added scoped PR CI with a stable verification gate and one shared test build.
   Manual production deployment requires successful full CI for the exact main SHA.
+- Stabilized the stale-tab browser test by holding background refresh until the
+  test exercises a stale edit. Revision and tombstone checks remain in place.
 
 ### 2026-11-26 - SubMan operator skill and MCP
 
