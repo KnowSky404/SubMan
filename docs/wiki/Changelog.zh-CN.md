@@ -7,6 +7,12 @@
 
 ## 未发布
 
+### 研发工作流
+
+- 采用固定版本的 Manifest 规范，按风险验证、收敛审查轮次，并在 PR 记录交接证据。
+- PR CI 按影响范围选择测试并统一门禁，运行时测试复用一次构建。
+  生产发布保持手动，要求准确的 main SHA 通过完整 CI。
+
 ### 2026-11-26 - SubMan 操作 Skill 与 MCP
 
 - 添加可安装的操作 Skill 和 [Hermes 配置指南](../agents/subman-operator-guide.zh-CN.md)，

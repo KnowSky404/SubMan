@@ -4,41 +4,39 @@ English | [简体中文](ci-cd.zh-CN.md)
 
 ## Continuous integration
 
-The `CI` workflow runs for pushes to `main`, pull requests, and manual
-dispatches. It uses the repository-pinned Bun and Wrangler toolchain and keeps
-`GITHUB_TOKEN` read-only. Wrangler is pinned exactly at `4.127.0`; the frozen
-lockfile therefore carries a `workerd` release new enough to execute the
-project's `compatibility_date = "2026-07-28"` locally.
+`CI` runs for all PRs, main pushes and manual dispatches. It tests GitHub's
+synthetic merge of PR head with base. The scope job records all three SHAs.
+For PRs it loads the path policy from the base, verifies the merge parents
+and compares the two trees. Uncertain inputs and all non-PR events use the
+full suite. Labels and PR text have no effect on selection.
 
-The verification order is intentionally fail-fast:
+| CI suite | PR applicability | Required evidence |
+| --- | --- | --- |
+| Docs | Only Markdown under `docs/wiki/` outside the development guides | Bilingual docs/link validation without installing app dependencies |
+| UI | Only `src/app.css` and eligible docs | Docs, unit, type and lint checks, Worker build/dry run and browser tests |
+| Full | All other paths, including workflow/policy changes, plus main and manual runs | All UI checks, sing-box executable export and Workers/DO integration |
 
-1. install the frozen lockfile;
-2. run unit tests and check bilingual documentation links and language pairs;
-3. generate a synthetic local URI/subscription export and validate it with the
-   pinned sing-box `1.14.0` container;
-4. run Svelte and TypeScript checks, including generated Worker type drift;
-5. run Biome;
-6. build the SvelteKit Worker;
-7. run the Cloudflare Durable Object integration suite;
-8. run `wrangler deploy --dry-run` and retain its bundle under
-   `.wrangler/deploy-check`;
-9. install Chromium and run Playwright through `wrangler dev --local`.
+CI path selection is conservative. Assign risk separately using AGENTS.md.
+The fast and runtime jobs run on isolated hosted runners. The runtime job
+builds once before Workers/DO integration, dry run and Playwright, using that
+same checkout's output. The dry-run bundle stays at `.wrangler/deploy-check`.
+Playwright exercises `wrangler dev --local` with synthetic fixtures, covering
+the Worker entrypoint, DO export and migrations, and Workers Assets. The
+seven-day failure artifact contains local fixture traces and reports.
 
-The executable exporter gate is available locally as `bun run test:sing-box`.
-It calls the real Aggregate and client-export code with an injected, in-memory
-subscription fixture, then runs `sing-box check` using an image pinned by tag
-and multi-architecture digest. It uses no real subscription, user data,
-credentials, Gist, or remote proxy connection. Docker is the only additional
-local prerequisite.
+`CI / verify` is the stable gate. It requires scope and fast to succeed and
+allows the runtime job to be skipped only for the docs suite. Missing,
+cancelled or failed applicable jobs cannot pass. Superseded CI runs for
+the same ref are cancelled. All actions are pinned, Bun comes from
+`package.json`, and dependencies come from the frozen lockfile. The Bun
+setup action caches its pinned executable. PR jobs receive read-only access
+with checkout credentials removed and no production environment secrets.
 
-Using Wrangler for the browser server validates the generated Worker entrypoint,
-the `WORKSPACE_COORDINATOR` class export, the Durable Object migration, and
-Workers Assets configuration. Plain `vite preview` is not accepted as evidence
-for those Cloudflare runtime boundaries.
-
-When Playwright fails, traces, screenshots, videos, and reports are uploaded as
-a seven-day GitHub Actions artifact. If an earlier gate fails, the workflow does
-not spend time installing Chromium.
+`bun run test:sing-box` checks an in-memory export with the pinned sing-box
+`1.14.0` image and requires Docker locally. All fixtures use synthetic data.
+Use `bun run test:cf` and `bun run deploy:check` standalone to build from source.
+Use the `:built` scripts and `SUBMAN_E2E_USE_BUILD=1` only when the current
+checkout has just built the same candidate.
 
 ## Historical CI failures
 
@@ -87,47 +85,73 @@ configuration. Future compatibility-date changes must first update the pinned
 runtime and pass local Worker startup, deployment dry-run, Cloudflare
 integration, and browser gates.
 
-## Production deployment
+## Production release
 
-Production deployment is intentionally not automatic. Use the
-`Deploy production` workflow from the `main` branch and enter `deploy` in the
-confirmation input.
+DEV uses isolated worktrees, mock providers and local Worker/DO state. The
+stable candidate uses the full applicable CI and review evidence plus isolated
+Worker and browser acceptance. Record the candidate SHA/tree, lockfile and
+toolchain, Wrangler config and fixture/runtime identity, covered behaviors and
+failure paths. If a relevant source, base, configuration, dependency or build
+input changes during integration, repeat the affected acceptance. Prove input
+equivalence before carrying acceptance forward. SubMan has no shared PRE
+deployment step. Get Owner approval for additional isolated acceptance if the
+local runtime cannot establish a material behavior.
 
-The deployment job references the GitHub `production` environment. Configure
-that environment with required reviewers and these environment secrets:
+After an authorized merge, verify the integrated SHA and successful full
+`main` push CI. Compare runtime and build inputs to the already deployed
+version. Equivalent inputs and configuration need no release. Record the
+release scope, exact SHA, target, previous Worker version and rollback steps.
+R3 changes also need compatibility and recovery evidence for affected state.
+Worker rollback only restores code/configuration. A state change needs its own
+authorized recovery point or compatible forward fix.
 
-- `CLOUDFLARE_ACCOUNT_ID`
-- `CLOUDFLARE_API_TOKEN`
+With release authorization, dispatch `Deploy production` from `main` with
+confirmation `deploy` and the full verified commit SHA. The workflow checks
+the latest push CI for that exact SHA and rechecks the tip before deployment.
+It uses a separate runner with the same locked dependencies and performs one
+build. Verification suites and dry-run packaging are evidenced by main CI.
+The existing strict Wrangler mode fails on conflicting remote settings.
+Production jobs use the `production` environment and deployments serialize
+without cancelling an in-flight job.
 
-Scope the API token to the target Cloudflare account and the minimum Workers
-deployment permissions. The deployment workflow validates both secrets, reruns
-unit, type, lint, build, Cloudflare integration, and browser checks, creates a
-deployment dry-run bundle, and then runs:
-
-```bash
-wrangler deploy --strict
-```
-
-The deployment workflow currently does not repeat `docs:check` or
-`test:sing-box`; the separate `CI / verify` workflow provides those gates for
-the same commit. Require its success before deployment.
-
-Strict mode fails closed when a non-interactive deployment could overwrite
-conflicting remote settings.
-
-The deployment credentials above are separate from the Worker runtime secrets:
-
-- `GITHUB_TOKEN`
-- `SUBMAN_API_TOKEN`
-
-Runtime secrets remain managed with `wrangler secret put`; they must not be
-copied into repository files, workflow inputs, build variables, or test
-fixtures.
+Record the workflow, commit and Cloudflare version from the deploy log. On the
+approved production hostname, verify `/api/health` returns HTTP 200 and
+`ok: true`, then confirm the affected read-only path and inspect Worker errors.
+Readiness alone cannot establish feature behavior. Record sample/time and result
+without credentials or customer data. A failed smoke keeps production
+verification pending. Check the actual live version before any retry, follow
+the recorded recovery plan with authorization, and recheck smoke after recovery.
 
 ## Repository settings
 
-Require the `CI / verify` check before merging or updating `main`. Keep direct
-production deployment behind the `production` environment rather than a
-push-triggered workflow. Do not enable automatic deployment until branch
-protection, required checks, environment approval, rollback, and post-deployment
-health verification are all configured.
+After the replacement `verify` job has run on a PR, open **Settings →
+Branches → Add branch protection rule**, select `main`, require a pull request and
+status checks, and choose the `verify` job from GitHub Actions (`CI / verify` in
+the PR UI). Require branches to be up to date, enable conversation resolution
+and disable bypass, force pushes and deletion. Keep rebase merge enabled and
+avoid requiring a human approval quorum a solo Owner cannot satisfy.
+Verify these settings on an actual PR. CI workflow or classifier changes
+require R3 review even when GitHub reports the required check as green.
+
+In **Settings → Environments**, create or inspect `production`, limit deployments
+to the `main` branch, and configure required reviewers where supported. Require
+independent approval when available and preserve explicit Owner release
+authorization. Add environment-only `CLOUDFLARE_ACCOUNT_ID` and
+`CLOUDFLARE_API_TOKEN` scoped to the target account and minimum Workers
+deployment permissions. Keep runtime `GITHUB_TOKEN` and `SUBMAN_API_TOKEN`
+in Worker secrets without copying them to CI, builds or fixtures. Release
+dispatch stays manual.
+
+Verify Codex automatic code and security review settings in the provider.
+Until there is an enforced provider gate, the authorized merge actor must
+verify current-head review evidence and dispositions. GitHub's required CI
+check does not attest to Codex review.
+
+## Workflow measurements
+
+Use Actions and PR history to record comparable lead time, PR cycle time, CI
+elapsed time by suite, review rounds and context recoveries. For releases
+record candidate deployment count, smoke failures and recovery time. Compare
+like-for-like PRs and runner conditions before claiming a speedup. Record the
+first observed samples in the workflow PR. Use local simulations for branches
+of the workflow that cannot yet run against real integrations.

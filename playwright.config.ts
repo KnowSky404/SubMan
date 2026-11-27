@@ -1,6 +1,8 @@
 import { defineConfig, devices } from "@playwright/test";
 
-const port = 4_175;
+const port = Number(process.env.SUBMAN_E2E_PORT ?? 4_175);
+const server =
+	process.env.SUBMAN_E2E_USE_BUILD === "1" ? "dev:cf:built" : "dev:cf";
 const baseURL = `http://127.0.0.1:${port}`;
 
 export default defineConfig({
@@ -23,13 +25,13 @@ export default defineConfig({
 		},
 	],
 	webServer: {
-		command: `bun run dev:cf -- --ip 127.0.0.1 --port ${port}`,
+		command: `bun run ${server} --ip 127.0.0.1 --port ${port}`,
 		url: baseURL,
 		env: {
-			WRANGLER_LOG_PATH: "/tmp/subman-playwright-wrangler-logs",
-			WRANGLER_REGISTRY_PATH: "/tmp/subman-playwright-wrangler-registry",
+			WRANGLER_LOG_PATH: ".wrangler/playwright-logs",
+			WRANGLER_REGISTRY_PATH: ".wrangler/playwright-registry",
 		},
-		reuseExistingServer: !process.env.CI,
+		reuseExistingServer: false,
 		timeout: 120_000,
 	},
 });

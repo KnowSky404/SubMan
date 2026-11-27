@@ -2,50 +2,79 @@
 
 ## Default Development Workflow
 
-Use this workflow for every feature, fix, refactor, test, configuration, and
-documentation change, including small updates:
+SubMan adopts the [Manifest AI-Native Development Workflow](https://github.com/KnowSky404/Manifest/blob/6f387de5065b6ffc475908880362939185ff89d7/docs/AI_NATIVE_DEVELOPMENT_WORKFLOW.md)
+at commit `6f387de5065b6ffc475908880362939185ff89d7`. Review baseline updates
+explicitly. Use the self-contained gates below.
 
-**Dedicated local worktree + task branch -> local implementation and verification
--> atomic commit -> push and PR -> completed review and resolved findings
--> rebase merge into `main` -> verify and sync main -> remove the merged task
-worktree and local/remote branches.**
+**Verified main base and isolated task branch → scoped local checks → atomic
+commit and authorized PR → parallel CI and reviews → acceptance → authorized
+rebase merge → verify main and clean up.** Release has separate authorization.
 
-- Before editing, inspect cwd, branch, upstream, working tree, and
-  `git worktree list`. Fetch and verify the latest `origin/main`, then create a
-  dedicated worktree and new `feat/<topic>`, `fix/<topic>`, or `docs/<topic>`
-  branch. Resume an existing task in its own worktree/branch. Do not develop on
-  `main` or switch the user's original checkout to the task branch.
-- Place worktrees outside the repository, in a sibling or writable temporary
-  directory. Record the absolute path, branch, and base SHA. Isolate dependencies,
-  generated output, local Worker/DO state, browser state, and server ports. Do not
-  share writable build directories or automatically copy private configs/tokens.
-- Preserve unrelated changes. Do not reset, stash, rebase, force-push, or delete
-  another task's work. Keep unmerged worktrees and branches for continuation.
-- Validate locally and create an atomic Conventional Commit before any authorized
-  push/PR. Target PRs at `main`; include the problem, resulting behavior, base and
-  tested SHAs, validation evidence, and limitations. Use a temporary body file
-  with `--body-file` for multiline GitHub CLI descriptions.
-- After opening a PR or updating its head, actively check Codex bot review.
-  Every PR, including documentation, requires completed Code Review of the
-  current head and resolution of valid blocking findings. Verify the actual bot
-  author (`chatgpt-codex-connector[bot]`, sometimes displayed without `[bot]`),
-  reviewed SHA, completion evidence, and inline findings. Also require Security
-  Review and any other configured required reviews when enabled; verify actual
-  repository configuration rather than assuming FlareMail's settings apply.
-- Check each review item and its commit in `Codex Review Summary` and associated
-  reviews/comments. A single summary status/head SHA, `COMMENTED`, a reaction,
-  `CLEAN` mergeability, empty Actions checks, or an older review does not prove
-  completion. Review not appearing yet does not prove it is disabled. New commits
-  require new review and affected checks. Record review SHA, completion time, and
-  links; explain false positives with evidence. If review is pending, failed, or
-  cannot be verified, retain the PR/branch/worktree and report the blocker. Do not
-  bypass review by waiting out a timeout or enabling auto-merge early.
-- Push, PR creation, merge, direct pushes to `main`, Wiki publication, and
-  deployment require authorization covering those actions. This workflow defines
-  order, not additional authorization; do not ask again for an already authorized
-  action within the same scope. Ordinary development does not authorize remote
-  publication or production deployment. SubMan keeps its existing CI and local
-  checks; FlareMail's PRE requirement is not a SubMan gate.
+- Before editing, inspect cwd, branch, upstream, status and worktrees. Fetch
+  `origin/main`, record its SHA, and create a dedicated worktree on a short-lived
+  branch. Use an isolated clone if the original Git directory is read-only.
+  Keep generated files, dependencies, local Worker/DO and browser state, and
+  ports isolated. Preserve unrelated changes and keep unfinished tasks intact.
+- Record objective, scope, acceptance, risk, authorization, base and branch
+  in the PR or ignored `.task/task.md`. At milestones update head, stage,
+  verification with inputs/results, review cycle and findings, acceptance,
+  blockers and next action. Recover by reconciling this record with Git and
+  GitHub. Keep sanitized handoff evidence in the PR and private data out.
+- Inspect the diff and run affected local checks before an atomic Conventional
+  Commit. Use CI for the full applicable suites. Reuse equivalent evidence when
+  source, relevant base, toolchain, dependencies and configuration match.
+  Run affected checks after changes or uncertainty. Link CI and review evidence
+  in the authorized PR targeting `main`. Use a draft for early CI if useful.
+
+### Risk and verification
+
+Assign risk by behavior, blast radius, data and trust boundaries. Use the
+highest level for mixed or uncertain changes. A change to this policy or a
+critical CI or release control is R3.
+
+| Risk | Examples | Verification and acceptance | Review cycles |
+| --- | --- | --- | --- |
+| R0 | Ordinary prose or comments | Diff, commands and links, docs check as applicable, fast CI | One required Codex Code Review pass, no discretionary cycles |
+| R1 | Isolated CSS, copy, presentation | Scoped local checks and fast CI, browser or runtime checks where affected | Up to 2 |
+| R2 | Feature, API, state, performance | Affected full suites in CI, relevant critical paths in isolated Worker/browser, brief rollback | Up to 3 |
+| R3 | Auth, permissions, secrets, migration, integrity, CI/release gates | Full affected suites, independent local review or Owner-approved equivalent, isolated critical and failure paths, explicit compatibility/recovery/rollback | 3 before Owner arbitration |
+
+All PRs require `CI / verify` for the tested integration and completed Codex
+Code Review for the current head. Require security review for security-relevant
+changes and all R3 tasks, plus every configured required review. An unavailable
+required result blocks readiness. SubMan uses the local Worker/DO and synthetic
+browser fixtures for candidate acceptance. If they cannot prove a material
+boundary, record the gap and get approval for equivalent isolated acceptance.
+Use no shared PRE/production resources or real data for tests.
+
+### Review and completion
+
+- Read the actual provider configuration and start independent checks/reviews in
+  parallel. Check for automatic review first. Verify bot identity
+  (`chatgpt-codex-connector[bot]`), each review type's head, completion time and
+  links, and inline findings. For a new head, request only required reviews that
+  are absent and idle. A reaction, an older review, or a green CI check alone
+  cannot establish review completion. Verify the relevant base separately.
+- Batch fixes for blocking findings. Review correctness and trust boundaries,
+  leaving deterministic checks to CI. P0/P1 block. P2 blocks if acceptance,
+  safety or risk requires it. P3 and suggestions normally permit deferral.
+  Record a fix and its evidence, a reasoned false positive, or a deferral with
+  rationale and follow-up where useful. Triage credible extra reviews too.
+  Count parallel reviews as one cycle across sessions. At the limit, send
+  unresolved blockers, evidence and options to the Owner before continuing.
+  Missing reviews and unresolved blockers prevent merge.
+- A PR is ready when acceptance, current checks and reviews, finding
+  dispositions and applicable rollback/acceptance evidence are complete.
+  Record implementation complete, ready for merge, merged, ready for release,
+  deployed and production verified as distinct states. Stop review on
+  equivalent inputs once gates pass.
+- Require authorization for push, PR, merge, direct main updates, Wiki
+  publication, deployment and migrations. Keep permissions scoped to the
+  specific action. Production uses a manual main dispatch for the exact
+  integrated SHA with successful full push CI, production environment
+  authorization and release preflight. Compare runtime/build inputs with the
+  deployed candidate to avoid redundant releases. Record actual version,
+  smoke results and recovery actions when applicable.
 
 ### Rebase Merge and Cleanup
 
@@ -58,7 +87,8 @@ worktree and local/remote branches.**
    contains the merge SHA and all task changes. Rebase rewrites commit identities;
    use the PR merge record plus patch/content comparison, such as `git range-diff`
    of the original and rebased ranges. Original-head ancestry alone is inadequate.
-   Repeat affected checks when conflict resolution or integration changes content.
+   Confirm successful full main CI on the integrated SHA. Repeat affected
+   acceptance if integration changes relevant inputs.
 3. Sync the original checkout with `git merge --ff-only origin/main` only if it
    is on `main`, clean, and can fast-forward. Preserve a dirty/diverged checkout
    and report it without reset, stash, or automatic rebase. Independently safe
@@ -67,7 +97,8 @@ worktree and local/remote branches.**
    user requests retention. Verify task branches still point to the merged PR
    head with no new commits. Check staged, unstaged, untracked, and valuable
    ignored files; preserve private configuration and validation evidence, and
-   stop temporary services. From a retained checkout, use
+   stop temporary services. Retain a separate task clone if it contains evidence
+   or unsaved work. From a retained checkout, use
    `git worktree remove <PATH>` without `--force`, then `git branch -d <BRANCH>`.
    Never remove the main checkout or another task's worktree.
 5. Delete a remaining remote task branch only with an explicit lease pinned to
@@ -294,7 +325,6 @@ bun test
 bun run test:sing-box
 bun run check
 bun run lint
-bun run build
 bun run test:cf
 bun run test:e2e
 bun run deploy:check
@@ -312,8 +342,7 @@ green. Vite is for UI iteration; use `dev:cf` for Worker/DO runtime evidence.
 - Add behavior tests before changing established protocol behavior.
 - Commit each independent feature, UI change, refactor, or bug fix immediately
   after applicable verification with an atomic Conventional Commit in its task
-  worktree. Documentation-only changes require `bun run docs:check` plus diff,
-  command, and link review; runtime checks apply when implementation changes.
+  worktree. Follow the risk and verification gates above for local checks.
 - Keep README concise. Maintain detailed guides in the bilingual Wiki sources
   indexed by `docs/wiki/Home.md`; record changes in both `docs/wiki/Changelog.md`
   and `docs/wiki/Changelog.zh-CN.md`. Run `bun run docs:check` before committing.

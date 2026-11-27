@@ -7,6 +7,10 @@ on:
         description: Type "deploy" to confirm a production deployment from main
         required: true
         type: string
+      commit:
+        description: Full SHA of the verified main commit to deploy
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -17,21 +21,38 @@ concurrency:
 
 jobs:
   gate:
+    permissions:
+      actions: read
+      contents: read
     runs-on: ubuntu-24.04
-    timeout-minutes: 2
+    timeout-minutes: 3
+    outputs:
+      ci: ${{ steps.evidence.outputs.ci }}
     steps:
       - name: Validate deployment request
         env:
           CONFIRMATION: ${{ inputs.confirmation }}
+          COMMIT: ${{ inputs.commit }}
         run: |
-          if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
-            echo "::error::Production deployments must run from the main branch."
+          if [[ "$GITHUB_REF" != "refs/heads/main" || "$CONFIRMATION" != "deploy" || "$COMMIT" != "$GITHUB_SHA" ]]; then
+            echo "::error::Dispatch from main with confirmation 'deploy' and the full verified commit SHA."
             exit 1
           fi
-          if [[ "$CONFIRMATION" != "deploy" ]]; then
-            echo "::error::Enter deploy in the confirmation field."
+
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Require successful integrated CI
+        id: evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if ! ci=$(bash scripts/production-ci.sh "$GITHUB_REPOSITORY" "$GITHUB_SHA"); then
+            echo "::error::The latest main push CI for this exact SHA must have completed successfully."
             exit 1
           fi
+          echo "ci=$ci" >> "$GITHUB_OUTPUT"
 
   deploy:
     needs: gate
@@ -54,42 +75,26 @@ jobs:
             exit 1
           fi
 
-      - name: Check out repository
-        uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
 
-      - name: Set up Bun
-        uses: oven-sh/setup-bun@v2
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: 1.3.14
+          bun-version-file: package.json
 
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
+      - run: bun install --frozen-lockfile
+      - run: bun run build
 
-      - name: Run unit tests
-        run: bun test
-
-      - name: Run type and Svelte checks
-        run: bun run check
-
-      - name: Run lint
-        run: bun run lint
-
-      - name: Build
-        run: bun run build
-
-      - name: Run Cloudflare integration tests
-        run: bun run test:cf
-
-      - name: Verify Cloudflare deployment bundle
-        run: bunx wrangler deploy --dry-run --outdir .wrangler/deploy-check
-
-      - name: Install Chromium
-        run: bunx playwright install --with-deps chromium
-
-      - name: Run browser tests
-        run: bun run test:e2e
+      - name: Verify main is still the requested commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          main=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq .object.sha)
+          if [[ "$main" != "$GITHUB_SHA" ]]; then
+            echo "::error::Main has advanced. Verify the new integrated candidate before requesting deployment."
+            exit 1
+          fi
 
       - name: Deploy Worker
         env:
@@ -98,22 +103,16 @@ jobs:
         run: bunx wrangler deploy --strict --message "GitHub Actions ${GITHUB_SHA}"
 
       - name: Record deployment summary
+        env:
+          CI_RUN: ${{ needs.gate.outputs.ci }}
         run: |
           {
             echo "### SubMan production deployment"
             echo ""
             echo "- Commit: \`${GITHUB_SHA}\`"
+            echo "- CI evidence: ${CI_RUN}"
             echo "- Workflow run: \`${GITHUB_RUN_ID}\`"
             echo "- Environment: \`production\`"
+            echo "- Worker version: see Current Version ID in the Deploy Worker log"
+            echo "- Production verification: record readiness and affected behavior after deployment"
           } >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Upload browser failure artifacts
-        if: failure()
-        uses: actions/upload-artifact@v7
-        with:
-          name: deploy-playwright-artifacts-${{ github.run_id }}
-          path: |
-            playwright-report/
-            test-results/
-          if-no-files-found: ignore
-          retention-days: 7

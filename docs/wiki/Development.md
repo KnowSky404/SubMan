@@ -4,22 +4,15 @@ English | [简体中文](Development.zh-CN.md) · [Wiki home](Home.md)
 
 ## Worktree and PR workflow
 
-Every task, including small fixes and documentation, uses this sequence:
+The project policy and risk matrix live in [AGENTS.md](../../AGENTS.md).
+The adopted Manifest commit is
+[`6f387de5065b6ffc475908880362939185ff89d7`](https://github.com/KnowSky404/Manifest/blob/6f387de5065b6ffc475908880362939185ff89d7/docs/AI_NATIVE_DEVELOPMENT_WORKFLOW.md).
+Update this baseline deliberately. SubMan retains its Codex review requirement
+for R0 and uses isolated local Worker/DO and browser acceptance in place of a
+standing PRE environment. The Owner approves an equivalent when a required
+boundary needs other evidence.
 
-**Dedicated worktree + task branch -> local implementation and verification
--> atomic commit -> push and PR -> completed review and resolved findings
--> rebase merge into `main` -> verify and sync main -> remove merged task
-branches and worktree.**
-
-Push, PR creation, merge, direct pushes to `main`, Wiki publication, and deployment
-require authorization covering those actions. The sequence does not grant it;
-existing authorization within the same scope does not need confirmation again.
-SubMan retains its current CI and local checks. FlareMail's PRE acceptance gate
-is not required here, and ordinary development does not publish or deploy.
-
-Before editing, inspect the original checkout, fetch and verify `origin/main`,
-then create a new task branch and separate checkout. Replace the example topic
-and path for each task:
+Start from a verified main ref and keep the user's checkout intact:
 
 ```bash
 pwd
@@ -32,42 +25,38 @@ git worktree add -b feat/topic ../SubMan-topic origin/main
 cd ../SubMan-topic
 ```
 
-Use `fix/<topic>`, `docs/<topic>`, or another Conventional Commit type as
-appropriate. Record the absolute worktree path, branch, and base SHA. Resume an
-existing task in its existing worktree; use another base only when requested.
-Keep the original checkout intact and do not develop directly on `main`.
-Preserve unrelated changes without reset, stash, or rewriting another task's history.
+Use an isolated clone at the same verified base if Git metadata is read-only.
+Record the objective, scope, acceptance criteria, risk, authorization, base,
+branch and path in the PR or ignored `.task/task.md`. Keep milestone evidence
+compact. Include the head, stage, checks and inputs, review cycles/findings,
+candidate evidence, blockers and next action. Resume with the original scope
+by comparing the record with Git, Actions and current review items. Use a
+sanitized PR or issue for cross-host recovery.
 
-Install locked dependencies in the task worktree. Keep `.svelte-kit`, `build`,
-`.wrangler` (including local DO SQLite), browser state, and ports isolated.
-Do not share writable generated directories or copy private configs/credentials
-automatically. Implement, run applicable checks below, and create an atomic
-Conventional Commit. With authorization, push the task branch and open a PR to
-`main` using the repository PR template. Describe the problem, final behavior,
-base and tested SHAs, validation evidence, and limitations. For multiline GitHub
-CLI bodies, write a temporary file and pass `--body-file`.
+Install locked dependencies in the task checkout. Keep `.svelte-kit`,
+`.wrangler` (including local DO SQLite), browser state and ports isolated.
+Use a separate `SUBMAN_E2E_PORT` when running Playwright concurrently on one host.
+Verify locally, commit atomically and publish the authorized task branch and PR.
+Use a draft if useful for early CI. For a multiline GitHub CLI body, pass
+`--body-file` with a temporary file.
 
 ## Review before merge
 
-Every PR, including documentation/instruction changes, requires completed Codex
-Code Review of the current head. After PR creation or any new commit, actively
-check whether review has started. Verify actual repository review configuration;
-FlareMail's enabled integrations do not establish SubMan's settings. Require
-Security Review and any other configured required reviews when enabled. Missing
-review activity does not prove an integration is disabled.
+Start CI and required reviews in parallel. Check the bot summary on a ready PR
+or new head. Verify each required item's author, reviewed SHA and completion
+timestamp, then read the inline findings. If a required review is absent and
+idle, use the provider trigger once (`@codex review` or
+`@codex security review`). R3 also requires an independent local review or an
+Owner-approved equivalent. Verify current configuration and treat the bot and
+CI as separate evidence.
 
-Verify the actual author (`chatgpt-codex-connector[bot]`, sometimes shown without
-`[bot]`), reviewed commit, completion time, and result links. Inspect each review
-item's status and commit in `Codex Review Summary`, submitted reviews, and inline
-findings. A single summary status/head SHA does not establish every review's
-completion. `CLEAN`, empty Actions checks, `COMMENTED`, reactions, and old-head
-reviews are insufficient. Required CI checks and bot review are separate gates.
-
-Fix valid blocking findings and rerun affected checks; document evidence for false
-positives or inapplicable findings. Any new commit requires review of the new head.
-Pending, failed, or unverifiable review means retaining the PR, branch, and worktree
-and reporting the blocker. Elapsed time does not waive review. Do not enable
-auto-merge before all gates have passed.
+Batch blocking fixes and recheck the impacted paths. Record dispositions with
+evidence for fixes, false positives and deferrals. R0 retains its required
+initial review, with no discretionary cycles. Allow two cycles for R1 and
+three for R2/R3. Count parallel reviews once. At the limit, refer remaining
+blockers to the Owner. Leave open tasks and evidence available for continuation.
+Current acceptance, applicable CI/reviews, finding dispositions and rollback
+evidence establish readiness for an authorized merge.
 
 ## Rebase merge and cleanup
 
@@ -83,7 +72,8 @@ gh pr merge <PR> --rebase --match-head-commit <VERIFIED_HEAD_SHA>
 Do not bypass checks with `--admin`. A merge queue or auto-merge request is not
 completion; confirm PR state `MERGED` before cleanup. Record the PR URL, original
 head SHA, and merge SHA. Fetch `origin/main` and verify it contains the merge SHA
-and all task changes. Rebase changes SHA identities: compare original and rebased
+and all task changes, then verify full main CI on the integrated commit.
+Rebase changes SHA identities: compare original and rebased
 commit ranges with patch/content checks such as `git range-diff`. Neither original
 head ancestry nor a successful push proves integration. Do not compare the entire
 task tree to a main branch that also contains unrelated changes. Content changes
@@ -156,35 +146,18 @@ tests use synthetic data and mocks; do not add a real GitHub token for test writ
 
 ## Verification
 
-For documentation/instruction-only changes, run `bun run docs:check` and review
-the diff, commands, and links. Runtime tests and remote deployment are not needed.
-Implementation, test, tooling, or CI changes require applicable checks below;
-report missing prerequisites or failures rather than claiming a pass. Run checks
-that share generated files (`check`, build, Worker tests, type generation, and
-browser tests) sequentially in each worktree.
+Use scoped checks while iterating. For ordinary docs run `bun run docs:check`
+and inspect diff, commands and links. For runtime changes use relevant commands
+from AGENTS.md. The Worker integration command and deployment dry run each build
+on their own. The runtime CI job builds once and uses the `:built` scripts with
+that checkout's output. Run build-dependent commands sequentially within the
+same worktree. CI covers the applicable complete suites.
 
-```bash
-bun run docs:check
-bun test
-bun run test:sing-box
-bun run check
-bun run lint
-bun run build
-bun run test:cf
-bun run test:e2e
-bun run deploy:check
-```
-
-`test:sing-box` requires Docker. E2E requires Chromium and system dependencies;
-prepare them with `bunx playwright install --with-deps chromium` if needed.
-`check` verifies generated Worker types; after binding/configuration changes run
-`bun run generate:worker-types` and commit reproducible declarations.
-
-These checks prove local behavior and packaging. They do not deploy, access a
-real Gist, validate production resources, or prove real subscription delivery.
-Production deployment requires separate authorization; follow [CI/CD](../ci-cd.md)
-and [Workspace operations](../workspace-v2-operations.md). API secret setup and
-examples live in the [API reference](../api/server-api.md).
+`test:sing-box` requires Docker. E2E requires Chromium and OS libraries. Install
+with `bunx playwright install --with-deps chromium` where needed. After a
+binding change regenerate with `bun run generate:worker-types` and verify it
+with `bun run check`. See [CI/CD](../ci-cd.md) for release evidence and
+[Workspace operations](../workspace-v2-operations.md) for recovery.
 
 ## Directory conventions
 

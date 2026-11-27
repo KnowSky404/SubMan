@@ -8,6 +8,13 @@ production deployment and real-provider acceptance require separate evidence.
 
 ## Unreleased
 
+### Development workflow
+
+- Adopted the pinned Manifest baseline, risk-based local checks, bounded
+  review cycles, and compact PR handoff evidence.
+- Added scoped PR CI with a stable verification gate and one shared test build.
+  Manual production deployment requires successful full CI for the exact main SHA.
+
 ### 2026-11-26 - SubMan operator skill and MCP
 
 - Added an installable operator skill and [Hermes setup guide](../agents/subman-operator-guide.md)

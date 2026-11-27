@@ -15,60 +15,121 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  verify:
+  scope:
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 3
+    outputs:
+      suite: ${{ steps.scope.outputs.suite }}
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v6
+      - name: Check out PR integration
+        if: github.event_name == 'pull_request'
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Select verification suites
+        id: scope
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          suite=full
+          if [[ "$GITHUB_EVENT_NAME" == pull_request ]]; then
+            # Load the policy from the base so the PR cannot exempt its own changes.
+            if git show "$BASE_SHA:scripts/ci-scope.sh" > "$RUNNER_TEMP/ci-scope.sh" &&
+              result=$(bash "$RUNNER_TEMP/ci-scope.sh" "$BASE_SHA" "$GITHUB_SHA" "$HEAD_SHA"); then
+              case "$result" in
+                docs|ui|full) suite=$result ;;
+              esac
+            fi
+          fi
+          echo "suite=$suite" >> "$GITHUB_OUTPUT"
+          printf 'Suite: %s\nIntegration: %s\nPR head: %s\nPR base: %s\n' \
+            "$suite" "$GITHUB_SHA" "${HEAD_SHA:-n/a}" "${BASE_SHA:-n/a}" >> "$GITHUB_STEP_SUMMARY"
+
+  fast:
+    needs: scope
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
 
-      - name: Set up Bun
-        uses: oven-sh/setup-bun@v2
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: 1.3.14
+          bun-version-file: package.json
 
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
+      - run: bun run docs:check
 
-      - name: Run unit tests
-        run: bun test
+      - if: needs.scope.outputs.suite != 'docs'
+        run: |
+          bun install --frozen-lockfile
+          bun test
+          bun run check
+          bun run lint
 
-      - name: Check bilingual documentation
-        run: bun run docs:check
+      - if: needs.scope.outputs.suite == 'full'
+        run: |
+          bash scripts/test-workflow.sh
+          bun run test:sing-box
 
-      - name: Validate sing-box 1.14 export
-        run: bun run test:sing-box
+  runtime:
+    needs: scope
+    if: needs.scope.outputs.suite != 'docs'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
 
-      - name: Run type and Svelte checks
-        run: bun run check
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version-file: package.json
 
-      - name: Run lint
-        run: bun run lint
+      - run: bun install --frozen-lockfile
+      - run: bun run build
 
-      - name: Build
-        run: bun run build
+      - if: needs.scope.outputs.suite == 'full'
+        run: bun run test:cf:built
 
-      - name: Run Cloudflare integration tests
-        run: bun run test:cf
+      - run: bun run deploy:check:built
+      - run: bunx playwright install --with-deps chromium
 
-      - name: Verify Cloudflare deployment bundle
-        run: bunx wrangler deploy --dry-run --outdir .wrangler/deploy-check
-
-      - name: Install Chromium
-        run: bunx playwright install --with-deps chromium
-
-      - name: Run browser tests
-        run: bun run test:e2e
+      - run: bun run test:e2e
+        env:
+          SUBMAN_E2E_USE_BUILD: '1'
 
       - name: Upload browser failure artifacts
         if: failure()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
-          name: playwright-artifacts-${{ github.run_id }}
+          name: playwright-artifacts-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             playwright-report/
             test-results/
           if-no-files-found: ignore
           retention-days: 7
+
+  verify:
+    if: always()
+    needs: [scope, fast, runtime]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    steps:
+      - name: Require the selected checks
+        env:
+          SCOPE: ${{ needs.scope.result }}
+          SUITE: ${{ needs.scope.outputs.suite }}
+          FAST: ${{ needs.fast.result }}
+          RUNTIME: ${{ needs.runtime.result }}
+        run: |
+          if [[ "$SCOPE" == success && "$FAST" == success ]]; then
+            case "$SUITE:$RUNTIME" in
+              docs:skipped|ui:success|full:success) exit 0 ;;
+            esac
+          fi
+          echo "::error::Incomplete CI: scope=$SCOPE suite=$SUITE fast=$FAST runtime=$RUNTIME"
+          exit 1
