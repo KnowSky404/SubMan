@@ -18,7 +18,8 @@ CI 按路径保守选择套件，按 AGENTS.md 独立评估风险。快速和运
 runner 上并行。运行时任务构建一次，Workers/DO 集成、dry-run 和 Playwright 复用
 同一 checkout 的产物。dry-run 包位于 `.wrangler/deploy-check`。Playwright 使用
 `wrangler dev --local` 和合成数据，覆盖 Worker 入口、DO 导出和迁移、Workers Assets。
-失败时将本地 fixture 的 trace 和报告上传 GitHub，保留七天。
+失败时将本地 fixture 的 trace 和报告上传 GitHub，保留七天。Playwright 重试用于
+收集诊断信息，结果不稳定时 CI 仍失败。
 
 `CI / verify` 是固定门禁。范围判断和快速任务须成功，仅文档套件可跳过运行时任务。
 适用的检查缺失、取消或失败时，门禁无法通过。同一 ref 的过时 CI 自动取消。

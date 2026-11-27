@@ -98,7 +98,7 @@ jobs:
       - run: bun run deploy:check:built
       - run: bunx playwright install --with-deps chromium
 
-      - run: bun run test:e2e
+      - run: bun run test:e2e --fail-on-flaky-tests
         env:
           SUBMAN_E2E_USE_BUILD: '1'
 

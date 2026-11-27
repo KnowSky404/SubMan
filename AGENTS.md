@@ -42,7 +42,7 @@ critical CI or release control is R3.
 All PRs require `CI / verify` for the tested integration and completed Codex
 Code Review for the current head. Require security review for security-relevant
 changes and all R3 tasks, plus every configured required review. An unavailable
-required result blocks readiness. SubMan uses the local Worker/DO and synthetic
+or flaky required result blocks readiness. SubMan uses the local Worker/DO and synthetic
 browser fixtures for candidate acceptance. If they cannot prove a material
 boundary, record the gap and get approval for equivalent isolated acceptance.
 Use no shared PRE/production resources or real data for tests.
