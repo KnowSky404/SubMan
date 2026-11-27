@@ -4,18 +4,12 @@
 
 ## Worktree 与 PR 工作流
 
-每项任务（包括小修复和文档更新）都使用以下顺序：
+项目规则与风险矩阵见 [AGENTS.md](../../AGENTS.md)。采用的 Manifest 固定版本为
+[`6f387de5065b6ffc475908880362939185ff89d7`](https://github.com/KnowSky404/Manifest/blob/6f387de5065b6ffc475908880362939185ff89d7/docs/AI_NATIVE_DEVELOPMENT_WORKFLOW.md)。
+更新基线前先审查变化。SubMan 对 R0 保留 Codex 代码审查，候选版本使用隔离的本地
+Worker、DO 和浏览器验收。测试无法覆盖关键边界时，由 Owner 批准等效验收。
 
-**独立 worktree + 任务分支 → 本地实现与验证 → 原子提交 → 推送并提 PR
-→ review 完成并处理反馈 → rebase 合并到 `main` → 核对并同步主分支
-→ 清理已合并任务的分支和 worktree。**
-
-推送、创建 PR、合并、直接推送 `main`、Wiki 发布和部署需要覆盖对应动作的授权。
-流程本身不额外授予权限；同一范围内已有明确授权的动作无需重复确认。
-SubMan 保留现有 CI 和本地验证，不引入 FlareMail 的 PRE 验收门禁；普通开发不自动发布或部署。
-
-修改前检查原工作树，fetch 并核对 `origin/main`，再创建新任务分支和独立 checkout。
-每项任务替换以下示例中的主题与路径：
+从已核对的主分支版本创建任务分支，并保留原 checkout：
 
 ```bash
 pwd
@@ -28,33 +22,27 @@ git worktree add -b feat/topic ../SubMan-topic origin/main
 cd ../SubMan-topic
 ```
 
-修复和文档分别使用 `fix/<topic>`、`docs/<topic>`，其他任务使用相应 Conventional Commit 类型。
-记录 worktree 绝对路径、分支和基线 SHA。继续已有任务时复用对应 worktree；
-只有用户要求时才换用其他基线。保留原 checkout，不直接在 `main` 开发。
-保留无关改动，不 reset、stash 或改写其他任务的历史。
+Git 元数据只读时使用基于同一已核对版本的独立 clone。将目标、范围、验收、
+风险、授权、基线、分支和路径记录到 PR 或忽略的 `.task/task.md`。在节点更新当前
+head、阶段、检查及输入、审查轮次和结论、候选证据、阻塞与下一步。恢复任务前，
+对照记录、Git、Actions 和当前审查状态。跨环境交接使用脱敏的 PR 或 issue。
 
-在任务 worktree 内安装锁定依赖。分别隔离 `.svelte-kit`、`build`、`.wrangler`
-（包括本地 DO SQLite）、浏览器状态和端口，不共用可写生成目录，不自动复制私有配置或凭据。
-实现后完成下文适用的检查，再创建原子 Conventional Commit。获得授权后推送任务分支，
-使用仓库 PR 模板向 `main` 提 PR，写明问题、最终行为、基线及验证 SHA、验证证据与限制。
-GitHub CLI 多行正文先写入临时文件，再通过 `--body-file` 传入。
+在任务 checkout 安装锁定依赖，隔离 `.svelte-kit`、`.wrangler`（含本地 DO SQLite）、
+浏览器状态和端口。同一主机并行运行 Playwright 时使用独立的 `SUBMAN_E2E_PORT`。
+本地验证后原子提交，按授权推送任务分支和创建 PR。可用 Draft 提前运行 CI。
+GitHub CLI 的多行正文使用临时文件和 `--body-file`。
 
-## 合并前 Review
+## 合并前审查
 
-所有 PR（包括文档和开发约束更新）都必须完成针对当前 head 的 Codex Code Review。
-创建 PR 或追加提交后主动检查审查是否触发。核对仓库实际的 review 配置，不能因为
-FlareMail 启用了集成就假定 SubMan 也已启用。Security Review 及其他必需审查启用时，
-也必须逐项完成。尚未出现审查记录不能视为集成已关闭。
+并行启动 CI 与必需审查。PR 转为 ready 或 head 更新后检查机器人摘要，逐项核对
+审查作者、对应 SHA、完成时间和行内发现。确认必需审查未启动且无在途任务后，
+使用 `@codex review` 或 `@codex security review` 触发一次。R3 还需独立本地审查
+或 Owner 批准的等效审查。核对实际配置，并分别验证机器人审查和 CI。
 
-核对真实作者（`chatgpt-codex-connector[bot]`，部分输出省略 `[bot]`）、审查提交、
-完成时间和结果链接。检查 `Codex Review Summary` 中每项审查的状态与提交，结合
-已提交 review 和行内反馈判断。单个汇总 status/head SHA 不代表所有审查都已完成。
-`CLEAN`、空 Actions checks、`COMMENTED`、表情或旧 head 的 review 均不能作为完成证据。
-必需 CI 检查与机器人审查分别验收。
-
-修复有效阻断问题并补做受影响检查；误报或不适用项记录依据。追加任何提交后，
-都要等待新 head 的审查。审查待完成、失败或缺少可核实凭据时，保留 PR、分支和 worktree，
-报告阻塞原因。等待超时不豁免审查，不提前开启可能绕过门禁的 auto-merge。
+批量修复阻塞发现，针对受影响路径复验，记录修复、误报与延后的依据。R0 保留
+首轮必需审查，取消额外自主轮次。R1 最多两轮，R2/R3 最多三轮。并行审查计一轮，
+用完预算仍有阻塞时交由 Owner 裁决。保留未完成任务及证据供续作。
+验收、适用的 CI/审查、发现处置和回滚证据齐备后，任务才达到可授权合并状态。
 
 ## Rebase 合并与清理
 
@@ -67,7 +55,8 @@ gh pr merge <PR> --rebase --match-head-commit <VERIFIED_HEAD_SHA>
 
 不通过 `--admin` 绕过检查。加入合并队列或开启 auto-merge 不代表已合并，清理前必须确认
 PR 为 `MERGED`。记录 PR URL、原 head SHA 和合并 SHA。fetch `origin/main`，
-确认它包含合并 SHA 及任务全部改动。Rebase 会改写 SHA，使用补丁/内容对比核对原始与
+确认它包含合并 SHA 及任务全部改动，并核对集成提交的完整 main CI。Rebase 会改写
+SHA，使用补丁或内容对比核对原始与
 rebase 后的提交范围，例如 `git range-diff`。不能只凭原 head 的祖先关系或推送成功判断整合结果，
 也不要求整个任务树与含其他改动的最新 main 完全相等。冲突解决或整合导致内容变化时补做受影响验证。
 
@@ -125,30 +114,15 @@ bun run preview -- --host :: --port 4173
 
 ## 验证
 
-纯文档/开发约束改动运行 `bun run docs:check`，审阅差异、命令和链接，无需运行时测试或远程部署。
-实现、测试、工具或 CI 改动执行下方适用检查；前置条件缺失或检查失败时如实报告。
-共享生成文件的检查（`check`、构建、Worker 测试、类型生成、浏览器测试）在同一 worktree 内串行运行。
+迭代时运行受影响的检查。普通文档运行 `bun run docs:check` 并核对 diff、命令和链接。
+运行时改动使用 AGENTS.md 中适用的命令。Worker 集成命令和部署 dry-run 可单独运行，
+各自先构建。CI 的运行时任务构建一次，随后使用同一 checkout 的产物运行 `:built` 命令。
+同一 worktree 中，依赖构建产物的命令串行执行。CI 覆盖适用的完整套件。
 
-```bash
-bun run docs:check
-bun test
-bun run test:sing-box
-bun run check
-bun run lint
-bun run build
-bun run test:cf
-bun run test:e2e
-bun run deploy:check
-```
-
-`test:sing-box` 需要 Docker；E2E 需要 Chromium 和系统依赖，必要时运行
-`bunx playwright install --with-deps chromium` 安装。
-`check` 包含生成 Worker 类型验证；修改 binding/config 后运行
-`bun run generate:worker-types`，提交可复现的声明。
-
-这些检查只证明本地行为和打包，不部署、不访问真实 Gist，也不证明生产资源或真实订阅发送正常。
-生产部署需单独授权，步骤见 [CI/CD](../ci-cd.zh-CN.md) 和[工作区运维](../workspace-v2-operations.zh-CN.md)。
-API secrets 设置与示例见[接口文档](../api/server-api.zh-CN.md)。
+`test:sing-box` 需要 Docker。E2E 需要 Chromium 和系统库，可通过
+`bunx playwright install --with-deps chromium` 安装。绑定变更后执行
+`bun run generate:worker-types` 再运行 `bun run check`。
+发布证据见 [CI/CD](../ci-cd.zh-CN.md)，恢复见[运维指南](../workspace-v2-operations.zh-CN.md)。
 
 ## 目录约定
 

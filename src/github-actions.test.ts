@@ -9,6 +9,7 @@ const deployWorkflow = readFileSync(
 	`${root}/.github/workflows/deploy.yml`,
 	"utf8",
 );
+const ci = Bun.YAML.parse(ciWorkflow);
 const playwrightConfig = readFileSync(`${root}/playwright.config.ts`, "utf8");
 const packageJson = JSON.parse(
 	readFileSync(`${root}/package.json`, "utf8"),
@@ -24,37 +25,57 @@ const singBoxVerifier = readFileSync(
 	"utf8",
 );
 
-function sourcePosition(source: string, marker: string): number {
-	const position = source.indexOf(marker);
-	expect(position).toBeGreaterThanOrEqual(0);
-	return position;
-}
+test("CI isolates fast checks and builds once before Worker and browser tests", () => {
+	expect(ci.on).toHaveProperty("pull_request");
+	expect(ci.permissions).toEqual({ contents: "read" });
+	expect(ci.jobs.fast.needs).toBe("scope");
+	expect(ci.jobs.runtime.needs).toBe("scope");
 
-test("CI fails fast before installing Chromium and validates the Worker bundle", () => {
-	expect(ciWorkflow).toContain("workflow_dispatch:");
-	expect(ciWorkflow).toContain("permissions:\n  contents: read");
-	expect(ciWorkflow).toContain("uses: actions/checkout@v6");
+	const runtime = ci.jobs.runtime.steps.map((step) => step.run).filter(Boolean);
+	expect(runtime).toEqual([
+		"bun install --frozen-lockfile",
+		"bun run build",
+		"bun run test:cf:built",
+		"bun run deploy:check:built",
+		"bunx playwright install --with-deps chromium",
+		"bun run test:e2e",
+	]);
+	const browser = ci.jobs.runtime.steps.find(
+		(step) => step.run === "bun run test:e2e",
+	);
+	expect(browser.env.SUBMAN_E2E_USE_BUILD).toBe("1");
+	expect(ciWorkflow).toMatch(/actions\/upload-artifact@[a-f0-9]{40}/);
+	expect(ciWorkflow).toMatch(/actions\/checkout@[a-f0-9]{40}/);
 	expect(ciWorkflow).toContain("persist-credentials: false");
+});
 
-	const browserInstall = sourcePosition(ciWorkflow, "Install Chromium");
-	for (const gate of [
-		"Run unit tests",
-		"Validate sing-box 1.14 export",
-		"Run type and Svelte checks",
-		"Run lint",
-		"Build",
-		"Run Cloudflare integration tests",
-		"Verify Cloudflare deployment bundle",
+test("CI gate fails closed if an applicable check is missing or unsuccessful", () => {
+	const verify = ci.jobs.verify;
+	expect(verify.if).toBe("always()");
+	expect(verify.needs).toEqual(["scope", "fast", "runtime"]);
+	const command = verify.steps[0].run;
+	for (const [SCOPE, SUITE, FAST, RUNTIME, pass] of [
+		["success", "docs", "success", "skipped", true],
+		["success", "ui", "success", "success", true],
+		["success", "full", "success", "success", true],
+		["success", "full", "success", "skipped", false],
+		["success", "ui", "success", "cancelled", false],
+		["success", "full", "success", "failure", false],
+		["success", "full", "success", "", false],
+		["success", "docs", "skipped", "skipped", false],
+		["failure", "", "skipped", "skipped", false],
+		["success", "unknown", "success", "success", false],
 	]) {
-		expect(sourcePosition(ciWorkflow, gate)).toBeLessThan(browserInstall);
+		const result = Bun.spawnSync(["bash", "-c", command], {
+			env: { ...process.env, SCOPE, SUITE, FAST, RUNTIME },
+			stdout: "ignore",
+		});
+		expect(result.exitCode === 0).toBe(pass);
 	}
-
-	expect(ciWorkflow).toContain("wrangler deploy --dry-run");
-	expect(ciWorkflow).toContain("actions/upload-artifact@v7");
 });
 
 test("CI checks generated exports with a pinned sing-box 1.14 image", () => {
-	expect(ciWorkflow).toContain("run: bun run test:sing-box");
+	expect(ciWorkflow).toContain("bun run test:sing-box");
 	expect(packageJson.scripts["test:sing-box"]).toBe(
 		"bun run scripts/verify-sing-box-export.ts",
 	);
@@ -66,10 +87,10 @@ test("CI checks generated exports with a pinned sing-box 1.14 image", () => {
 });
 
 test("browser CI starts the built Worker through Wrangler local mode", () => {
-	expect(playwrightConfig).toContain("bun run dev:cf");
+	expect(playwrightConfig).toContain(' "dev:cf:built" : "dev:cf"');
 	expect(playwrightConfig).not.toContain("bun run preview");
-	expect(packageJson.scripts["dev:cf"]).toContain("wrangler dev --local");
-	expect(packageJson.scripts["deploy:check"]).toContain(
+	expect(packageJson.scripts["dev:cf:built"]).toBe("wrangler dev --local");
+	expect(packageJson.scripts["deploy:check:built"]).toContain(
 		"wrangler deploy --dry-run",
 	);
 });
@@ -79,6 +100,10 @@ test("production deployment is manual, main-only, and environment gated", () => 
 	expect(deployWorkflow).not.toContain("\n  push:");
 	expect(deployWorkflow).toContain('GITHUB_REF" != "refs/heads/main');
 	expect(deployWorkflow).toContain('CONFIRMATION" != "deploy');
+	expect(deployWorkflow).toContain('COMMIT" != "$GITHUB_SHA');
+	expect(deployWorkflow).toContain("bash scripts/production-ci.sh");
+	expect(deployWorkflow).toContain("needs: gate");
+	expect(deployWorkflow).not.toContain("bun run test:");
 	expect(deployWorkflow).toContain("name: production");
 	expect(deployWorkflow).toContain("CLOUDFLARE_API_TOKEN");
 	expect(deployWorkflow).toContain("CLOUDFLARE_ACCOUNT_ID");

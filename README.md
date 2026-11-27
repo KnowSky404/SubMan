@@ -32,9 +32,10 @@ See the [user guide](docs/wiki/User-Guide.md) for setup and recovery.
 
 ## Local development
 
-Use a dedicated worktree and task branch for every change. PRs require current-head
-review before an authorized rebase merge; verify main, then clean up merged task
-branches and worktrees. Follow the [development workflow](docs/wiki/Development.md#worktree-and-pr-workflow).
+Use a dedicated task branch and run checks scoped to the change. CI and Codex
+review run in parallel. Verify the integration before an authorized rebase
+merge and follow the separate production release gates.
+See [development workflow](docs/wiki/Development.md#worktree-and-pr-workflow).
 
 Use Bun **1.3.14**:
 
