@@ -22,7 +22,8 @@ builds once before Workers/DO integration, dry run and Playwright, using that
 same checkout's output. The dry-run bundle stays at `.wrangler/deploy-check`.
 Playwright exercises `wrangler dev --local` with synthetic fixtures, covering
 the Worker entrypoint, DO export and migrations, and Workers Assets. The
-seven-day failure artifact contains local fixture traces and reports.
+seven-day failure artifact contains local fixture traces and reports. Playwright
+retries collect diagnostics and any flaky test fails CI.
 
 `CI / verify` is the stable gate. It requires scope and fast to succeed and
 allows the runtime job to be skipped only for the docs suite. Missing,

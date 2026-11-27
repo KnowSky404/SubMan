@@ -38,10 +38,10 @@ test("CI isolates fast checks and builds once before Worker and browser tests", 
 		"bun run test:cf:built",
 		"bun run deploy:check:built",
 		"bunx playwright install --with-deps chromium",
-		"bun run test:e2e",
+		"bun run test:e2e --fail-on-flaky-tests",
 	]);
 	const browser = ci.jobs.runtime.steps.find(
-		(step) => step.run === "bun run test:e2e",
+		(step) => step.run === "bun run test:e2e --fail-on-flaky-tests",
 	);
 	expect(browser.env.SUBMAN_E2E_USE_BUILD).toBe("1");
 	expect(ciWorkflow).toMatch(/actions\/upload-artifact@[a-f0-9]{40}/);
