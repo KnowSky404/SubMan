@@ -2021,7 +2021,10 @@ test("target rename hands keyboard focus from cloud waiting through Save and Pub
 	releaseTarget();
 	await expect(waiting).toHaveCount(0);
 	await expect(
-		page.getByText("Published successfully to GitHub Gist", { exact: true }),
+		page.getByText(
+			`https://gist.githubusercontent.com/e2e/${GIST_ID}/raw/renamed.txt`,
+			{ exact: true },
+		),
 	).toBeVisible();
 	await expect(page.getByLabel("Output File", { exact: true })).toHaveValue(
 		"renamed.txt",
@@ -2485,27 +2488,19 @@ test("client export publication hides its live link until remote commitment", as
 	await expect(
 		page.getByText(EXISTING_EXPORT_URL, { exact: true }),
 	).toBeVisible();
-	await expect(
-		page.getByText(
-			`https://gist.githubusercontent.com/e2e/${GIST_ID}/raw/client-e2e.json`,
-			{ exact: true },
-		),
-	).toHaveCount(0);
+	const liveLink = page.getByText(
+		`https://gist.githubusercontent.com/e2e/${GIST_ID}/raw/client-e2e.json`,
+		{ exact: true },
+	);
+	await expect(liveLink).toHaveCount(0);
 
 	offline = false;
+	await expect(liveLink).toBeVisible({ timeout: 10_000 });
 	await page.reload();
-	await expect(page.getByText("Live Link", { exact: true })).toBeVisible({
-		timeout: 10_000,
-	});
+	await expect(liveLink).toBeVisible();
 	await expect(
 		page.getByText(EXISTING_EXPORT_URL, { exact: true }),
 	).toHaveCount(0);
-	await expect(
-		page.getByText(
-			`https://gist.githubusercontent.com/e2e/${GIST_ID}/raw/client-e2e.json`,
-			{ exact: true },
-		),
-	).toBeVisible();
 });
 
 test("stale tabs without BroadcastChannel rebase without reviving a deletion", async ({
